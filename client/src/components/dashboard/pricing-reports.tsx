@@ -232,7 +232,7 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
     (r.steadyStateAnnualImpact ?? 0) !== 0;
 
   const allActiveRules = rulesData.filter((r: any) => r.isActive && !r.isHistorical);
-  const rawActiveRules = isScoped ? allActiveRules.filter(hasScopedImpact) : allActiveRules;
+  const rawActiveRules = allActiveRules.filter(hasScopedImpact);
   const hiddenNoImpactCount = allActiveRules.length - rawActiveRules.length;
   // Fraction of the calendar year remaining from today through Dec 31.
   // Used for the "Rest of Year" column: same ramp assumptions as First-Year
@@ -604,26 +604,40 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                       </td>
                       <td className="px-3 py-4 text-xs text-slate-500 leading-snug">{fmtTrigger(rule)}</td>
                       <td className="px-3 py-4 text-right">
-                        {(rule.affectedUnits ?? 0) === 0 ? (
-                          <span className="inline-block text-[10px] font-semibold text-slate-400 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5" title="Condition could not be evaluated — no matching data found">0 units</span>
-                        ) : (
-                          <span className="text-sm font-bold text-slate-800">{(rule.affectedUnits ?? 0).toLocaleString()}</span>
-                        )}
-                        {rule.affectedCampuses > 0 && <p className="text-[10px] text-slate-400 mt-0.5">{rule.affectedCampuses} campus{rule.affectedCampuses !== 1 ? "es" : ""}</p>}
+                        <div className="flex flex-col items-end">
+                          {(rule.affectedUnits ?? 0) === 0 ? (
+                            <span className="inline-block text-[10px] font-semibold text-slate-400 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5" title="Condition could not be evaluated — no matching data found">0 units</span>
+                          ) : (
+                            <span className="text-sm font-bold text-slate-800">{(rule.affectedUnits ?? 0).toLocaleString()}</span>
+                          )}
+                          <p className="text-[10px] text-slate-400 mt-0.5 h-[14px]">
+                            {rule.affectedCampuses > 0 ? `${rule.affectedCampuses} campus${rule.affectedCampuses !== 1 ? "es" : ""}` : ""}
+                          </p>
+                        </div>
                       </td>
                       <td className="px-3 py-4 text-right">
-                        <span className={`block tabular-nums text-base font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.monthlyImpact || 0)}</span>
+                        <div className="flex flex-col items-end">
+                          <span className={`tabular-nums text-base font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.monthlyImpact || 0)}</span>
+                          <p className="h-[14px] mt-0.5" />
+                        </div>
                       </td>
                       <td className="px-3 py-4 text-right">
-                        <span className={`block tabular-nums text-base font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(Math.round((rule.annualImpact || 0) * restOfYearFraction))}</span>
-                        <p className="text-[10px] text-slate-400 mt-0.5">thru Dec</p>
+                        <div className="flex flex-col items-end">
+                          <span className={`tabular-nums text-base font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(Math.round((rule.annualImpact || 0) * restOfYearFraction))}</span>
+                          <p className="text-[10px] text-slate-400 mt-0.5 h-[14px]">thru Dec</p>
+                        </div>
                       </td>
                       <td className="px-3 py-4 text-right">
-                        <span className={`block tabular-nums text-base font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.annualImpact || 0)}</span>
+                        <div className="flex flex-col items-end">
+                          <span className={`tabular-nums text-base font-bold ${isPos ? "text-emerald-600" : "text-red-600"}`}>{fmt(rule.annualImpact || 0)}</span>
+                          <p className="h-[14px] mt-0.5" />
+                        </div>
                       </td>
                       <td className="px-3 py-4 text-right">
-                        <span className={`block tabular-nums text-base font-bold ${isPos ? "text-emerald-700" : "text-red-700"}`}>{fmt(rule.steadyStateAnnualImpact || 0)}</span>
-                        <p className="text-[10px] text-slate-400 mt-0.5">run-rate</p>
+                        <div className="flex flex-col items-end">
+                          <span className={`tabular-nums text-base font-bold ${isPos ? "text-emerald-700" : "text-red-700"}`}>{fmt(rule.steadyStateAnnualImpact || 0)}</span>
+                          <p className="text-[10px] text-slate-400 mt-0.5 h-[14px]">run-rate</p>
+                        </div>
                       </td>
                       <td className="px-3 py-4">
                         {isPos

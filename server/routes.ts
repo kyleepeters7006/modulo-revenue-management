@@ -85,6 +85,7 @@ import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizz
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import { clampRateWithGuardrails } from "./guardrailsUtil";
 import { splitCombinedSl, slWeightSqlPredicate, isSlWeightUnit, type SlWeight } from "./services/slSplit";
+import { resolveCareLevel2, normalizeCompetitorCareRate, normalizeCompetitorStreetRate, isDailyServiceLine, CARE_ELIGIBLE_SERVICE_LINES } from "@shared/careRates";
 import { z } from "zod";
 import multer from "multer";
 import Papa from "papaparse";
@@ -139,7 +140,7 @@ import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } fro
 import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules, resolvePostServiceLineScope, resolvePatchServiceLineScope, recalculateAndPreloadCampusMetrics } from "./services/adjustmentRulesService";
-import { buildRuleImpactContext, computeQualifiedRuleImpact, getT3MoveInsMap as getT3MoveInsMapSvc, getGroupedT3MoveInsMap as getGroupedT3MoveInsMapSvc, ruleSpecificityScore } from "./services/ruleImpactService";
+import { buildRuleImpactContext, computeQualifiedRuleImpact, computeProspectiveRuleImpact, compareRuleDedupOrder, isDedupEligibleRule, getT3MoveInsMap as getT3MoveInsMapSvc, getGroupedT3MoveInsMap as getGroupedT3MoveInsMapSvc, ruleSpecificityScore } from "./services/ruleImpactService";
 import { loadCompBenchmark, loadStudioCompBenchmark, unitWeightedBenchmark, pickComparisonRate } from "./services/compBenchmark";
 import { 
   getRevenuePerformanceForScope, 
@@ -2859,6 +2860,126 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Location template download endpoint with description row
+  // Move Ins & Outs template — the "Export" sheet format.
+  // importMoveInOutWorkbook only takes the Export path when NO sheet name matches
+  // /admission/i or /discharge/i, so the guidance sheet must stay named "Instructions".
+  // One workbook carries one direction: the presence of a "Move Ins" or a "Move Outs"
+  // column is what sets the event type, so we ship a sheet per direction is impossible —
+  // the sample is move-ins and the Instructions sheet explains the move-outs variant.
+  app.get("/api/template/move-in-out", async (req, res) => {
+    try {
+      const workbook = xlsx.utils.book_new();
+
+      const templateData = [
+        {
+          'Date': '7/3/2026',
+          'Campus': 'Anderson - 112',
+          'Department': 'AL',
+          'Service Line': 'Assisted Living',
+          'Room/Bed': '204/A',
+          'Last Name': 'Sample',
+          'Payer Name': 'Private Pay',
+          'Move Event': 'Admission',
+          'Move Category': 'New Admission',
+          'Move Ins': 1,
+        },
+        {
+          'Date': '7/11/2026',
+          'Campus': 'Anderson - 112',
+          'Department': 'AL/MC',
+          'Service Line': 'Memory Care',
+          'Room/Bed': '311/B',
+          'Last Name': 'Sample',
+          'Payer Name': 'Private Pay',
+          'Move Event': 'Admission',
+          'Move Category': 'New Admission',
+          'Move Ins': 1,
+        },
+        {
+          'Date': '7/19/2026',
+          'Campus': 'Beavercreek - 205',
+          'Department': 'HC',
+          'Service Line': 'Health Center',
+          'Room/Bed': '120/A',
+          'Last Name': 'Sample',
+          'Payer Name': 'Medicare A',
+          'Move Event': 'Return',
+          'Move Category': 'Return From Hospital',
+          'Move Ins': 1,
+        },
+      ];
+      // Deliberately no trailing note row here: the importer would report it as a
+      // skipped row. The guidance lives on the Instructions sheet instead.
+
+      const sheet = xlsx.utils.json_to_sheet(templateData);
+      sheet['!cols'] = [
+        { wch: 12 }, { wch: 22 }, { wch: 12 }, { wch: 18 }, { wch: 10 },
+        { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 26 }, { wch: 10 },
+      ];
+      xlsx.utils.book_append_sheet(workbook, sheet, 'Export');
+
+      const instructions = xlsx.utils.aoa_to_sheet([
+        ['Move Ins & Outs Upload — Instructions'],
+        [],
+        ['SHEET NAME'],
+        ['The data sheet must be named exactly "Export". Do not rename it, and do not add any sheet'],
+        ['whose name contains "Admission" or "Discharge" — that switches the importer to the legacy format.'],
+        [],
+        ['ONE DIRECTION PER FILE'],
+        ['The last column decides whether the file is move-ins or move-outs:'],
+        ['  • "Move Ins"  column present  ->  every row is imported as a move-in'],
+        ['  • "Move Outs" column present  ->  every row is imported as a move-out'],
+        ['Upload the move-ins file and the move-outs file separately.'],
+        [],
+        ['TO TURN THIS TEMPLATE INTO A MOVE-OUTS FILE'],
+        ['1. On the "Export" sheet, rename the last column header from "Move Ins" to "Move Outs".'],
+        ['   Replace it — do not keep both columns, and do not add a second marker column.'],
+        ['2. Set "Move Category" to  Discharge - Return Not Anticipated  on every row that is a'],
+        ['   permanent discharge. Spelling must match exactly, or the row is stored but not counted.'],
+        ['3. Leave every other column as-is.'],
+        [],
+        ['WHICH ROWS COUNT'],
+        ['All rows are stored, but only some count toward move-in / move-out totals:'],
+        ['  • Move-in counts when  "Move Event"    is  Admission'],
+        ['  • Move-out counts when "Move Category" is  Discharge - Return Not Anticipated'],
+        ['Returns from hospital and leaves are kept for reference but excluded from the counts,'],
+        ['so census totals are not inflated by the same resident returning.'],
+        [],
+        ['COLUMNS'],
+        ['Date            REQUIRED. The event date. Excel date or M/D/YYYY.'],
+        ['Campus          REQUIRED. Must match the campus name used in the Location and Rent Roll uploads.'],
+        ['Department      Service line code (HC, AL, AL/MC, VIL, SL). Preferred over Service Line when present.'],
+        ['Service Line    Text fallback: Health Center, Assisted Living, Memory Care, Skilled Nursing,'],
+        ['                Independent Living, Villas.'],
+        ['Room/Bed        Room and bed, e.g. 204/A. The part after "/" is read as the bed.'],
+        ['Last Name       Used with date, campus and room to de-duplicate rows within a file.'],
+        ['Payer Name      e.g. Private Pay, Medicaid, Medicare A.'],
+        ['Move Event      Admission, Return, Transfer.'],
+        ['Move Category   Free text. For move-outs this drives the count (see above).'],
+        ['Move Ins /      Marker column. Its value is not used — only its presence, which sets the direction.'],
+        ['Move Outs'],
+        [],
+        ['RE-UPLOADING'],
+        ['Rows are matched on date + campus + room/bed + last name + move event, so re-uploading a'],
+        ['corrected file updates those events in place rather than double-counting them.'],
+        [],
+        ['FREQUENCY'],
+        ['Upload monthly, after the month closes.'],
+      ]);
+      instructions['!cols'] = [{ wch: 110 }];
+      xlsx.utils.book_append_sheet(workbook, instructions, 'Instructions');
+
+      const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="move_ins_outs_template.xlsx"');
+      res.send(buffer);
+    } catch (error) {
+      console.error("Error generating move ins/outs template:", error);
+      res.status(500).json({ error: "Failed to generate template" });
+    }
+  });
+
   app.get("/api/template/location", async (req, res) => {
     try {
       const workbook = xlsx.utils.book_new();
@@ -4275,13 +4396,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const careBySl = new Map<string, number>();
           for (const c of careRes.rows) careBySl.set(String(c.service_line), Number(c.level2_rate));
 
-          const serviceLines = slRes.rows.map((r: any) => ({
-            serviceLine: String(r.service_line),
-            units: Number(r.units) || 0,
-            occupied: Number(r.occupied) || 0,
-            avgStreetRate: r.avg_street_rate != null ? Number(r.avg_street_rate) : null,
-            careLevel2: careBySl.has(String(r.service_line)) ? careBySl.get(String(r.service_line))! : null,
-          })).filter((s: any) => s.units > 0);
+          // Memory-care lines usually have no care_level_rates row of their own,
+          // so AL/MC and HC/MC fall back to AL and HC rather than rendering "—".
+          // `careLevel2Inherited` lets the popup mark the value as derived.
+          const serviceLines = slRes.rows.map((r: any) => {
+            const sl = String(r.service_line);
+            const resolvedCare = resolveCareLevel2(careBySl, sl);
+            return {
+              serviceLine: sl,
+              units: Number(r.units) || 0,
+              occupied: Number(r.occupied) || 0,
+              avgStreetRate: r.avg_street_rate != null ? Number(r.avg_street_rate) : null,
+              careLevel2: resolvedCare ? resolvedCare.rate : null,
+              careLevel2Inherited: resolvedCare ? resolvedCare.inherited : false,
+            };
+          }).filter((s: any) => s.units > 0);
 
           const totalUnits = serviceLines.reduce((sum: number, s: any) => sum + s.units, 0);
 
@@ -4307,18 +4436,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Compute careAdj per competitor: competitor careLevel2 − location careLevel2 for the matching service line.
-      // This mirrors the Competitor Rate Comparison table calculation.
+      // Per-service-line comparison for each competitor: their street rate, the
+      // care adjustment against our care rate at the campus they were surveyed
+      // for, the resulting adjusted rate, and the variance against our own street
+      // rate. This is what the map popup renders, so the whole chain is computed
+      // here rather than in the browser — the popup must not re-derive rates.
       if (topCompetitors.length > 0) {
         const COMP_TYPE_TO_SL: Record<string, string> = {
           'HC': 'HC', 'HC/MC': 'HC/MC', 'SMC': 'HC/MC',
           'AL': 'AL', 'AL/MC': 'AL/MC', 'IL_IL': 'SL', 'IL_Villa': 'VIL'
         };
-        const CARE_APPLIES_SL = new Set(['HC', 'HC/MC', 'AL', 'AL/MC']);
-        const DAYS_PER_MONTH_ADJ = 30.44;
 
         // Gather unique location names from competitors
-        const uniqueLocNames = [...new Set(topCompetitors.map((c: any) => c.location).filter(Boolean))];
+        const uniqueLocNames = Array.from(new Set(topCompetitors.map((c: any) => c.location).filter(Boolean))) as string[];
         if (uniqueLocNames.length > 0) {
           const locRecords = await db.select({ id: locations.id, name: locations.name })
             .from(locations)
@@ -4326,13 +4456,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           if (locRecords.length > 0) {
             const locIds = locRecords.map(l => l.id);
-            const careRateRows = await db.select({
-              locationId: careLevelRates.locationId,
-              serviceLine: careLevelRates.serviceLine,
-              level2Rate: careLevelRates.level2Rate,
-            })
-              .from(careLevelRates)
-              .where(and(inArray(careLevelRates.locationId, locIds), eq(careLevelRates.clientId, clientId)));
+
+            // Our care rates and our street rates for every campus that has a
+            // competitor in this response, both in one round trip each so the
+            // all-locations map does not fan out into per-campus queries.
+            const [careRateRows, ourStreetRes] = await Promise.all([
+              db.select({
+                locationId: careLevelRates.locationId,
+                serviceLine: careLevelRates.serviceLine,
+                level2Rate: careLevelRates.level2Rate,
+              })
+                .from(careLevelRates)
+                .where(and(inArray(careLevelRates.locationId, locIds), eq(careLevelRates.clientId, clientId))),
+              // Grouped down to room type, not just service line: a competitor's
+              // Two Bedroom has to be compared against our Two Bedroom, since an
+              // SL-wide average blends room types with very different prices and
+              // turns an ordinary mix difference into a fake variance. The sum and
+              // count come back raw so the service-line average can be re-derived
+              // here by weight without a second round trip (averaging the room-type
+              // averages would silently weight a 16-unit room type like a 4,000-unit
+              // one). B-beds stay excluded from the senior-housing lines.
+              pool.query(`
+                SELECT rr.location, rr.service_line, rr.room_type,
+                  SUM(rr.street_rate) FILTER (WHERE rr.street_rate > 0
+                    AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+                  ) AS sum_street_rate,
+                  COUNT(*) FILTER (WHERE rr.street_rate > 0
+                    AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+                  ) AS n_street_rate
+                FROM rent_roll_data rr
+                WHERE rr.client_id = $1
+                  AND rr.location = ANY($2::text[])
+                  AND rr.upload_month = (SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)
+                GROUP BY rr.location, rr.service_line, rr.room_type
+              `, [clientId, uniqueLocNames]),
+            ]);
 
             // Build map: locationName -> serviceLine -> level2Rate
             const locIdToName = new Map(locRecords.map(l => [l.id, l.name]));
@@ -4343,20 +4501,175 @@ export async function registerRoutes(app: Express): Promise<Server> {
               careMap.get(locName)!.set(row.serviceLine, row.level2Rate);
             }
 
+            // Build two maps out of the single grouped result set:
+            //   ourStreetMap   -> location -> serviceLine -> avg street rate
+            //   ourStreetRTMap -> location -> serviceLine -> roomType -> avg street rate
+            // The service-line figure is re-derived from the summed components so it
+            // stays unit-weighted; averaging the room-type averages would give a
+            // 16-unit room type the same pull as a 4,000-unit one.
+            const ourStreetMap = new Map<string, Map<string, number>>();
+            const ourStreetRTMap = new Map<string, Map<string, Map<string, number>>>();
+            const slTotals = new Map<string, { sum: number; n: number }>();
+            for (const row of ourStreetRes.rows) {
+              const n = Number(row.n_street_rate ?? 0);
+              if (!n) continue;
+              const sum = Number(row.sum_street_rate ?? 0);
+              const locName = String(row.location);
+              const sl = String(row.service_line);
+              const rt = row.room_type == null ? '' : String(row.room_type);
+
+              const key = `${locName}||${sl}`;
+              const agg = slTotals.get(key) ?? { sum: 0, n: 0 };
+              agg.sum += sum;
+              agg.n += n;
+              slTotals.set(key, agg);
+
+              if (rt) {
+                if (!ourStreetRTMap.has(locName)) ourStreetRTMap.set(locName, new Map());
+                const bySl = ourStreetRTMap.get(locName)!;
+                if (!bySl.has(sl)) bySl.set(sl, new Map());
+                bySl.get(sl)!.set(rt, Math.round(sum / n));
+              }
+            }
+            for (const [key, agg] of Array.from(slTotals.entries())) {
+              const sep = key.lastIndexOf('||');
+              const locName = key.slice(0, sep);
+              const sl = key.slice(sep + 2);
+              if (!ourStreetMap.has(locName)) ourStreetMap.set(locName, new Map());
+              ourStreetMap.get(locName)!.set(sl, Math.round(agg.sum / agg.n));
+            }
+
             for (const comp of topCompetitors) {
               const locName: string = comp.location || '';
-              const primaryType: string = (comp.serviceLines && comp.serviceLines[0]) || '';
-              const sl = COMP_TYPE_TO_SL[primaryType] || '';
-              if (!sl || !CARE_APPLIES_SL.has(sl)) { comp.careAdj = 0; continue; }
+              const campusCare = careMap.get(locName);
+              const campusStreet = ourStreetMap.get(locName);
+              const campusStreetRT = ourStreetRTMap.get(locName);
 
-              let compCareL2: number = comp.careLevel2Rate || 0;
-              const isHCType = primaryType === 'HC' || primaryType === 'HC/MC' || primaryType === 'SMC';
-              if (isHCType && compCareL2 > 0 && compCareL2 < 500) {
-                compCareL2 = compCareL2 * DAYS_PER_MONTH_ADJ;
+              // Group the competitor's surveyed room rates by the service line
+              // they map to. Studio is the canonical comparison room type, so it
+              // is preferred when present; otherwise the first row in canonical
+              // room-type order stands in.
+              const bySl = new Map<string, { streetRate: number | null; careL2: number | null; roomType: string | null }>();
+              for (const rr of (comp.roomRates || [])) {
+                const compType: string = rr.competitorType || (comp.serviceLines && comp.serviceLines[0]) || '';
+                const sl = COMP_TYPE_TO_SL[compType];
+                if (!sl) continue;
+                const existing = bySl.get(sl);
+                const isStudio = rr.roomType === 'Studio';
+                if (!existing) {
+                  bySl.set(sl, { streetRate: rr.streetRate ?? null, careL2: rr.careLevel2Rate ?? null, roomType: rr.roomType ?? null });
+                } else {
+                  // Upgrade the street rate to the Studio row if we find one later.
+                  if (isStudio && rr.streetRate != null) {
+                    existing.streetRate = rr.streetRate;
+                    existing.roomType = rr.roomType ?? existing.roomType;
+                  }
+                  if (existing.careL2 == null && rr.careLevel2Rate != null) {
+                    existing.careL2 = rr.careLevel2Rate;
+                  }
+                }
               }
 
-              const locCareL2 = careMap.get(locName)?.get(sl);
-              comp.careAdj = locCareL2 !== undefined ? Math.round(compCareL2 - locCareL2) : 0;
+              const slBreakdown = Array.from(bySl.entries()).map(([sl, v]) => {
+                const daily = isDailyServiceLine(sl);
+                const careApplies = CARE_ELIGIBLE_SERVICE_LINES.has(sl);
+
+                // Everything below is expressed in the service line's native
+                // basis: per-day for HC and HC/MC, per-month for the rest.
+                // Competitor care rates arrive monthly regardless, so they are
+                // converted before being differenced against our daily figure.
+                const theirCare = careApplies
+                  ? normalizeCompetitorCareRate(v.careL2 ?? comp.careLevel2Rate, sl)
+                  : null;
+                const ourCareResolved = careApplies ? resolveCareLevel2(campusCare, sl) : null;
+
+                const careAdj = (theirCare != null && ourCareResolved != null)
+                  ? theirCare - ourCareResolved.rate
+                  : null;
+
+                // monthly_rate_avg is monthly for the senior-housing lines but,
+                // for HC, its basis changed partway through the survey history:
+                // legacy rows are monthly, current rows are already daily. Detect
+                // per row so both eras land in the same unit as our own figure.
+                const theirStreet = normalizeCompetitorStreetRate(v.streetRate, sl);
+                const adjustedRate = theirStreet != null
+                  ? theirStreet + (careAdj ?? 0)
+                  : null;
+
+                const ourStreet = campusStreet?.get(sl) ?? null;
+                const variance = (adjustedRate != null && ourStreet != null)
+                  ? adjustedRate - ourStreet
+                  : null;
+
+                return {
+                  serviceLine: sl,
+                  roomType: v.roomType,
+                  daily,
+                  theirStreetRate: theirStreet,
+                  theirCareLevel2: theirCare,
+                  ourCareLevel2: ourCareResolved ? ourCareResolved.rate : null,
+                  ourCareInherited: ourCareResolved ? ourCareResolved.inherited : false,
+                  careAdj,
+                  adjustedRate,
+                  ourStreetRate: ourStreet,
+                  variance,
+                  variancePct: (variance != null && ourStreet) ? (variance / ourStreet) * 100 : null,
+                };
+              }).sort((a, b) => a.serviceLine.localeCompare(b.serviceLine));
+
+              comp.slBreakdown = slBreakdown;
+
+              // Per-room-type chain for the Competitor Management panel. The map
+              // popup summarises one line per service line; this keeps every
+              // surveyed room type so a Two Bedroom is compared against our Two
+              // Bedroom rather than an SL-wide blend. Computed here for the same
+              // reason as slBreakdown: the browser must never re-derive a rate.
+              comp.roomRates = (comp.roomRates || []).map((rr: any) => {
+                const compType: string = rr.competitorType || (comp.serviceLines && comp.serviceLines[0]) || '';
+                const sl = COMP_TYPE_TO_SL[compType] || '';
+                const daily = isDailyServiceLine(sl);
+                const careApplies = CARE_ELIGIBLE_SERVICE_LINES.has(sl);
+
+                const base = normalizeCompetitorStreetRate(rr.streetRate, sl);
+                const theirCare = careApplies
+                  ? normalizeCompetitorCareRate(rr.careLevel2Rate ?? comp.careLevel2Rate, sl)
+                  : null;
+                const ourCareResolved = careApplies ? resolveCareLevel2(campusCare, sl) : null;
+                const adjustment = (theirCare != null && ourCareResolved != null)
+                  ? theirCare - ourCareResolved.rate
+                  : null;
+                const adjusted = base != null ? base + (adjustment ?? 0) : null;
+
+                // Prefer our matching room type; fall back to the service-line
+                // average, flagged so the panel can mark it as a looser comparison.
+                const rtRate = (rr.roomType && campusStreetRT?.get(sl)?.get(rr.roomType)) ?? null;
+                const slRate = campusStreet?.get(sl) ?? null;
+                const ourRate = rtRate ?? slRate;
+                const ourRateBasis = rtRate != null ? 'roomType' : (slRate != null ? 'serviceLine' : null);
+
+                const varDollar = (adjusted != null && ourRate != null) ? adjusted - ourRate : null;
+
+                return {
+                  ...rr,
+                  serviceLine: sl || null,
+                  daily,
+                  base,
+                  adjustment,
+                  adjusted,
+                  ourRate,
+                  ourRateBasis,
+                  ourCareInherited: ourCareResolved ? ourCareResolved.inherited : false,
+                  varDollar,
+                  varPct: (varDollar != null && ourRate) ? (varDollar / ourRate) * 100 : null,
+                };
+              });
+
+              // Preserve the existing single-value careAdj for the primary
+              // service line so the Rate Comparison table keeps working.
+              const primaryType: string = (comp.serviceLines && comp.serviceLines[0]) || '';
+              const primarySl = COMP_TYPE_TO_SL[primaryType] || '';
+              const primaryRow = slBreakdown.find(r => r.serviceLine === primarySl);
+              comp.careAdj = primaryRow?.careAdj != null ? Math.round(primaryRow.careAdj) : 0;
             }
           }
         }
@@ -8970,6 +9283,115 @@ ${campusOccLines.join('\n')}
    * PERFORMANCE: Optimized query avoids full table scans by using indexed uploadMonth
    * and computing aggregates at the database level.
    */
+  /**
+   * Census capacity reconciliation.
+   *
+   * Ties our derived capacity (occupancy history, the single source of truth for
+   * both units and occupancy) against the client's own daily census report,
+   * which is stored purely as a reference in `census_capacity_reference`.
+   *
+   * The census report stops at division x department, so it can only be compared
+   * at service-line and division level — never at campus or room type. Division
+   * groupings also differ between the two systems (the census carries
+   * "... With Kingston" variants that our data does not), so divisions are only
+   * compared where the names match exactly; the rest are reported as unmatched
+   * rather than force-mapped, which would invent drift that isn't real.
+   */
+  app.get("/api/census-reconciliation", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+
+      // Most recent census snapshot we hold for this client.
+      const periodResult = await pool.query(
+        `SELECT year, month, MAX(as_of_date) AS as_of_date, MAX(source_file) AS source_file
+           FROM census_capacity_reference WHERE client_id = $1
+          GROUP BY year, month ORDER BY year DESC, month DESC LIMIT 1`,
+        [clientId]
+      );
+      if (periodResult.rows.length === 0) {
+        return res.json({ available: false, reason: 'No census report has been loaded for this client.' });
+      }
+      const { year, month, as_of_date: asOfDate, source_file: sourceFile } = periodResult.rows[0];
+
+      const [censusRows, oursRows] = await Promise.all([
+        pool.query(
+          `SELECT division, service_line, SUM(available_beds + available_units)::int AS capacity
+             FROM census_capacity_reference
+            WHERE client_id = $1 AND year = $2 AND month = $3
+            GROUP BY division, service_line`,
+          [clientId, year, month]
+        ),
+        // Compared at the census period, not the latest period we hold, so the
+        // two sides always describe the same point in time.
+        pool.query(
+          `SELECT COALESCE(division, 'Unassigned') AS division, service_line,
+                  COALESCE(SUM(available_units), 0)::int AS capacity
+             FROM room_type_occupancy_history
+            WHERE client_id = $1 AND year = $2 AND month = $3
+            GROUP BY COALESCE(division, 'Unassigned'), service_line`,
+          [clientId, year, month]
+        ),
+      ]);
+
+      if (oursRows.rows.length === 0) {
+        return res.json({
+          available: false,
+          reason: `No occupancy history for ${year}-${String(month).padStart(2, '0')} to compare the census against.`,
+        });
+      }
+
+      const sum = (rows: any[], pick: (r: any) => boolean) =>
+        rows.filter(pick).reduce((s, r) => s + Number(r.capacity || 0), 0);
+
+      // ── By service line (departments map cleanly onto our service lines) ──
+      const serviceLines = Array.from(new Set([
+        ...censusRows.rows.map((r: any) => r.service_line),
+        ...oursRows.rows.map((r: any) => r.service_line),
+      ])).sort();
+      const byServiceLine = serviceLines.map((sl) => {
+        const census = sum(censusRows.rows, (r) => r.service_line === sl);
+        const ours = sum(oursRows.rows, (r) => r.service_line === sl);
+        return { serviceLine: sl, census, ours, drift: ours - census };
+      });
+
+      // ── By division (name-matched only) ──
+      const censusDivisions = new Set(censusRows.rows.map((r: any) => r.division));
+      const ourDivisions = new Set(oursRows.rows.map((r: any) => r.division));
+      const matchedDivisions = Array.from(censusDivisions).filter((d) => ourDivisions.has(d)).sort();
+      const byDivision = matchedDivisions.map((d) => {
+        const census = sum(censusRows.rows, (r) => r.division === d);
+        const ours = sum(oursRows.rows, (r) => r.division === d);
+        return { division: d, census, ours, drift: ours - census };
+      });
+      const unmatchedCensusDivisions = Array.from(censusDivisions).filter((d) => !ourDivisions.has(d)).sort()
+        .map((d) => ({ division: d, census: sum(censusRows.rows, (r) => r.division === d) }));
+      const unmatchedOurDivisions = Array.from(ourDivisions).filter((d) => !censusDivisions.has(d)).sort()
+        .map((d) => ({ division: d, ours: sum(oursRows.rows, (r) => r.division === d) }));
+
+      const censusTotal = sum(censusRows.rows, () => true);
+      const oursTotal = sum(oursRows.rows, () => true);
+
+      res.set('Cache-Control', 'no-store');
+      res.json({
+        available: true,
+        period: { year, month, asOfDate, sourceFile },
+        total: {
+          census: censusTotal,
+          ours: oursTotal,
+          drift: oursTotal - censusTotal,
+          driftPercent: censusTotal ? ((oursTotal - censusTotal) / censusTotal) * 100 : 0,
+        },
+        byServiceLine,
+        byDivision,
+        unmatchedCensusDivisions,
+        unmatchedOurDivisions,
+      });
+    } catch (error) {
+      console.error('Error building census reconciliation:', error);
+      res.status(500).json({ error: 'Failed to build census reconciliation' });
+    }
+  });
+
   app.get("/api/tile-details/:tileType", async (req, res) => {
     try {
       const { tileType } = req.params;
@@ -9003,6 +9425,65 @@ ${campusOccLines.join('\n')}
       
       let months = availableMonths.map(m => m.month).sort();
       let mostRecentMonth = months[months.length - 1] || '';
+
+      // The Total Units KPI tile counts room-type occupancy history availability,
+      // which is the authoritative capacity source for both HC beds and senior
+      // housing units. Rent-roll rows disagree with it by service line (they
+      // under-count HC/AL and over-count SL), so this drill-through reads the
+      // SAME source as the tile it was opened from — otherwise the dialog
+      // contradicts the number the user just clicked.
+      // Mirrors the tile's own fallback: clients without populated history
+      // availability (e.g. demo data) keep counting rent-roll rows.
+      let useHistoryUnits = false;
+      if (tileType === 'units') {
+        // Resolve availability at exactly the period the tile uses — MAX(year),
+        // then MAX(month) within it. Testing availability across all history
+        // would diverge from the tile whenever the newest upload is incomplete:
+        // the tile would fall back to rent roll while this dialog stayed on
+        // history and reported a partial (or zero) figure for that month.
+        const latestYearRes = await db
+          .select({ year: sql<number>`MAX(${roomTypeOccupancyHistory.year})` })
+          .from(roomTypeOccupancyHistory)
+          .where(eq(roomTypeOccupancyHistory.clientId, clientId));
+        const latestRtoYear = latestYearRes[0]?.year ?? null;
+        if (latestRtoYear !== null) {
+          const latestMonthRes = await db
+            .select({ month: sql<number>`MAX(${roomTypeOccupancyHistory.month})` })
+            .from(roomTypeOccupancyHistory)
+            .where(and(
+              eq(roomTypeOccupancyHistory.clientId, clientId),
+              eq(roomTypeOccupancyHistory.year, latestRtoYear)
+            ));
+          const latestRtoMonth = latestMonthRes[0]?.month ?? null;
+          if (latestRtoMonth !== null) {
+            const rtoAvailRes = await db
+              .select({ total: sql<number>`COALESCE(SUM(${roomTypeOccupancyHistory.availableUnits}), 0)::int` })
+              .from(roomTypeOccupancyHistory)
+              .where(and(
+                eq(roomTypeOccupancyHistory.clientId, clientId),
+                eq(roomTypeOccupancyHistory.year, latestRtoYear),
+                eq(roomTypeOccupancyHistory.month, latestRtoMonth)
+              ));
+            useHistoryUnits = (rtoAvailRes[0]?.total ?? 0) > 0;
+          }
+        }
+      }
+      if (useHistoryUnits) {
+        const rtoMonthRows = await db
+          .select({
+            month: sql<string>`DISTINCT (${roomTypeOccupancyHistory.year}::text || '-' || LPAD(${roomTypeOccupancyHistory.month}::text, 2, '0'))`,
+          })
+          .from(roomTypeOccupancyHistory)
+          .where(eq(roomTypeOccupancyHistory.clientId, clientId))
+          .orderBy(sql`1 DESC`)
+          .limit(12);
+        if (rtoMonthRows.length) {
+          months = rtoMonthRows.map(m => m.month).sort();
+          mostRecentMonth = months[months.length - 1] || '';
+        } else {
+          useHistoryUnits = false;
+        }
+      }
       
       // Determine YTD start month (January of current year or first available month)
       // NOTE: recomputed after RTO month trimming for occupancy (see below).
@@ -9021,24 +9502,51 @@ ${campusOccLines.join('\n')}
                        AND ${rentRollData.roomNumber} LIKE '%/B')`;
       
       switch (tileType) {
-        case 'units':
-          monthlyAggQuery = db
-            .select({
-              month: rentRollData.uploadMonth,
-              serviceLine: rentRollData.serviceLine,
-              location: rentRollData.location,
-              roomType: rentRollData.roomType,
-              sameStore: rentRollData.sameStore,
-              value: sql<number>`COUNT(*)::int`,
-            })
-            .from(rentRollData)
-            .where(and(
-              eq(rentRollData.clientId, clientId),
-              inArray(rentRollData.uploadMonth, months),
-              excludeBBeds
-            ))
-            .groupBy(rentRollData.uploadMonth, rentRollData.serviceLine, rentRollData.location, rentRollData.roomType, rentRollData.sameStore);
+        case 'units': {
+          if (useHistoryUnits) {
+            // Capacity from occupancy history (see the month-selection note above).
+            // available_units is already a capacity figure per room type, so there
+            // are no companion/B-bed rows to exclude here.
+            const rtoMonthExpr = sql<string>`(${roomTypeOccupancyHistory.year}::text || '-' || LPAD(${roomTypeOccupancyHistory.month}::text, 2, '0'))`;
+            monthlyAggQuery = db
+              .select({
+                month: rtoMonthExpr,
+                serviceLine: roomTypeOccupancyHistory.serviceLine,
+                location: roomTypeOccupancyHistory.locationName,
+                roomType: roomTypeOccupancyHistory.normalizedRoomType,
+                value: sql<number>`COALESCE(SUM(${roomTypeOccupancyHistory.availableUnits}), 0)::int`,
+              })
+              .from(roomTypeOccupancyHistory)
+              .where(and(
+                eq(roomTypeOccupancyHistory.clientId, clientId),
+                inArray(rtoMonthExpr, months)
+              ))
+              .groupBy(
+                rtoMonthExpr,
+                roomTypeOccupancyHistory.serviceLine,
+                roomTypeOccupancyHistory.locationName,
+                roomTypeOccupancyHistory.normalizedRoomType
+              ) as any;
+          } else {
+            monthlyAggQuery = db
+              .select({
+                month: rentRollData.uploadMonth,
+                serviceLine: rentRollData.serviceLine,
+                location: rentRollData.location,
+                roomType: rentRollData.roomType,
+                sameStore: rentRollData.sameStore,
+                value: sql<number>`COUNT(*)::int`,
+              })
+              .from(rentRollData)
+              .where(and(
+                eq(rentRollData.clientId, clientId),
+                inArray(rentRollData.uploadMonth, months),
+                excludeBBeds
+              ))
+              .groupBy(rentRollData.uploadMonth, rentRollData.serviceLine, rentRollData.location, rentRollData.roomType, rentRollData.sameStore) as any;
+          }
           break;
+        }
           
         case 'occupancy':
           monthlyAggQuery = db
@@ -9139,12 +9647,62 @@ ${campusOccLines.join('\n')}
       
       const aggregatedData = await monthlyAggQuery;
       
-      // Fetch same-store location names from the locations table (authoritative source)
-      const sameStoreLocationRows = await db
-        .select({ name: locations.name })
-        .from(locations)
-        .where(and(eq(locations.clientId, clientId), eq(locations.sameStore, true)));
-      const sameStoreLocationNames = new Set<string>(sameStoreLocationRows.map(r => r.name));
+      // Same-store basis: campuses reporting in BOTH the current period and the
+      // same period a year earlier, derived from the data itself.
+      //
+      // The locations.same_store flag cannot be used: it is set true for every
+      // campus, which would make "same store" identical to the portfolio and
+      // hide exactly what the comparison exists to show — growth from newly
+      // added campuses. Fall back to the flag only when there is no year-ago
+      // period to compare against (a client with under a year of history),
+      // where a data-derived set would otherwise collapse to zero.
+      const yearAgoMonth = /^\d{4}-\d{2}$/.test(mostRecentMonth)
+        ? `${Number(mostRecentMonth.substring(0, 4)) - 1}-${mostRecentMonth.substring(5, 7)}`
+        : '';
+      let sameStoreLocationNames = new Set<string>();
+      let hasYearAgoPeriod = false;
+      if (yearAgoMonth) {
+        let priorNames: string[] = [];
+        if (useHistoryUnits) {
+          const priorRows = await db
+            .select({ name: roomTypeOccupancyHistory.locationName })
+            .from(roomTypeOccupancyHistory)
+            .where(and(
+              eq(roomTypeOccupancyHistory.clientId, clientId),
+              eq(roomTypeOccupancyHistory.year, Number(yearAgoMonth.substring(0, 4))),
+              eq(roomTypeOccupancyHistory.month, Number(yearAgoMonth.substring(5, 7)))
+            ))
+            .groupBy(roomTypeOccupancyHistory.locationName);
+          priorNames = priorRows.map(r => r.name);
+        } else {
+          const priorRows = await db
+            .select({ name: rentRollData.location })
+            .from(rentRollData)
+            .where(and(
+              eq(rentRollData.clientId, clientId),
+              eq(rentRollData.uploadMonth, yearAgoMonth)
+            ))
+            .groupBy(rentRollData.location);
+          priorNames = priorRows.map(r => r.name);
+        }
+        hasYearAgoPeriod = priorNames.length > 0;
+        // Open in both periods — a campus that has since closed is not same-store either.
+        const currentNames = new Set<string>(
+          aggregatedData.filter((r: any) => r.month === mostRecentMonth).map((r: any) => r.location)
+        );
+        sameStoreLocationNames = new Set<string>(priorNames.filter(n => currentNames.has(n)));
+      }
+      // Only fall back when there is genuinely no year-ago period to compare
+      // against. A real year-ago period that overlaps with nothing is a true
+      // empty comparable-store cohort, and must not be silently widened back
+      // into the all-campuses flag.
+      if (!hasYearAgoPeriod) {
+        const sameStoreLocationRows = await db
+          .select({ name: locations.name })
+          .from(locations)
+          .where(and(eq(locations.clientId, clientId), eq(locations.sameStore, true)));
+        sameStoreLocationNames = new Set<string>(sameStoreLocationRows.map(r => r.name));
+      }
       
       // Process aggregated data to build response structures
       type MonthlyTrendItem = { month: string; value: number; byServiceLine: Record<string, number>; };
@@ -9319,7 +9877,10 @@ ${campusOccLines.join('\n')}
               const rawSL = (r.service_line || 'Other') as string;
               const occ   = Number(r.occ_units)   || 0;
               const avail = Number(r.avail_units)  || 0;
-              const isSameStore = r.same_store === true;
+              // Use the derived comparable-store cohort, not the row's
+              // locations.same_store flag, so occupancy uses the same basis as
+              // every other tile.
+              const isSameStore = sameStoreLocationNames.has(r.location_name);
               if (!monthlyData[ym]) continue;
 
               // Split combined SL strings ("AL, SL, VIL") into individual tokens
@@ -13731,30 +14292,137 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           });
         });
       
-      // Calculate Occupancy by Service Line
-      const serviceLineMap = new Map();
+      // ── Occupancy by Service Line ─────────────────────────────────────────
+      // Source of truth is room_type_occupancy_history — the "Room Type Occupancy
+      // History" (VO "Avg Occ by Room Type") upload — NOT rent_roll_data.
+      // rent_roll_data.occupied_yn double-counts B-beds/companion rows and lags the
+      // operator census: it reported SL at ~46% and VIL at ~49% where the true
+      // figures are ~85% and ~91%. It also blended EVERY uploaded month together
+      // instead of showing the current one. Rent roll is now only a fallback for
+      // clients that have never uploaded RTO data.
+      const rtoSlMap = new Map<string, { occ: number; avail: number }>();
+      const rtoSlPrevMap = new Map<string, { occ: number; avail: number }>();
+      let occupancyMonth: string | null = null;
+      // Whether this client has ANY RTO rows. The source decision hangs on this,
+      // NOT on whether the current filter matched rows: a location with no RTO
+      // coverage must render empty rather than silently swapping to rent-roll
+      // numbers computed on a different basis, which would look like a real
+      // occupancy collapse.
+      let clientHasAnyRTO = false;
+
+      // The Analysis location filter submits locations.id, but a small share of RTO
+      // rows have a null location_id, so resolve the id to its canonical name and
+      // accept a match on either.
+      let selectedLocationName: string | null = null;
+      if (location !== "all") {
+        const locRow = await db
+          .select({ name: locations.name })
+          .from(locations)
+          .where(eq(locations.id, location as string))
+          .limit(1);
+        selectedLocationName = locRow[0]?.name ?? null;
+      }
+      const matchesLocation = (row: { locationId: string | null; locationName: string | null }) =>
+        location === "all" ||
+        row.locationId === location ||
+        row.locationName === location ||
+        (selectedLocationName !== null && row.locationName === selectedLocationName);
+
+      {
+        const maxYearRes = await db
+          .select({ year: sql<number>`MAX(year)` })
+          .from(roomTypeOccupancyHistory)
+          .where(eq(roomTypeOccupancyHistory.clientId, clientId));
+        const maxYear = maxYearRes[0]?.year ?? null;
+        clientHasAnyRTO = maxYear !== null;
+
+        if (maxYear !== null) {
+          const maxMonthRes = await db
+            .select({ month: sql<number>`MAX(month)` })
+            .from(roomTypeOccupancyHistory)
+            .where(and(
+              eq(roomTypeOccupancyHistory.clientId, clientId),
+              eq(roomTypeOccupancyHistory.year, maxYear)
+            ));
+          const maxMonth = maxMonthRes[0]?.month ?? null;
+
+          if (maxMonth !== null) {
+            occupancyMonth = `${maxYear}-${String(maxMonth).padStart(2, '0')}`;
+            // Prior month gives a real trend instead of the Math.random()
+            // placeholder this endpoint used to return.
+            const prevMonth = maxMonth === 1 ? 12 : maxMonth - 1;
+            const prevYear = maxMonth === 1 ? maxYear - 1 : maxYear;
+
+            const rtoRows = await db
+              .select()
+              .from(roomTypeOccupancyHistory)
+              .where(and(
+                eq(roomTypeOccupancyHistory.clientId, clientId),
+                or(
+                  and(
+                    eq(roomTypeOccupancyHistory.year, maxYear),
+                    eq(roomTypeOccupancyHistory.month, maxMonth)
+                  ),
+                  and(
+                    eq(roomTypeOccupancyHistory.year, prevYear),
+                    eq(roomTypeOccupancyHistory.month, prevMonth)
+                  )
+                )
+              ));
+
+            for (const row of rtoRows) {
+              if (!matchesLocation(row)) continue;
+              const sl = row.serviceLine || 'Other';
+              const isCurrent = row.year === maxYear && row.month === maxMonth;
+              const bucket = isCurrent ? rtoSlMap : rtoSlPrevMap;
+              const entry = bucket.get(sl) || { occ: 0, avail: 0 };
+              entry.occ += row.occUnits ?? 0;
+              entry.avail += row.availableUnits ?? 0;
+              bucket.set(sl, entry);
+            }
+          }
+        }
+      }
+
+      // Fallback aggregation, only used when this client has no RTO rows at all.
+      const serviceLineMap = new Map<string, { occupied: number; total: number }>();
       rentRollData.forEach(unit => {
         const serviceLine = unit.serviceLine || 'AL';
         if (!serviceLineMap.has(serviceLine)) {
-          serviceLineMap.set(serviceLine, {
-            occupied: 0,
-            total: 0,
-          });
+          serviceLineMap.set(serviceLine, { occupied: 0, total: 0 });
         }
-        const data = serviceLineMap.get(serviceLine);
+        const data = serviceLineMap.get(serviceLine)!;
         data.total++;
         if (unit.occupiedYN) data.occupied++;
       });
-      
-      const occupancyData = Array.from(serviceLineMap.entries()).map(([serviceLine, data]) => {
-        const target = targetsData.find(t => t.serviceLine === serviceLine);
-        return {
-          serviceLine,
-          actual: (data.occupied / data.total) * 100,
-          budgeted: target?.budgetedOccupancy || 90,
-          trend: Math.random() * 5 - 2.5, // Mock trend
-        };
-      });
+
+      const occupancyData = clientHasAnyRTO
+        ? Array.from(rtoSlMap.entries())
+            .filter(([, v]) => v.avail > 0)
+            .map(([serviceLine, v]) => {
+              const target = targetsData.find(t => t.serviceLine === serviceLine);
+              // Percentage is computed before any rounding of occ/avail so this
+              // matches the dashboard to the decimal.
+              const actual = (v.occ / v.avail) * 100;
+              const prev = rtoSlPrevMap.get(serviceLine);
+              const trend = prev && prev.avail > 0 ? actual - (prev.occ / prev.avail) * 100 : null;
+              return {
+                serviceLine,
+                actual,
+                budgeted: target?.budgetedOccupancy || 90,
+                trend,
+              };
+            })
+            .sort((a, b) => a.serviceLine.localeCompare(b.serviceLine))
+        : Array.from(serviceLineMap.entries()).map(([serviceLine, data]) => {
+            const target = targetsData.find(t => t.serviceLine === serviceLine);
+            return {
+              serviceLine,
+              actual: data.total > 0 ? (data.occupied / data.total) * 100 : 0,
+              budgeted: target?.budgetedOccupancy || 90,
+              trend: null,
+            };
+          });
       
       // Calculate Remainder Metrics
       const currentOccupancyRate = monthlyData.get(Array.from(monthlyData.keys()).pop() || '');
@@ -13851,6 +14519,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         revporData,
         rateData,
         occupancyData,
+        // Which RTO month the occupancy figures represent, so the UI can state it
+        // rather than leaving the user to assume it is the current month.
+        occupancyMonth,
         remainderMetrics,
         kpis,
       });
@@ -14790,7 +15461,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   app.post("/api/adjustment-rules", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const { description, preview, locationId, serviceLine, serviceLines, roomTypes, effectiveDate, isAdditive, isHistorical } = req.body;
+      const { description, preview, locationId, serviceLine, serviceLines, roomTypes, effectiveDate, isAdditive, isHistorical, excludeRuleId } = req.body;
       if (effectiveDate != null && effectiveDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
         return res.status(400).json({ error: "effectiveDate must be in YYYY-MM-DD format" });
       }
@@ -14842,107 +15513,132 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         parsedRule.action = { ...parsedRule.action, isAdditive: !!isAdditive };
       }
 
-      // Calculate estimated impact — use latest month only to avoid double-counting historical snapshots
-      const latestMonthRow = await pool.query(
-        `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`,
-        [clientId]
-      );
-      const latestUploadMonth: string | null = latestMonthRow.rows[0]?.m ?? null;
-      const allUnits = latestUploadMonth
-        ? await storage.getRentRollDataByMonth(latestUploadMonth, clientId)
-        : await storage.getRentRollData(clientId);
-
-      // Narrow to the selected campus / service line scope when provided
-      const units = allUnits.filter((u: any) => {
-        if (locationId && u.locationId !== locationId) return false;
-        if (serviceLine && u.serviceLine !== serviceLine) return false;
-        return true;
-      });
+      // ── Estimated impact ──────────────────────────────────────────────────
+      // Preview and save BOTH run through computeQualifiedRuleImpact, the same
+      // qualified-rule engine used by the rules list, coverage breakdown and
+      // exports. It evaluates the rule's TRIGGER (occupancy gates, street-to-
+      // comp variance, days-vacant) in addition to the action filters, and it
+      // uses the move-in-based impact methodology (street/care rules only
+      // reprice NEW move-ins, so monthly impact = move-ins/mo × Δrate).
+      //
+      // This endpoint previously counted every unit matching action.filters and
+      // never looked at parsedRule.trigger at all. Two consequences, both
+      // user-reported: editing a trigger threshold (e.g. street-to-comp var %)
+      // left "Units affected" completely unchanged, and the preview count
+      // disagreed with the affected-unit count shown once the rule was saved,
+      // because only the saved-rule path evaluated triggers.
+      const volumeIncreaseFactor = 1.05; // 5% volume increase
 
       let affectedUnits = 0;
       let totalImpact = 0;
-      
-      // Track per-campus breakdown
+      let monthlyImpact = 0;
+      let annualImpact = 0;
+      let volumeAdjustedAnnualImpact = 0;
       const campusBreakdown: { [campus: string]: { units: number; monthlyImpact: number; annualImpact: number; volumeAdjustedAnnual: number } } = {};
-      
-      // Filter units based on rule filters
-      for (const unit of units) {
-        let isAffected = true;
-        
-        if (parsedRule.action.filters) {
-          const filters = parsedRule.action.filters;
-          
-          if (filters.roomType && !filters.roomType.includes(unit.roomType)) {
-            isAffected = false;
-          }
-          if (filters.serviceLine && !filters.serviceLine.includes(unit.serviceLine)) {
-            isAffected = false;
-          }
-          if (filters.location && !filters.location.includes(unit.location)) {
-            isAffected = false;
-          }
-          if (filters.occupancyStatus === 'vacant' && unit.occupiedYN) {
-            isAffected = false;
-          }
-          if (filters.occupancyStatus === 'occupied' && !unit.occupiedYN) {
-            isAffected = false;
-          }
-          if (filters.vacancyDuration && unit.daysVacant !== null) {
-            const days = filters.vacancyDuration.days;
-            const meetsCondition = filters.vacancyDuration.operator === '>' 
-              ? unit.daysVacant > days 
-              : unit.daysVacant >= days;
-            if (!meetsCondition) {
-              isAffected = false;
-            }
-          }
-        }
-        
-        // Exclude B-bed companion rows from unit counts and impact math:
-        // companion rooms produce two rent-roll rows per physical unit, so
-        // counting both would double the affected-unit and impact figures.
-        if (isAffected && isBBedRow(unit.serviceLine, unit.roomNumber)) {
-          isAffected = false;
+
+      // Reported net of overlap dedup, exactly as the rules list will report it
+      // once saved: more-specific active rules claim contested units first, so a
+      // gross standalone count would collapse the moment the rule is created.
+      let claimedByOtherRules = 0;
+      let grossAffectedUnits = 0;
+      let affectedCampuses = 0;
+      let moveInsPerMonth = 0;
+      let serviceLineBreakdown: Array<{ serviceLine: string; unitCount: number; moveInsPerMonth: number; monthlyImpact: number; annualImpact: number }> = [];
+
+      // Null only when the client has no rent roll at all — then there are no
+      // units to qualify and every figure below correctly stays at zero.
+      const previewImpactCtx = await buildRuleImpactContext(clientId);
+      if (previewImpactCtx) {
+        // The saved copy of the rule being edited, when this is an edit preview.
+        // Its stored ordering fields are reused below so the prospective rule
+        // lands in the same dedup position the edit will actually occupy.
+        let editedRule: any = null;
+
+        // Active rules are global by design (no client_id predicate), matching
+        // the GET /api/adjustment-rules list this preview has to agree with.
+        let dedupCandidates = await db
+          .select()
+          .from(adjustmentRules)
+          .where(and(
+            eq(adjustmentRules.isActive, true),
+            sql`${adjustmentRules.isHistorical} IS NOT TRUE`,
+          ));
+
+        // A historical rule is saved with isActive:false, so it never joins the
+        // dedup walk and the list never reports a deduped number for it. Preview
+        // it standalone or we would quote a suppression that never happens.
+        // Editing an existing rule: its own saved copy is still active and would
+        // claim the entire population first, reporting 0 units for the edit.
+        //
+        // Honored for PREVIEW ONLY. On the create path this value would otherwise
+        // let a caller suppress an arbitrary rule from the estimate and persist
+        // wrong monthlyImpact/annualImpact metadata onto the new rule.
+        if (preview && excludeRuleId) {
+          editedRule = dedupCandidates.find((r: any) => r.id === excludeRuleId) ?? null;
+          dedupCandidates = dedupCandidates.filter((r: any) => r.id !== excludeRuleId);
         }
 
-        if (isAffected) {
-          affectedUnits++;
-          
-          // Calculate impact on this unit
-          const currentRate = parsedRule.action.target === 'care_rate' 
-            ? unit.careRate || 0
-            : unit.streetRate || 0;
-          
-          let adjustment = 0;
-          if (parsedRule.action.adjustmentType === 'percentage') {
-            adjustment = currentRate * (parsedRule.action.adjustmentValue / 100);
-          } else {
-            adjustment = parsedRule.action.adjustmentValue;
-          }
-          
-          totalImpact += adjustment;
-          
-          // Track per-campus impact
-          const campus = unit.location || 'Unknown';
-          if (!campusBreakdown[campus]) {
-            campusBreakdown[campus] = { units: 0, monthlyImpact: 0, annualImpact: 0, volumeAdjustedAnnual: 0 };
-          }
-          campusBreakdown[campus].units += 1;
-          campusBreakdown[campus].monthlyImpact += adjustment;
+        if (isHistorical) {
+          dedupCandidates = [];
+        } else if (locationId) {
+          // Mirror the location scoping GET /api/adjustment-rules applies to its
+          // rule set. Without this a rule scoped to a DIFFERENT campus still
+          // enters the walk, and because computeQualifiedRuleImpact resolves
+          // location as (scope.locationId || rule.locationId), the page scope
+          // overrides that rule's own campus — so it claims units here that it
+          // could never claim in the saved list. That silently reintroduces the
+          // preview-vs-saved gap this endpoint exists to close.
+          const locNameRes = await pool.query(`SELECT name FROM locations WHERE id = $1`, [locationId]);
+          const locName: string | null = locNameRes.rows[0]?.name ?? null;
+          dedupCandidates = dedupCandidates.filter((r: any) => {
+            const filterLocs: string[] = Array.isArray(r.action?.filters?.location) ? r.action.filters.location : [];
+            const hasLocScope = !!r.locationId || filterLocs.length > 0;
+            if (!hasLocScope) return true; // portfolio-wide → applies at any scope
+            if (r.locationId) return r.locationId === locationId;
+            return locName != null && filterLocs.includes(locName);
+          });
+        }
+
+        const { net, gross, claimedByOtherRules: claimed } = computeProspectiveRuleImpact(
+          previewImpactCtx,
+          {
+            action: parsedRule.action,
+            trigger: parsedRule.trigger,
+            serviceLines: effectiveSLs,
+            locationId: locationId || null,
+            // An edit keeps the saved rule's ordering identity (PATCH does not
+            // reset these), so borrow them. Using defaults here would rank the
+            // edit as the newest rule and hand it units it will not own once
+            // saved — a silent preview/saved mismatch in any tie.
+            priority: editedRule?.priority ?? 0,
+            effectiveDate: effectiveDate || editedRule?.effectiveDate || null,
+            createdAt: editedRule?.createdAt ?? new Date(),
+            isActive: true,
+            isHistorical: false,
+          },
+          dedupCandidates,
+          { locationId: locationId || null, serviceLine: serviceLine || null },
+        );
+
+        affectedUnits = net.affectedUnits;
+        monthlyImpact = net.monthlyImpact;
+        totalImpact = net.monthlyImpact;
+        annualImpact = net.annualImpact;
+        volumeAdjustedAnnualImpact = annualImpact * volumeIncreaseFactor;
+        grossAffectedUnits = gross.affectedUnits;
+        claimedByOtherRules = claimed;
+        affectedCampuses = net.affectedCampuses;
+        moveInsPerMonth = net.moveInsPerMonth;
+        serviceLineBreakdown = net.perServiceLine;
+        for (const c of net.perCampus) {
+          campusBreakdown[c.campusName] = {
+            units: c.unitCount,
+            monthlyImpact: c.monthlyImpact,
+            annualImpact: c.annualImpact,
+            volumeAdjustedAnnual: Math.round(c.annualImpact * volumeIncreaseFactor),
+          };
         }
       }
-      
-      // Calculate annual impacts for each campus
-      const volumeIncreaseFactor = 1.05; // 5% volume increase
-      for (const campus in campusBreakdown) {
-        campusBreakdown[campus].annualImpact = campusBreakdown[campus].monthlyImpact * 12;
-        campusBreakdown[campus].volumeAdjustedAnnual = campusBreakdown[campus].annualImpact * volumeIncreaseFactor;
-      }
-      
-      // Calculate total annual impacts
-      const monthlyImpact = totalImpact;
-      const annualImpact = monthlyImpact * 12; // Base annual impact
-      const volumeAdjustedAnnualImpact = annualImpact * volumeIncreaseFactor;
       
       // Use ChatGPT to validate if the impact is reasonable
       let reasonabilityCheck = {
@@ -14954,7 +15650,9 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       
       if (preview) {
         try {
-          const avgImpactPerUnit = totalImpact / affectedUnits;
+          // A rule whose trigger qualifies nothing is a legitimate outcome, not
+          // an error — guard the divide so the prompt never carries NaN/Infinity.
+          const avgImpactPerUnit = affectedUnits > 0 ? totalImpact / affectedUnits : 0;
           const percentageChange = parsedRule.action.adjustmentType === 'percentage' 
             ? parsedRule.action.adjustmentValue 
             : (avgImpactPerUnit / 3000) * 100; // Assume average rate of $3000
@@ -15027,6 +15725,16 @@ Respond in JSON format:
           reasonabilityCheck,
           previewRule: parsedRule,
           elasticity: elasticityImpact,
+          // affectedUnits is net of overlap dedup. When higher-precedence rules
+          // already own some of the population, surface that instead of leaving
+          // the gap unexplained.
+          grossAffectedUnits,
+          claimedByOtherRules,
+          // Composition of the affected population, so the headline numbers can
+          // be read as "who is impacted", not just "how much".
+          affectedCampuses,
+          moveInsPerMonth,
+          serviceLineBreakdown,
         });
       }
 
@@ -15769,6 +16477,52 @@ Respond in JSON format:
         targetsBySL[sl] = Number.isFinite(t as number) ? (t as number) : null;
       }
 
+      // ── Page scope ──────────────────────────────────────────────────────────
+      // The Pricing Controls filters (campus / region / division) must reach the
+      // AI the same way the service-line filter already does — a run made while
+      // the page is narrowed to one region should analyze that region's campuses
+      // and nothing else. Resolve the filters to concrete locations once, then
+      // scope every dataset below through the same set.
+      const asNameList = (v: any): string[] => (Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : [])
+        .map((s: any) => String(s).trim()).filter(Boolean);
+      const bodyLocations = asNameList(req.body?.locations);
+      const bodyRegions = asNameList(req.body?.regions);
+      const bodyDivisions = asNameList(req.body?.divisions);
+      const scopeRequested = !!locationId || !!bodyLocations.length || !!bodyRegions.length || !!bodyDivisions.length;
+
+      let scopedIds: string[] = [];
+      let scopedNames: string[] = [];
+      let scopeLabel = 'All campuses';
+      if (scopeRequested) {
+        const locRows = (await pool.query(
+          `SELECT id, name, region, division FROM locations WHERE client_id = $1`, [clientId])).rows as any[];
+        let rows = locRows;
+        if (locationId) rows = rows.filter(r => r.id === locationId);
+        if (bodyLocations.length) { const s = new Set(bodyLocations); rows = rows.filter(r => s.has(r.name)); }
+        if (bodyRegions.length) { const s = new Set(bodyRegions); rows = rows.filter(r => s.has(r.region)); }
+        if (bodyDivisions.length) { const s = new Set(bodyDivisions); rows = rows.filter(r => s.has(r.division)); }
+        // A filter that matches nothing must return nothing. Falling through to
+        // an unscoped run would quietly propose portfolio-wide rules from a page
+        // that promised one region.
+        if (!rows.length) {
+          return res.json({ suggestions: [], context: { reason: 'no campuses match the current filters' } });
+        }
+        scopedIds = rows.map(r => r.id);
+        scopedNames = rows.map(r => r.name);
+        scopeLabel = rows.length === 1
+          ? rows[0].name
+          : `${rows.length} campuses` +
+            (bodyRegions.length ? ` in ${bodyRegions.join(', ')}` : '') +
+            (bodyDivisions.length ? ` in ${bodyDivisions.join(', ')}` : '');
+      }
+      const scopeActive = scopeRequested;
+      const scopedIdSet = new Set(scopedIds);
+      const scopedNameSet = new Set(scopedNames);
+      // Unit rows carry both a location id and a location name, and imported
+      // rows are not guaranteed to have the id — accept either.
+      const inScope = (u: any) => !scopeActive
+        || scopedIdSet.has(u.locationId) || scopedNameSet.has(u.location);
+
       const latestRes = await pool.query(
         `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`, [clientId]);
       const latestMonth: string | null = latestRes.rows[0]?.m ?? null;
@@ -15783,10 +16537,10 @@ Respond in JSON format:
       // source of truth. Combined-SL rows (e.g. "AL, AL/MC") are split using
       // B-bed-excluded rent-roll unit weights (same approach as strategy overview).
       // Some history rows lack location_id — also match by the location's name.
-      const rohScopeWhere = locationId
-        ? ` AND (roh.location_id = $2 OR roh.location_name = (SELECT name FROM locations WHERE id = $2 AND client_id = $1))`
+      const rohScopeWhere = scopeActive
+        ? ` AND (roh.location_id::text = ANY($2::text[]) OR roh.location_name = ANY($3::text[]))`
         : '';
-      const rohScopeParams = locationId ? [clientId, locationId] : [clientId];
+      const rohScopeParams: any[] = scopeActive ? [clientId, scopedIds, scopedNames] : [clientId];
       const rohSuggestRes = await pool.query(`
         WITH deduped AS (
           SELECT DISTINCT ON (
@@ -15812,7 +16566,7 @@ Respond in JSON format:
       // Split weights from rent roll (scoped), excluding /B beds for weighted SLs.
       const suggestWeights: Record<string, SlWeight> = {};
       for (const u of allUnits as any[]) {
-        if (locationId && u.locationId !== locationId) continue;
+        if (!inScope(u)) continue;
         if (!isSlWeightUnit(u.serviceLine, u.roomNumber)) continue;
         const w = suggestWeights[u.serviceLine] || { units: 0, occupied: 0 };
         w.units += 1;
@@ -15846,10 +16600,8 @@ Respond in JSON format:
       // None of those numbers used to reach the prompt, so the model was being
       // asked to write rules against signals it could not actually see. Load
       // them here and surface them per service line.
-      const suggestScopeSql = locationId
-        ? ` AND rr.location = (SELECT name FROM locations WHERE id = $2 AND client_id = $1)`
-        : '';
-      const suggestScopeParams: any[] = locationId ? [clientId, locationId] : [clientId];
+      const suggestScopeSql = scopeActive ? ` AND rr.location = ANY($2::text[])` : '';
+      const suggestScopeParams: any[] = scopeActive ? [clientId, scopedNames] : [clientId];
 
       // upload_month originates from user-supplied import files, so it is
       // untrusted even though it lives in our own table. Validate the shape
@@ -15928,9 +16680,14 @@ Respond in JSON format:
       // per-room-type figure would print phantom zeros next to real ones and
       // read as "no demand for this room type". Service-line pace is sound and
       // is what the required-lift math below uses.
+      // Keys are `location||service_line||room_type`. The accessor only takes a
+      // single locationId, so a region- or division-scoped run gets the whole
+      // portfolio back and is narrowed to the scoped campuses here.
       const moveInsBySL: Record<string, number> = {};
       for (const [mKey, mVal] of Array.from(moveInMap.entries())) {
-        const sl = String(mKey).split('||')[1] || '';
+        const keyParts = String(mKey).split('||');
+        if (scopeActive && !scopedNameSet.has(keyParts[0])) continue;
+        const sl = keyParts[1] || '';
         const n = Number(mVal) || 0;
         if (!sl || n <= 0) continue;
         moveInsBySL[sl] = (moveInsBySL[sl] || 0) + n;
@@ -15965,13 +16722,15 @@ Respond in JSON format:
       const slBlocks: string[] = [];
       const slContexts: any[] = [];
       const validSLs: string[] = [];
-      let campusName = '';
+      // Elasticity rows are keyed by campus name. Restrict them to the scoped
+      // campuses — previously they were pinned to whichever campus happened to
+      // appear first in the rent roll, so an unscoped run described the whole
+      // portfolio using one campus's elasticity.
+      const elInScope = (e: any) => !scopeActive || scopedNameSet.has(e.locationName);
       for (const sl of requestedSLs) {
-        const scoped = allUnits.filter((u: any) =>
-          (!locationId || u.locationId === locationId) && u.serviceLine === sl);
+        const scoped = allUnits.filter((u: any) => inScope(u) && u.serviceLine === sl);
         if (!scoped.length) continue;
         validSLs.push(sl);
-        campusName = campusName || scoped[0]?.location || '';
 
         // Occupancy: prefer authoritative RTO history; fall back to rent roll.
         const roh = rohOccBySL[sl];
@@ -16010,7 +16769,7 @@ Respond in JSON format:
         const dvArr = scoped.filter((u: any) => !u.occupiedYN && u.daysVacant > 0).map((u: any) => u.daysVacant);
         const avgDaysVacant = dvArr.length ? dvArr.reduce((a: number, b: number) => a + b, 0) / dvArr.length : 0;
         const segElasticities = Array.from(elasticityMap.values())
-          .filter((e: any) => (!campusName || e.locationName === campusName) && e.serviceLine === sl && e.elasticity !== null)
+          .filter((e: any) => elInScope(e) && e.serviceLine === sl && e.elasticity !== null)
           .map((e: any) => e.elasticity as number);
         const avgElasticity = segElasticities.length
           ? segElasticities.reduce((a, b) => a + b, 0) / segElasticities.length : null;
@@ -16075,7 +16834,7 @@ Respond in JSON format:
           const rtDvArr = rtUnits.filter((u: any) => !u.occupiedYN && u.daysVacant > 0).map((u: any) => u.daysVacant as number);
           const rtDv = rtDvArr.length ? rtDvArr.reduce((a: number, b: number) => a + b, 0) / rtDvArr.length : 0;
           const rtElArr = Array.from(elasticityMap.values())
-            .filter((e: any) => (!campusName || e.locationName === campusName)
+            .filter((e: any) => elInScope(e)
               && e.serviceLine === sl && e.roomType === rt && e.elasticity !== null)
             .map((e: any) => e.elasticity as number);
           const rtEl = rtElArr.length ? rtElArr.reduce((a, b) => a + b, 0) / rtElArr.length : null;
@@ -16132,7 +16891,13 @@ Respond in JSON format:
       if (!validSLs.length) return res.json({ suggestions: [], context: { reason: 'no units in scope' } });
 
       const metricsBlock =
-        `Campus: ${campusName || 'All campuses'}\n\n` + slBlocks.join('\n\n');
+        `Campus scope: ${scopeLabel}` +
+        (scopeActive && scopedNames.length > 1
+          ? `\nCampuses in scope: ${scopedNames.join(', ')}\n` +
+            `Every metric below is aggregated across ONLY these campuses. Do not propose rules ` +
+            `for any campus outside this list.`
+          : '') +
+        `\n\n` + slBlocks.join('\n\n');
 
       const system =
         'You are a senior living revenue-management expert. You design pricing adjustment ' +
@@ -16246,7 +17011,7 @@ Respond in JSON format:
       // Single call to the most capable model (no second formatting call) —
       // the format instruction is appended to the prompt directly.
       const rawText = await callClaude(system, `${user}\n\n${formatInstruction}`, {
-        label: `rule-suggest:${campusName || 'all'}:${validSLs.join('+')}`,
+        label: `rule-suggest:${scopeActive ? (scopedNames.length === 1 ? scopedNames[0] : `${scopedNames.length}campuses`) : 'all'}:${validSLs.join('+')}`,
         maxTokens: 4000,
         model: 'claude-opus-4-6',
       });
@@ -16331,7 +17096,7 @@ Respond in JSON format:
               trigger: parsed.trigger,
               serviceLines: ruleSLs, // multi-SL scope (effectiveServiceLines)
               locationId: locationId || null,
-            });
+            }, scopeActive ? { locationIds: scopedIds } : undefined);
             qUnits = qi.affectedUnits;
             qMonthly = qi.monthlyImpact;
             qAnnual = qi.annualImpact;
@@ -16349,6 +17114,10 @@ Respond in JSON format:
           serviceLine: ruleSLs.join(', '),   // display / legacy
           serviceLines: ruleSLs,             // authoritative multi-SL scope
           locationId: locationId || null,
+          // Campus scope this run was analyzed under. A region/division/multi-campus
+          // run has no single locationId, so the accepted rule must carry the campus
+          // names in action.filters.location or it would silently go portfolio-wide.
+          locationNames: scopeActive && scopedNames.length ? scopedNames : null,
           trigger: parsed.trigger,
           action: parsed.action,
           // In-house rules: always trust the qualified (occupied-only) result —
@@ -16373,7 +17142,8 @@ Respond in JSON format:
       const responsePayload = {
         suggestions,
         context: {
-          campus: campusName,
+          campus: scopeLabel,
+          campuses: scopeActive ? scopedNames : null,
           serviceLines: slContexts,
           ...(flatCtx ? {
             serviceLine: flatCtx.serviceLine,
@@ -16438,6 +17208,26 @@ Respond in JSON format:
         return res.status(400).json({
           error: "Only street-rate rules or in-house rate increases can be accepted.",
         });
+      }
+
+      // Campus scope: the suggestion was generated against the page's campus /
+      // region / division filters. Re-read that scope from THIS tenant's cached
+      // run (never from the request body) and persist it on the rule, otherwise
+      // a rule the AI reasoned about for one region would price the whole
+      // portfolio. A single campus is already expressed by locationId.
+      let scopedLocationNames: string[] = [];
+      if (!locationId && req.body?.suggestionId) {
+        const cachedSugg = await findCachedSuggestion(clientId, String(req.body.suggestionId));
+        const names = cachedSugg?.locationNames;
+        if (Array.isArray(names)) {
+          scopedLocationNames = names.filter((n: any) => typeof n === 'string' && n.trim());
+        }
+      }
+      if (scopedLocationNames.length) {
+        parsed.action = {
+          ...parsed.action,
+          filters: { ...(parsed.action?.filters || {}), location: scopedLocationNames },
+        };
       }
 
       const impact = await computeRuleElasticityImpact(
@@ -16647,6 +17437,121 @@ Respond in JSON format:
     }
   });
 
+  /**
+   * Resolve the Rule Administration page filters (locationId / serviceLine /
+   * locations / regions / divisions) into the exact rule set and impact scope
+   * that GET /api/adjustment-rules reports on.
+   *
+   * Shared with the per-rule coverage drill-down: if the two resolved the page
+   * filters differently, the campus list would contradict the units number the
+   * user clicked to open it.
+   */
+  const resolveScopedRuleSet = async (clientId: string, q: any): Promise<{
+    rules: any[];
+    scope: { locationId?: string; serviceLine?: string; locationIds?: string[] } | undefined;
+  }> => {
+    const { locationId, serviceLine, includeHistorical } = q;
+    const toArr = (v: any): string[] => Array.isArray(v) ? v : (v ? [v] : []);
+    const fLocations = toArr(q.locations);
+    const fRegions   = toArr(q.regions);
+    const fDivisions = toArr(q.divisions);
+
+    // Resolve page location/region/division filters to location IDs (client-scoped)
+    let scopeLocationIds: string[] | null = null;
+    let scopeLocationNames: Set<string> | null = null;
+    if (fLocations.length || fRegions.length || fDivisions.length) {
+      const locRes = await pool.query(
+        `SELECT id, name, region, division FROM locations WHERE client_id = $1`,
+        [clientId]
+      );
+      const matched = locRes.rows
+        .filter((l: any) =>
+          (!fLocations.length || fLocations.includes(l.name)) &&
+          (!fRegions.length   || (l.region   && fRegions.includes(l.region))) &&
+          (!fDivisions.length || (l.division && fDivisions.includes(l.division))));
+      scopeLocationIds = matched.map((l: any) => l.id);
+      // Names matter too: rules created from the Reference Data view store
+      // their location scope as names in action.filters.location (locationId null).
+      scopeLocationNames = new Set<string>([...matched.map((l: any) => l.name), ...fLocations]);
+    }
+    
+    let query = db.select().from(adjustmentRules);
+    
+    // Filter by location and service line if provided
+    const conditions = [];
+    // Historical records live in the Pricing History view, not the active rules list
+    if (includeHistorical !== 'true') {
+      conditions.push(sql`${adjustmentRules.isHistorical} IS NOT TRUE`);
+    } else {
+      // Historical rules are client-specific (via their location). Active rules
+      // stay global by design; historical ones without a matching location for
+      // this client (including orphans with no location) are filtered out.
+      conditions.push(sql`(${adjustmentRules.isHistorical} IS NOT TRUE OR ${adjustmentRules.locationId} IN (SELECT id FROM locations WHERE client_id = ${clientId}))`);
+    }
+    if (locationId) {
+      conditions.push(or(
+        eq(adjustmentRules.locationId, locationId as string),
+        sql`${adjustmentRules.locationId} IS NULL`
+      ));
+    }
+    if (serviceLine) {
+      conditions.push(or(
+        eq(adjustmentRules.serviceLine, serviceLine as string),
+        sql`${adjustmentRules.serviceLine} IS NULL`
+      ));
+    }
+    
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as any;
+    }
+    
+    let rules = await query;
+
+    // ── Page-filter scoping of the rules LIST (Rule Administration) ──
+    // When the page is filtered to locations/regions/divisions, show only rules
+    // that apply within that scope: rules explicitly targeting a scoped campus
+    // (by locationId or by name in action.filters.location — how "Create Rule
+    // from View" stores its scope) plus portfolio-wide rules (no location scope),
+    // which apply everywhere. Rules targeting only other campuses are hidden.
+    if (scopeLocationIds) {
+      const idSet = new Set(scopeLocationIds);
+      const nameSet = scopeLocationNames ?? new Set<string>();
+      rules = rules.filter((r: any) => {
+        const filterLocs: string[] = Array.isArray((r.action as any)?.filters?.location)
+          ? (r.action as any).filters.location : [];
+        const hasLocScope = !!r.locationId || filterLocs.length > 0;
+        if (!hasLocScope) return true; // portfolio-wide → applies to any scope
+        if (r.locationId && idSet.has(r.locationId)) return true;
+        return filterLocs.some((n) => nameSet.has(n));
+      });
+    }
+    // Service-line scoping: the SQL condition only checks the serviceLine column
+    // (NULL passes). Also honor the serviceLines array and action.filters.serviceLine
+    // used by rules created from the Reference Data view.
+    if (serviceLine) {
+      rules = rules.filter((r: any) => {
+        if (r.serviceLine) return r.serviceLine === serviceLine; // column already matched in SQL, keep explicit
+        const slArr: string[] = Array.isArray(r.serviceLines) ? r.serviceLines : [];
+        if (slArr.length) return slArr.includes(serviceLine as string);
+        const filterSls: string[] = Array.isArray((r.action as any)?.filters?.serviceLine)
+          ? (r.action as any).filters.serviceLine : [];
+        if (filterSls.length) return filterSls.includes(serviceLine as string);
+        return true; // no SL scope at all → applies to every service line
+      });
+    }
+
+    // Scope impact numbers to the page filter when set
+    const scope = (locationId || serviceLine || scopeLocationIds)
+      ? {
+          locationId: locationId as string | undefined,
+          serviceLine: serviceLine as string | undefined,
+          locationIds: scopeLocationIds ?? undefined,
+        }
+      : undefined;
+
+    return { rules, scope: scope as any };
+  };
+
   app.get("/api/adjustment-rules", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
@@ -16656,24 +17561,6 @@ Respond in JSON format:
       const fRegions   = toArr(req.query.regions);
       const fDivisions = toArr(req.query.divisions);
 
-      // Resolve page location/region/division filters to location IDs (client-scoped)
-      let scopeLocationIds: string[] | null = null;
-      let scopeLocationNames: Set<string> | null = null;
-      if (fLocations.length || fRegions.length || fDivisions.length) {
-        const locRes = await pool.query(
-          `SELECT id, name, region, division FROM locations WHERE client_id = $1`,
-          [clientId]
-        );
-        const matched = locRes.rows
-          .filter((l: any) =>
-            (!fLocations.length || fLocations.includes(l.name)) &&
-            (!fRegions.length   || (l.region   && fRegions.includes(l.region))) &&
-            (!fDivisions.length || (l.division && fDivisions.includes(l.division))));
-        scopeLocationIds = matched.map((l: any) => l.id);
-        // Names matter too: rules created from the Reference Data view store
-        // their location scope as names in action.filters.location (locationId null).
-        scopeLocationNames = new Set<string>([...matched.map((l: any) => l.name), ...fLocations]);
-      }
 
       // Short-lived cache (2 min) so repeat page loads are instant.
       // Key includes all filter dimensions so scoped views are cached separately.
@@ -16685,80 +17572,7 @@ Respond in JSON format:
 
       const adjRulesCached = getCachedAnalytics(adjRulesCacheKey);
       if (adjRulesCached) return res.json(adjRulesCached);
-      
-      let query = db.select().from(adjustmentRules);
-      
-      // Filter by location and service line if provided
-      const conditions = [];
-      // Historical records live in the Pricing History view, not the active rules list
-      if (includeHistorical !== 'true') {
-        conditions.push(sql`${adjustmentRules.isHistorical} IS NOT TRUE`);
-      } else {
-        // Historical rules are client-specific (via their location). Active rules
-        // stay global by design; historical ones without a matching location for
-        // this client (including orphans with no location) are filtered out.
-        conditions.push(sql`(${adjustmentRules.isHistorical} IS NOT TRUE OR ${adjustmentRules.locationId} IN (SELECT id FROM locations WHERE client_id = ${clientId}))`);
-      }
-      if (locationId) {
-        conditions.push(or(
-          eq(adjustmentRules.locationId, locationId as string),
-          sql`${adjustmentRules.locationId} IS NULL`
-        ));
-      }
-      if (serviceLine) {
-        conditions.push(or(
-          eq(adjustmentRules.serviceLine, serviceLine as string),
-          sql`${adjustmentRules.serviceLine} IS NULL`
-        ));
-      }
-      
-      if (conditions.length > 0) {
-        query = query.where(and(...conditions)) as any;
-      }
-      
-      let rules = await query;
-
-      // ── Page-filter scoping of the rules LIST (Rule Administration) ──
-      // When the page is filtered to locations/regions/divisions, show only rules
-      // that apply within that scope: rules explicitly targeting a scoped campus
-      // (by locationId or by name in action.filters.location — how "Create Rule
-      // from View" stores its scope) plus portfolio-wide rules (no location scope),
-      // which apply everywhere. Rules targeting only other campuses are hidden.
-      if (scopeLocationIds) {
-        const idSet = new Set(scopeLocationIds);
-        const nameSet = scopeLocationNames ?? new Set<string>();
-        rules = rules.filter((r: any) => {
-          const filterLocs: string[] = Array.isArray((r.action as any)?.filters?.location)
-            ? (r.action as any).filters.location : [];
-          const hasLocScope = !!r.locationId || filterLocs.length > 0;
-          if (!hasLocScope) return true; // portfolio-wide → applies to any scope
-          if (r.locationId && idSet.has(r.locationId)) return true;
-          return filterLocs.some((n) => nameSet.has(n));
-        });
-      }
-      // Service-line scoping: the SQL condition only checks the serviceLine column
-      // (NULL passes). Also honor the serviceLines array and action.filters.serviceLine
-      // used by rules created from the Reference Data view.
-      if (serviceLine) {
-        rules = rules.filter((r: any) => {
-          if (r.serviceLine) return r.serviceLine === serviceLine; // column already matched in SQL, keep explicit
-          const slArr: string[] = Array.isArray(r.serviceLines) ? r.serviceLines : [];
-          if (slArr.length) return slArr.includes(serviceLine as string);
-          const filterSls: string[] = Array.isArray((r.action as any)?.filters?.serviceLine)
-            ? (r.action as any).filters.serviceLine : [];
-          if (filterSls.length) return filterSls.includes(serviceLine as string);
-          return true; // no SL scope at all → applies to every service line
-        });
-      }
-
-      // Scope impact numbers to the page filter when set
-      const scope = (locationId || serviceLine || scopeLocationIds)
-        ? {
-            locationId: locationId as string | undefined,
-            serviceLine: serviceLine as string | undefined,
-            locationIds: scopeLocationIds ?? undefined,
-          }
-        : undefined;
+      const { rules, scope } = await resolveScopedRuleSet(clientId, req.query);
 
       // ── Qualified impact: trigger conditions + action filters, move-ins × Δrate ──
       // Shared context (one portfolio row fetch + one T3 move-ins query) is cached
@@ -16776,20 +17590,11 @@ Respond in JSON format:
       // Sort: specificity DESC → explicit priority DESC → effectiveDate DESC.
       // Specificity is the primary axis; explicit priority breaks ties within
       // the same specificity tier (mirrors the live pricing engine).
+      // Ordering lives in ruleImpactService so the Rule Designer preview can
+      // replay this exact walk for a not-yet-saved rule.
       const dedupOrder = rules
-        .filter((r: any) => r.isActive && r.isHistorical !== true && (r.action as any)?.adjustmentValue && impactCtx)
-        .sort((a: any, b: any) => {
-          const specDiff = ruleSpecificityScore(b) - ruleSpecificityScore(a);
-          if (specDiff !== 0) return specDiff;
-          const priDiff = (b.priority ?? 0) - (a.priority ?? 0);
-          if (priDiff !== 0) return priDiff;
-          const da = a.effectiveDate ? new Date(a.effectiveDate).toISOString() : '';
-          const db = b.effectiveDate ? new Date(b.effectiveDate).toISOString() : '';
-          if (da !== db) return db.localeCompare(da);
-          const ca = a.createdAt ? new Date(a.createdAt).toISOString() : '';
-          const cb = b.createdAt ? new Date(b.createdAt).toISOString() : '';
-          return cb.localeCompare(ca);
-        });
+        .filter((r: any) => isDedupEligibleRule(r) && impactCtx)
+        .sort(compareRuleDedupOrder);
       const claimedUnitIds = new Set<string>();
       // Track which rule (id + name + specificity) claimed each unit so blanket
       // rules can report the specific TARGETED rule that suppressed them.
@@ -18987,9 +19792,16 @@ Return ONLY valid JSON, no markdown fences:
       const { id } = req.params;
       const clientId = req.clientId || 'demo';
 
+      // Same visibility predicate as the rules list: active rules are global by
+      // design, but a historical rule belongs to whichever client owns its
+      // location. Without this, knowing an id is enough to read another tenant's
+      // historical rule name and its campus-level coverage.
       const ruleRes = await pool.query(
-        `SELECT * FROM adjustment_rules WHERE id = $1`,
-        [id]
+        `SELECT * FROM adjustment_rules
+          WHERE id = $1
+            AND (is_historical IS NOT TRUE
+                 OR location_id IN (SELECT id FROM locations WHERE client_id = $2))`,
+        [id, clientId]
       );
       if (!ruleRes.rows.length) return res.status(404).json({ error: 'Rule not found' });
       const rule = ruleRes.rows[0];
@@ -19012,20 +19824,80 @@ Return ONLY valid JSON, no markdown fences:
         locationId: rule.location_id ?? null,
         action: typeof rule.action === 'string' ? JSON.parse(rule.action) : (rule.action || {}),
         trigger: typeof rule.trigger === 'string' ? JSON.parse(rule.trigger) : (rule.trigger || {}),
+        isActive: rule.is_active ?? null,
+        isHistorical: rule.is_historical ?? null,
+        priority: rule.priority ?? null,
+        effectiveDate: rule.effective_date ?? null,
+        createdAt: rule.created_at ?? null,
       };
-      const impact = computeQualifiedRuleImpact(impactCtx, camelRule);
+
+      // The rules list reports every rule NET of the unit-level overlap dedup,
+      // where a more specific rule claims contested units first. Computing this
+      // drill-down standalone quotes the GROSS population instead, so the campus
+      // list would contradict the number the user clicked. Replay the same
+      // ordered claim walk with this rule in its real position, over the same
+      // page-filtered rule set. Rules that cannot move a rate never enter the
+      // walk, so they keep their standalone number — exactly as the list shows.
+      const { rules: scopedRules, scope } = await resolveScopedRuleSet(clientId, req.query);
+      // Prefer the Drizzle row: pool.query returns snake_case, and the dedup
+      // ordering reads isActive / priority / effectiveDate / createdAt.
+      const listRule = scopedRules.find((r: any) => r.id === id) ?? camelRule;
+
+      // Replay the list's walk over the SAME persisted rule objects in the SAME
+      // array order, rather than re-inserting this rule as a clone: the dedup
+      // comparator has no final tie-breaker, so a re-inserted rule sorts after
+      // every peer it ties with and can lose units it keeps in the list. Stop at
+      // this rule — anything after it cannot affect its own number.
+      const dedupOrder = scopedRules
+        .filter((r: any) => isDedupEligibleRule(r))
+        .sort(compareRuleDedupOrder);
+      const claimedUnitIds = new Set<string>();
+      let impact: ReturnType<typeof computeQualifiedRuleImpact> | null = null;
+      for (const r of dedupOrder) {
+        const walked = computeQualifiedRuleImpact(impactCtx, r, scope, claimedUnitIds);
+        if (r.id === id) { impact = walked; break; }
+        for (const uid of Array.from(walked.qualifiedUnitIds)) claimedUnitIds.add(uid);
+      }
+      // Never entered the walk — inactive, historical, no adjustment value, or
+      // filtered out of the page's rule set. The list reports those standalone too.
+      if (!impact) impact = computeQualifiedRuleImpact(impactCtx, listRule, scope);
+
+      // Region/division let the drill-down group campuses the way the rest of the
+      // portfolio is organised. perCampus keys on location_id, but rent-roll rows
+      // can carry a campus string with no FK, so fall back to a name match — the
+      // locations table is unique on (client_id, name).
+      const locRes = await pool.query(
+        `SELECT id, name, region, division FROM locations WHERE client_id = $1`,
+        [clientId]
+      );
+      const hierById = new Map<string, { region: string | null; division: string | null }>();
+      const hierByName = new Map<string, { region: string | null; division: string | null }>();
+      for (const l of locRes.rows) {
+        const entry = { region: l.region ?? null, division: l.division ?? null };
+        if (l.id) hierById.set(String(l.id), entry);
+        if (l.name) hierByName.set(String(l.name).trim().toLowerCase(), entry);
+      }
+      const hierarchyFor = (locationId: any, campusName: any) =>
+        (locationId != null ? hierById.get(String(locationId)) : undefined)
+        ?? (campusName ? hierByName.get(String(campusName).trim().toLowerCase()) : undefined)
+        ?? { region: null, division: null };
 
       res.json({
         ruleName: rule.name,
-        campuses: impact.perCampus.map(c => ({
-          campusName: c.campusName,
-          locationId: c.locationId,
-          unitCount: c.unitCount,
-          avgRate: c.avgRate,
-          moveInsPerMonth: c.moveInsPerMonth,
-          monthlyImpact: c.monthlyImpact,
-          annualImpact: c.annualImpact,
-        })),
+        campuses: impact.perCampus.map(c => {
+          const hier = hierarchyFor(c.locationId, c.campusName);
+          return {
+            campusName: c.campusName,
+            locationId: c.locationId,
+            region: hier.region,
+            division: hier.division,
+            unitCount: c.unitCount,
+            avgRate: c.avgRate,
+            moveInsPerMonth: c.moveInsPerMonth,
+            monthlyImpact: c.monthlyImpact,
+            annualImpact: c.annualImpact,
+          };
+        }),
         totalUnits: impact.affectedUnits,
         totalMoveInsPerMonth: impact.moveInsPerMonth,
         totalMonthlyImpact: impact.monthlyImpact,

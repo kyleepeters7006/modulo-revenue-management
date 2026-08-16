@@ -8,10 +8,11 @@
 - [Adjustment rules schema](adjustment-rules-schema.md) — no affected_units/affected_campuses columns; execution_count is NOT a usage signal; pool.query rows are snake_case.
 - [Rule description vs filters](rule-description-filter-mismatch.md) — description can promise a filter action.filters never encodes; check applied_rule_name before deleting, then reprice.
 - [Rule History debugging lessons](rule-history-debug.md) — three root causes fixed for 0 move-ins / 0 speed vs expected in Rule History section.
-- [Occupancy source of truth](occupancy-source.md) — RTO history is authoritative; combined-SL rows split by identical B-bed-excluded weights everywhere; compute % before rounding counts.
+- [Occupancy source of truth](occupancy-source.md) — RTO history is authoritative for occupancy AND unit capacity; combined-SL rows split by identical B-bed-excluded weights; compute % before rounding.
+- [Same-store cohort](same-store-cohort.md) — the same_store columns are true for every row; derive the cohort from campuses reporting in both the current and year-ago period.
 - [Pricing cycle superseding](pricing-cycle-superseding.md) — latest-cycle-wins logic in applyAdjustmentRulesToUnit prevents Apr/Jul cycle stacking; supersededIds in UI marks older-cycle rules crossed-out.
 - [IH-to-street variance metric](ih-street-variance-metric.md) — field aliases ih_street_variance/street_to_ih_var; compute from rent roll, never trust the sparse table cache alone.
-- [Rule preview / engine trigger parity](rule-preview-parity.md) — triggers are a conditions[] array (AND/OR); preview code must evaluate both shapes and match engine metric scales.
+- [Rule preview / engine trigger parity](rule-preview-parity.md) — previews and click-through drill-downs must reuse the shared engine, replay the dedup walk (net, not gross) and resolve the same page filters.
 - [Historical strategy taxonomy](historical-strategy-taxonomy.md) — imported rules have trigger "always"; category inferred from adj value (+5 push, +2.5 hold, other positive ensure); keep backend/frontend groups in lockstep.
 - [Move-in/out event source](move-in-out-events.md) — imported event table is authoritative with rent-roll fallback; event-derived maps must be remapped through room-type groupings for key parity.
 - [Excel round-trip rule import](excel-roundtrip-import.md) — identical import descriptions merge into one scoped rule; exact rates go through manual_rate_overrides, never synthetic adjust rules.
@@ -44,4 +45,11 @@
 - [Zero-impact rule diagnosis](zero-impact-rule-diagnosis.md) — a 0-unit rule is usually correct; four distinct causes, and overlapExcludedUnits is a gate, not a candidate count.
 - [Campus vs SL occupancy](campus-vs-sl-occupancy.md) — combined-SL splitting is only needed for per-service-line output; campus totals just sum occ/avail rows and divide once.
 - [Client workbook reconciliation](workbook-reconciliation.md) — tie-out basis (B-beds, ex-Kingston, AL/SL→SL, HC private-pay IH); totals then match exactly and residuals are real defects.
-- [Leaflet popup constraints](leaflet-popup-constraints.md) — size popups against the map card not the viewport; controls stack above popups; escape interpolated strings.
+- [Leaflet popup constraints](leaflet-popup-constraints.md) — size popups against the map card not the viewport; bindPopup defaults to maxWidth 300 and will clip wide content.
+- [MC care-rate inheritance](care-level2-mc-inheritance.md) — AL/MC→AL and HC/MC→HC when no care row exists; flag as inherited, never insert client care data.
+- [Care rate daily vs monthly](care-rate-daily-vs-monthly.md) — our HC care is per-day, competitor care is per-month; normalize to the line's native basis or HC adjustments inflate ~30x.
+- [Competitor payload aggregation traps](competitor-payload-traps.md) — map-reduce create/append branches must carry identical fields; never default a missing rate to a plausible number.
+- [Rule table display vs priority order](rule-table-priority-vs-display.md) — sort a copy; badges come from canonical order. Status tiers never invert. serviceLine has a legacy string form.
+- [AI suggest page scope](ai-suggest-page-scope.md) — campus/region/division filters must reach the datasets, the shown impacts, AND the rule Accept persists, or scope leaks portfolio-wide.
+- [Census report tie-out](census-tie-out.md) — census capacity is reference-only vs occupancy history; read the division block, resolve columns from data, don't map "With Kingston" divisions.
+- [Scroll anchoring](scroll-anchoring.md) — Chrome already anchors these window-scrolled pages; manual scrollBy compensation double-applies. Real jumps come from imperative scrollTo calls.

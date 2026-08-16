@@ -1,30 +1,40 @@
 ---
-name: Competitive survey data client_id is NULL
-description: competitive_survey_data rows have client_id=NULL; compBenchmark queries must use (client_id=$1 OR client_id IS NULL); AL/MC must also search competitor_type=AL
+name: Competitive survey data scoping and AL/MC competitor mapping
+description: Diagnose empty competitor benchmarks in tenant order (session → user row → predicate), and treat the AL/MC competitor-type mapping as data-dependent rather than fixed.
 ---
 
-## The rule
-All queries against `competitive_survey_data` in `server/services/compBenchmark.ts` must use:
-```sql
-WHERE (client_id = $1 OR client_id IS NULL)
-```
-not `WHERE client_id = $1` alone, because every row in the table has `client_id = NULL`.
+# Empty competitor benchmarks: diagnose in this order
 
-### AL/MC competitor type — unresolved tension, check the code before trusting either side
-`SL_TO_COMP["AL/MC"]` has since been set back to `["AL/MC"]` alone, with a comment asserting that
-AL and AL/MC are distinct service lines with separate survey entries. That is true wherever the
-survey import actually populated AL/MC rows — the trilogy import does, for ~137 of 148 locations.
-It is false for any client whose survey has no AL/MC rows at all (the demo dataset has none), and
-those locations then get **no competitor benchmark and no price position at all**, silently.
+**Rule:** when a competitor benchmark, price position or AI commentary comes back
+empty for one tenant but not another, work through the causes in likelihood order
+before touching any query:
 
-So both mappings are defensible and the right one depends on the client's survey import. Do not
-flip it without first checking `SELECT competitor_type, COUNT(DISTINCT keystats_location) FROM
-competitive_survey_data GROUP BY 1` per client — and remember the change moves every surface that
-uses the benchmark, not just the one you are looking at.
+1. an unauthenticated session silently resolving to the demo tenant;
+2. a user row whose client_id is null, routing a real user to demo;
+3. survey rows that were imported without a tenant stamped on them.
 
-**Why:** The `competitive_survey_data` table was imported without a client_id value (all rows are null). Using `client_id = $1` ('trilogy', 'demo', etc.) filtered out every single row, so `loadCompBenchmark` and `loadStudioCompBenchmark` both returned empty results for all non-implicit clients. The Competitors tab works because `storage.ts` uses a different query path. The competitive-position scatter chart and commentary both went blank as a result.
+**Why:** cause 3 is the memorable one — the survey table was originally imported
+with no tenant on any row, so a plain equality predicate filtered out everything —
+but it is the rarest, and rewriting a query to chase it hides the first two. A
+NULL-tolerant predicate is still worth keeping as insurance against an import that
+forgets to stamp the tenant, since it costs nothing when the data is clean.
 
-**How to apply:**
-- Any new query touching `competitive_survey_data` must use the `(client_id = $1 OR client_id IS NULL)` pattern.
-- `SL_TO_COMP` in compBenchmark.ts: `"AL/MC": ["AL/MC", "AL"]` — don't revert to `["AL/MC"]` only.
-- If the Competitive Position scatter or top-competitor name goes blank for any client, check this first before suspecting route logic.
+**How to apply:** confirm which tenant the request actually resolved to before
+concluding the data is missing. Note that different surfaces reach this data
+through different query paths, so one page working is not evidence that the
+predicate is right.
+
+# AL/MC competitor-type mapping
+
+**Rule:** there is no permanently correct value for the AL/MC entry in the
+service-line-to-competitor-type map. It depends on whether the client's survey
+import actually produced AL/MC rows.
+
+**Why:** mapping AL/MC to itself alone is right where the import populates AL/MC
+rows. It is wrong for any client whose survey contains none — those locations get
+no competitor benchmark and no price position, and they fail silently rather than
+erroring.
+
+**How to apply:** check the actual competitor-type distribution for that client
+before changing the mapping, and remember that widening it moves every surface
+that consumes the benchmark, not just the one being debugged.

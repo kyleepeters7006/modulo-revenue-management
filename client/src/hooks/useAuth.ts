@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { tenantShortName } from "@/lib/tenant";
 
 export interface AuthUser {
   isAuthenticated: boolean;
@@ -21,6 +22,8 @@ export function useAuth() {
     isAuthenticated: user?.isAuthenticated ?? false,
     clientId: user?.clientId ?? 'demo',
     clientName: user?.clientName ?? 'Demo',
+    // Brand-only label for table column headers — see tenantShortName().
+    clientShortName: tenantShortName(user?.clientName),
     isAdmin: user?.isAdmin ?? false,
   };
 }

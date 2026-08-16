@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Trash2, Plus, Edit2, MapPin, Search, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
 import { compareRoomTypes } from "@shared/roomTypes";
 
@@ -80,6 +81,7 @@ export default function CompetitorForm({
     const [autoEditTriggered, setAutoEditTriggered] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const { toast } = useToast();
+    const { clientShortName } = useAuth();
     const queryClient = useQueryClient();
 
     // Build query params for filtering
@@ -631,65 +633,152 @@ export default function CompetitorForm({
                           </div>
                         )}
                         
-                        {/* Per-room-type rate breakdown with care adjustment + total */}
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => startEdit(competitor)}
+                          data-testid={`button-edit-competitor-${competitor.id}`}
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => deleteMutation.mutate(competitor.id)}
+                          data-testid={`button-delete-competitor-${competitor.id}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* The rate table sits outside the header flex row so it gets the card's
+                        full width. Sharing the row with the edit/delete buttons cost the table
+                        roughly 90px — two whole columns at this panel width. */}
+                    <div className="mt-3 space-y-3">
+                        {/* Per-room-type rate chain: base → care adjustment → adjusted,
+                            then our own rate and the variance against it. Every figure
+                            is computed server-side so the browser never re-derives a rate. */}
                         {competitor.roomRates && competitor.roomRates.length > 0 ? (() => {
-                          // careAdj from the API is monthly; HC/HC-MC store daily rates
-                          // so convert the adjustment to daily for those service lines.
-                          const isHC = competitor.serviceLines?.some((sl: string) => sl === 'HC' || sl === 'HC/MC');
-                          const careAdj: number = competitor.careAdj ?? 0;
-                          const displayCareAdj = isHC ? Math.round(careAdj / 30.44) : careAdj;
-                          const showCare = displayCareAdj !== 0;
-                          // The care adjustment is a single per-competitor value, so a
-                          // per-row column repeated the same figure on every line while
-                          // squeezing the room-type label down to "A…" in this narrow
-                          // side panel. It's stated once in a footer line instead.
-                          const cols = showCare
-                            ? 'grid-cols-[minmax(0,1fr)_auto_auto]'
-                            : 'grid-cols-[minmax(0,1fr)_auto]';
-                          const rows = [...competitor.roomRates].sort((a: { roomType: string }, b: { roomType: string }) =>
-                            compareRoomTypes(a.roomType, b.roomType)
-                          );
+                          const allRows: any[] = [...competitor.roomRates];
+
+                          // Grouped by service line so the room-type label can stay short
+                          // ("Studio" instead of "AL – Studio") — seven columns will not
+                          // fit this panel otherwise. Group order follows first appearance
+                          // so it lines up with the Service Line list above.
+                          const groups: { sl: string; rows: any[] }[] = [];
+                          for (const rr of allRows) {
+                            const sl = rr.serviceLine || rr.competitorType || '—';
+                            let g = groups.find(x => x.sl === sl);
+                            if (!g) { g = { sl, rows: [] }; groups.push(g); }
+                            g.rows.push(rr);
+                          }
+                          for (const g of groups) {
+                            g.rows.sort((a: any, b: any) => compareRoomTypes(a.roomType, b.roomType));
+                          }
+
+                          const anyInherited = allRows.some((r) => r.ourCareInherited && r.adjustment != null);
+                          const anySlFallback = allRows.some((r) => r.ourRateBasis === 'serviceLine' && r.ourRate != null);
+
+                          const money = (v: number | null | undefined) =>
+                            v == null ? '—' : `$${Math.round(v).toLocaleString()}`;
+                          const signedMoney = (v: number | null | undefined) =>
+                            v == null ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}$${Math.abs(Math.round(v)).toLocaleString()}`;
+                          // Competitor priced above us is headroom (green), below us is
+                          // pressure (red) — same convention as the map popups.
+                          const varTone = (v: number | null | undefined) =>
+                            v == null || v === 0
+                              ? 'text-[var(--dashboard-muted)]'
+                              : v > 0 ? 'text-emerald-600' : 'text-red-500';
+
+                          const cols = 'grid-cols-[minmax(4.5rem,1fr)_repeat(6,minmax(3rem,auto))]';
+
                           return (
-                            // Fixed columns keep base / care / total aligned down the card. The old
-                            // inline run wrapped mid-expression in a narrow panel, stranding
-                            // "= $2,030 Total" on its own line under the rate it belonged to.
-                            <div className="overflow-hidden rounded-lg border border-[var(--dashboard-border)]">
-                              <div className={`grid ${cols} gap-x-3 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]`}>
-                                <span>Room type</span>
-                                <span className="text-right">Base</span>
-                                {showCare && <span className="text-right">Total</span>}
-                              </div>
-                              {rows.map((rr: any, idx: number) => {
-                                const slLabel = rr.competitorType || (competitor.serviceLines && competitor.serviceLines.length > 0 ? competitor.serviceLines[0] : null);
-                                const base = rr.streetRate != null ? Math.round(rr.streetRate) : null;
-                                const total = base != null && showCare ? base + displayCareAdj : null;
-                                const label = `${slLabel ? `${slLabel} – ` : ''}${rr.roomType}`;
-                                return (
-                                  <div
-                                    key={`${rr.roomType}-${rr.competitorType ?? ''}-${idx}`}
-                                    className={`grid ${cols} items-baseline gap-x-3 px-2.5 py-1.5 text-sm text-[var(--dashboard-muted)] ${idx % 2 ? 'bg-black/[0.015]' : ''}`}
-                                  >
-                                    <span className="min-w-0 break-words font-medium leading-snug text-[var(--dashboard-text)]" title={label}>{label}</span>
-                                    <span className="whitespace-nowrap text-right tabular-nums">
-                                      {base != null ? `$${base.toLocaleString()}` : '—'}
-                                    </span>
-                                    {showCare && (
-                                      <span className="whitespace-nowrap text-right font-semibold tabular-nums text-[var(--dashboard-text)]">
-                                        {total != null ? `$${total.toLocaleString()}` : '—'}
-                                      </span>
-                                    )}
+                            <div className="min-w-0 overflow-hidden rounded-lg border border-[var(--dashboard-border)]">
+                              {/* Seven columns cannot fit the 390px desktop panel, so the
+                                  table scrolls sideways rather than crushing the numbers
+                                  into unreadable widths.
+
+                                  `w-0 min-w-full` is load-bearing: a plain `overflow-x-auto`
+                                  div still sizes to its content here, so the table widened
+                                  the whole card and shoved the edit/delete buttons past the
+                                  right edge of the page instead of scrolling. Pinning width
+                                  to 0 and letting `min-w-full` resolve it from the parent
+                                  forces the scrollport to the panel's width, so the wide
+                                  grid inside overflows into a scrollbar as intended. */}
+                              <div className="w-0 min-w-full overflow-x-auto">
+                                <div className="min-w-[25.5rem]">
+                                  <div className={`grid ${cols} gap-x-1.5 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]`}>
+                                    <span>Room type</span>
+                                    <span className="text-right">Base</span>
+                                    <span className="text-right">Adj</span>
+                                    <span className="text-right">Adjusted</span>
+                                    <span className="text-right">{clientShortName}</span>
+                                    <span className="text-right">$ Var</span>
+                                    <span className="text-right">% Var</span>
                                   </div>
-                                );
-                              })}
-                              {showCare && (
-                                <div className="border-t border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-2.5 py-1 text-[10px] leading-snug text-[var(--dashboard-muted)]">
-                                  Total includes care adj.{' '}
-                                  <span className={`font-semibold tabular-nums ${displayCareAdj > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                    {displayCareAdj > 0 ? '+' : '-'}${Math.abs(displayCareAdj).toLocaleString()}
-                                  </span>
-                                  {isHC ? ' per day' : ' per month'}
+                                  {groups.map((g) => (
+                                    <div key={g.sl}>
+                                      <div className="flex items-baseline justify-between gap-2 border-b border-[var(--dashboard-border)] bg-black/[0.03] px-2 py-1">
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--dashboard-text)]">
+                                          {getServiceLineFullName(g.sl)}
+                                        </span>
+                                        {/* HC lines are quoted per day, everything else per
+                                            month — stated per group so mixed tables are not
+                                            silently comparing two different bases. */}
+                                        <span className="whitespace-nowrap text-[9px] uppercase tracking-wide text-[var(--dashboard-muted)]">
+                                          {g.rows[0]?.daily ? 'per day' : 'per month'}
+                                        </span>
+                                      </div>
+                                      {g.rows.map((rr: any, idx: number) => (
+                                        <div
+                                          key={`${g.sl}-${rr.roomType ?? ''}-${idx}`}
+                                          className={`grid ${cols} items-baseline gap-x-1.5 px-2 py-1.5 text-[11px] text-[var(--dashboard-muted)] ${idx % 2 ? 'bg-black/[0.015]' : ''}`}
+                                        >
+                                          <span className="min-w-0 break-words font-medium leading-snug text-[var(--dashboard-text)]" title={rr.roomType ?? ''}>
+                                            {rr.roomType || '—'}
+                                          </span>
+                                          <span className="whitespace-nowrap text-right tabular-nums">{money(rr.base)}</span>
+                                          <span className="whitespace-nowrap text-right tabular-nums">
+                                            {rr.adjustment == null ? '—' : (
+                                              <>
+                                                {signedMoney(rr.adjustment)}
+                                                {rr.ourCareInherited && (
+                                                  <span title="Your care rate is inherited from the base service line">†</span>
+                                                )}
+                                              </>
+                                            )}
+                                          </span>
+                                          <span className="whitespace-nowrap text-right font-semibold tabular-nums text-[var(--dashboard-text)]">
+                                            {money(rr.adjusted)}
+                                          </span>
+                                          <span className="whitespace-nowrap text-right tabular-nums">
+                                            {money(rr.ourRate)}
+                                            {rr.ourRateBasis === 'serviceLine' && rr.ourRate != null && (
+                                              <span title="Service-line average — no matching room type in your rent roll">‡</span>
+                                            )}
+                                          </span>
+                                          <span className={`whitespace-nowrap text-right font-semibold tabular-nums ${varTone(rr.varDollar)}`}>
+                                            {signedMoney(rr.varDollar)}
+                                          </span>
+                                          <span className={`whitespace-nowrap text-right tabular-nums ${varTone(rr.varDollar)}`}>
+                                            {rr.varPct == null ? '—' : `${rr.varPct > 0 ? '+' : rr.varPct < 0 ? '−' : ''}${Math.abs(rr.varPct).toFixed(1)}%`}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ))}
                                 </div>
-                              )}
+                              </div>
+                              <div className="border-t border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-2 py-1 text-[10px] leading-snug text-[var(--dashboard-muted)]">
+                                Adjusted = base + care adj. Variance is the competitor against you —{' '}
+                                <span className="font-semibold text-emerald-600">above</span> is headroom,{' '}
+                                <span className="font-semibold text-red-500">below</span> is pressure.
+                                {anyInherited && <> † care rate inherited from the base service line.</>}
+                                {anySlFallback && <> ‡ service-line average — no matching room type.</>}
+                              </div>
                             </div>
                           );
                         })() : (
@@ -713,25 +802,6 @@ export default function CompetitorForm({
                             )}
                           </div>
                         )}
-                      </div>
-                      <div className="flex gap-2 flex-shrink-0">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => startEdit(competitor)}
-                          data-testid={`button-edit-competitor-${competitor.id}`}
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => deleteMutation.mutate(competitor.id)}
-                          data-testid={`button-delete-competitor-${competitor.id}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
                     </div>
                   </CardContent>
                 </Card>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Sparkles, Target, Loader2, Save, Check, X, TrendingUp, TrendingDown, Pencil, History, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import {
@@ -89,7 +89,19 @@ export default function AiRuleGenerator({
   const [includeInHouse, setIncludeInHouse] = useState(false);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [restoredFromCache, setRestoredFromCache] = useState(false);
+  const [restoredScope, setRestoredScope] = useState<string | null>(null);
   const [showLearningHistory, setShowLearningHistory] = useState(false);
+
+  // What this run will analyze, in the user's own filter terms.
+  const scopeSummary = useMemo(() => {
+    const sl = selectedServiceLine === "All" ? "all service lines" : selectedServiceLine;
+    let where = "all campuses";
+    if (selectedLocations.length === 1) where = selectedLocations[0];
+    else if (selectedLocations.length > 1) where = `${selectedLocations.length} campuses`;
+    else if (selectedRegions.length) where = selectedRegions.join(", ");
+    else if (selectedDivisions.length) where = selectedDivisions.join(", ");
+    return `${sl} · ${where}`;
+  }, [selectedServiceLine, selectedLocations, selectedRegions, selectedDivisions]);
 
   // Learning history: past Accept/Edit/Deny decisions that shape AI suggestions.
   const { data: learningHistory, isLoading: learningLoading } = useQuery<{
@@ -121,7 +133,7 @@ export default function AiRuleGenerator({
   });
 
   // Restore the last AI run (cached server-side) so suggestions survive reloads.
-  const { data: lastRun } = useQuery<{ suggestions?: RuleSuggestion[]; generatedAt?: string } | null>({
+  const { data: lastRun } = useQuery<{ suggestions?: RuleSuggestion[]; generatedAt?: string; context?: { campus?: string | null } } | null>({
     queryKey: ["/api/adjustment-rules/suggest/last"],
     staleTime: Infinity,
   });
@@ -129,6 +141,9 @@ export default function AiRuleGenerator({
     if (hasGenerated || !lastRun?.suggestions?.length) return;
     setSuggestions(lastRun.suggestions);
     setGeneratedAt(lastRun.generatedAt ?? null);
+    // The cached run was made under whatever filters were active at the time —
+    // say which, so restored suggestions are never mistaken for the current scope.
+    setRestoredScope(lastRun.context?.campus ?? null);
     setRestoredFromCache(true);
     setHasGenerated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -210,6 +225,11 @@ export default function AiRuleGenerator({
       }
       const response = await apiRequest("/api/adjustment-rules/suggest", "POST", {
         locationId: locationId ?? null,
+        // The page's campus filters scope the analysis the same way the service
+        // line does — suggestions must only cover what the user is looking at.
+        locations: selectedLocations,
+        regions: selectedRegions,
+        divisions: selectedDivisions,
         serviceLines: targetSLs,
         targets,
         includeInHouse,
@@ -387,6 +407,7 @@ export default function AiRuleGenerator({
           </div>
           <p className="text-xs text-gray-500">
             Save targets to persist them, or let AI propose pricing rules to reach your growth targets. Accepted suggestions become adjustment rules.
+            {' '}Suggestions cover <span className="font-medium text-gray-700" data-testid="text-ai-scope">{scopeSummary}</span> — the page filters above.
           </p>
         </div>
         <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
@@ -421,7 +442,7 @@ export default function AiRuleGenerator({
             <Badge variant="secondary" className="text-xs">{suggestions.length} pending</Badge>
             {generatedAt && (
               <span className="text-[11px] text-gray-400 ml-auto" data-testid="text-generated-at">
-                {restoredFromCache ? "Restored from last run · " : ""}
+                {restoredFromCache ? `Restored from last run · ${restoredScope ? restoredScope + " · " : ""}` : ""}
                 {new Date(generatedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
               </span>
             )}

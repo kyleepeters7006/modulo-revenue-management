@@ -1222,6 +1222,19 @@ export class DatabaseStorage implements IStorage {
           careLevel2Rate: record.careLevel2Rate,
           medicationManagementFee: record.medicationManagementFee,
           createdAt: null,
+          // Per-room-type rows, mirroring getCompetitorsWithFilters. The map popup's
+          // per-service-line breakdown is built from these, so the unfiltered
+          // (All Locations) path has to supply them too or the breakdown silently
+          // comes back empty and the popup drops to the legacy summary. The
+          // top-level careLevel2Rate above only reflects whichever record was seen
+          // first, which is not necessarily the right service line.
+          roomRates: [{
+            roomType: record.roomType,
+            streetRate: record.monthlyRateAvg,
+            careRate: record.careFeesAvg,
+            competitorType: record.competitorType,
+            careLevel2Rate: record.careLevel2Rate,
+          }],
           _careLevelValues: initCareLevels,
         });
       } else {
@@ -1237,6 +1250,13 @@ export class DatabaseStorage implements IStorage {
         if (record.competitorType && !existing.serviceLines.includes(record.competitorType)) {
           existing.serviceLines.push(record.competitorType);
         }
+        existing.roomRates.push({
+          roomType: record.roomType,
+          streetRate: record.monthlyRateAvg,
+          careRate: record.careFeesAvg,
+          competitorType: record.competitorType,
+          careLevel2Rate: record.careLevel2Rate,
+        });
         // Accumulate care level values
         if (record.competitorType && CARE_ELIGIBLE_GC.has(record.competitorType)) {
           for (const v of [record.careLevel1Rate, record.careLevel2Rate, record.careLevel3Rate, record.careLevel4Rate]) {
@@ -1497,6 +1517,10 @@ export class DatabaseStorage implements IStorage {
             streetRate: record.monthlyRateAvg,
             careRate: record.careFeesAvg,
             competitorType: record.competitorType ?? null,
+            // Kept per row so consumers can build a per-service-line care
+            // adjustment; the top-level careLevel2Rate only reflects whichever
+            // record happened to be seen first.
+            careLevel2Rate: record.careLevel2Rate ?? null,
           }] : [],
           _careLevelValues: initCareLevelValues,
         });
@@ -1538,6 +1562,10 @@ export class DatabaseStorage implements IStorage {
               streetRate: record.monthlyRateAvg,
               careRate: record.careFeesAvg,
               competitorType: record.competitorType ?? null,
+              // Must mirror the init branch above. Omitting this left every room
+              // row after the first without a care rate, so a competitor's second
+              // and later room types silently lost their care adjustment.
+              careLevel2Rate: record.careLevel2Rate ?? null,
             });
           }
         }

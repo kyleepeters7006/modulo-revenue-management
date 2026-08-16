@@ -15,6 +15,7 @@ import PricingStrategyDocumentation from "@/components/pricing-strategy-document
 import { useUploads } from "@/contexts/upload-context";
 import { useAuth } from "@/hooks/useAuth";
 import { DataImportsContent } from "@/pages/data-imports";
+import CensusReconciliation from "@/components/census-reconciliation";
 
 interface FileWithDate {
   file: File;
@@ -413,7 +414,7 @@ export default function DataManagement() {
     },
   });
 
-  const handleDownloadTemplate = async (type: 'rent-roll' | 'inquiry' | 'competitor' | 'location' | 'room-type-occupancy') => {
+  const handleDownloadTemplate = async (type: 'rent-roll' | 'inquiry' | 'competitor' | 'location' | 'room-type-occupancy' | 'move-in-out') => {
     try {
       const endpoints = {
         'rent-roll': '/api/template/rent-roll',
@@ -421,6 +422,7 @@ export default function DataManagement() {
         'competitor': '/api/template/competitor',
         'location': '/api/template/location',
         'room-type-occupancy': '/api/template/room-type-occupancy',
+        'move-in-out': '/api/template/move-in-out',
       };
       
       const filenames = {
@@ -429,6 +431,7 @@ export default function DataManagement() {
         'competitor': 'competitive_data_template.xlsx',
         'location': 'location_template.xlsx',
         'room-type-occupancy': 'room_type_occupancy_template.xlsx',
+        'move-in-out': 'move_ins_outs_template.xlsx',
       };
       
       const response = await fetch(endpoints[type]);
@@ -931,6 +934,11 @@ export default function DataManagement() {
 
           <TabsContent value="uploads">
 
+        {/* Tie-out of our derived unit counts against the client's census report */}
+        <div className="mb-6">
+          <CensusReconciliation />
+        </div>
+
         {/* Active Uploads Banner */}
         {activeUploads.length > 0 && (
           <Card className="mb-6 border-blue-200 bg-blue-50">
@@ -1409,11 +1417,20 @@ export default function DataManagement() {
               <Alert>
                 <FileSpreadsheet className="h-4 w-4" />
                 <AlertDescription>
-                  Upload the Excel workbook containing an "Admissions" sheet and/or a "Discharges" sheet. This authoritative census feed powers move-in/out counts across the dashboard (Reference Data, rule performance, and pricing impact). Re-uploading replaces existing events for the same records.
+                  Upload the "Export" sheet from the Move Ins or Move Outs report — one direction per file, with columns Date, Campus, Department, Service Line, Room/Bed, Payer Name, Move Event and Move Category. Only true admissions and permanent discharges are counted; hospital returns are stored but excluded. The legacy workbook with "Admissions" / "Discharges" sheets is still accepted. This authoritative census feed powers move-in/out counts across the dashboard (Reference Data, rule performance, and pricing impact). Re-uploading replaces existing events for the same records.
                 </AlertDescription>
               </Alert>
 
               <div className="flex flex-col space-y-3">
+                <Button
+                  onClick={() => handleDownloadTemplate('move-in-out')}
+                  className="w-full bg-teal-600 hover:bg-teal-700 text-white"
+                  data-testid="button-download-move-in-out-template"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Move Ins &amp; Outs Template
+                </Button>
+
                 <Button
                   onClick={() => moveInOutFileInputRef.current?.click()}
                   disabled={isUploading('move-in-out')}

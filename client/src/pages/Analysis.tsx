@@ -23,8 +23,10 @@ interface AnalysisData {
     serviceLine: string;
     actual: number;
     budgeted: number;
-    trend: number;
+    trend: number | null;
   }>;
+  /** RTO month the occupancy figures represent, e.g. "2026-07". */
+  occupancyMonth?: string | null;
   remainderMetrics: {
     underpricedUnits: {
       count: number;
@@ -99,6 +101,13 @@ export default function Analysis() {
 
   const formatCurrency = (value: number) => `$${value.toLocaleString()}`;
   const formatPercentage = (value: number) => `${value.toFixed(1)}%`;
+  // "2026-07" -> "July 2026". Parsed manually so the label is not shifted a month
+  // by the browser's timezone the way new Date("2026-07") would be.
+  const formatOccupancyMonth = (value: string) => {
+    const [year, month] = value.split('-').map(Number);
+    if (!year || !month) return value;
+    return `${new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long' })} ${year}`;
+  };
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
@@ -254,6 +263,11 @@ export default function Analysis() {
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Occupancy by Service Line</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {analysisData.occupancyMonth
+                ? `Room Type Occupancy History · ${formatOccupancyMonth(analysisData.occupancyMonth)}`
+                : "Rent roll (no occupancy history uploaded)"}
+            </p>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={250}>

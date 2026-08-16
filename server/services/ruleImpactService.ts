@@ -72,6 +72,14 @@ export interface RuleCampusImpact {
   annualImpact: number;
 }
 
+export interface RuleServiceLineImpact {
+  serviceLine: string;
+  unitCount: number;
+  moveInsPerMonth: number;
+  monthlyImpact: number;
+  annualImpact: number;
+}
+
 export interface RuleImpactResult {
   affectedUnits: number;
   affectedCampuses: number;
@@ -82,6 +90,7 @@ export interface RuleImpactResult {
   annualImpact: number;             // first-year cumulative impact (ramped move-in cohorts)
   steadyStateAnnualImpact: number;  // full-year impact once fully ramped (12 months of cohorts)
   perCampus: RuleCampusImpact[];
+  perServiceLine: RuleServiceLineImpact[];
   qualifiedUnitIds: Set<string>;
   overlapExcludedUnits: number;    // units this rule qualifies but already claimed by a higher-precedence rule
 }
@@ -857,6 +866,80 @@ export function ruleSpecificityScore(rule: any): number {
   if (Array.isArray(rt) && rt.length > 0) score += 1;
   return score;
 }
+
+/**
+ * Ordering used for unit-level overlap dedup: whichever rule comes first claims
+ * a contested unit. Specificity DESC → explicit priority DESC → effectiveDate
+ * DESC → createdAt DESC, mirroring the live pricing engine.
+ *
+ * Exported so every caller that needs the deduped view sorts identically. The
+ * rules list and the Rule Designer preview must agree on this order or the
+ * preview will quote a different affected-unit count than the saved rule shows.
+ */
+export function compareRuleDedupOrder(a: any, b: any): number {
+  const specDiff = ruleSpecificityScore(b) - ruleSpecificityScore(a);
+  if (specDiff !== 0) return specDiff;
+  const priDiff = (b.priority ?? 0) - (a.priority ?? 0);
+  if (priDiff !== 0) return priDiff;
+  const da = a.effectiveDate ? new Date(a.effectiveDate).toISOString() : '';
+  const db = b.effectiveDate ? new Date(b.effectiveDate).toISOString() : '';
+  if (da !== db) return db.localeCompare(da);
+  const ca = a.createdAt ? new Date(a.createdAt).toISOString() : '';
+  const cb = b.createdAt ? new Date(b.createdAt).toISOString() : '';
+  return cb.localeCompare(ca);
+}
+
+/** A rule is eligible for the dedup walk only if it can actually move a rate. */
+export function isDedupEligibleRule(r: any): boolean {
+  return !!r?.isActive && r?.isHistorical !== true && !!r?.action?.adjustmentValue;
+}
+
+/**
+ * Net impact of a rule that does not exist yet, as it WILL be reported once
+ * saved.
+ *
+ * The Rule Designer preview cannot just call computeQualifiedRuleImpact: the
+ * rules list reports every rule net of overlap dedup, where more-specific rules
+ * claim contested units first. A prospective rule previewed in isolation
+ * therefore quotes its gross population and then appears to collapse the moment
+ * it is saved. Replaying the same ordered claim walk with the prospective rule
+ * inserted at its real position makes the two numbers agree.
+ *
+ * Returns both the net result and the gross (standalone) result, so callers can
+ * explain a shortfall as "claimed by higher-precedence rules" rather than
+ * showing an unexplained drop.
+ */
+export function computeProspectiveRuleImpact(
+  ctx: RuleImpactContext,
+  prospective: any,
+  existingRules: any[],
+  scope?: { locationId?: string | null; serviceLine?: string | null; locationIds?: string[] | null },
+): { net: RuleImpactResult; gross: RuleImpactResult; claimedByOtherRules: number } {
+  const gross = computeQualifiedRuleImpact(ctx, prospective, scope);
+
+  const PROSPECTIVE = "__prospective__";
+  const ordered = [
+    ...existingRules.filter(r => isDedupEligibleRule(r) && r.id !== PROSPECTIVE),
+    { ...prospective, id: PROSPECTIVE },
+  ].sort(compareRuleDedupOrder);
+
+  const claimedUnitIds = new Set<string>();
+  let net: RuleImpactResult | null = null;
+  for (const rule of ordered) {
+    const impact = computeQualifiedRuleImpact(ctx, rule, scope, claimedUnitIds);
+    if (rule.id === PROSPECTIVE) net = impact;
+    for (const id of Array.from(impact.qualifiedUnitIds)) claimedUnitIds.add(id);
+    // Everything after the prospective rule is irrelevant to its own number.
+    if (rule.id === PROSPECTIVE) break;
+  }
+
+  const resolved = net ?? gross;
+  return {
+    net: resolved,
+    gross,
+    claimedByOtherRules: Math.max(0, gross.affectedUnits - resolved.affectedUnits),
+  };
+}
 /**
  * Compute the qualified units + move-ins-based revenue impact for one rule.
  * `scope` optionally narrows to a page-level campus/service-line filter.
@@ -875,6 +958,7 @@ export function computeQualifiedRuleImpact(
   const slScope = effectiveServiceLines(rule);
 
   const perCampus = new Map<string, RuleCampusImpact>();
+  const perServiceLine = new Map<string, RuleServiceLineImpact>();
   const qualifiedUnitIds = new Set<string>();
   let affectedUnits = 0;
   let rateSum = 0;
@@ -939,6 +1023,14 @@ export function computeQualifiedRuleImpact(
     c.moveInsPerMonth += moveIns;
     c.monthlyImpact += gMonthly;
     perCampus.set(key, c);
+
+    const s = perServiceLine.get(sl) || {
+      serviceLine: sl, unitCount: 0, moveInsPerMonth: 0, monthlyImpact: 0, annualImpact: 0,
+    };
+    s.unitCount += impactUnits.length;
+    s.moveInsPerMonth += moveIns;
+    s.monthlyImpact += gMonthly;
+    perServiceLine.set(sl, s);
   }
 
   // Annualization multipliers.
@@ -959,6 +1051,13 @@ export function computeQualifiedRuleImpact(
     annualImpact: Math.round(c.monthlyImpact * firstYearMult),
   })).sort((a, b) => Math.abs(b.monthlyImpact) - Math.abs(a.monthlyImpact));
 
+  const serviceLines = Array.from(perServiceLine.values()).map(s => ({
+    ...s,
+    moveInsPerMonth: Math.round(s.moveInsPerMonth * 10) / 10,
+    monthlyImpact: Math.round(s.monthlyImpact),
+    annualImpact: Math.round(s.monthlyImpact * firstYearMult),
+  })).sort((a, b) => b.unitCount - a.unitCount);
+
   return {
     affectedUnits,
     affectedCampuses: campuses.length,
@@ -971,6 +1070,7 @@ export function computeQualifiedRuleImpact(
     annualImpact: Math.round(monthlyImpact * firstYearMult),
     steadyStateAnnualImpact: Math.round(monthlyImpact * steadyMult),
     perCampus: campuses,
+    perServiceLine: serviceLines,
     qualifiedUnitIds,
     overlapExcludedUnits,
   };

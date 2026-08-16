@@ -393,159 +393,176 @@ export function CompetitorMap({
           icon: competitorMarkerIcon
         }).addTo(mapInstanceRef.current);
         
-        // Determine if this is HC (Health Center) which uses daily rates
-        // Check both serviceLine and serviceLines array (competitors can have multiple service lines)
-        const isHC = competitor.serviceLine === 'HC' || 
-                     competitor.serviceLine === 'HC/MC' ||
-                     competitor.competitorType === 'HC' ||
-                     (competitor.serviceLines && competitor.serviceLines.some((sl: string) => 
-                       sl === 'HC' || sl === 'HC/MC'));
-        
-        // Calculate comparison to portfolio
-        const avgPortfolioRate = currentProperty.avgRate || 3500;
-        let avgCompetitorRate = competitor.streetRate || competitor.avgRate || 3500;
-        // careAdj is the differential (competitor careL2 − location careL2), always in monthly terms.
-        // This matches exactly what the Competitor Rate Comparison table shows.
-        const careAdj: number = competitor.careAdj ?? 0;
-        
-        // For HC, convert monthly rate to daily for display.
-        // careAdj is kept in monthly terms (matches Rate Comparison table), so TOTAL is computed
-        // from monthly base + monthly care adj, then converted to daily for HC.
-        let displayRate = avgCompetitorRate;
-        let rateLabel = isHC ? 'Daily' : 'Monthly';
-        let displayTotalRate: number;
-        
-        if (isHC) {
-          // Convert monthly base rate to daily for the RATE cell
-          displayRate = Math.round(avgCompetitorRate / 30.44);
-          // TOTAL: combine monthly values then convert to daily
-          displayTotalRate = Math.round((avgCompetitorRate + careAdj) / 30.44);
-        } else {
-          displayTotalRate = displayRate + careAdj;
-        }
-        
-        // Keep comparison in monthly terms for consistency
-        const totalRate = avgCompetitorRate + careAdj;
-        const totalPortfolioRate = avgPortfolioRate + (currentProperty.avgCareRate || 500);
-        const comparison = totalRate - totalPortfolioRate;
-        const comparisonText = comparison > 0 ? `+$${comparison.toLocaleString()}` : comparison < 0 ? `-$${Math.abs(comparison).toLocaleString()}` : 'Same';
-        const comparisonColor = comparison > 0 ? '#10b981' : comparison < 0 ? '#ef4444' : '#6b7280';
-
-        // Format room rates more elegantly
-        let primaryRate = displayRate;
-        const popupServiceLine = competitor.serviceLine || (competitor.serviceLines && competitor.serviceLines[0]) || null;
-        let roomTypeLabel = isHC ? `HC Rate${popupServiceLine ? ` (${popupServiceLine})` : ''}` : `Avg Rate${popupServiceLine ? ` (${popupServiceLine})` : ''}`;
-        if (!isHC && competitor.rates && typeof competitor.rates === 'object') {
-          if (competitor.rates.Studio || competitor.rates.studio) {
-            primaryRate = competitor.rates.Studio || competitor.rates.studio;
-            roomTypeLabel = `Studio${popupServiceLine ? ` (${popupServiceLine})` : ''}`;
-          } else if (competitor.rates['One Bedroom'] || competitor.rates.oneBedroom) {
-            primaryRate = competitor.rates['One Bedroom'] || competitor.rates.oneBedroom;
-            roomTypeLabel = `1BR${popupServiceLine ? ` (${popupServiceLine})` : ''}`;
-          }
-        }
-        // For roomRates array, derive label from first entry if available
-        if (competitor.roomRates && competitor.roomRates.length > 0) {
-          const firstRR = competitor.roomRates[0];
-          const rrSL = firstRR.competitorType || popupServiceLine;
-          if (firstRR.streetRate != null) {
-            primaryRate = firstRR.streetRate;
-            roomTypeLabel = `${firstRR.roomType}${rrSL ? ` (${rrSL})` : ''}`;
-          }
-        }
+        // ── Coarse fallback comparison ────────────────────────────────────────
+        // Only reached when the server supplied no per-service-line breakdown.
+        // Compares street rates only, and invents nothing: the previous version
+        // defaulted a missing competitor or portfolio rate to $3,500 (and missing
+        // care to $500), so the popup could show a confident "vs. Portfolio
+        // Average" figure derived entirely from placeholder numbers. If either
+        // side is missing we show an em dash instead.
+        //
+        // The dead display code that used to live here (primaryRate, rateLabel,
+        // displayTotalRate, roomTypeLabel) was computing rates in the browser,
+        // including a /30.44 monthly→daily conversion, and was never rendered
+        // after the popup was rebuilt around the server-computed breakdown.
+        const ourStreetFallback: number | null = currentProperty.avgRate ?? null;
+        const theirStreetFallback: number | null =
+          competitor.streetRate ?? competitor.avgRate ?? null;
+        const comparison: number | null =
+          ourStreetFallback != null && theirStreetFallback != null
+            ? Math.round(theirStreetFallback - ourStreetFallback)
+            : null;
+        // Competitor above us is headroom (green), below us is pressure (red) —
+        // the same convention as the breakdown table and the side panel.
+        const comparisonText =
+          comparison == null
+            ? '—'
+            : comparison > 0
+              ? `+$${comparison.toLocaleString()}`
+              : comparison < 0
+                ? `−$${Math.abs(comparison).toLocaleString()}`
+                : 'Same';
+        const comparisonColor =
+          comparison == null
+            ? '#94a3b8'
+            : comparison > 0
+              ? '#10b981'
+              : comparison < 0
+                ? '#ef4444'
+                : '#6b7280';
 
         const searchTerm = competitor.address || `${competitor.name} Louisville KY`;
         const encodedAddress = encodeURIComponent(searchTerm);
         const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
         const directionsUrl = `https://www.google.com/maps/dir/${encodeURIComponent(currentProperty.address)}/${encodedAddress}`;
 
+        // ── Drive time ────────────────────────────────────────────────────────
+        // Prefer a stored drive_time_minutes from attributes (seeded/imported);
+        // otherwise estimate: road distance ≈ 1.4× crow-flies at ~25 mph in mixed
+        // suburban/rural terrain, i.e. 1.4/25*60 ≈ 3.4 min per straight-line mile.
+        const storedDriveMin = competitor.attributes?.drive_time_minutes;
+        const driveMin = competitor.distanceMiles != null
+          ? (storedDriveMin != null ? Math.round(storedDriveMin) : Math.round(competitor.distanceMiles * 3.4))
+          : null;
+        const driveIsEstimate = storedDriveMin == null;
+        const driveLabel = driveMin == null
+          ? '—'
+          : driveMin < 60
+            ? `${driveMin} min`
+            : `${Math.floor(driveMin / 60)}h ${driveMin % 60}m`;
+
+        // ── Per-service-line comparison table ─────────────────────────────────
+        // Rows come from the server already reduced to the service line's native
+        // basis (per-day for HC lines, per-month otherwise) with the care
+        // adjustment and variance resolved there, so nothing is re-derived here.
+        const slBreakdown: any[] = competitor.slBreakdown || [];
+        const slLabelComp = (sl: string) => (sl === 'VIL' ? 'Patio Homes' : sl);
+        const fmtNative = (v: number | null | undefined, daily: boolean) =>
+          v == null ? '—' : `$${Math.round(v).toLocaleString()}${daily ? '/day' : '/mo'}`;
+        const fmtSigned = (v: number | null | undefined, daily: boolean) => {
+          if (v == null) return '—';
+          const r = Math.round(v);
+          if (r === 0) return '$0';
+          return `${r > 0 ? '+' : '−'}$${Math.abs(r).toLocaleString()}${daily ? '/day' : '/mo'}`;
+        };
+        // A competitor priced above us is headroom for our rate (green); one
+        // priced below us undercuts us (red). Same convention as the old
+        // "vs. Portfolio Average" line this table replaces.
+        const varianceColor = (v: number | null | undefined) =>
+          v == null ? '#94a3b8' : v > 0 ? '#059669' : v < 0 ? '#dc2626' : '#64748b';
+
+        const anyInheritedCare = slBreakdown.some((r: any) => r.ourCareInherited);
+        const weightForSl = (sl: string): number | null => {
+          const wbsl: Record<string, number> = competitor.weightsByServiceLine || {};
+          // weightsByServiceLine is keyed by raw competitor type, which differs
+          // from the service line for the memory-care and independent lines.
+          const SL_TO_COMP_TYPES: Record<string, string[]> = {
+            'HC': ['HC'], 'HC/MC': ['HC/MC', 'SMC'], 'AL': ['AL'], 'AL/MC': ['AL/MC'],
+            'SL': ['IL_IL'], 'VIL': ['IL_Villa'],
+          };
+          for (const t of (SL_TO_COMP_TYPES[sl] || [sl])) {
+            if (wbsl[t] != null && wbsl[t] > 0) return wbsl[t];
+          }
+          return competitor.weight != null && competitor.weight > 0 ? competitor.weight : null;
+        };
+
+        const compSubtitleParts = [
+          competitor.distanceMiles != null ? `${competitor.distanceMiles.toFixed(1)} mi` : null,
+          driveMin != null ? `${driveLabel}${driveIsEstimate ? ' est.' : ''} drive` : null,
+          competitor.location ? `vs ${competitor.location}` : null,
+        ].filter(Boolean) as string[];
+
         marker.bindPopup(`
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: 320px; max-width: 360px; padding: 0; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.08);">
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: ${slBreakdown.length ? '360px' : '300px'}; max-width: ${slBreakdown.length ? '420px' : '340px'}; padding: 0; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.08);">
             <!-- Header with gradient background -->
-            <div style="background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: white; padding: 20px; position: relative;">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                <h3 style="margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.5px;">${competitor.name}</h3>
-                ${competitor.distanceMiles ? `
-                <span style="background: #3b82f620; color: #2563eb; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px;">
-                  ${competitor.distanceMiles.toFixed(1)} mi
-                </span>
-                ` : ''}
+            <div style="background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: white; padding: 13px 16px; position: relative;">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 5px;">
+                <h3 style="margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.5px; line-height: 1.3;">${esc(competitor.name)}</h3>
+                <span style="background: rgba(255,255,255,0.2); color: white; padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0;">COMPETITOR</span>
               </div>
-              <p style="margin: 0; font-size: 13px; opacity: 0.85; font-weight: 300;">Competitor Location</p>
+              ${competitor.address ? `<p style="margin: 0; font-size: 11px; opacity: 0.85; font-weight: 300;">${esc(competitor.address)}</p>` : ''}
+              ${compSubtitleParts.length ? `<p style="margin: 3px 0 0 0; font-size: 10px; opacity: 0.75; font-weight: 300;">${compSubtitleParts.map(esc).join(' · ')}</p>` : ''}
             </div>
             
             <!-- Main content with key metrics -->
-            <div style="padding: 20px;">
-              <!-- Service Line Badge + Weight Badge -->
-              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
-                ${isHC ? `
-                <div style="display: inline-block; background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
-                  HC - Daily Rates
-                </div>
-                ` : `
-                <div style="display: inline-block; background: #dbeafe; border: 1px solid #60a5fa; color: #1e3a8a; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
-                  ${competitor.serviceLine || 'AL'} - Monthly Rates
-                </div>
-                `}
-                ${(() => {
-                  const wbsl: Record<string, number> = competitor.weightsByServiceLine || {};
-                  const perSLEntries = Object.entries(wbsl);
-                  if (perSLEntries.length > 0) {
-                    return perSLEntries.map(([sl, w]) => `
-                <div style="display: inline-block; background: #f0fdf4; border: 1px solid #86efac; color: #166534; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;">
-                  ⚖ ${sl}: ${Math.round((w as number) * 100)}%
-                </div>`).join('');
-                  }
-                  if (competitor.weight != null && competitor.weight > 0) {
-                    if (competitor.serviceLines && competitor.serviceLines.length > 0) {
-                      return competitor.serviceLines.map((sl: string) => `
-                <div style="display: inline-block; background: #f0fdf4; border: 1px solid #86efac; color: #166534; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;">
-                  ⚖ ${sl}: ${Math.round(competitor.weight * 100)}%
-                </div>`).join('');
-                    }
-                    return `
-                <div style="display: inline-block; background: #f0fdf4; border: 1px solid #86efac; color: #166534; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;">
-                  ⚖ ${Math.round(competitor.weight * 100)}% weight
-                </div>`;
-                  }
-                  return '';
-                })()}
-              </div>
-              
-              <!-- Rate Section -->
-              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px;">
-                <!-- Room Rate -->
+            <div style="padding: 12px 16px 4px 16px;">
+              <!-- Key competitor metrics -->
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px;">
                 <div style="text-align: center;">
-                  <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">RATE</p>
-                  <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #1e293b;">$${Number(primaryRate).toLocaleString()}</p>
-                  <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">${roomTypeLabel}</p>
+                  <p style="margin: 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Distance</p>
+                  <p style="margin: 3px 0 0 0; font-size: 17px; font-weight: 600; color: #1e293b;">${competitor.distanceMiles != null ? `${competitor.distanceMiles.toFixed(1)}` : '—'}<span style="font-size: 11px; font-weight: 500; color: #64748b;">${competitor.distanceMiles != null ? ' mi' : ''}</span></p>
                 </div>
-                
-                <!-- Care Adjustment -->
                 <div style="text-align: center; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;">
-                  <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">CARE</p>
-                  ${careAdj !== 0
-                    ? `<p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: ${careAdj > 0 ? '#10b981' : '#ef4444'};">${careAdj > 0 ? '+' : '-'}$${Math.abs(careAdj).toLocaleString()}</p>`
-                    : `<p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #94a3b8;">—</p>`
-                  }
-                  <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">Care Adj.</p>
+                  <p style="margin: 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Drive</p>
+                  <p style="margin: 3px 0 0 0; font-size: 17px; font-weight: 600; color: #1e293b;">${driveLabel}</p>
+                  ${driveMin != null && driveIsEstimate ? `<p style="margin: 1px 0 0 0; font-size: 9px; color: #64748b;">estimated</p>` : ''}
                 </div>
-                
-                <!-- Total -->
                 <div style="text-align: center;">
-                  <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">TOTAL</p>
-                  <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 600; color: #1e293b;">$${displayTotalRate.toLocaleString()}</p>
-                  <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">${rateLabel}</p>
+                  <p style="margin: 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Service Lines</p>
+                  <p style="margin: 3px 0 0 0; font-size: 17px; font-weight: 600; color: #1e293b;">${slBreakdown.length || (competitor.serviceLines?.length ?? 0) || '—'}</p>
                 </div>
               </div>
-              
-              <!-- Comparison Section -->
-              <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+
+              ${slBreakdown.length ? `
+              <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                <thead>
+                  <tr>
+                    <th style="text-align: left; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Service Line</th>
+                    <th style="text-align: right; padding: 0 0 5px 4px; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Street</th>
+                    <th style="text-align: right; padding: 0 0 5px 4px; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Care Adj</th>
+                    <th style="text-align: right; padding: 0 0 5px 4px; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Adj Rate</th>
+                    <th style="text-align: right; padding: 0 0 5px 4px; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">vs You</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${slBreakdown.map((r: any) => {
+                    const w = weightForSl(r.serviceLine);
+                    return `
+                  <tr>
+                    <td style="text-align: left; padding: 4px 0; color: #1e293b; font-weight: 500; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">
+                      ${esc(slLabelComp(r.serviceLine))}${r.ourCareInherited ? '<span style="color:#94a3b8;" title="Care rate inherited from base service line">†</span>' : ''}
+                      ${w != null ? `<span style="color: #94a3b8; font-weight: 400;"> ${Math.round(w * 100)}%</span>` : ''}
+                    </td>
+                    <td style="text-align: right; padding: 4px 0 4px 4px; color: #475569; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtNative(r.theirStreetRate, r.daily)}</td>
+                    <td style="text-align: right; padding: 4px 0 4px 4px; color: ${r.careAdj == null ? '#94a3b8' : '#475569'}; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtSigned(r.careAdj, r.daily)}</td>
+                    <td style="text-align: right; padding: 4px 0 4px 4px; color: #1e293b; font-weight: 600; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtNative(r.adjustedRate, r.daily)}</td>
+                    <td style="text-align: right; padding: 4px 0 4px 4px; color: ${varianceColor(r.variance)}; font-weight: 600; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtSigned(r.variance, r.daily)}</td>
+                  </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+              <p style="margin: 6px 0 8px 0; font-size: 9px; color: #94a3b8; line-height: 1.4;">
+                Adj Rate = their street + care adjustment · vs You = Adj Rate − your street rate${anyInheritedCare ? ' · † care rate inherited from base service line' : ''}
+              </p>
+              ` : `
+              <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <span style="font-size: 12px; color: #64748b; font-weight: 500;">vs. Portfolio Average</span>
+                  <span style="font-size: 12px; color: #64748b; font-weight: 500;">vs. Portfolio Average (street)</span>
                   <span style="font-size: 16px; font-weight: 600; color: ${comparisonColor};">${comparisonText}</span>
                 </div>
+                <p style="margin: 6px 0 0 0; font-size: 10px; color: #94a3b8;">No per-service-line survey rates for this competitor. Street rates only — no care adjustment applied.</p>
               </div>
+              `}
               
               ${competitor.attributes?.nearestTrilogyLocation ? `
               <!-- Nearest Trilogy Location -->
@@ -557,7 +574,7 @@ export function CompetitorMap({
                   </svg>
                   <span style="font-size: 11px; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Nearest Trilogy Location</span>
                 </div>
-                <p style="margin: 0; font-size: 14px; color: #0c4a6e; font-weight: 600;">${competitor.attributes.nearestTrilogyLocation}</p>
+                <p style="margin: 0; font-size: 14px; color: #0c4a6e; font-weight: 600;">${esc(competitor.attributes.nearestTrilogyLocation)}</p>
                 <p style="margin: 4px 0 0 0; font-size: 12px; color: #0369a1;">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: inline; vertical-align: text-top; margin-right: 4px;">
                     <circle cx="12" cy="12" r="10"/>
@@ -585,7 +602,15 @@ export function CompetitorMap({
               </div>
             </div>
           </div>
-        `);
+        `, {
+          // Leaflet defaults to maxWidth 300px, which would clip the 5-column
+          // comparison table (its content sets min-width 360px). The map card is
+          // a fixed 400px tall, so cap the height too and let Leaflet scroll:
+          // a campus with every service line renders 6 rows plus the footnote
+          // and action buttons, which is taller than the card.
+          maxWidth: slBreakdown.length ? 420 : 340,
+          maxHeight: 340,
+        });
       });
       
       const validCompItems = competitorData.items.filter((comp: any) =>

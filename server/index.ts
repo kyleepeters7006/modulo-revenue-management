@@ -212,6 +212,36 @@ app.use((req, res, next) => {
     log(`[migration] data import tables migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: census capacity reference.
+  // Holds the client's own census-report capacity by division/department purely as a
+  // tie-out against our derived numbers. It never feeds pricing or Total Units —
+  // room_type_occupancy_history remains the single source of truth for capacity.
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS census_capacity_reference (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id varchar NOT NULL,
+        year integer NOT NULL,
+        month integer NOT NULL,
+        as_of_date text,
+        division text NOT NULL,
+        department text NOT NULL,
+        service_line text NOT NULL,
+        available_beds integer NOT NULL DEFAULT 0,
+        available_units integer NOT NULL DEFAULT 0,
+        source_file text,
+        imported_at timestamp DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS census_capacity_reference_unique_idx
+        ON census_capacity_reference (client_id, year, month, division, department)
+    `);
+    log("[migration] census_capacity_reference table ensured");
+  } catch (migErr) {
+    log(`[migration] census_capacity_reference migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Idempotent migration: ensure source_room_type column exists on rent_roll_data.
   // Added to shared/schema.ts (Task #294) but never applied to the live DB, causing
   // POST /api/publish to throw "TypeError: Cannot convert undefined or null to object"

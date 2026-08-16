@@ -1112,6 +1112,50 @@ export const insertRoomTypeOccupancyHistorySchema = createInsertSchema(roomTypeO
 export type RoomTypeOccupancyHistory = typeof roomTypeOccupancyHistory.$inferSelect;
 export type InsertRoomTypeOccupancyHistory = z.infer<typeof insertRoomTypeOccupancyHistorySchema>;
 
+/**
+ * Capacity as reported by the client's own daily census report.
+ *
+ * This is a REFERENCE / tie-out source only — it never feeds pricing or the
+ * Total Units figure. Occupancy history (`room_type_occupancy_history`) remains
+ * the single computational source of truth for both capacity and occupancy.
+ * The census report stops at division x department, so it cannot supply the
+ * campus- and room-type-level detail the app actually prices on; its job is to
+ * tell us when our derived capacity has drifted away from what the client's
+ * finance system reports.
+ *
+ * Health-care lines report AvailableBeds and senior-housing lines report
+ * AvailableUnits, so both are stored and capacity is their sum.
+ */
+export const censusCapacityReference = pgTable("census_capacity_reference", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull(),
+  year: integer("year").notNull(),
+  month: integer("month").notNull(),
+  // Report date the snapshot was run for (census reports are as-of a single day).
+  asOfDate: text("as_of_date"),
+  division: text("division").notNull(),
+  // Raw department label from the report, e.g. "01-HC", "03-AL Legacy".
+  department: text("department").notNull(),
+  // Department mapped onto our service lines: HC, HC/MC, AL, AL/MC, VIL, SL.
+  serviceLine: text("service_line").notNull(),
+  availableBeds: integer("available_beds").notNull().default(0),
+  availableUnits: integer("available_units").notNull().default(0),
+  sourceFile: text("source_file"),
+  importedAt: timestamp("imported_at").defaultNow(),
+}, (table) => ({
+  censusRefUniq: uniqueIndex("census_capacity_reference_unique_idx").on(
+    table.clientId, table.year, table.month, table.division, table.department
+  ),
+}));
+
+export const insertCensusCapacityReferenceSchema = createInsertSchema(censusCapacityReference).omit({
+  id: true,
+  importedAt: true,
+});
+
+export type CensusCapacityReference = typeof censusCapacityReference.$inferSelect;
+export type InsertCensusCapacityReference = z.infer<typeof insertCensusCapacityReferenceSchema>;
+
 // Types
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationsSchema>;

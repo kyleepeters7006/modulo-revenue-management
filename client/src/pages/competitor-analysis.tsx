@@ -35,7 +35,7 @@ const loadCompetitorFiltersFromStorage = () => {
 };
 
 export default function CompetitorAnalysis() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, clientShortName } = useAuth();
 
   // Check for URL parameters first
   const urlParams = new URLSearchParams(window.location.search);
@@ -590,7 +590,11 @@ export default function CompetitorAnalysis() {
         {/* A rigid 2/1 split left the side column near 320px — too narrow for a card with
             a title, an action button and rate rows, so content spilled and got clipped.
             A floor width on the panel keeps it readable and lets the map take the slack. */}
-        <div className="hidden lg:grid lg:gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(390px,0.62fr)] xl:grid-cols-[minmax(0,1fr)_minmax(430px,0.55fr)]">
+        {/* The management panel carries a seven-column rate table now, which needs ~480px of
+            usable width. The old 0.62/0.55fr shares left it around 350px, so the three columns
+            that matter most (our rate and the two variances) sat off-screen behind a scrollbar.
+            The map keeps the larger share; the panel just gets enough to show the full chain. */}
+        <div className="hidden lg:grid lg:gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(390px,0.75fr)] xl:grid-cols-[minmax(0,1fr)_minmax(460px,0.75fr)]">
           <div className="min-w-0">
             <CompetitorMap 
               selectedRegions={selectedRegions}
@@ -737,7 +741,7 @@ export default function CompetitorAnalysis() {
                         <SortableHead field="careLevel2Adjustment" label="Care Adj." right />
                         <SortableHead field="medMgmtAdjustment" label="Med Mgmt" right />
                         <SortableHead field="adjustedRate" label="Adjusted Rate" right />
-                        <SortableHead field="trilogyRate" label="Trilogy Rate" right />
+                        <SortableHead field="trilogyRate" label={`${clientShortName} Rate`} right />
                         <SortableHead field="marketPosition" label="Market Position" right />
                       </TableRow>
                     </TableHeader>

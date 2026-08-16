@@ -1825,7 +1825,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               const groupImpact = groupRules
                 .filter((r: any) => !supersededIds.has(r.id))
                 .reduce((s: number, r: any) => s + (r.annualImpact || 0), 0);
-              const groupOpen = openRuleGroups[group.id] ?? false;
+              const groupOpen = openRuleGroups[group.id] ?? true;
 
               return (
                 <div key={group.id} className="rounded-lg border border-slate-200 bg-white overflow-hidden"

@@ -29,3 +29,12 @@ Escape string values; numbers are safe once coerced with `Number()`.
 **How to apply:** any time popup content grows, re-check it against the card height at
 the campus with the most service lines (the worst case), and confirm nothing new is
 interpolated without escaping.
+
+## bindPopup defaults will clip a wide popup
+
+Leaflet's default popup `maxWidth` is **300px**. A popup whose content sets a larger
+`min-width` (e.g. a multi-column comparison table) gets clipped, because the inline style
+and the Leaflet wrapper disagree. Always pass explicit `{ maxWidth, maxHeight }` options to
+`bindPopup` — matching the content's own max-width — instead of relying on the inline style
+alone. `maxHeight` also has to be set for Leaflet to make the popup scroll rather than
+overflow the fixed-height map card.

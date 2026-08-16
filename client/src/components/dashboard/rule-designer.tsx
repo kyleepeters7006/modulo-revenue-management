@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { usePortalTooltip } from '@/hooks/usePortalTooltip';
 import { zeroReasonLabel, zeroReasonDetail } from '@/lib/ruleZeroReason';
@@ -14,11 +14,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Mic, MicOff, Sparkles, Play, CheckCircle2,
   Trash2, Plus, ChevronDown, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle, StickyNote,
-  Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers, History, FileBarChart, PowerOff
+  Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers, History, FileBarChart, PowerOff,
+  Filter, ArrowUp, ArrowDown, ChevronsUpDown, Building2, Loader2, Search
 } from 'lucide-react';
 import { HistoryReportModal } from '@/components/dashboard/pricing-reports';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle
 } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
@@ -30,6 +31,26 @@ interface SpeechRecognitionEvent extends Event {
 }
 interface SpeechRecognitionErrorEvent extends Event {
   error: string;
+}
+
+/** One campus in the Units Impacted drill-down, from /api/adjustment-rules/:id/coverage. */
+interface CoverageCampus {
+  campusName: string;
+  locationId: string | null;
+  region: string | null;
+  division: string | null;
+  unitCount: number;
+  avgRate: number;
+  moveInsPerMonth: number;
+  monthlyImpact: number;
+  annualImpact: number;
+}
+interface CoverageData {
+  ruleName: string;
+  campuses: CoverageCampus[];
+  totalUnits: number;
+  totalMoveInsPerMonth: number;
+  totalMonthlyImpact: number;
 }
 
 const METRICS = [
@@ -58,6 +79,172 @@ const NEW_METRIC_FIELDS: Record<string, string> = {
 
 const TIME_PERIODS = ['Current Spot', 'Current Month', 'Trailing 3', 'Trailing 6', 'Trailing 12'];
 const ALL_SERVICE_LINES = ['AL', 'AL/MC', 'IL', 'SL', 'HC', 'HC/MC', 'VIL'] as const;
+
+/* ── Rule Administration table: sorting + per-column filtering ───────────── */
+
+type AdminSortKey = 'priority' | 'name' | 'detail' | 'serviceLine' | 'units' | 'revenue';
+
+interface AdminColFilters {
+  name: string;
+  detail: string;
+  serviceLines: string[];
+  unitsMin: string;
+  unitsMax: string;
+  revMin: string;
+  revMax: string;
+}
+
+const EMPTY_ADMIN_FILTERS: AdminColFilters = {
+  name: '', detail: '', serviceLines: [], unitsMin: '', unitsMax: '', revMin: '', revMax: '',
+};
+
+const hasAdminFilters = (f: AdminColFilters) =>
+  !!(f.name || f.detail || f.serviceLines.length || f.unitsMin || f.unitsMax || f.revMin || f.revMax);
+
+// The service lines a rule targets, matching what the Service Line column renders.
+// action.filters.serviceLine has a legacy single-string form (handled elsewhere in
+// this file when rehydrating a rule for editing) — a bare string has .length and
+// would otherwise reach .some()/.join() as a string and throw.
+const asList = (v: any): string[] => (Array.isArray(v) ? v : v ? [String(v)] : []);
+const ruleServiceLineList = (r: any): string[] => {
+  const explicit = asList(r?.serviceLines);
+  const fromFilters = asList(r?.action?.filters?.serviceLine);
+  const sls = explicit.length ? explicit : fromFilters;
+  return sls.length ? sls : [r?.serviceLine || 'All'];
+};
+
+/**
+ * A sortable (and optionally filterable) column header.
+ *
+ * The filter panel is portalled to the body rather than positioned inside the
+ * <th>: the table lives in an overflow-x-auto wrapper that becomes
+ * overflow-y-auto once expanded, which would clip an absolutely-positioned
+ * child. Position is clamped into the viewport and recomputed on scroll.
+ */
+function AdminTh({
+  label, colKey, align = 'left', sort, onSort, filterActive, onClearFilter, children, className = '', title,
+}: {
+  label: string;
+  colKey: AdminSortKey;
+  align?: 'left' | 'right';
+  sort: { key: AdminSortKey; dir: 'asc' | 'desc' };
+  onSort: (k: AdminSortKey) => void;
+  filterActive?: boolean;
+  onClearFilter?: () => void;
+  children?: ReactNode;
+  className?: string;
+  title?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const popRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) { setPos(null); return; }
+    const PANEL_W = 236;
+    const place = () => {
+      const r = anchorRef.current?.getBoundingClientRect();
+      if (!r) return;
+      // Clamp downward and cap the height so the panel scrolls rather than running
+      // off-screen. Deliberately never flipped above the header — a panel that
+      // jumps sides as the table scrolls is far more disorienting than one that scrolls.
+      const top = Math.max(8, Math.min(r.bottom + 6, window.innerHeight - 172));
+      setPos({
+        top,
+        left: Math.max(8, Math.min(r.left, window.innerWidth - PANEL_W - 8)),
+        maxHeight: Math.max(140, window.innerHeight - top - 12),
+      });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (popRef.current?.contains(t) || anchorRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const isSorted = sort.key === colKey;
+  const SortIcon = !isSorted ? ChevronsUpDown : sort.dir === 'asc' ? ArrowUp : ArrowDown;
+
+  return (
+    <th
+      className={`py-2 px-2 font-medium text-gray-500 text-[11px] uppercase tracking-wide ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}
+      aria-sort={isSorted ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <div ref={anchorRef} className={`flex items-center gap-1 ${align === 'right' ? 'justify-end' : ''}`}>
+        <button
+          type="button"
+          onClick={() => onSort(colKey)}
+          className={`inline-flex items-center gap-1 hover:text-gray-800 transition-colors ${isSorted ? 'text-gray-800' : ''}`}
+          title={title || `Sort by ${label}`}
+          data-testid={`sort-${colKey}`}
+        >
+          <span>{label}</span>
+          <SortIcon className={`h-3 w-3 shrink-0 ${isSorted ? 'text-teal-600' : 'text-gray-300'}`} />
+        </button>
+        {children && (
+          <button
+            type="button"
+            onClick={() => setOpen(o => !o)}
+            className={`p-0.5 rounded transition-colors ${filterActive ? 'text-teal-600 bg-teal-50' : 'text-gray-300 hover:text-gray-600'}`}
+            title={filterActive ? 'Filter applied — click to edit' : `Filter by ${label}`}
+            // title alone is not a reliable accessible name for an icon-only button.
+            aria-label={filterActive ? `Edit ${label} filter (active)` : `Filter by ${label}`}
+            aria-expanded={open}
+            data-testid={`filter-${colKey}`}
+          >
+            <Filter className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+
+      {open && children && pos && createPortal(
+        <div
+          ref={popRef}
+          className="fixed z-[100] w-[236px] overflow-y-auto rounded-lg border border-gray-200 bg-white p-2.5 shadow-xl normal-case tracking-normal"
+          style={{ top: pos.top, left: pos.left, maxHeight: pos.maxHeight }}
+          role="dialog"
+          aria-label={`${label} filter`}
+          data-testid={`filter-panel-${colKey}`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-gray-700">{label}</span>
+            <div className="flex items-center gap-1.5">
+              {filterActive && onClearFilter && (
+                <button type="button" className="text-[11px] font-medium text-teal-700 hover:underline" onClick={onClearFilter}>
+                  Clear
+                </button>
+              )}
+              <button type="button" className="text-gray-400 hover:text-gray-700" onClick={() => setOpen(false)} aria-label="Close filter">
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+          {children}
+        </div>,
+        document.body,
+      )}
+    </th>
+  );
+}
 
 const OPERATORS = [
   'is greater than', 'is greater than or equal to',
@@ -148,12 +335,28 @@ const ADMIN_CATEGORY_LABELS: Record<string, string> = {
 };
 
 interface ImpactData {
+  /** Net of overlap dedup — what this rule will actually own once saved. */
   affectedUnits: number;
   monthlyImpact: number;
   annualImpact: number;
   volumeAdjustedAnnualImpact: number;
   confidence?: 'high' | 'medium' | 'needs_review';
   reasonabilityCheck?: { risk: string; explanation: string; isReasonable: boolean };
+  /** Units matching this rule on its own, before other rules claim any. */
+  grossAffectedUnits?: number;
+  /** Units a higher-precedence active rule already owns. */
+  claimedByOtherRules?: number;
+  /** Distinct campuses with at least one affected unit. */
+  affectedCampuses?: number;
+  /** Move-ins per month across affected units — what actually gets repriced. */
+  moveInsPerMonth?: number;
+  serviceLineBreakdown?: Array<{
+    serviceLine: string;
+    unitCount: number;
+    moveInsPerMonth: number;
+    monthlyImpact: number;
+    annualImpact: number;
+  }>;
 }
 
 const defaultCondition = (): Condition => ({
@@ -310,6 +513,16 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   const [adminFrom, setAdminFrom] = useState<string>('');
   const [adminTo, setAdminTo] = useState<string>('');
   const [adminGroupBy, setAdminGroupBy] = useState<'none' | 'strategy' | 'rule' | 'serviceLine' | 'campus'>('none');
+  // Rule Administration table ordering. Defaults to the biggest revenue movers
+  // first so the rules that matter most are visible without scrolling.
+  const [adminSort, setAdminSort] = useState<{ key: AdminSortKey; dir: 'asc' | 'desc' }>({ key: 'revenue', dir: 'desc' });
+  const [adminColFilters, setAdminColFilters] = useState<AdminColFilters>(EMPTY_ADMIN_FILTERS);
+  const onAdminSort = useCallback((key: AdminSortKey) => {
+    setAdminSort(prev => prev.key === key
+      ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+      // Numbers read best largest-first; text and priority ascending.
+      : { key, dir: (key === 'units' || key === 'revenue') ? 'desc' : 'asc' });
+  }, []);
   const [showHistoryRules, setShowHistoryRules] = useState(false);
   const [reselectingId, setReselectingId] = useState<string | null>(null);
   const [locNames, setLocNames] = useState<Record<string, string>>({});
@@ -350,6 +563,56 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
 
   // T3 move-in baseline
   const [t3MoveIns, setT3MoveIns] = useState<T3MoveIns | null>(null);
+
+  // ── Units Impacted drill-down ──────────────────────────────────────────────
+  // Clicking the number opens the campus list grouped division → region. The
+  // figures come from /coverage, which runs the same qualified-impact calc as
+  // the table cell, so the dialog total reconciles with the number clicked.
+  const [coverageRule, setCoverageRule] = useState<{ id: string; name: string } | null>(null);
+  const [coverageData, setCoverageData] = useState<CoverageData | null>(null);
+  const [coverageLoading, setCoverageLoading] = useState(false);
+  const [coverageSearch, setCoverageSearch] = useState('');
+  // Opening B while A is still in flight must not render A's campuses under B's
+  // name: only the newest request is allowed to write state.
+  const coverageReqRef = useRef(0);
+
+  const openCoverage = useCallback(async (rule: AdjustmentRule) => {
+    const reqId = ++coverageReqRef.current;
+    setCoverageRule({ id: rule.id, name: rule.name });
+    setCoverageSearch('');
+    setCoverageData(null);
+    setCoverageLoading(true);
+    try {
+      // Send the page filters the rules list was fetched with, so the drill-down
+      // reconciles with the number on screen rather than the portfolio-wide one.
+      const params = new URLSearchParams();
+      if (locationId) params.set('locationId', locationId);
+      if (serviceLine) params.set('serviceLine', serviceLine);
+      if (showHistoryRules) params.set('includeHistorical', 'true');
+      (selectedLocations ?? []).forEach(l => params.append('locations', l));
+      (selectedRegions ?? []).forEach(r => params.append('regions', r));
+      (selectedDivisions ?? []).forEach(d => params.append('divisions', d));
+      const res = await fetch(
+        `/api/adjustment-rules/${rule.id}/coverage${params.toString() ? `?${params}` : ''}`,
+        { credentials: 'include' },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      if (coverageReqRef.current !== reqId) return; // superseded by a newer open
+      setCoverageData(payload);
+    } catch (err) {
+      if (coverageReqRef.current !== reqId) return;
+      console.error('Failed to load rule coverage:', err);
+      toast({
+        title: 'Could not load the campus breakdown',
+        description: 'The rule impact service did not respond. Please try again.',
+        variant: 'destructive',
+      });
+      setCoverageRule(null);
+    } finally {
+      if (coverageReqRef.current === reqId) setCoverageLoading(false);
+    }
+  }, [toast, locationId, serviceLine, showHistoryRules, selectedLocations, selectedRegions, selectedDivisions]);
   const [showMoveInMethodology, setShowMoveInMethodology] = useState(false);
 
   // Structured builder state
@@ -574,10 +837,27 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
     setIsLoadingImpact(true);
     setImpactData(null);
     try {
+      // The preview body must mirror the SAVE body exactly (see handleSaveRule),
+      // or the two scope the rule differently and the preview quotes a number the
+      // saved rule never reproduces. excludeRuleId keeps a rule being edited from
+      // competing against its own saved copy in the overlap dedup walk, which
+      // would otherwise report 0 units for every edit.
+      const isEditing = !!editingRuleId;
       const res = await fetch('/api/adjustment-rules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, preview: true, locationId: locationId || null, serviceLine: serviceLine || null }),
+        body: JSON.stringify({
+          description,
+          preview: true,
+          locationId: locationId || null,
+          serviceLine: serviceLine || null,
+          serviceLines: isEditing ? editingRuleSLs : newRuleSLs,
+          roomTypes: isEditing ? [] : newRuleRoomTypes,
+          effectiveDate: effectiveDate || null,
+          isAdditive: stackRule,
+          isHistorical: saveAsHistorical,
+          excludeRuleId: editingRuleId || null,
+        }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -588,6 +868,11 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
         volumeAdjustedAnnualImpact: data.volumeAdjustedAnnualImpact || 0,
         confidence: data.reasonabilityCheck?.risk === 'low' ? 'high' : data.reasonabilityCheck?.risk === 'medium' ? 'medium' : data.reasonabilityCheck ? 'needs_review' : 'high',
         reasonabilityCheck: data.reasonabilityCheck,
+        grossAffectedUnits: data.grossAffectedUnits ?? 0,
+        claimedByOtherRules: data.claimedByOtherRules ?? 0,
+        affectedCampuses: data.affectedCampuses ?? 0,
+        moveInsPerMonth: data.moveInsPerMonth ?? 0,
+        serviceLineBreakdown: Array.isArray(data.serviceLineBreakdown) ? data.serviceLineBreakdown : [],
       });
     } catch {
       toast({ title: 'Preview failed', description: 'Try rephrasing the rule', variant: 'destructive' });
@@ -624,7 +909,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
         });
         return;
       }
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        let serverMessage: string | undefined;
+        try { serverMessage = (await res.json())?.error; } catch {}
+        const e: any = new Error(serverMessage || 'Request failed');
+        e.serverMessage = serverMessage;
+        throw e;
+      }
       const data = await res.json();
       // Optimistically add the new rule to the list immediately so it appears
       // without waiting for the re-fetch (avoids any browser-cache 304 delay).
@@ -654,8 +945,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
         title: isEditing ? 'Rule updated' : applyNow ? 'Rule applied' : 'Rule saved',
         description: `"${data.rule?.name}" affects ${data.affectedUnits || 0} units`,
       });
-    } catch {
-      toast({ title: editingRuleId ? 'Failed to update rule' : 'Failed to save rule', description: 'Please try again', variant: 'destructive' });
+    } catch (err: any) {
+      const serverMsg = err?.serverMessage;
+      toast({
+        title: editingRuleId ? 'Failed to update rule' : 'Failed to save rule',
+        description: serverMsg || 'Please try again',
+        variant: 'destructive',
+      });
     } finally {
       setIsSaving(false);
     }
@@ -822,7 +1118,9 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
     // Also pre-fill the AI tab text as fallback
     setAiInput(rule.description || rule.name || '');
     setActiveTab('structured');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // No window.scrollTo here — this function already brings the designer card
+    // into view above. Yanking the page to the very top on top of that is the
+    // jump users notice after opening a freshly created rule.
   };
 
   // Per-rule note editing (Rule Administration list)
@@ -990,20 +1288,25 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
               : 'Build pricing rules using natural language or structured IF / THEN logic.'}
           </CardDescription>
           {editingRuleId && (
-            <div onClick={e => e.stopPropagation()} className="flex items-center gap-2 mt-2 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-950/30 dark:border-amber-700 dark:text-amber-300">
-              <Pencil className="h-3.5 w-3.5 shrink-0" />
-              <div className="flex flex-col min-w-0 gap-1">
-                <span className="text-xs font-medium truncate">Editing: "{editingRuleName}"</span>
+            <div
+              onClick={e => e.stopPropagation()}
+              className="flex items-center gap-3 mt-3 pl-3 pr-4 py-2.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm border-l-[3px] border-l-[var(--trilogy-teal)]"
+            >
+              <Pencil className="h-3.5 w-3.5 text-[var(--trilogy-teal)] shrink-0" />
+              <div className="flex flex-col min-w-0 gap-0.5">
+                <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">
+                  Editing: <span className="font-normal text-slate-600 dark:text-slate-300">"{editingRuleName}"</span>
+                </span>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-amber-600 dark:text-amber-400 shrink-0">Service lines:</span>
+                  <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 shrink-0 uppercase tracking-wide">Scope:</span>
                   <div className="relative" ref={slPickerRef}>
                     <button
                       type="button"
                       onClick={() => setSlPickerOpen(p => !p)}
-                      className="h-5 text-[10px] px-2 inline-flex items-center gap-1 border border-amber-300 bg-amber-50 rounded text-amber-800 hover:bg-amber-100 dark:bg-amber-950/50 dark:border-amber-600 dark:text-amber-200 dark:hover:bg-amber-900/60 max-w-[160px]"
+                      className="h-5 text-[10px] px-2 inline-flex items-center gap-1 border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 rounded text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 max-w-[200px] font-medium"
                     >
                       <span className="truncate">{editingRuleSLs.length === 0 ? 'All service lines' : editingRuleSLs.join(', ')}</span>
-                      <ChevronDown className="h-2.5 w-2.5 shrink-0" />
+                      <ChevronDown className="h-2.5 w-2.5 shrink-0 text-slate-400" />
                     </button>
                     {slPickerOpen && (
                       <div className="absolute top-full left-0 z-50 mt-1 bg-white dark:bg-gray-900 border border-border rounded-lg shadow-lg p-2 min-w-[140px]">
@@ -1028,7 +1331,12 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                   </div>
                 </div>
               </div>
-              <Button variant="ghost" size="sm" className="ml-auto h-5 px-2 text-xs text-amber-700 dark:text-amber-300 hover:bg-amber-100 shrink-0" onClick={handleClear}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-6 px-2.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shrink-0 font-medium"
+                onClick={handleClear}
+              >
                 Cancel
               </Button>
             </div>
@@ -1544,6 +1852,10 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                     <div className="grid grid-cols-2 gap-2">
                       {[
                         { label: 'Units affected', value: impactData.affectedUnits?.toLocaleString() },
+                        { label: 'Campuses affected', value: (impactData.affectedCampuses ?? 0).toLocaleString() },
+                        // Street-rate rules only reprice NEW move-ins, so this is the
+                        // volume the monthly figure is actually built from.
+                        { label: 'Move-ins impacted / mo', value: (impactData.moveInsPerMonth ?? 0).toFixed(1) },
                         { label: 'Monthly impact', value: `$${Math.round(impactData.monthlyImpact || 0).toLocaleString()}` },
                         { label: 'Annual impact', value: `$${Math.round(impactData.annualImpact || 0).toLocaleString()}` },
                         { label: 'Annual (5% vol.↑)', value: `$${Math.round(impactData.volumeAdjustedAnnualImpact || 0).toLocaleString()}` },
@@ -1554,6 +1866,49 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                         </div>
                       ))}
                     </div>
+                    {/* Which service lines the affected units actually sit in. A rule
+                        scoped only by room type (e.g. "Studio") can span several lines,
+                        and the split is rarely even. */}
+                    {(impactData.serviceLineBreakdown?.length ?? 0) > 0 && (
+                      <div className="rounded-lg bg-white border border-border p-2.5">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                          Service Lines Impacted ({impactData.serviceLineBreakdown!.length})
+                        </p>
+                        <div className="space-y-1">
+                          {impactData.serviceLineBreakdown!.map((s) => (
+                            <div key={s.serviceLine} className="flex items-center justify-between gap-2 text-xs">
+                              <span className="font-semibold text-[var(--trilogy-dark-blue)] shrink-0">{s.serviceLine}</span>
+                              <span className="text-muted-foreground text-right">
+                                {s.unitCount.toLocaleString()} unit{s.unitCount === 1 ? '' : 's'}
+                                {' · '}{s.moveInsPerMonth.toFixed(1)} move-ins/mo
+                                {' · '}<span className="font-medium text-gray-700">${Math.round(s.monthlyImpact).toLocaleString()}/mo</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* "Units affected" is net of overlap dedup, so it can be far
+                        below the number the conditions match on their own. Without
+                        this note the shortfall looks like the rule silently failing. */}
+                    {(impactData.claimedByOtherRules ?? 0) > 0 && (
+                      <div className="flex items-start gap-2 text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded-md px-3 py-2">
+                        <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                        <span>
+                          This rule matches <strong>{impactData.grossAffectedUnits?.toLocaleString()}</strong> units,
+                          but <strong>{impactData.claimedByOtherRules?.toLocaleString()}</strong> are already covered by
+                          more specific active rules, which take precedence. Units affected shows the{' '}
+                          <strong>{impactData.affectedUnits.toLocaleString()}</strong> this rule will actually price —
+                          the same number you'll see after saving.
+                        </span>
+                      </div>
+                    )}
+                    {impactData.affectedUnits === 0 && (impactData.grossAffectedUnits ?? 0) === 0 && (
+                      <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                        <span>No units meet these conditions. Try relaxing a threshold or widening the room type / service line scope.</span>
+                      </div>
+                    )}
                     {/* T3 move-in baseline */}
                     {t3MoveIns && (
                       <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-3 py-2.5">
@@ -1598,7 +1953,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                     <Button
                       className="gap-2 text-sm bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/90 text-white"
                       onClick={() => handleSaveRule(false)}
-                      disabled={!description || isSaving}
+                      disabled={!description || isSaving || !isComplete}
+                      title={!isComplete ? validationMsgs[0] : undefined}
                       data-testid="button-save-rule"
                     >
                       <Save className="h-4 w-4" />
@@ -1609,7 +1965,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                         variant="outline"
                         className="gap-2 text-sm"
                         onClick={() => handleSaveRule(true)}
-                        disabled={!description || isSaving}
+                        disabled={!description || isSaving || !isComplete}
+                        title={!isComplete ? validationMsgs[0] : undefined}
                         data-testid="button-apply-rule"
                       >
                         <Play className="h-4 w-4" />
@@ -1686,7 +2043,59 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
           if (adminTo && (!d || d > adminTo)) return false;
           return true;
         };
-        const filteredRules = sortedRules.filter(inRange);
+        // ── Per-column filters ──
+        const f = adminColFilters;
+        const matchesColFilters = (r: AdjustmentRule) => {
+          if (f.name && !String(r.name || '').toLowerCase().includes(f.name.toLowerCase())) return false;
+          if (f.detail && !String(r.description || '').toLowerCase().includes(f.detail.toLowerCase())) return false;
+          if (f.serviceLines.length && !ruleServiceLineList(r).some(sl => f.serviceLines.includes(sl))) return false;
+          // A half-typed bound ("", "-", "1e") must not silently hide every row,
+          // so anything non-finite is treated as "no bound".
+          const bound = (s: string) => { const n = Number(s); return s.trim() !== '' && Number.isFinite(n) ? n : null; };
+          const u = r.affectedUnits ?? 0;
+          const uMin = bound(f.unitsMin), uMax = bound(f.unitsMax);
+          if (uMin !== null && u < uMin) return false;
+          if (uMax !== null && u > uMax) return false;
+          const m = r.monthlyImpact ?? 0;
+          const rMin = bound(f.revMin), rMax = bound(f.revMax);
+          if (rMin !== null && m < rMin) return false;
+          if (rMax !== null && m > rMax) return false;
+          return true;
+        };
+        const anyColFilter    = hasAdminFilters(f);
+        const slFilterOptions = Array.from(new Set(sortedRules.flatMap(ruleServiceLineList))).sort();
+
+        // ── Sorting ──
+        // Active → off → history stays the primary tier so a disabled or historical
+        // rule never outranks a live one; the chosen column orders within each tier.
+        // sortedRules order is the canonical priority order the badges are numbered by,
+        // so it is captured here and used as the stable tiebreak.
+        const tierOf      = (r: AdjustmentRule) => r.isHistorical ? 2 : (r.isActive ? 0 : 1);
+        const priorityIdx = new Map(sortedRules.map((r, i) => [r.id, i]));
+        const dirMul      = adminSort.dir === 'asc' ? 1 : -1;
+        const compareRules = (a: AdjustmentRule, b: AdjustmentRule) => {
+          const tier = tierOf(a) - tierOf(b);
+          if (tier !== 0) return tier;
+          const byPriority = (priorityIdx.get(a.id) ?? 0) - (priorityIdx.get(b.id) ?? 0);
+          let d = 0;
+          switch (adminSort.key) {
+            case 'name':        d = String(a.name || '').localeCompare(String(b.name || '')); break;
+            case 'detail':      d = String(a.description || '').localeCompare(String(b.description || '')); break;
+            case 'serviceLine': d = ruleServiceLineList(a).join(', ').localeCompare(ruleServiceLineList(b).join(', ')); break;
+            case 'units':       d = (a.affectedUnits ?? 0) - (b.affectedUnits ?? 0); break;
+            // Monthly is the headline figure in the cell, so ordering by it keeps the
+            // visible column monotonic; annual breaks the many monthly-$0 ties.
+            case 'revenue':     d = ((a.monthlyImpact ?? 0) - (b.monthlyImpact ?? 0))
+                                 || ((a.annualImpact ?? 0) - (b.annualImpact ?? 0)); break;
+            case 'priority':    d = byPriority; break;
+          }
+          // Only the chosen column reverses. Ties always fall back to canonical
+          // priority order ascending, so rows with equal values (e.g. the many
+          // $0 rules) keep the order their numbered badges imply in both directions.
+          return d !== 0 ? d * dirMul : byPriority;
+        };
+
+        const filteredRules = sortedRules.filter(r => inRange(r) && matchesColFilters(r)).sort(compareRules);
 
         // ── Grouping (strategy / service line / campus), mirroring Rule Performance ──
         const groupKeyOf = (r: AdjustmentRule): string => {
@@ -1882,10 +2291,25 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                       >
                         {showHistoryRules ? `Pricing history shown (${histRules.length})` : 'Show pricing history'}
                       </button>
-                      {(adminFrom || adminTo) && (
+                      {(adminFrom || adminTo || anyColFilter) && (
                         <span className="text-[11px] text-gray-400">
-                          {filteredRules.length} of {sortedRules.length} rules in range
+                          {filteredRules.length} of {sortedRules.length} rules shown
                         </span>
+                      )}
+                      {/* Row order no longer implies priority once a column sort is
+                          applied, so point at the badges that still carry it. */}
+                      {adminSort.key !== 'priority' && exclusiveActive.length > 1 && (
+                        <span className="text-[11px] text-gray-400">Numbered badges still show priority order</span>
+                      )}
+                      {(anyColFilter || adminSort.key !== 'revenue' || adminSort.dir !== 'desc') && (
+                        <button
+                          type="button"
+                          className="text-[11px] font-medium text-teal-700 hover:underline"
+                          onClick={() => { setAdminColFilters(EMPTY_ADMIN_FILTERS); setAdminSort({ key: 'revenue', dir: 'desc' }); }}
+                          data-testid="button-reset-admin-sort-filters"
+                        >
+                          Reset sort &amp; filters
+                        </button>
                       )}
                     </div>
 
@@ -1951,12 +2375,122 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                       <table className="w-full text-sm border-collapse">
                         <thead className={rulesExpanded && sortedRules.length > 10 ? 'sticky top-0 z-10 bg-gray-50' : ''}>
                           <tr className="bg-gray-50 border-b border-gray-200">
-                            <th className="py-2 px-2 w-9" />
-                            <th className="py-2 px-2 text-left font-medium text-gray-500 text-[11px] uppercase tracking-wide">Rule Summary</th>
-                            <th className="py-2 px-2 text-left font-medium text-gray-500 text-[11px] uppercase tracking-wide">Rule Detail</th>
-                            <th className="py-2 px-2 text-left font-medium text-gray-500 text-[11px] uppercase tracking-wide">Service Line</th>
-                            <th className="py-2 px-2 text-right font-medium text-gray-500 text-[11px] uppercase tracking-wide">Units Impacted</th>
-                            <th className="py-2 px-2 text-right font-medium text-gray-500 text-[11px] uppercase tracking-wide">Revenue Impact</th>
+                            <AdminTh
+                              label="#" colKey="priority" className="w-12"
+                              sort={adminSort} onSort={onAdminSort}
+                              title="Sort by exclusive priority order"
+                            />
+
+                            <AdminTh
+                              label="Rule Summary" colKey="name"
+                              sort={adminSort} onSort={onAdminSort}
+                              filterActive={!!f.name}
+                              onClearFilter={() => setAdminColFilters(p => ({ ...p, name: '' }))}
+                            >
+                              <input
+                                autoFocus
+                                value={f.name}
+                                onChange={e => setAdminColFilters(p => ({ ...p, name: e.target.value }))}
+                                placeholder="Name contains…"
+                                className="w-full h-7 rounded border border-gray-200 px-2 text-xs text-gray-700"
+                                data-testid="filter-input-name"
+                              />
+                            </AdminTh>
+
+                            <AdminTh
+                              label="Rule Detail" colKey="detail"
+                              sort={adminSort} onSort={onAdminSort}
+                              filterActive={!!f.detail}
+                              onClearFilter={() => setAdminColFilters(p => ({ ...p, detail: '' }))}
+                            >
+                              <input
+                                autoFocus
+                                value={f.detail}
+                                onChange={e => setAdminColFilters(p => ({ ...p, detail: e.target.value }))}
+                                placeholder="e.g. occupancy, vacant…"
+                                className="w-full h-7 rounded border border-gray-200 px-2 text-xs text-gray-700"
+                                data-testid="filter-input-detail"
+                              />
+                            </AdminTh>
+
+                            <AdminTh
+                              label="Service Line" colKey="serviceLine"
+                              sort={adminSort} onSort={onAdminSort}
+                              filterActive={f.serviceLines.length > 0}
+                              onClearFilter={() => setAdminColFilters(p => ({ ...p, serviceLines: [] }))}
+                            >
+                              <div className="max-h-48 overflow-y-auto">
+                                {slFilterOptions.length === 0 && (
+                                  <p className="text-[11px] text-gray-400">No service lines</p>
+                                )}
+                                {slFilterOptions.map(sl => {
+                                  const on = f.serviceLines.includes(sl);
+                                  return (
+                                    <label key={sl} className="flex items-center gap-2 px-1 py-1 rounded text-xs text-gray-700 hover:bg-gray-50 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={on}
+                                        className="h-3 w-3 accent-teal-600"
+                                        onChange={() => setAdminColFilters(p => ({
+                                          ...p,
+                                          serviceLines: on ? p.serviceLines.filter(x => x !== sl) : [...p.serviceLines, sl],
+                                        }))}
+                                        data-testid={`filter-sl-${sl}`}
+                                      />
+                                      {sl}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </AdminTh>
+
+                            <AdminTh
+                              label="Units Impacted" colKey="units" align="right"
+                              sort={adminSort} onSort={onAdminSort}
+                              filterActive={!!(f.unitsMin || f.unitsMax)}
+                              onClearFilter={() => setAdminColFilters(p => ({ ...p, unitsMin: '', unitsMax: '' }))}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number" placeholder="Min" value={f.unitsMin}
+                                  onChange={e => setAdminColFilters(p => ({ ...p, unitsMin: e.target.value }))}
+                                  className="w-full h-7 rounded border border-gray-200 px-2 text-xs text-gray-700"
+                                  data-testid="filter-input-units-min"
+                                />
+                                <span className="text-xs text-gray-400">–</span>
+                                <input
+                                  type="number" placeholder="Max" value={f.unitsMax}
+                                  onChange={e => setAdminColFilters(p => ({ ...p, unitsMax: e.target.value }))}
+                                  className="w-full h-7 rounded border border-gray-200 px-2 text-xs text-gray-700"
+                                  data-testid="filter-input-units-max"
+                                />
+                              </div>
+                            </AdminTh>
+
+                            <AdminTh
+                              label="Revenue Impact" colKey="revenue" align="right"
+                              sort={adminSort} onSort={onAdminSort}
+                              filterActive={!!(f.revMin || f.revMax)}
+                              onClearFilter={() => setAdminColFilters(p => ({ ...p, revMin: '', revMax: '' }))}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number" placeholder="Min" value={f.revMin}
+                                  onChange={e => setAdminColFilters(p => ({ ...p, revMin: e.target.value }))}
+                                  className="w-full h-7 rounded border border-gray-200 px-2 text-xs text-gray-700"
+                                  data-testid="filter-input-rev-min"
+                                />
+                                <span className="text-xs text-gray-400">–</span>
+                                <input
+                                  type="number" placeholder="Max" value={f.revMax}
+                                  onChange={e => setAdminColFilters(p => ({ ...p, revMax: e.target.value }))}
+                                  className="w-full h-7 rounded border border-gray-200 px-2 text-xs text-gray-700"
+                                  data-testid="filter-input-rev-max"
+                                />
+                              </div>
+                              <p className="mt-1.5 text-[10px] leading-snug text-gray-400">Monthly dollars. Negative values allowed for rate decreases.</p>
+                            </AdminTh>
+
                             <th className="py-2 px-2 text-right font-medium text-gray-500 text-[11px] uppercase tracking-wide">Actions</th>
                           </tr>
                         </thead>
@@ -2159,14 +2693,28 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                                   <span className="text-xs font-medium text-gray-700 whitespace-nowrap">{slDisplay}</span>
                                 </td>
 
-                                {/* Units Impacted */}
+                                {/* Units Impacted — click through to the campus list */}
                                 <td className="py-2.5 px-2 align-top text-right">
-                                  <span className="text-sm font-medium text-gray-900 tabular-nums">
-                                    {(rule.affectedUnits ?? 0).toLocaleString()}
-                                  </span>
-                                  {(rule.affectedCampuses ?? 0) > 0 && (
-                                    <span className="block text-[10px] text-gray-400">
-                                      {rule.affectedCampuses} campus{(rule.affectedCampuses ?? 0) !== 1 ? 'es' : ''}
+                                  {(rule.affectedUnits ?? 0) > 0 ? (
+                                    <button
+                                      type="button"
+                                      onClick={e => { e.stopPropagation(); openCoverage(rule); }}
+                                      className="group/units -mx-1 rounded px-1 text-right hover:bg-teal-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
+                                      title="See which campuses this rule affects, by division and region"
+                                      data-testid={`button-units-impacted-${rule.id}`}
+                                    >
+                                      <span className="text-sm font-medium tabular-nums text-gray-900 underline decoration-dotted decoration-gray-300 underline-offset-2 group-hover/units:text-teal-700 group-hover/units:decoration-teal-400">
+                                        {(rule.affectedUnits ?? 0).toLocaleString()}
+                                      </span>
+                                      {(rule.affectedCampuses ?? 0) > 0 && (
+                                        <span className="block text-[10px] text-gray-400 group-hover/units:text-teal-600">
+                                          {rule.affectedCampuses} campus{(rule.affectedCampuses ?? 0) !== 1 ? 'es' : ''}
+                                        </span>
+                                      )}
+                                    </button>
+                                  ) : (
+                                    <span className="text-sm font-medium text-gray-900 tabular-nums">
+                                      {(rule.affectedUnits ?? 0).toLocaleString()}
                                     </span>
                                   )}
                                   {/* A rule can legitimately affect 0 units. Say why, so a bare
@@ -2533,6 +3081,194 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
             </Dialog>
 
             {/* ── Bubble Map Dialog ── */}
+            {/* ── Units Impacted drill-down: campuses grouped division → region ── */}
+            <Dialog
+              open={!!coverageRule}
+              onOpenChange={o => {
+                if (!o) {
+                  coverageReqRef.current++; // an in-flight fetch must not repopulate a closed dialog
+                  setCoverageRule(null);
+                  setCoverageData(null);
+                  setCoverageSearch('');
+                }
+              }}
+            >
+              <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-base font-bold">
+                    <Building2 className="h-4 w-4 text-teal-500" />
+                    Campuses Impacted
+                  </DialogTitle>
+                  <DialogDescription className="mt-0.5 text-[11px] text-gray-400">
+                    {coverageRule?.name}
+                    {coverageRule ? ' — grouped by division and region' : ''}
+                  </DialogDescription>
+                </DialogHeader>
+
+                {coverageLoading && (
+                  <div className="flex items-center justify-center gap-2 py-12 text-sm text-gray-400">
+                    <Loader2 className="h-5 w-5 animate-spin text-teal-400" />
+                    Working out which campuses this rule reaches…
+                  </div>
+                )}
+
+                {coverageData && !coverageLoading && (() => {
+                  const money = (v: number) => {
+                    const n = Math.round(v ?? 0);
+                    const a = Math.abs(n);
+                    const s = n < 0 ? '−' : n > 0 ? '+' : '';
+                    return a >= 1000 ? `${s}$${(a / 1000).toFixed(a >= 10000 ? 0 : 1)}K` : `${s}$${a}`;
+                  };
+                  const tone = (v: number) => (v > 0 ? 'text-green-700' : v < 0 ? 'text-red-700' : 'text-gray-400');
+
+                  const q = coverageSearch.trim().toLowerCase();
+                  const rows = q
+                    ? coverageData.campuses.filter(c =>
+                        (c.campusName || '').toLowerCase().includes(q) ||
+                        (c.region || '').toLowerCase().includes(q) ||
+                        (c.division || '').toLowerCase().includes(q))
+                    : coverageData.campuses;
+
+                  type RegionGroup = { name: string; units: number; monthly: number; campuses: CoverageCampus[] };
+                  type DivGroup = { name: string; units: number; monthly: number; regions: RegionGroup[] };
+                  const divisions: DivGroup[] = [];
+                  for (const c of rows) {
+                    const dName = c.division || 'Unassigned';
+                    const rName = c.region || 'Unassigned';
+                    let d = divisions.find(x => x.name === dName);
+                    if (!d) { d = { name: dName, units: 0, monthly: 0, regions: [] }; divisions.push(d); }
+                    let r = d.regions.find(x => x.name === rName);
+                    if (!r) { r = { name: rName, units: 0, monthly: 0, campuses: [] }; d.regions.push(r); }
+                    d.units += c.unitCount || 0; d.monthly += c.monthlyImpact || 0;
+                    r.units += c.unitCount || 0; r.monthly += c.monthlyImpact || 0;
+                    r.campuses.push(c);
+                  }
+                  // "Unassigned" always sorts last, so a campus missing its hierarchy
+                  // never heads the list ahead of a real division.
+                  const byName = (a: { name: string }, b: { name: string }) =>
+                    a.name === 'Unassigned' ? 1 : b.name === 'Unassigned' ? -1 : a.name.localeCompare(b.name);
+                  divisions.sort(byName);
+                  for (const d of divisions) {
+                    d.regions.sort(byName);
+                    for (const r of d.regions) {
+                      r.campuses.sort((a, b) =>
+                        (b.unitCount || 0) - (a.unitCount || 0) || a.campusName.localeCompare(b.campusName));
+                    }
+                  }
+                  const regionCount = divisions.reduce((s, d) => s + d.regions.length, 0);
+                  const shownUnits = rows.reduce((s, c) => s + (c.unitCount || 0), 0);
+                  const missingHierarchy = coverageData.campuses.filter(c => !c.division || !c.region).length;
+
+                  return (
+                    <>
+                      <div className="grid grid-cols-4 gap-3 rounded-lg bg-gray-50 p-3 text-center">
+                        <div>
+                          <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">Divisions</p>
+                          <p className="text-lg font-black tabular-nums text-gray-700">{divisions.length}</p>
+                        </div>
+                        <div className="border-l border-gray-200">
+                          <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">Regions</p>
+                          <p className="text-lg font-black tabular-nums text-gray-700">{regionCount}</p>
+                        </div>
+                        <div className="border-l border-gray-200">
+                          <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">Campuses</p>
+                          <p className="text-lg font-black tabular-nums text-gray-700">{rows.length}</p>
+                        </div>
+                        <div className="border-l border-gray-200">
+                          <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">Units</p>
+                          <p className="text-lg font-black tabular-nums text-gray-700">{shownUnits.toLocaleString()}</p>
+                        </div>
+                      </div>
+
+                      <div className="relative mt-3">
+                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          value={coverageSearch}
+                          onChange={e => setCoverageSearch(e.target.value)}
+                          placeholder="Filter by campus, region or division…"
+                          className="w-full rounded-md border border-gray-200 py-1.5 pl-8 pr-8 text-sm placeholder:text-gray-400 focus:border-teal-400 focus:outline-none"
+                          data-testid="input-coverage-search"
+                        />
+                        {coverageSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setCoverageSearch('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            aria-label="Clear filter"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {rows.length === 0 ? (
+                        <p className="py-8 text-center text-sm text-gray-400">
+                          No campus matches “{coverageSearch}”.
+                        </p>
+                      ) : (
+                        <div className="mt-3 space-y-3" data-testid="coverage-division-list">
+                          {divisions.map(d => (
+                            <div key={d.name} className="overflow-hidden rounded-lg border border-gray-200">
+                              <div className="flex items-baseline justify-between gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2">
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-600">{d.name}</span>
+                                <span className="whitespace-nowrap text-[11px] tabular-nums text-gray-400">
+                                  {d.regions.length} region{d.regions.length !== 1 ? 's' : ''} · {d.units.toLocaleString()} units ·{' '}
+                                  <span className={`font-semibold ${tone(d.monthly)}`}>{money(d.monthly)}</span>/mo
+                                </span>
+                              </div>
+                              {d.regions.map(r => (
+                                <div key={`${d.name}-${r.name}`}>
+                                  <div className="flex items-baseline justify-between gap-2 border-b border-gray-100 px-3 py-1.5">
+                                    <span className="text-[11px] font-semibold text-teal-700">{r.name}</span>
+                                    <span className="whitespace-nowrap text-[10px] tabular-nums text-gray-400">
+                                      {r.campuses.length} campus{r.campuses.length !== 1 ? 'es' : ''} · {r.units.toLocaleString()} units
+                                    </span>
+                                  </div>
+                                  <table className="w-full">
+                                    <tbody className="divide-y divide-gray-50">
+                                      {r.campuses.map((c, i) => (
+                                        <tr key={`${c.locationId ?? c.campusName}-${i}`} className="hover:bg-gray-50/70">
+                                          <td className="py-1.5 pl-6 pr-2 text-[12px] text-gray-700">{c.campusName}</td>
+                                          <td className="w-24 px-2 py-1.5 text-right text-[12px] tabular-nums text-gray-600">
+                                            {(c.unitCount || 0).toLocaleString()}
+                                            <span className="ml-1 text-[10px] text-gray-400">units</span>
+                                          </td>
+                                          <td className="w-24 px-2 py-1.5 text-right text-[12px] tabular-nums text-gray-600">
+                                            {(c.moveInsPerMonth ?? 0).toLocaleString()}
+                                            <span className="ml-1 text-[10px] text-gray-400">mi/mo</span>
+                                          </td>
+                                          <td className={`w-20 px-3 py-1.5 text-right text-[12px] font-semibold tabular-nums ${tone(c.monthlyImpact)}`}>
+                                            {money(c.monthlyImpact)}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <p className="mt-3 px-1 text-[11px] leading-snug text-gray-400">
+                        Units and impact are net of rule priority — a unit already claimed by a
+                        higher-priority exclusive rule is not counted here.
+                        {missingHierarchy > 0 && (
+                          <>
+                            {' '}{missingHierarchy} campus{missingHierarchy !== 1 ? 'es have' : ' has'} no region or
+                            division in the Location upload{missingHierarchy !== 1 ? ' and are' : ' and is'} grouped
+                            under “Unassigned”.
+                          </>
+                        )}
+                      </p>
+                    </>
+                  );
+                })()}
+              </DialogContent>
+            </Dialog>
+
             <Dialog open={bubbleMapOpen} onOpenChange={setBubbleMapOpen}>
               <DialogContent ref={bubbleMapBoxRef} className="max-w-2xl max-h-[88vh] overflow-y-auto bg-white border border-gray-200">
                 <DialogHeader>
