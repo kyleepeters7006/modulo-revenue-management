@@ -318,7 +318,7 @@ export function CompetitorMap({
             </table>
             <p style="margin: 6px 0 8px 0; font-size: 9px; color: #94a3b8; line-height: 1.4;">
               ${stats.occupancySource === 'history' ? 'Occupancy from history' : stats.occupancySource === 'rentroll' ? 'Occupancy from rent roll' : ''}
-              ${stats.occupancySource ? ' · ' : ''}Rates exclude companion (B) beds
+              ${stats.occupancySource ? ' · ' : ''}Street rates: service-line avg across all room types · Rates exclude companion (B) beds
             </p>
             ` : `<p style="margin: 0 0 12px 0; font-size: 11px; color: #94a3b8;">No rent roll data for this campus in the latest month.</p>`}
           </div>

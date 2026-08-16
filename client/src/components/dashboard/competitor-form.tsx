@@ -715,7 +715,7 @@ export default function CompetitorForm({
                                     <span className="text-right">Base</span>
                                     <span className="text-right">Adj</span>
                                     <span className="text-right">Adjusted</span>
-                                    <span className="text-right">{clientShortName}</span>
+                                    <span className="text-right" title="Your rate for this room type specifically (or service-line avg ‡ when no exact match). The map popup shows a service-line average across all room types.">{clientShortName}</span>
                                     <span className="text-right">$ Var</span>
                                     <span className="text-right">% Var</span>
                                   </div>

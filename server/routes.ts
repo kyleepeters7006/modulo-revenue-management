@@ -4635,9 +4635,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   ? normalizeCompetitorCareRate(rr.careLevel2Rate ?? comp.careLevel2Rate, sl)
                   : null;
                 const ourCareResolved = careApplies ? resolveCareLevel2(campusCare, sl) : null;
-                const adjustment = (theirCare != null && ourCareResolved != null)
-                  ? theirCare - ourCareResolved.rate
-                  : null;
+
+                // If the survey row carries a pre-computed care-adjustment override
+                // (imported from *_Comp_Care_Adj columns), use it directly as the ADJ
+                // figure rather than recomputing from Level 2 rates. This lets analysts
+                // correct for care-packaging differences that the Level 2 delta misses.
+                const careAdjOverride = (() => {
+                  try {
+                    const n = rr.notes ? JSON.parse(rr.notes) : null;
+                    const v = n?.careAdjOverride;
+                    return (v != null && !isNaN(Number(v)) && Number(v) !== 0) ? Number(v) : null;
+                  } catch { return null; }
+                })();
+                const adjustment = careAdjOverride != null
+                  ? careAdjOverride
+                  : (theirCare != null && ourCareResolved != null)
+                    ? theirCare - ourCareResolved.rate
+                    : null;
                 const adjusted = base != null ? base + (adjustment ?? 0) : null;
 
                 // Prefer our matching room type; fall back to the service-line
