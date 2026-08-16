@@ -277,6 +277,16 @@ async function findDuplicateRule(
   return null;
 }
 
+// Purge all comp-position-studio cache entries for a client so that
+// competitive-position charts reflect new survey data immediately rather than
+// waiting for the 10-minute TTL to expire.
+function purgeCompPositionCaches(clientId: string): void {
+  const prefix = `comp-position-studio:${clientId}:`;
+  for (const key of Array.from(analyticsCache.keys())) {
+    if (key.startsWith(prefix)) analyticsCache.delete(key);
+  }
+}
+
 // Purge all adjustment-rule-related cache entries for a client so that any
 // filter combination (location, service line, or "all") sees the fresh DB state.
 // Returns a Promise so callers that need the DB deletion to complete before
@@ -2366,6 +2376,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Invalidate caches immediately so the next page load picks up the new survey
+      // rows rather than serving data from before the re-import.
+      invalidateRefDataCache();
+      warmRefDataCacheForClient(clientId);
+      // Clear comp-position-studio entries so charts don't show stale rates while
+      // the DB already has the updated survey values (TTL would otherwise defer
+      // this for up to 10 minutes).
+      purgeCompPositionCaches(clientId);
+      console.log(`[reimport-competitive-survey] comp-position-studio cache cleared for client ${clientId}`);
+
       // Fire competitor rate matching asynchronously so the HTTP response returns
       // immediately — matching 7 000+ units can take several minutes and would
       // otherwise time out the connection.
@@ -2378,6 +2398,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             `processed=${stats.processed} updated=${stats.updated} errors=${stats.errors} ` +
             `queuedAt=${matchingQueuedAt} completedAt=${new Date().toISOString()}`
           );
+          // Purge again so charts reflect the unit-level matched rates from matching.
+          invalidateRefDataCache();
+          warmRefDataCacheForClient(clientId);
+          purgeCompPositionCaches(clientId);
         })
         .catch(err => {
           console.error(`[reimport-competitive-survey] ❌ Matching failed — clientId=${clientId} surveyMonth=${surveyMonth}:`, err);
@@ -24246,6 +24270,10 @@ Return ONLY valid JSON, no markdown fences:
       // on completion via the background .then() handler).
       invalidateRefDataCache();
       warmRefDataCacheForClient(clientId);
+      // Also clear comp-position-studio cache entries so charts don't show stale
+      // rates for up to 10 minutes while the DB already has the new survey values.
+      purgeCompPositionCaches(clientId);
+      console.log(`[import-competitive-survey] comp-position-studio cache cleared for client ${clientId}`);
 
       // Auto-trigger competitor rate matching in the background so the HTTP
       // response returns immediately — matching thousands of units can take minutes.
@@ -24264,6 +24292,9 @@ Return ONLY valid JSON, no markdown fences:
           // pre-match state that was warmed when the import response was sent.
           invalidateRefDataCache();
           warmRefDataCacheForClient(clientId);
+          // Purge again so the comp-position charts pick up the newly-matched
+          // unit-level rates rather than the pre-match survey rows.
+          purgeCompPositionCaches(clientId);
         })
         .catch(err => {
           console.error(`[import-competitive-survey] ❌ Matching failed — clientId=${clientId} surveyMonth=${surveyMonth}:`, err);
