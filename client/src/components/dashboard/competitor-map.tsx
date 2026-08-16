@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapPin, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/useAuth";
 
 declare global {
   interface Window {
@@ -42,6 +43,7 @@ export function CompetitorMap({
 }: CompetitorMapProps = {}) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
+  const { clientShortName } = useAuth();
   
   // Build query params for filtering
   const queryParams = new URLSearchParams();
@@ -565,14 +567,14 @@ export function CompetitorMap({
               `}
               
               ${competitor.attributes?.nearestTrilogyLocation ? `
-              <!-- Nearest Trilogy Location -->
+              <!-- Nearest Client Location -->
               <div style="background: linear-gradient(135deg, #f0f9ff, #e0f2fe); border-left: 3px solid #0ea5e9; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" stroke-width="2">
                     <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
                     <polyline points="9 22 9 12 15 12 15 22"/>
                   </svg>
-                  <span style="font-size: 11px; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Nearest Trilogy Location</span>
+                  <span style="font-size: 11px; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Nearest ${esc(clientShortName)} Location</span>
                 </div>
                 <p style="margin: 0; font-size: 14px; color: #0c4a6e; font-weight: 600;">${esc(competitor.attributes.nearestTrilogyLocation)}</p>
                 <p style="margin: 4px 0 0 0; font-size: 12px; color: #0369a1;">
@@ -696,7 +698,7 @@ export function CompetitorMap({
         }
       }
     };
-  }, [competitors, portfolioLocationsData]);
+  }, [competitors, portfolioLocationsData, clientShortName]);
 
   if (isLoading) {
     return (

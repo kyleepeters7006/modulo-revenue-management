@@ -7,6 +7,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAuth } from "@/hooks/useAuth";
 
 interface ServiceLineData {
   serviceLine: string;
@@ -46,6 +47,7 @@ interface CensusSummaryProps {
 }
 
 export default function CensusSummary({ data, isLoading }: CensusSummaryProps) {
+  const { clientShortName } = useAuth();
   if (isLoading || !data) {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
@@ -108,7 +110,7 @@ export default function CensusSummary({ data, isLoading }: CensusSummaryProps) {
                 <div className="mt-3 flex items-center gap-2">
                   <Building2 className="w-4 h-4 text-blue-600" />
                   <p className="text-sm text-blue-800">
-                    <span className="font-medium">Portfolio Coverage:</span> This represents {formatNumber(data.campusesWithData)} of {formatNumber(data.totalCampuses)} total Trilogy campuses ({formatPercentage(data.portfolioCoverage / 100)})
+                    <span className="font-medium">Portfolio Coverage:</span> This represents {formatNumber(data.campusesWithData)} of {formatNumber(data.totalCampuses)} total {clientShortName} campuses ({formatPercentage(data.portfolioCoverage / 100)})
                     {data.mostRecentMonth && <span className="ml-2 text-blue-600">• Data from {data.mostRecentMonth}</span>}
                   </p>
                 </div>

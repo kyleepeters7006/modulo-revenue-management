@@ -25,14 +25,14 @@ const GENERIC_TRAILING_WORDS = new Set([
  *   "Trilogy Health Services"            -> "Trilogy"
  *   "Great Lakes Management"             -> "Great Lakes"
  *   "Senior Solutions Management Group"  -> "Senior Solutions"
- *   undefined                            -> "Trilogy"
+ *   undefined / null / ""               -> "" (empty — caller decides how to handle)
  *
- * Falls back to "Trilogy" when the tenant name is not loaded yet, so headers do
- * not flicker to a placeholder on first paint.
+ * Returns an empty string when no name is available so callers render nothing
+ * rather than another tenant's brand during loading or auth failure.
  */
 export function tenantShortName(fullName?: string | null): string {
   const trimmed = (fullName ?? '').trim();
-  if (!trimmed) return 'Trilogy';
+  if (!trimmed) return '';
 
   const words = trimmed.split(/\s+/);
   // Never strip the name away entirely — keep at least the first word.

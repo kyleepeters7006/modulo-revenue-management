@@ -57,7 +57,7 @@ export default function Landing() {
 
         {/* Footer */}
         <div className="text-sm text-[var(--trilogy-grey)]">
-          <p>Trilogy Health Services • Portfolio Revenue Management</p>
+          <p>Portfolio Revenue Management</p>
           <p className="mt-2 text-xs">Powered by Modulo</p>
         </div>
       </div>

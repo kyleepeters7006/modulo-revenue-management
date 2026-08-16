@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatRateByServiceLine } from "@/lib/formatters";
 import { ExternalLink, Calculator, Building2 } from "lucide-react";
 import { Link } from "wouter";
+import { useAuth } from "@/hooks/useAuth";
 
 interface CompetitorAdjustmentDialogProps {
   competitorName?: string;
@@ -27,6 +28,7 @@ export function CompetitorAdjustmentDialog({
   serviceLine,
   children
 }: CompetitorAdjustmentDialogProps) {
+  const { clientShortName } = useAuth();
   const totalAdjustment = competitorCareLevel2Adjustment + competitorMedManagementAdjustment;
   const hasBreakdown = !!(competitorName && competitorBaseRate);
 
@@ -106,7 +108,7 @@ export function CompetitorAdjustmentDialog({
 
               <div className="text-sm text-gray-500 dark:text-gray-400 italic">
                 Note: Adjustments ensure fair comparison by accounting for differences in care level pricing and included services.
-                Trilogy includes medication management at no additional charge.
+                {clientShortName} includes medication management at no additional charge.
               </div>
             </>
           ) : (

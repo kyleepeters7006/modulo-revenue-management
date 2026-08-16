@@ -346,7 +346,7 @@ export default function DataManagement() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { activeUploads, addUpload, updateUpload, isUploading } = useUploads();
-  const { isAdmin } = useAuth();
+  const { isAdmin, clientShortName } = useAuth();
 
   const { data: uploadSummary } = useQuery<UploadSummary>({
     queryKey: ['/api/upload-summary'],
@@ -1480,7 +1480,7 @@ export default function DataManagement() {
                         const url = window.URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.href = url;
-                        a.download = `CORPORATEROOMCHARGESEXPORT_Trilogy_${new Date().toISOString().split('T')[0]}.CSV`;
+                        a.download = `CORPORATEROOMCHARGESEXPORT_${clientShortName}_${new Date().toISOString().split('T')[0]}.CSV`;
                         document.body.appendChild(a);
                         a.click();
                         window.URL.revokeObjectURL(url);
@@ -1540,7 +1540,7 @@ export default function DataManagement() {
                         const url = window.URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.href = url;
-                        a.download = `SPECIALROOMRATESEXPORT_Trilogy_${new Date().toISOString().split('T')[0]}.CSV`;
+                        a.download = `SPECIALROOMRATESEXPORT_${clientShortName}_${new Date().toISOString().split('T')[0]}.CSV`;
                         document.body.appendChild(a);
                         a.click();
                         window.URL.revokeObjectURL(url);
