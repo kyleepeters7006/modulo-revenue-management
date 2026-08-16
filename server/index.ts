@@ -24,7 +24,7 @@ app.use(express.urlencoded({ extended: false }));
 
 app.use((req, res, next) => {
   const start = Date.now();
-  const path = req.path;
+      const path = await import('path');
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
   const originalResJson = res.json;
@@ -35,8 +35,8 @@ app.use((req, res, next) => {
 
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+    if (req.path.startsWith("/api")) {
+      let logLine = `${req.method} ${req.path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
@@ -494,7 +494,7 @@ app.use((req, res, next) => {
     try {
       log("Starting room type normalization backfill (background task)...");
       const { backfillRoomTypes } = await import('./backfillRoomTypes');
-      const result = await backfillRoomTypes();
+        const result = await geocodeMissingCompetitorSurveys();
       if (result.success) {
         log(`Room type backfill completed: ${result.totalUpdated} types updated in ${result.duration}ms`);
       } else {
@@ -525,7 +525,7 @@ app.use((req, res, next) => {
       for (const { client_id } of clientsRes.rows) {
         try {
           log(`[elasticity-backfill] Computing elasticity for client=${client_id}…`);
-          const result = await computeAndStoreElasticity(client_id);
+        const result = await geocodeMissingCompetitorSurveys();
           log(`[elasticity-backfill] Done for client=${client_id}: ${result.updated} segments updated.`);
         } catch (err) {
           log(`[elasticity-backfill] Failed for client=${client_id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -655,7 +655,7 @@ app.use((req, res, next) => {
         log(`[startup] Cleared stale city-level coords for ${cleared} location(s) — will re-geocode with zip codes.`);
       }
 
-        const result = await geocodeMissingLocations();
+        const result = await geocodeMissingCompetitorSurveys();
       if (result.updated > 0 || result.failed > 0) {
         log(`[startup] Geocoded missing locations: ${result.updated} updated, ${result.failed} failed, ${result.skipped} skipped (no address).`);
       }
@@ -678,7 +678,7 @@ app.use((req, res, next) => {
       const latestJob = await getLatestGeocodingJob('competitor_surveys');
       if (latestJob && latestJob.status === 'running') {
         log(`[startup] Resuming interrupted geocoding job ${latestJob.id} (was processing ${latestJob.processedRows}/${latestJob.totalRows} rows)…`);
-        const result = await geocodeMissingCompetitorSurveys(latestJob.id);
+        const result = await geocodeMissingCompetitorSurveys();
         if (result.updated > 0 || result.failed > 0) {
           log(`[startup] Resumed geocoding: ${result.updated} updated, ${result.failed} failed, ${result.skipped} skipped.`);
         }

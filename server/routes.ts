@@ -16415,6 +16415,9 @@ Respond in JSON format:
     monthlyImpact: number | null;
     annualImpact: number | null;
     elasticity: number | null;
+    elasticityMin: number | null;
+    elasticityMax: number | null;
+    elasticitySegments: number;
     daysToSellAfter: number | null;
     predictedDaysToSellChange: number | null;
     elasticityMonthlyImpact: number | null;
@@ -16428,7 +16431,8 @@ Respond in JSON format:
   ): Promise<RuleElasticityImpact> {
     const empty: RuleElasticityImpact = {
       unitsImpacted: 0, monthlyImpact: null, annualImpact: null,
-      elasticity: null, daysToSellAfter: null, predictedDaysToSellChange: null,
+      elasticity: null, elasticityMin: null, elasticityMax: null, elasticitySegments: 0,
+      daysToSellAfter: null, predictedDaysToSellChange: null,
       elasticityMonthlyImpact: null, elasticityAnnualImpact: null,
       elasticitySampleSize: null,
     };
@@ -16495,6 +16499,8 @@ Respond in JSON format:
       let elAnnual: number | null = null;
       let wElasticity: number | null = null, wDaysAfter: number | null = null, wPredDays: number | null = null;
       let elWeight = 0, daysWeight = 0, predWeight = 0;
+      let elMin: number | null = null, elMax: number | null = null;
+      let elSegments = 0; // count of segments that have elasticity data
       let minSampleSize: number | null = null;
 
       for (const [key, g] of Array.from(byRt.entries())) {
@@ -16512,7 +16518,13 @@ Respond in JSON format:
         if (moveIns !== null && moveIns > 0) mirMonthly += moveIns * avgDelta;
         if (impact.monthly !== null) elMonthly = (elMonthly ?? 0) + impact.monthly;
         if (impact.annual !== null) elAnnual = (elAnnual ?? 0) + impact.annual;
-        if (elasticity !== null) { wElasticity = (wElasticity ?? 0) + elasticity * g.count; elWeight += g.count; const ss = el?.sampleSize ?? 0; minSampleSize = minSampleSize === null ? ss : Math.min(minSampleSize, ss); }
+        if (elasticity !== null) {
+          wElasticity = (wElasticity ?? 0) + elasticity * g.count; elWeight += g.count;
+          elMin = elMin === null ? elasticity : Math.min(elMin, elasticity);
+          elMax = elMax === null ? elasticity : Math.max(elMax, elasticity);
+          elSegments++;
+          const ss = el?.sampleSize ?? 0; minSampleSize = minSampleSize === null ? ss : Math.min(minSampleSize, ss);
+        }
         if (daysAfter !== null) { wDaysAfter = (wDaysAfter ?? 0) + daysAfter * g.count; daysWeight += g.count; }
         if (predDays !== null) { wPredDays = (wPredDays ?? 0) + predDays * g.count; predWeight += g.count; }
       }
@@ -16528,6 +16540,9 @@ Respond in JSON format:
         monthlyImpact: Math.round(baseMonthly),
         annualImpact: Math.round(baseMonthly * (directReprice ? 12 : 78)),
         elasticity: elWeight > 0 && wElasticity !== null ? wElasticity / elWeight : null,
+        elasticityMin: elMin,
+        elasticityMax: elMax,
+        elasticitySegments: elSegments,
         daysToSellAfter: daysWeight > 0 && wDaysAfter !== null ? wDaysAfter / daysWeight : null,
         predictedDaysToSellChange: predWeight > 0 && wPredDays !== null ? wPredDays / predWeight : null,
         elasticityMonthlyImpact: elMonthly !== null ? Math.round(elMonthly) : null,
@@ -17317,6 +17332,9 @@ Respond in JSON format:
           annualImpact: tgt === 'in_house_rate' ? qAnnual
             : (qAnnual != null && qAnnual !== 0) ? qAnnual : impact.annualImpact,
           elasticity: impact.elasticity,
+          elasticityMin: impact.elasticityMin,
+          elasticityMax: impact.elasticityMax,
+          elasticitySegments: impact.elasticitySegments,
           daysToSellAfter: impact.daysToSellAfter,
           predictedDaysToSellChange: impact.predictedDaysToSellChange,
           elasticityMonthlyImpact: impact.elasticityMonthlyImpact,

@@ -47,6 +47,9 @@ interface RuleSuggestion {
   monthlyImpact: number | null;
   annualImpact: number | null;
   elasticity: number | null;
+  elasticityMin: number | null;
+  elasticityMax: number | null;
+  elasticitySegments: number;
   daysToSellAfter: number | null;
   predictedDaysToSellChange: number | null;
   elasticitySampleSize: number | null;
@@ -552,10 +555,19 @@ export default function AiRuleGenerator({
                             <p className="text-[10px] uppercase tracking-wide text-gray-400">
                               {s.elasticitySampleSize != null ? `Avg. Elast. (min ${s.elasticitySampleSize}mo)` : 'Avg. Elast.'}
                             </p>
+                            {s.elasticityMin != null && s.elasticityMax != null && s.elasticityMin !== s.elasticityMax && (
+                              <p className="text-[10px] text-gray-400 mt-0.5 whitespace-nowrap">
+                                {s.elasticityMin.toFixed(1)} – {s.elasticityMax.toFixed(1)}
+                              </p>
+                            )}
                           </div>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[240px] text-xs">
-                          Count-weighted average elasticity across the {s.unitsImpacted ?? 'affected'} unit{s.unitsImpacted === 1 ? '' : 's'} this rule would impact. Segments with opposite signs can average toward zero — check Reference Data for per-segment values.{s.elasticitySampleSize != null ? ` The least-observed segment has ${s.elasticitySampleSize} month${s.elasticitySampleSize === 1 ? '' : 's'} of history${s.elasticitySampleSize < 6 ? ' — too few for a stable reading, shown in amber' : ''}.` : ''}
+                          Count-weighted average elasticity across the {s.unitsImpacted ?? 'affected'} unit{s.unitsImpacted === 1 ? '' : 's'} this rule would impact.
+                          {s.elasticityMin != null && s.elasticityMax != null && s.elasticityMin !== s.elasticityMax
+                            ? ` Range: ${s.elasticityMin.toFixed(1)} to ${s.elasticityMax.toFixed(1)} across ${s.elasticitySegments} segment${s.elasticitySegments === 1 ? '' : 's'} — a wide spread means the average may not describe any single segment well. Check Reference Data for per-segment values.`
+                            : ' Segments with opposite signs can average toward zero — check Reference Data for per-segment values.'}
+                          {s.elasticitySampleSize != null ? ` The least-observed segment has ${s.elasticitySampleSize} month${s.elasticitySampleSize === 1 ? '' : 's'} of history${s.elasticitySampleSize < 6 ? ' — too few for a stable reading, shown in amber' : ''}.` : ''}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
