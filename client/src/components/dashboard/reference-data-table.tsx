@@ -268,7 +268,7 @@ const GROUPS: GroupDef[] = [
     id: "elasticity",
     label: "Elasticity & DTS",
     cols: [
-      { key: "elasticity", label: "Elast.", type: "num1", w: 65, tip: "Estimated price elasticity for this specific campus × service line × room type segment: % change in days-to-sell ÷ % change in street rate. Positive means rate and days-to-sell moved together (higher rate → slower fill, typical price sensitivity). Negative means they moved in opposite directions. This is a single-segment measurement, not an average. Faded values have fewer than 6 monthly observations and are still stabilising." },
+      { key: "elasticity", label: "Elast.", type: "num1", w: 65, tip: "Estimated price elasticity: % change in days-to-sell ÷ % change in street rate. Negative = healthy (demand responds to pricing — green). Near-zero or positive = unusual / flag (amber / rose). Deep negative (≤ −1.5) indicates strong price sensitivity; positive means a higher rate coincided with faster fill, which is counter-intuitive and worth investigating. Color scale: ≤ −1.5 dark green · −1.5 to −0.5 green · −0.5 to +0.5 amber · > +0.5 rose. Values with fewer than 6 monthly observations are shown faded." },
       { key: "elasticitySampleSize", label: "Samples", type: "int", w: 60, tip: "Number of monthly observations this elasticity estimate is based on. At least 6 are needed for a reasonable reading; 12+ for a stable one. Values below 6 are shown faded in the Elast. column." },
       { key: "daysToSellBefore", label: "DTS Before", type: "num1", w: 75, tip: "Historical avg days to stabilize before pricing change (EMA of past cohorts)." },
       { key: "daysToSellAfter", label: "DTS After", type: "num1", w: 75, tip: "Historical avg days to stabilize after pricing change (EMA of past cohorts)." },
@@ -588,6 +588,22 @@ function signClass(value: any, type: ColType): string {
   return "text-muted-foreground";
 }
 
+/**
+ * Color-codes an elasticity value.
+ * Deep-negative = healthy (demand responds to price cuts → green).
+ * Near-zero or positive = unusual / flag (amber / rose).
+ * Returns [textClass, bgClass, label] for cell styling and legend.
+ */
+function elasticityStyle(value: any): { text: string; bg: string; label: string } {
+  if (value === null || value === undefined || isNaN(Number(value))) {
+    return { text: "", bg: "", label: "" };
+  }
+  const v = Number(value);
+  if (v <= -1.5) return { text: "text-emerald-700 dark:text-emerald-300", bg: "bg-emerald-50/60 dark:bg-emerald-950/20", label: "Strongly elastic (healthy)" };
+  if (v < -0.5)  return { text: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50/40 dark:bg-emerald-950/10", label: "Elastic (healthy)" };
+  if (v <= 0.5)  return { text: "text-amber-600 dark:text-amber-400",   bg: "bg-amber-50/60 dark:bg-amber-950/20",   label: "Near-zero (unusual)" };
+  return                { text: "text-rose-600 dark:text-rose-400",     bg: "bg-rose-50/60 dark:bg-rose-950/20",     label: "Positive (flag)" };
+}
 interface ReferenceDataResponse {
   rows: Record<string, any>[];
   months: string[];
@@ -1694,7 +1710,12 @@ export default function ReferenceDataTable({
               const colW = isMobile && c.mobileFreeze ? (c.wMobile ?? c.w) : c.w;
               const frozenLeft = isMobile ? frozenOffsets.ml[c.key] : frozenOffsets.fl[c.key];
               const display = fmt(row[c.key], c.type);
-              const colorCls = signClass(row[c.key], c.type);
+              const isElasticity = c.key === "elasticity";
+              const elastStyle = isElasticity ? elasticityStyle(row[c.key]) : null;
+              const colorCls = isElasticity ? (elastStyle?.text ?? "") : signClass(row[c.key], c.type);
+              const cellBg = isElasticity && elastStyle?.bg
+                ? elastStyle.bg
+                : (isFrozen ? "sticky z-10 bg-background" : groupBg(g.id, gi));
               return (
                 <td
                   key={c.key}
@@ -1703,7 +1724,7 @@ export default function ReferenceDataTable({
                   } ${colorCls} ${
                     isFrozen
                       ? "sticky z-10 bg-background"
-                      : groupBg(g.id, gi)
+                      : cellBg
                   }`}
                   style={{
                     minWidth: colW,
@@ -1824,7 +1845,9 @@ export default function ReferenceDataTable({
               const isLabelCell = gi === 0 && ci === 0;
               const val = isLabelCell ? null : totalRow[c.key];
               const display = isLabelCell ? "Total" : (fmt(val, c.type) || "—");
-              const colorCls = isLabelCell ? "" : signClass(val, c.type);
+              const isTotalElasticity = !isLabelCell && c.key === "elasticity";
+              const totalElastStyle = isTotalElasticity ? elasticityStyle(val) : null;
+              const colorCls = isLabelCell ? "" : (isTotalElasticity ? (totalElastStyle?.text ?? "") : signClass(val, c.type));
               return (
                 <td
                   key={c.key}
@@ -1833,7 +1856,7 @@ export default function ReferenceDataTable({
                   } ${colorCls} ${
                     isFrozen
                       ? "sticky z-10 bg-muted"
-                      : `${groupBg(g.id, gi)} bg-muted/30`
+                      : (isTotalElasticity && totalElastStyle?.bg ? totalElastStyle.bg : `${groupBg(g.id, gi)} bg-muted/30`)
                   }`}
                   style={{
                     minWidth: colW,

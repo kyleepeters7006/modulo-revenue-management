@@ -548,8 +548,22 @@ export default function AiRuleGenerator({
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <div className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center cursor-default">
-                            <p className={`text-sm font-semibold ${s.elasticity != null && s.elasticitySampleSize != null && s.elasticitySampleSize < 6 ? 'text-amber-600' : 'text-gray-900'}`}>
+                          <div className={`rounded-md border px-2.5 py-1.5 text-center cursor-default ${
+                            s.elasticity == null ? 'bg-gray-50 border-gray-100' :
+                            s.elasticity <= -1.5  ? 'bg-emerald-50 border-emerald-200' :
+                            s.elasticity < -0.5   ? 'bg-emerald-50/60 border-emerald-100' :
+                            s.elasticity <= 0.5   ? 'bg-amber-50 border-amber-200' :
+                                                    'bg-rose-50 border-rose-200'
+                          }`}>
+                            <p className={`text-sm font-semibold ${
+                              s.elasticity == null ? 'text-gray-900' :
+                              // Low-confidence (< 6 samples) overrides direction color with amber warning
+                              (s.elasticitySampleSize != null && s.elasticitySampleSize < 6) ? 'text-amber-600' :
+                              s.elasticity <= -1.5  ? 'text-emerald-700' :
+                              s.elasticity < -0.5   ? 'text-emerald-600' :
+                              s.elasticity <= 0.5   ? 'text-amber-600' :
+                                                      'text-rose-600'
+                            }`}>
                               {s.elasticity != null ? s.elasticity.toFixed(1) : '—'}
                             </p>
                             <p className="text-[10px] uppercase tracking-wide text-gray-400">
@@ -562,12 +576,19 @@ export default function AiRuleGenerator({
                             )}
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-[240px] text-xs">
-                          Count-weighted average elasticity across the {s.unitsImpacted ?? 'affected'} unit{s.unitsImpacted === 1 ? '' : 's'} this rule would impact.
+                        <TooltipContent side="top" className="max-w-[260px] text-xs">
+                          <p>Count-weighted average elasticity across the {s.unitsImpacted ?? 'affected'} unit{s.unitsImpacted === 1 ? '' : 's'} this rule would impact.
                           {s.elasticityMin != null && s.elasticityMax != null && s.elasticityMin !== s.elasticityMax
                             ? ` Range: ${s.elasticityMin.toFixed(1)} to ${s.elasticityMax.toFixed(1)} across ${s.elasticitySegments} segment${s.elasticitySegments === 1 ? '' : 's'} — a wide spread means the average may not describe any single segment well. Check Reference Data for per-segment values.`
                             : ' Segments with opposite signs can average toward zero — check Reference Data for per-segment values.'}
-                          {s.elasticitySampleSize != null ? ` The least-observed segment has ${s.elasticitySampleSize} month${s.elasticitySampleSize === 1 ? '' : 's'} of history${s.elasticitySampleSize < 6 ? ' — too few for a stable reading, shown in amber' : ''}.` : ''}
+                          {s.elasticitySampleSize != null ? ` The least-observed segment has ${s.elasticitySampleSize} month${s.elasticitySampleSize === 1 ? '' : 's'} of history${s.elasticitySampleSize < 6 ? ' — too few for a stable reading, shown in amber' : ''}.` : ''}</p>
+                          <p className="mt-1.5 font-semibold">Direction color scale:</p>
+                          <ul className="mt-0.5 space-y-0.5">
+                            <li><span className="text-emerald-700">Dark green</span> ≤ −1.5 — strongly elastic (healthy)</li>
+                            <li><span className="text-emerald-600">Green</span> −1.5 to −0.5 — elastic (healthy)</li>
+                            <li><span className="text-amber-600">Amber</span> −0.5 to +0.5 — near-zero (unusual)</li>
+                            <li><span className="text-rose-600">Rose</span> &gt; +0.5 — positive (flag)</li>
+                          </ul>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
