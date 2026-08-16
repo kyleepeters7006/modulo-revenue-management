@@ -14563,7 +14563,23 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       
       // Calculate Remainder Metrics
       const currentOccupancyRate = monthlyData.get(Array.from(monthlyData.keys()).pop() || '');
-      const currentOccupancy = currentOccupancyRate ? (currentOccupancyRate.occupiedRooms / currentOccupancyRate.totalRooms) * 100 : 0;
+
+      // ── KPI: Occupancy Rate ───────────────────────────────────────────────
+      // Use RTO (room_type_occupancy_history) as the source of truth when the
+      // client has any RTO rows — identical logic to the occupancyData chart so
+      // the tile and the chart always agree.  Sum occ/avail across all service
+      // lines BEFORE dividing (compute ratio on the totals, not avg of ratios).
+      // Fall back to rent-roll only for clients with no RTO rows at all.
+      let currentOccupancy: number;
+      if (clientHasAnyRTO) {
+        let totalOcc = 0; let totalAvail = 0;
+        for (const v of rtoSlMap.values()) { totalOcc += v.occ; totalAvail += v.avail; }
+        currentOccupancy = totalAvail > 0 ? (totalOcc / totalAvail) * 100 : 0;
+      } else {
+        currentOccupancy = currentOccupancyRate
+          ? (currentOccupancyRate.occupiedRooms / currentOccupancyRate.totalRooms) * 100
+          : 0;
+      }
       const targetOccupancy = 92; // Target occupancy
       
       // Identify underpriced units
@@ -14637,9 +14653,18 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         ? previousData.totalBaseRent / previousData.occupiedRooms
         : currentADR;
       
-      const previousOccupancy = previousData 
-        ? (previousData.occupiedRooms / previousData.totalRooms) * 100
-        : currentOccupancy;
+      // Previous occupancy: use RTO prev-month totals when available (same basis
+      // as currentOccupancy so the period-over-period delta is meaningful).
+      let previousOccupancy: number;
+      if (clientHasAnyRTO) {
+        let prevOcc = 0; let prevAvail = 0;
+        for (const v of rtoSlPrevMap.values()) { prevOcc += v.occ; prevAvail += v.avail; }
+        previousOccupancy = prevAvail > 0 ? (prevOcc / prevAvail) * 100 : currentOccupancy;
+      } else {
+        previousOccupancy = previousData
+          ? (previousData.occupiedRooms / previousData.totalRooms) * 100
+          : currentOccupancy;
+      }
       
       const kpis = {
         currentRevPOR: Math.round(currentRevPOR),

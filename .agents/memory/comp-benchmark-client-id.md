@@ -3,6 +3,27 @@ name: Competitive survey data scoping and AL/MC competitor mapping
 description: Diagnose empty competitor benchmarks in tenant order (session → user row → predicate), and treat the AL/MC competitor-type mapping as data-dependent rather than fixed.
 ---
 
+# competitive_survey_data scoping
+
+**Rule:** query the table with a NULL-tolerant tenant predicate:
+
+```sql
+WHERE (client_id = $1 OR client_id IS NULL)
+```
+
+**Why:** the table was originally imported with no tenant stamped on any row, and
+a plain `client_id = $1` filtered out every row — the competitive-position scatter
+and the AI commentary both went blank for every explicit tenant, while the
+Competitors tab kept working because it reads through a different query path.
+The rows carry real tenant values now, so a plain equality predicate happens to
+work today; the NULL branch is kept as cheap insurance against a future import
+that forgets to stamp the tenant.
+
+**How to apply:** because the data is tenant-scoped now, a missing NULL branch is
+no longer the likely cause of an empty result. Check the more common traps first:
+an unauthenticated session silently resolving to the demo tenant, or a user row
+with a null client_id. Confirm against the data before rewriting a query.
+
 # Empty competitor benchmarks: diagnose in this order
 
 **Rule:** when a competitor benchmark, price position or AI commentary comes back
@@ -31,10 +52,18 @@ service-line-to-competitor-type map. It depends on whether the client's survey
 import actually produced AL/MC rows.
 
 **Why:** mapping AL/MC to itself alone is right where the import populates AL/MC
-rows. It is wrong for any client whose survey contains none — those locations get
-no competitor benchmark and no price position, and they fail silently rather than
+rows, and the main client's import does for most locations. It is wrong for any
+client whose survey contains no AL/MC rows at all — those locations then get no
+competitor benchmark and no price position, and they fail silently rather than
 erroring.
 
-**How to apply:** check the actual competitor-type distribution for that client
-before changing the mapping, and remember that widening it moves every surface
-that consumes the benchmark, not just the one being debugged.
+**How to apply:** before changing the mapping, check the actual distribution per
+client:
+
+```sql
+SELECT competitor_type, COUNT(DISTINCT keystats_location)
+FROM competitive_survey_data GROUP BY 1
+```
+
+Widening the mapping to include AL moves every surface that consumes the
+benchmark, not just the one being debugged.
