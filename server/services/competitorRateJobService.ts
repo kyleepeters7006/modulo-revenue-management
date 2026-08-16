@@ -1,7 +1,8 @@
 import { db } from '../db';
-import { competitorRateJobs, rentRollData, competitiveSurveyData } from '@shared/schema';
+import { competitorRateJobs, rentRollData, competitiveSurveyData, careLevelRates, locations } from '@shared/schema';
 import { eq, and, isNull, gt, desc, sql, or } from 'drizzle-orm';
 import { buildCompetitorRateUpdate } from './competitorRateSanitizer';
+import { resolveCareLevel2 } from '@shared/careRates';
 
 const BATCH_SIZE = 500;
 const JOB_CHECK_INTERVAL = 5000; // 5 seconds
@@ -50,8 +51,17 @@ const MED_MGMT_APPLIES: Record<string, boolean> = {
   'VIL': false
 };
 
-// Trilogy's default Care Level 2 rate ($55/day)
-const TRILOGY_CARE_LEVEL_2_DAILY = 55;
+// Fallback Care Level 2 rate ($55/day), used ONLY when a campus has no entry in
+// care_level_rates (directly or via memory-care inheritance from its base line).
+// The real per-campus rates are loaded from care_level_rates in processJob and
+// resolved via resolveCareLevel2 — mirroring the competitor card in routes.ts.
+const FALLBACK_CARE_LEVEL_2_DAILY = 55;
+
+// campusKey(clientId, locationName) -> Map<serviceLine, level2Rate (native basis:
+// daily for HC lines, monthly for AL lines)>
+type CareRateMap = Map<string, Map<string, number>>;
+const campusCareKey = (clientId: string | null | undefined, location: string) =>
+  `${clientId || 'demo'}||${location}`;
 
 // Room type normalization
 function normalizeRoomType(roomType: string): string {
@@ -178,7 +188,8 @@ export async function getJobsForMonth(uploadMonth: string) {
  */
 async function processBatch(
   job: typeof competitorRateJobs.$inferSelect,
-  surveyData: Map<string, any>
+  surveyData: Map<string, any>,
+  careRateMap: CareRateMap
 ): Promise<JobProgress> {
   const progress: JobProgress = { processed: 0, updated: 0, skipped: 0, errors: 0 };
 
@@ -281,9 +292,17 @@ async function processBatch(
         let careLevel2Adjustment = 0;
         let medMgmtAdjustment = 0;
         
-        // Care Level 2 Adjustment (HC/AL only): Competitor - Trilogy ($55/day = $1674.20/month)
+        // Care Level 2 Adjustment (HC/AL only): Competitor - our actual per-campus rate.
+        // resolveCareLevel2 mirrors the competitor card: direct row first, then the
+        // memory-care lines inherit from their base line (AL/MC→AL, HC/MC→HC).
+        // Rates in care_level_rates are in the line's native basis — daily for the
+        // HC lines, monthly for AL — so convert to monthly before differencing.
         if (CARE_LEVEL_2_APPLIES[serviceLine] && competitorCareLevel2Monthly > 0) {
-          const trilogyCareLevel2Monthly = TRILOGY_CARE_LEVEL_2_DAILY * DAYS_PER_MONTH;
+          const campusCare = careRateMap.get(campusCareKey(unit.clientId, location));
+          const resolved = resolveCareLevel2(campusCare, serviceLine);
+          const trilogyCareLevel2Monthly = resolved
+            ? (isDailyRateServiceLine(serviceLine) ? resolved.rate * DAYS_PER_MONTH : resolved.rate)
+            : FALLBACK_CARE_LEVEL_2_DAILY * DAYS_PER_MONTH; // no care_level_rates entry for this campus
           careLevel2Adjustment = competitorCareLevel2Monthly - trilogyCareLevel2Monthly;
         }
         
@@ -440,6 +459,28 @@ export async function processJob(jobId: string): Promise<void> {
   }
   console.log(`[CompetitorJob] Loaded ${surveyRecords.length} survey records, ${surveyData.size} unique location/type/room combinations`);
 
+  // Load our actual per-campus Care Level 2 rates (joined to locations for the
+  // campus name, which is how rent-roll rows reference their campus).
+  const careConditions = jobClientId ? eq(careLevelRates.clientId, jobClientId) : undefined;
+  const careRows = await db.select({
+    clientId: careLevelRates.clientId,
+    locationName: locations.name,
+    serviceLine: careLevelRates.serviceLine,
+    level2Rate: careLevelRates.level2Rate,
+  })
+    .from(careLevelRates)
+    .innerJoin(locations, eq(careLevelRates.locationId, locations.id))
+    .where(careConditions);
+
+  const careRateMap: CareRateMap = new Map();
+  for (const row of careRows) {
+    if (row.level2Rate == null || !Number.isFinite(Number(row.level2Rate))) continue;
+    const key = campusCareKey(row.clientId, row.locationName);
+    if (!careRateMap.has(key)) careRateMap.set(key, new Map());
+    careRateMap.get(key)!.set(row.serviceLine, Number(row.level2Rate));
+  }
+  console.log(`[CompetitorJob] Loaded care level 2 rates for ${careRateMap.size} campuses`);
+
   try {
     let hasMoreUnits = true;
     let batchCount = 0;
@@ -456,7 +497,7 @@ export async function processJob(jobId: string): Promise<void> {
         return;
       }
 
-      const batchProgress = await processBatch(currentJob, surveyData);
+      const batchProgress = await processBatch(currentJob, surveyData, careRateMap);
       batchCount++;
 
       console.log(`[CompetitorJob] Batch ${batchCount}: processed=${batchProgress.processed}, updated=${batchProgress.updated}, skipped=${batchProgress.skipped}`);
