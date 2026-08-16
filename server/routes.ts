@@ -17637,12 +17637,22 @@ Return ONLY valid JSON with no markdown fences:
       const regions: string[] = req.query.regions ? (Array.isArray(req.query.regions) ? req.query.regions : [req.query.regions]) : [];
       const divisions: string[] = req.query.divisions ? (Array.isArray(req.query.divisions) ? req.query.divisions : [req.query.divisions]) : [];
       const serviceLine: string = (req.query.serviceLine as string) || 'All';
+      const locationIdFilter: string = (req.query.locationId as string) || '';
 
       // Cache key includes filter fingerprint so different filter combos get fresh commentary
-      const filterKey = [locations.sort().join(','), regions.sort().join(','), divisions.sort().join(','), serviceLine].join('|');
+      const filterKey = [locations.sort().join(','), regions.sort().join(','), divisions.sort().join(','), serviceLine, locationIdFilter].join('|');
       const cacheKey = `pc-commentary:${clientId}:${filterKey}`;
       const cached = getCachedAnalytics(cacheKey);
       if (cached) return res.json(cached);
+
+      // A bare locationId (no location-name filter) must still scope every data
+      // query below. Resolve it to the campus name and fold it into the same
+      // location-name allowlist the name-based filter path uses.
+      if (locationIdFilter && locations.length === 0) {
+        const locNameRes = await pool.query(`SELECT name FROM locations WHERE id = $1`, [locationIdFilter]);
+        const nm = locNameRes.rows[0]?.name;
+        if (nm) locations.push(nm);
+      }
 
       // Persistent cache lookup — survives server restarts. Fresh rows serve
       // immediately; stale rows serve immediately too (stale-while-revalidate)
@@ -17749,15 +17759,18 @@ Return ONLY valid JSON with no markdown fences:
           ORDER BY rrd.upload_month, rrd.service_line
         `, rrParams),
 
-        // Active non-historical rules with detail
+        // Active non-historical rules with detail. No LIMIT here — scoping below
+        // (qualified impact) decides which rules survive; the prompt list is
+        // capped after scoping so a campus report isn't starved by 20 portfolio
+        // rules that qualify nothing there.
         pool.query(`
-          SELECT id, name, description, action, service_line, service_lines,
+          SELECT id, name, description, action, trigger, location_id, priority,
+                 service_line, service_lines,
                  monthly_impact, annual_impact, execution_count, effective_date, created_at
           FROM adjustment_rules
           WHERE is_active AND is_historical IS NOT TRUE
             ${ruleSlFilter}
           ORDER BY priority DESC, annual_impact DESC NULLS LAST
-          LIMIT 20
         `),
 
         // Room Type Occupancy History — authoritative occupancy source (VO "Avg Occ by Room Type").
@@ -17834,8 +17847,148 @@ Return ONLY valid JSON with no markdown fences:
 
       const slRows = snapshotBySLRes.rows;
       const trendRows = trendRes.rows;
-      const ruleRows = rulesRes.rows;
       const c = competitorRes.rows[0];
+
+      // ── Scope the rule list with the SAME qualified-impact service the report
+      // table uses, so the narrative never describes a rule the table hides. ──
+      // Resolve location/region/division name filters to location IDs + names
+      // (mirrors GET /api/adjustment-rules).
+      let scopeLocationIds: string[] | null = null;
+      let scopeLocationNames: Set<string> | null = null;
+      if (locations.length || regions.length || divisions.length) {
+        const locRes = await pool.query(
+          `SELECT id, name, region, division FROM locations WHERE client_id = $1`,
+          [clientId],
+        );
+        const matched = locRes.rows.filter((l: any) =>
+          (!locations.length || locations.includes(l.name)) &&
+          (!regions.length   || (l.region   && regions.includes(l.region))) &&
+          (!divisions.length || (l.division && divisions.includes(l.division))));
+        scopeLocationIds = matched.map((l: any) => l.id);
+        scopeLocationNames = new Set<string>([...matched.map((l: any) => l.name), ...locations]);
+      }
+
+      // Camel-case rule objects for computeQualifiedRuleImpact.
+      const camelRules = rulesRes.rows.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        action: typeof r.action === 'string' ? JSON.parse(r.action) : (r.action || {}),
+        trigger: typeof r.trigger === 'string' ? JSON.parse(r.trigger) : (r.trigger || {}),
+        locationId: r.location_id,
+        priority: r.priority,
+        serviceLine: r.service_line,
+        serviceLines: r.service_lines,
+        executionCount: r.execution_count,
+        effectiveDate: r.effective_date,
+        createdAt: r.created_at,
+      }));
+
+      // Location scoping of the rule LIST (same semantics as the rules endpoint):
+      // portfolio-wide rules pass; campus-scoped rules must target a scoped campus
+      // by locationId or by name in action.filters.location.
+      let scopedRules = camelRules;
+      if (scopeLocationIds || locationIdFilter) {
+        const idSet = new Set(scopeLocationIds ?? []);
+        if (locationIdFilter) idSet.add(locationIdFilter);
+        const nameSet = scopeLocationNames ?? new Set<string>();
+        scopedRules = scopedRules.filter((r: any) => {
+          const filterLocs: string[] = Array.isArray(r.action?.filters?.location)
+            ? r.action.filters.location : [];
+          const hasLocScope = !!r.locationId || filterLocs.length > 0;
+          if (!hasLocScope) return true;
+          if (r.locationId && idSet.has(r.locationId)) return true;
+          return filterLocs.some((n) => nameSet.has(n));
+        });
+      }
+      // Honor action.filters.serviceLine too (SQL only checked the columns).
+      if (serviceLine && serviceLine !== 'All') {
+        scopedRules = scopedRules.filter((r: any) => {
+          if (r.serviceLine) return r.serviceLine === serviceLine;
+          const slArr: string[] = Array.isArray(r.serviceLines) ? r.serviceLines : [];
+          if (slArr.length) return slArr.includes(serviceLine);
+          const filterSls: string[] = Array.isArray(r.action?.filters?.serviceLine)
+            ? r.action.filters.serviceLine : [];
+          if (filterSls.length) return filterSls.includes(serviceLine);
+          return true;
+        });
+      }
+
+      // Scoped, deduplicated qualified impact — identical pipeline (shared cached
+      // context, specificity-ordered unit claiming) to GET /api/adjustment-rules.
+      const commentaryScoped = !!(locationIdFilter || scopeLocationIds || (serviceLine && serviceLine !== 'All'));
+      const impactScope = commentaryScoped
+        ? {
+            locationId: locationIdFilter || undefined,
+            serviceLine: serviceLine !== 'All' ? serviceLine : undefined,
+            locationIds: scopeLocationIds ?? undefined,
+          }
+        : undefined;
+      const impactCtxKey = `ruleImpactCtx:${clientId}`;
+      let commentaryImpactCtx = getCachedAnalytics(impactCtxKey);
+      if (!commentaryImpactCtx) {
+        commentaryImpactCtx = await buildRuleImpactContext(clientId);
+        if (commentaryImpactCtx) setCachedAnalytics(impactCtxKey, commentaryImpactCtx);
+      }
+      const scopedImpactById = new Map<string, ReturnType<typeof computeQualifiedRuleImpact>>();
+      if (commentaryImpactCtx) {
+        const dedupOrder = [...scopedRules]
+          .filter((r: any) => r.action?.adjustmentValue)
+          .sort((a: any, b: any) => {
+            const specDiff = ruleSpecificityScore(b) - ruleSpecificityScore(a);
+            if (specDiff !== 0) return specDiff;
+            const priDiff = (b.priority ?? 0) - (a.priority ?? 0);
+            if (priDiff !== 0) return priDiff;
+            const da = a.effectiveDate ? new Date(a.effectiveDate).toISOString() : '';
+            const dbs = b.effectiveDate ? new Date(b.effectiveDate).toISOString() : '';
+            if (da !== dbs) return dbs.localeCompare(da);
+            const ca = a.createdAt ? new Date(a.createdAt).toISOString() : '';
+            const cb = b.createdAt ? new Date(b.createdAt).toISOString() : '';
+            return cb.localeCompare(ca);
+          });
+        const claimedIds = new Set<string>();
+        for (const rule of dedupOrder) {
+          const impact = computeQualifiedRuleImpact(commentaryImpactCtx, rule, impactScope, claimedIds);
+          for (const id of Array.from(impact.qualifiedUnitIds)) claimedIds.add(id);
+          scopedImpactById.set(rule.id, impact);
+        }
+      }
+
+      // When scoped, drop rules with zero qualified impact in this scope — the
+      // same rule the report table hides must not appear in the prose. Sort by
+      // scoped first-year impact so the narrative leads with what matters here,
+      // then cap the prompt list at 20 (the old SQL LIMIT, applied post-scoping).
+      const ruleRows = (commentaryScoped && commentaryImpactCtx
+        ? scopedRules.filter((r: any) => {
+            const imp = scopedImpactById.get(r.id);
+            if (!imp) return false; // no adjustment value → no impact anywhere
+            return imp.affectedUnits > 0 || imp.monthlyImpact !== 0 ||
+                   imp.annualImpact !== 0 || imp.steadyStateAnnualImpact !== 0;
+          })
+        : scopedRules)
+        .sort((a: any, b: any) => {
+          const ia = scopedImpactById.get(a.id);
+          const ib = scopedImpactById.get(b.id);
+          return Math.abs(ib?.annualImpact ?? 0) - Math.abs(ia?.annualImpact ?? 0);
+        })
+        .slice(0, 20)
+        .map((r: any) => {
+          const imp = scopedImpactById.get(r.id);
+          return {
+            // Keep the snake_case shape the downstream prompt/fallback code reads.
+            id: r.id,
+            name: r.name,
+            description: r.description,
+            action: r.action,
+            service_line: r.serviceLine,
+            service_lines: r.serviceLines,
+            execution_count: r.executionCount,
+            effective_date: r.effectiveDate,
+            created_at: r.createdAt,
+            scoped_affected_units: imp?.affectedUnits ?? null,
+            scoped_annual_impact: imp?.annualImpact ?? null,
+          };
+        });
 
       // ── Build per-month ROH occupancy lookup for 6-month trend ───────────────
       // Key: "YYYY-MM|canonicalSL" → {occ, avail}
@@ -17983,7 +18136,12 @@ Return ONLY valid JSON with no markdown fences:
         const slScope = (r.service_lines && r.service_lines.length > 0) ? r.service_lines.join('/') : (r.service_line || 'all service lines');
         const effRaw = r.effective_date || r.created_at;
         const effDate = effRaw ? String(new Date(effRaw).toISOString()).slice(0, 10) : 'unknown';
-        return `  - "${r.name}" [${slScope}] effective ${effDate}: ${r.description} → ${adjVal} ${adjType}, exec ${r.execution_count || 0}x`;
+        // Scoped qualified impact (same service the report table uses) so the
+        // narrative weighs rules by what they do INSIDE the current filter scope.
+        const impStr = r.scoped_affected_units != null
+          ? `, affects ${r.scoped_affected_units} unit${r.scoped_affected_units === 1 ? '' : 's'} in this scope (~$${Math.round(r.scoped_annual_impact || 0).toLocaleString()}/yr)`
+          : '';
+        return `  - "${r.name}" [${slScope}] effective ${effDate}: ${r.description} → ${adjVal} ${adjType}, exec ${r.execution_count || 0}x${impStr}`;
       }).join('\n');
 
       const filterContext = [
@@ -18243,7 +18401,7 @@ ${slSummaryPartsDisplay || 'No data for selected filters'}
 ${trendSummaryDisplay || 'Insufficient history'}
 ${portfolioBreakdownBlock}
 ACTIVE PRICING RULES (${ruleRows.length} total):
-${ruleDetailsDisplay || 'No active rules'}
+${ruleDetailsDisplay || (commentaryScoped ? 'No active pricing rule affects this filter scope — do NOT describe or imply any rule-driven rate changes.' : 'No active rules')}
 
 COMPETITOR INFO: ${compInfo}
 
@@ -18284,7 +18442,7 @@ ${slSummaryPartsDisplay || 'No data for selected filters'}
 ${trendSummaryDisplay || 'Insufficient history'}
 
 ACTIVE PRICING RULES (${ruleRows.length} total):
-${ruleDetailsDisplay || 'No active rules'}
+${ruleDetailsDisplay || (commentaryScoped ? 'No active pricing rule affects this filter scope — do NOT describe or imply any rule-driven rate changes; the summary must fall back to occupancy and revenue trends only.' : 'No active rules')}
 
 COMPETITOR INFO: ${compInfo}
 

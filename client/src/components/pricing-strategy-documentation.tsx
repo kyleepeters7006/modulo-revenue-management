@@ -70,6 +70,7 @@ export default function PricingStrategyDocumentation() {
   const [expandedCampuses, setExpandedCampuses] = useState<Set<string>>(new Set());
   const [selectedView, setSelectedView] = useState<StrategyDocumentation | null>(null);
   const [exportingExcel, setExportingExcel] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [aiExpanded, setAiExpanded] = useState(true);
 
   const { data: documentation, isLoading } = useQuery<StrategyDocumentation[]>({
@@ -103,23 +104,24 @@ export default function PricingStrategyDocumentation() {
     setExpandedCampuses(next);
   };
 
-  const handleExportExcel = async () => {
-    setExportingExcel(true);
+  const handleExportAi = async (format: "excel" | "pdf") => {
+    const setLoading = format === "excel" ? setExportingExcel : setExportingPdf;
+    setLoading(true);
     try {
-      const res = await fetch(`/api/pricing-strategy-documentation/export-ai?format=excel`);
+      const res = await fetch(`/api/pricing-strategy-documentation/export-ai?format=${format}`);
       if (!res.ok) throw new Error(await res.text());
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `pricing_strategy_${new Date().toISOString().split("T")[0]}.xlsx`;
+      a.download = `pricing_strategy_${new Date().toISOString().split("T")[0]}.${format === "excel" ? "xlsx" : "pdf"}`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
       toast({
         title: "Export Ready",
-        description: "Pricing strategy exported as Excel with AI summaries.",
+        description: `Pricing strategy exported as ${format.toUpperCase()} with AI summaries.`,
       });
     } catch {
       toast({
@@ -128,7 +130,7 @@ export default function PricingStrategyDocumentation() {
         variant: "destructive",
       });
     } finally {
-      setExportingExcel(false);
+      setLoading(false);
     }
   };
 
@@ -154,7 +156,7 @@ export default function PricingStrategyDocumentation() {
               Pricing Strategy Documentation
             </CardTitle>
             <CardDescription className="text-gray-600 dark:text-gray-400 mt-1">
-              AI-generated summaries of every pricing rule and campus strategy — export to Excel or view the full report
+              AI-generated summaries of every pricing rule and campus strategy — export to Excel or PDF, or view the full report
             </CardDescription>
           </div>
 
@@ -162,8 +164,8 @@ export default function PricingStrategyDocumentation() {
             <Button
               variant="outline"
               size="sm"
-              onClick={handleExportExcel}
-              disabled={exportingExcel}
+              onClick={() => handleExportAi("excel")}
+              disabled={exportingExcel || exportingPdf}
               className="border-emerald-600 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-500 dark:text-emerald-400 dark:hover:bg-emerald-950"
             >
               {exportingExcel ? (
@@ -172,6 +174,20 @@ export default function PricingStrategyDocumentation() {
                 <FileSpreadsheet className="w-4 h-4 mr-2" />
               )}
               Export Excel
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleExportAi("pdf")}
+              disabled={exportingExcel || exportingPdf}
+              className="border-rose-600 text-rose-700 hover:bg-rose-50 dark:border-rose-500 dark:text-rose-400 dark:hover:bg-rose-950"
+            >
+              {exportingPdf ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <FileText className="w-4 h-4 mr-2" />
+              )}
+              Export PDF
             </Button>
             <Button
               variant="outline"
