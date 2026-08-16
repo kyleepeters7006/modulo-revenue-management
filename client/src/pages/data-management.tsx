@@ -15,7 +15,6 @@ import PricingStrategyDocumentation from "@/components/pricing-strategy-document
 import { useUploads } from "@/contexts/upload-context";
 import { useAuth } from "@/hooks/useAuth";
 import { DataImportsContent } from "@/pages/data-imports";
-import CensusReconciliation from "@/components/census-reconciliation";
 
 interface FileWithDate {
   file: File;
@@ -933,11 +932,6 @@ export default function DataManagement() {
           </TabsContent>
 
           <TabsContent value="uploads">
-
-        {/* Tie-out of our derived unit counts against the client's census report */}
-        <div className="mb-6">
-          <CensusReconciliation />
-        </div>
 
         {/* Active Uploads Banner */}
         {activeUploads.length > 0 && (
