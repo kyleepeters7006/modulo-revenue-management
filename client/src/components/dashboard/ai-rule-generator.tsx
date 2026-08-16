@@ -2,6 +2,12 @@ import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Sparkles, Target, Loader2, Save, Check, X, TrendingUp, TrendingDown, Pencil, History, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -535,10 +541,19 @@ export default function AiRuleGenerator({
                       </p>
                       <p className="text-[10px] uppercase tracking-wide text-gray-400">Annual</p>
                     </div>
-                    <div className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center">
-                      <p className="text-sm font-semibold text-gray-900">{s.elasticity != null ? s.elasticity.toFixed(1) : '—'}</p>
-                      <p className="text-[10px] uppercase tracking-wide text-gray-400">Elasticity</p>
-                    </div>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center cursor-default">
+                            <p className="text-sm font-semibold text-gray-900">{s.elasticity != null ? s.elasticity.toFixed(1) : '—'}</p>
+                            <p className="text-[10px] uppercase tracking-wide text-gray-400">Avg. Elast.</p>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[220px] text-xs">
+                          Count-weighted average elasticity across the {s.unitsImpacted ?? 'affected'} unit{s.unitsImpacted === 1 ? '' : 's'} this rule would impact. Segments with opposite signs can average toward zero — check Reference Data for per-segment values.
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                   {(s.daysToSellAfter != null || s.predictedDaysToSellChange != null) && (
                     <p className="text-[11px] text-gray-500 mt-2">
