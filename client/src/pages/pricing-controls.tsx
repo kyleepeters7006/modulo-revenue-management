@@ -63,6 +63,15 @@ export default function PricingControls() {
   const designerHelpersRef = useRef<RuleDesignerHelpers | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(true);
 
+  // Auto-open the Strategy Report when navigated here with ?openReport=true
+  // (e.g. from the Pricing Strategy Documentation card on Data Management)
+  useEffect(() => {
+    if (urlParams.get('openReport') === 'true') {
+      setStrategyReportOpen(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Auto-scroll to rule designer when navigated from analytics with scrollTo=rules
   useEffect(() => {
     const scrollTo = urlParams.get('scrollTo');
