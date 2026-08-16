@@ -8060,14 +8060,14 @@ ${campusOccLines.join('\n')}
       // Vacancy scatter, and Overview tiles returns fresh DB data instead of the
       // previously-cached (potentially stale / $0-rate) result.
       const analyticsRentRollPrefixes = [
-        `comp-position:${clientId}:`,
+        `comp-position-studio:${clientId}:`,
         `vacancy-scatter:${clientId}:`,
         `overview_${clientId}`,
       ];
       for (const key of Array.from(analyticsCache.keys())) {
         if (analyticsRentRollPrefixes.some(p => key.startsWith(p))) analyticsCache.delete(key);
       }
-      console.log(`[upload/rent-roll] analytics cache cleared for client ${clientId} (comp-position, vacancy-scatter, overview)`);
+      console.log(`[upload/rent-roll] analytics cache cleared for client ${clientId} (comp-position-studio, vacancy-scatter, overview)`);
 
       // Auto-trigger competitor rate matching using the job-based system
       // This is resumable and won't be interrupted by server restarts.

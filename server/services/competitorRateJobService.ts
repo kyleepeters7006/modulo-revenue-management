@@ -3,6 +3,7 @@ import { competitorRateJobs, rentRollData, competitiveSurveyData, careLevelRates
 import { eq, and, isNull, gt, desc, sql, or } from 'drizzle-orm';
 import { buildCompetitorRateUpdate } from './competitorRateSanitizer';
 import { resolveCareLevel2 } from '@shared/careRates';
+import { invalidateRefDataCache } from '../refDataCache';
 
 const BATCH_SIZE = 500;
 const JOB_CHECK_INTERVAL = 5000; // 5 seconds
@@ -519,7 +520,12 @@ export async function processJob(jobId: string): Promise<void> {
       })
       .where(eq(competitorRateJobs.id, jobId));
 
-    console.log(`[CompetitorJob] Job ${jobId} completed successfully`);
+    // Invalidate the reference-data cache so rate card and comp-variance views
+    // immediately reflect the updated competitor_final_rate values written above.
+    // Without this, cached aggregations from before the job ran would continue
+    // serving stale rates for up to the cache TTL.
+    invalidateRefDataCache();
+    console.log(`[CompetitorJob] Job ${jobId} completed successfully — ref-data cache invalidated`);
   } catch (error) {
     console.error(`[CompetitorJob] Job ${jobId} failed:`, error);
     
