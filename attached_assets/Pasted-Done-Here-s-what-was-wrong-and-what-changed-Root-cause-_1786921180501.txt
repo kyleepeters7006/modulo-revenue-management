@@ -1,0 +1,19 @@
+Done. Here's what was wrong and what changed.
+
+**Root cause.** The rule parser has a fall-through: when it can't map a condition onto a supported metric, it silently returns "no trigger" instead of failing. Validation accepted that. So any condition phrasing the parser didn't understand vanished, and the rule became a blanket rule — exactly how your "Increase 5%" rule ended up on 12,551 units while its note described ~1,000. This affected *every* path that turns text into a rule, not just the AI one.
+
+**The guard.** New `checkRuleEnforceable` compares what a rule's text *promises* against what the parser actually *captured*, and refuses the rule when they don't match. It's wired into all six paths: AI suggest, AI accept, manual create, edit, Excel import, and historical reselect. The AI pipeline now drops unenforceable suggestions before you ever see them — which is the thing you asked for.
+
+**Two real parser bugs surfaced along the way:**
+- The suggestion prompt's own canonical example — `"for vacant One Bedroom units over 60 days"` — didn't parse. The room type sitting between "vacant" and "units" broke the match, so every rule the AI generated in that shape lost its 60-day threshold. Fixed.
+- `days vacant is greater than 45` didn't parse either, despite `days_vacant` being a supported metric. Fixed.
+
+**Prompt hardened.** It now enumerates the allowed trigger metrics and explicitly forbids the plausible-sounding ones the engine doesn't have — revenue/T12 growth, YoY, trend, velocity — plus requires a numeric threshold on every condition. Note that trailing-12 *occupancy* exists but trailing-12 *growth* does not; that distinction is now spelled out, since it's what tripped the original rule.
+
+**Verification.** `tests/ruleEnforceability.test.ts` covers 25 assertions, weighted toward false positives — a guard that blocks valid rules would be worse than the bug. Rules scoped to campuses like "Overlook Ridge", `AL/MC` service-line labels, and `between` ranges all still work. The existing rule suites (90 assertions) pass unchanged, and TypeScript's error count is unchanged from its pre-existing baseline.
+
+Four rounds of code review ran on this; the reviewer's findings drove the event/time trigger handling, the Excel-import and reselect guards, and the clause-boundary centralization.
+
+One thing I did **not** do: task #631 (adding a real trailing-12 growth metric) is still open, so that third condition on your original rule remains inexpressible. The rule is currently enforcing the two supported gates at $33.5K/mo.
+
+Separately, I noticed a pre-existing unrelated bug in the logs — the rule-validation AI call throws `SyntaxError: Unexpected token '`'` because Claude returns fenced ```json instead of bare JSON. It's swallowed and non-fatal, but it means that validation step never actually runs. Want me to fix that?

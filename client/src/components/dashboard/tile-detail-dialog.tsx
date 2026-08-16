@@ -103,7 +103,7 @@ const SERVICE_LINE_COLORS: Record<string, string> = {
 };
 
 // Preferred sort order for service lines
-const SERVICE_LINE_ORDER = ['HC', 'AL', 'SL', 'VIL', 'AL/MC', 'HC/MC'];
+const SERVICE_LINE_ORDER = ['HC', 'HC/MC', 'AL', 'AL/MC', 'SL', 'VIL'];
 
 const sortServiceLines = <T extends { serviceLine: string }>(data: T[] | undefined): T[] => {
   if (!data) return [];

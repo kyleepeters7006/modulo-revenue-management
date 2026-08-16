@@ -36,6 +36,8 @@
 - [Rule changes auto-apply](rule-auto-apply.md) — rule mutations schedule a debounced repricing run (never apply on read); deferral must be bounded; single-tenant on purpose.
 - [MatrixCare export semantics](matrixcare-export-semantics.md) — exports must be client+latest-month scoped w/ override>rule>modulo>street; hold fields differ by payer; no resident columns.
 - [Rule parser compound drops](rule-parser-compound-drop.md) — a phrase can parse standalone yet vanish inside "A AND B"; METRIC_TO_FIELD needs every alias, assert condition COUNT.
+- [Rule trigger silent degradation](rule-trigger-silent-degradation.md) — parseTrigger falls back to 'immediate' on any unmappable clause, making a gated rule blanket; every creation path must run the enforceability guard.
+- [Rule threshold scales](rule-threshold-scales.md) — two threshold scales; evaluators rescale sub-1 values ×100 instead of rejecting, and the designer round-trips through a re-parsed sentence.
 - [Position vs Top Competitor](position-vs-top-comp.md) — one shared rule: weight-selected care-adjusted comp vs Studio-only (all-room for VIL / no-studio); never blended avg vs MAX comp.
 - [Reference Data YTD decomposition](refdata-ytd-decomposition.md) — rev vs IH-rate vs street-rate YTD; roll-ups re-derive from summed components, divide out units before the ratio.
 - [AI content cache validation](ai-content-cache-validation.md) — validate AI output semantically (not just parseable) before serving/caching; empty payload + SWR = panel blank for a full TTL.
@@ -47,6 +49,7 @@
 - [Client workbook reconciliation](workbook-reconciliation.md) — tie-out basis (B-beds, ex-Kingston, AL/SL→SL, HC private-pay IH); totals then match exactly and residuals are real defects.
 - [Leaflet popup constraints](leaflet-popup-constraints.md) — size popups against the map card not the viewport; bindPopup defaults to maxWidth 300 and will clip wide content.
 - [MC care-rate inheritance](care-level2-mc-inheritance.md) — AL/MC→AL and HC/MC→HC when no care row exists; flag as inherited, never insert client care data.
+- [Competitor care ADJ column](comp-care-adj-column.md) — ADJ is theirs−ours (uniform per room type by construction); the editable cell inverse-writes the survey's raw care rate.
 - [Care rate daily vs monthly](care-rate-daily-vs-monthly.md) — our HC care is per-day, competitor care is per-month; normalize to the line's native basis or HC adjustments inflate ~30x.
 - [Competitor payload aggregation traps](competitor-payload-traps.md) — map-reduce create/append branches must carry identical fields; never default a missing rate to a plausible number.
 - [Rule table display vs priority order](rule-table-priority-vs-display.md) — sort a copy; badges come from canonical order. Status tiers never invert. serviceLine has a legacy string form.

@@ -969,7 +969,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
         />
         <ZAxis range={[9, 9]} />
         <ReferenceLine y={100} stroke="#0d9488" strokeDasharray="3 2" strokeWidth={1} />
-        {['AL','AL/MC','HC','HC/MC','SL','VIL'].map(sl => {
+        {['HC','HC/MC','AL','AL/MC','SL','VIL'].map(sl => {
           const slData = compPositionData.filter((d: any) => d.serviceLine === sl);
           if (!slData.length) return null;
           return (
@@ -1009,7 +1009,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
         <ReferenceLine y={100} stroke="#0d9488" strokeDasharray="4 2" strokeWidth={1.5} label={{ value: 'Market', fontSize: tickFontSize + 1, fill: '#0d9488', position: 'insideTopRight' }} />
         <ReferenceLine x={90} stroke="#94a3b8" strokeDasharray="3 2" strokeWidth={1} label={{ value: '90%', fontSize: tickFontSize + 1, fill: '#94a3b8', position: 'insideTopRight' }} />
         <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} content={scatterTooltipContent} />
-        {['AL','AL/MC','HC','HC/MC','SL','VIL'].map(sl => {
+        {['HC','HC/MC','AL','AL/MC','SL','VIL'].map(sl => {
           const slData = compPositionData.filter((d: any) => d.serviceLine === sl);
           if (!slData.length) return null;
           const color = SCATTER_SL_COLORS[sl] || '#64748b';
@@ -1026,7 +1026,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
   const renderScatterLegend = (textSize: string) => (
     <div className="flex flex-wrap gap-3 mt-2 justify-center">
-      {(['AL','AL/MC','HC','HC/MC','SL','VIL'] as const)
+      {(['HC','HC/MC','AL','AL/MC','SL','VIL'] as const)
         .filter(sl => compPositionData.some((d:any) => d.serviceLine === sl))
         .map(sl => {
           const active = highlightedSL === sl;

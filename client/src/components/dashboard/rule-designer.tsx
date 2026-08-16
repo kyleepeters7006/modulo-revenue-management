@@ -24,6 +24,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
 import { isRuleAdditive, isRuleExclusive, exclusivePriority } from '@shared/ruleStacking';
+import { PERCENT_METRICS, conditionValueIssue } from '@shared/ruleThresholdScales';
 
 interface SpeechRecognitionEvent extends Event {
   results: SpeechRecognitionResultList;
@@ -377,7 +378,13 @@ const defaultAction = (): RuleAction => ({
 function buildDescription(conditions: Condition[], operator: string, action: RuleAction, roomTypes: string[] = []): string {
   const condParts = conditions
     .filter(c => c.value.trim())
-    .map(c => `${c.metric} (${c.timePeriod}) ${c.operator} ${c.value}`);
+    .map(c => {
+      // Emit an explicit "%" for percentage metrics so the server-side parser
+      // never has to infer the scale from the magnitude of the number.
+      const v = c.value.trim();
+      const val = PERCENT_METRICS.has(c.metric) && !v.includes('%') ? `${v}%` : v;
+      return `${c.metric} (${c.timePeriod}) ${c.operator} ${val}`;
+    });
   if (!condParts.length && !action.amountValue) return '';
   const ifPart = condParts.length ? `If ${condParts.join(` ${operator} `)}` : '';
   const actionLabel = ACTIONS.find(a => a.value === action.type)?.label || action.type;
@@ -398,6 +405,19 @@ function computeValidation(conditions: Condition[], action: RuleAction, tab: str
   if (tab === 'structured') {
     const filled = conditions.filter(c => c.value.trim());
     if (!filled.length) msgs.push('Add at least one condition value to complete this rule.');
+    // Scale mismatches must block the save, not just warn: the server re-parses
+    // the composed sentence, so a misread threshold is silently applied to prices.
+    for (const c of filled) {
+      const issue = conditionValueIssue(c.metric, c.value);
+      if (issue) msgs.push(issue);
+    }
+    const amt = action.amountValue?.trim();
+    if (amt) {
+      const amtNum = parseFloat(amt.replace(/[$%,\s]/g, ''));
+      if (Number.isNaN(amtNum)) msgs.push(`Pricing amount "${amt}" is not a number.`);
+      else if (amtNum < 0) msgs.push('Enter the amount as a positive number and pick Increase or Decrease above.');
+      else if (action.amountType === 'percent' && amtNum > 100) msgs.push('A percentage adjustment above 100% is not allowed.');
+    }
     if (!action.amountValue) msgs.push('Set an amount for the pricing action.');
     if (!action.scope) msgs.push('This rule does not have a target scope.');
     if (conditions.some(c => c.metric === 'Competitor Rate' || c.metric === 'Street Rate to Top Comp Var %'))

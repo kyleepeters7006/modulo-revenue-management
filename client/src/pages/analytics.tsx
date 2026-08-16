@@ -1482,7 +1482,7 @@ export function Analytics() {
                         <tbody>
                           {rraData.byServiceLine && Object.entries(rraData.byServiceLine)
                             .sort((a: any, b: any) => {
-                              const order = ['HC', 'AL', 'SL', 'VIL'];
+                              const order = ['HC', 'HC/MC', 'AL', 'AL/MC', 'SL', 'VIL'];
                               return order.indexOf(a[0]) - order.indexOf(b[0]);
                             })
                             .map(([sl, data]: [string, any]) => (

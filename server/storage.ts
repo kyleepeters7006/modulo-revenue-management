@@ -2760,13 +2760,6 @@ export class DatabaseStorage implements IStorage {
 
     const rows = historyRows.rows as { location: string; service_line: string; max_care_rate: number }[];
 
-    // Get existing care_level_rates entries for this client to avoid overwriting them
-    const existingEntries = await db
-      .select({ locationId: careLevelRates.locationId, serviceLine: careLevelRates.serviceLine })
-      .from(careLevelRates)
-      .where(eq(careLevelRates.clientId, clientId));
-    const existingSet = new Set(existingEntries.map(e => `${e.locationId}|${e.serviceLine}`));
-
     let upserted = 0;
     let skipped = 0;
 
@@ -2776,24 +2769,25 @@ export class DatabaseStorage implements IStorage {
         skipped++;
         continue;
       }
-      const key = `${locationId}|${row.service_line}`;
-      if (existingSet.has(key)) {
-        // Admin entry already exists — preserve it
-        skipped++;
-        continue;
-      }
       const rate = Number(row.max_care_rate);
       if (!rate || rate <= 0) {
         skipped++;
         continue;
       }
-      const inserted = await db
+      // Use ON CONFLICT DO UPDATE so that stale or incorrectly manually-entered
+      // values are overwritten with the authoritative rent-roll figure.  The rent
+      // roll is the ground truth: it reflects what each property actually charges.
+      // The unique index is on (client_id, location_id, service_line) — all three
+      // must appear in the conflict target.
+      const result = await db
         .insert(careLevelRates)
         .values({ locationId, serviceLine: row.service_line, level2Rate: rate, clientId })
-        .onConflictDoNothing()
+        .onConflictDoUpdate({
+          target: [careLevelRates.clientId, careLevelRates.locationId, careLevelRates.serviceLine],
+          set: { level2Rate: rate },
+        })
         .returning({ id: careLevelRates.locationId });
-      // Only count rows that were actually written (not silently skipped by conflict guard)
-      if (inserted.length > 0) {
+      if (result.length > 0) {
         upserted++;
       } else {
         skipped++;

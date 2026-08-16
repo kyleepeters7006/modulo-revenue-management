@@ -100,7 +100,7 @@ import { dirname } from 'path';
 import * as fs from 'fs';
 import * as cron from 'node-cron';
 import bcrypt from 'bcryptjs';
-import { parseNaturalLanguageRule, validateParsedRule, generateRuleName } from "./naturalLanguageParser";
+import { parseNaturalLanguageRule, validateParsedRule, generateRuleName, checkRuleEnforceable, supportedTriggerMetrics } from "./naturalLanguageParser";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -2212,7 +2212,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
         upserted: result.upserted,
         skipped: result.skipped,
-        message: `Backfill complete. Populated ${result.upserted} Level 2 care rate(s) from historical rent roll data. ${result.skipped} skipped (already set or no location match).`,
+        message: `Backfill complete. Set or updated ${result.upserted} Level 2 care rate(s) from rent roll data. ${result.skipped} skipped (no location match or no valid rate).`,
       });
     } catch (error: any) {
       console.error('[backfill-care-level-rates] Error:', error);
@@ -10994,7 +10994,7 @@ ${campusOccLines.join('\n')}
       
       // Sort service lines for consistent display
       serviceLineBreakdown.sort((a, b) => {
-        const order = ['AL', 'HC', 'SL', 'VIL', 'IL', 'MC', 'AL/MC'];
+        const order = ['HC', 'HC/MC', 'AL', 'AL/MC', 'SL', 'VIL', 'IL', 'MC'];
         return order.indexOf(a.serviceLine) - order.indexOf(b.serviceLine);
       });
       
@@ -15703,6 +15703,18 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         });
       }
 
+      // Enforceability gate — a description promising a condition the engine
+      // cannot evaluate would be stored with trigger {type:'immediate'} and
+      // reprice every unit its filters match, far beyond what the text claims.
+      const createEnforceable = checkRuleEnforceable(description, parsedRule);
+      if (!createEnforceable.ok) {
+        return res.status(400).json({
+          error: "Rule cannot be enforced as written",
+          details: [createEnforceable.reason],
+          supportedMetrics: supportedTriggerMetrics(),
+        });
+      }
+
       // Resolve effective SL scope using shared utility (also tested in unit tests).
       const { storeServiceLine, storeServiceLines } = resolvePostServiceLineScope({ serviceLine, serviceLines });
       const effectiveSLs = storeServiceLines ?? (storeServiceLine ? [storeServiceLine] : []);
@@ -15910,7 +15922,8 @@ Respond in JSON format:
             { maxTokens: 500, label: 'pricing-rule-validation' }
           );
 
-          const result = JSON.parse(rawText || '{}');
+          const cleanedText = (rawText || '{}').replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+          const result = JSON.parse(cleanedText || '{}');
           reasonabilityCheck = {
             isReasonable: result.isReasonable !== false,
             explanation: result.explanation || reasonabilityCheck.explanation,
@@ -16293,6 +16306,15 @@ Respond in JSON format:
         const validation = validateParsedRule(parsedRule);
         if (!validation.isValid) {
           errors.push(`Rule "${g.desc}" is invalid: ${validation.errors.join('; ')}`);
+          continue;
+        }
+
+        // Same enforceability gate as the other creation paths — an imported
+        // description promising a condition the engine cannot evaluate would be
+        // stored as a blanket rule and repriced on import.
+        const importEnforceable = checkRuleEnforceable(g.desc, parsedRule);
+        if (!importEnforceable.ok) {
+          errors.push(`Rule "${g.desc}" cannot be enforced as written: ${importEnforceable.reason}`);
           continue;
         }
 
@@ -17223,10 +17245,19 @@ Respond in JSON format:
         `  * Occupancy trigger: "when occupancy is above 90%" / "when service line occupancy drops below 80%" / "when room type occupancy exceeds 95%"\n` +
         `  * Competitor trigger: "when street rate to top comp var % is greater than 10" / "when street rate to top comp var % is less than -5" (negative = priced below comps)\n` +
         `  * In-house vs street trigger: "when in-house to street variance is greater than 10%"\n` +
+        `  * Trailing occupancy: "when room type occupancy (trailing 3) is below 85" (windows: trailing 3, trailing 6, trailing 12; also available for service line and campus occupancy)\n` +
         `  * Vacancy duration: "for vacant units over 60 days"\n` +
         `  * Room types: name them exactly as listed in the metrics (e.g. Studio, Studio Dlx, One Bedroom, Two Bedroom, Companion)\n` +
         `  * Occupancy status: "for occupied units" / "for vacant units"\n` +
+        `ALLOWED TRIGGER METRICS — a condition may ONLY reference one of these. There is no other data available to the pricing engine:\n` +
+        `  campus occupancy, service line occupancy, room type occupancy (each with optional trailing 3 / 6 / 12 window),\n` +
+        `  street rate to top comp var %, in-house to street variance, days vacant, vacant units, total units, inquiry volume, quality mix.\n` +
+        `FORBIDDEN — the engine has NO metric for these, and any rule referencing one will be discarded:\n` +
+        `  revenue growth, T12 or trailing-12 GROWTH (trailing-12 OCCUPANCY is fine), year-over-year or YoY change, trend direction,\n` +
+        `  move-in pace or velocity as a threshold, length of stay, acuity, margin, NOI, churn, market rent indices, or any metric not named above.\n` +
+        `Use the data in the metrics block to DECIDE which rules are worth proposing, but express each rule's condition using only the allowed metrics above.\n` +
         `Do NOT put conditions only in the intent — if a condition is not in the rule sentence, it does not exist.\n` +
+        `Every condition must state an explicit numeric threshold (e.g. "is below 85"). Vague conditions like "is high" or "is weak" cannot be encoded and will be discarded.\n` +
         `IMPORTANT: the name MUST match the direction of the action — use words like ` +
         `"Discount", "Relief", or "Reduction" ONLY when the rule decreases the rate, and words ` +
         `like "Increase", "Premium", or "Push" ONLY when the rule increases the rate.\n` +
@@ -17290,6 +17321,18 @@ Respond in JSON format:
         if (!parsed) continue;
         const validation = validateParsedRule(parsed);
         if (!validation.isValid) continue;
+
+        // Enforceability gate: never suggest a rule the rule designer cannot
+        // faithfully build. parseTrigger silently degrades an unmappable
+        // condition to `{type:'immediate'}`, which would turn a targeted
+        // suggestion into a blanket repricing of everything its filters match.
+        const enforceable = checkRuleEnforceable(sentence, parsed);
+        if (!enforceable.ok) {
+          console.warn(
+            `[RuleSuggest] dropped unenforceable suggestion: ${enforceable.reason} — "${sentence}"`,
+          );
+          continue;
+        }
 
         // Complexity gate: drop blanket rules — a suggestion must have a real
         // trigger condition or at least a room-type / occupancy-status target,
@@ -17440,6 +17483,13 @@ Respond in JSON format:
       if (!parsed) return res.status(400).json({ error: "Could not understand the rule. Please rephrase." });
       const validation = validateParsedRule(parsed);
       if (!validation.isValid) return res.status(400).json({ error: "Invalid rule", details: validation.errors });
+
+      // Refuse to persist a rule whose promised conditions the engine cannot
+      // evaluate — it would silently become a blanket rule once saved.
+      const acceptEnforceable = checkRuleEnforceable(description, parsed);
+      if (!acceptEnforceable.ok) {
+        return res.status(400).json({ error: "Rule cannot be enforced as written", details: [acceptEnforceable.reason] });
+      }
 
       // Target policy (same as suggestion generation): street-rate rules, or
       // in-house rate INCREASES only. Care-rate / other targets are rejected,
@@ -19799,6 +19849,17 @@ Return ONLY valid JSON, no markdown fences:
       const validation = validateParsedRule(parsedRule);
       if (!validation.isValid) return res.status(400).json({ error: "Invalid rule", details: validation.errors });
 
+      // Same enforceability gate as creation — editing a rule must not be a
+      // back door to storing a condition the engine will never evaluate.
+      const patchEnforceable = checkRuleEnforceable(description, parsedRule);
+      if (!patchEnforceable.ok) {
+        return res.status(400).json({
+          error: "Rule cannot be enforced as written",
+          details: [patchEnforceable.reason],
+          supportedMetrics: supportedTriggerMetrics(),
+        });
+      }
+
       // Resolve effective SL scope using shared utility (also tested in unit tests).
       const { storeServiceLine, storeServiceLines } = resolvePatchServiceLineScope(
         { serviceLine, serviceLines },
@@ -19973,6 +20034,27 @@ Return ONLY valid JSON, no markdown fences:
       const dupe = rules.find(r => !r.isHistorical && r.name === cleanName &&
         (r.locationId ?? null) === (rule.locationId ?? null) &&
         (r.serviceLine ?? null) === (rule.serviceLine ?? null));
+      // Reselect activates a stored historical rule rather than parsing new
+      // text, but provenance is not a safety guarantee: the legacy population
+      // predates the enforceability guard, so a rule whose description promises
+      // a gate its trigger never encoded would go live silently broadened. A
+      // genuinely unconditional historical strategy has no conditional prose and
+      // passes untouched.
+      const reselectDescription = rule.description || cleanName;
+      const reselectEnforceable = checkRuleEnforceable(reselectDescription, {
+        name: cleanName,
+        description: reselectDescription,
+        trigger: rule.trigger as any,
+        action: rule.action as any,
+      });
+      if (!reselectEnforceable.ok) {
+        return res.status(400).json({
+          error: "This historical rule cannot be reselected as written",
+          details: [reselectEnforceable.reason],
+          supportedMetrics: supportedTriggerMetrics(),
+        });
+      }
+
       const created = await storage.createAdjustmentRule({
         name: dupe ? `${cleanName} (reselected ${today})` : cleanName,
         description: rule.description || cleanName,

@@ -455,16 +455,27 @@ function evaluateSingleCondition(
     return cmpPct(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'ih_street_var_pct'));
   }
 
-  // Campus / service-line / room-type occupancy
-  if (field === "occupancy" || field === "campus_occupancy") {
-    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, null, null, 'occupancy_pct'));
-  }
-  if (field === "service_line_occupancy") {
-    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'occupancy_pct'));
-  }
-  if (field === "room_type_occupancy") {
-    // Bug 3 fix: pass sl (not null) so lookup finds SL+RT specific metric first
-    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, rt, 'occupancy_pct'));
+  // Campus / service-line / room-type occupancy.
+  //
+  // campus_metrics stores occupancy_pct on the 0–100 scale while the NL parser
+  // stores the threshold as a fraction (0.85). The trailing-window branches
+  // below already normalise for this; these current-spot branches did not, so
+  // an "occupancy >= 85%" gate compared 0.85 against a value like 87.5 and
+  // passed for effectively every campus — the rule priced as though it had no
+  // occupancy gate at all, while ruleImpactService (which does normalise)
+  // previewed the correctly filtered unit count. Live and preview disagreed.
+  if (field === "occupancy" || field === "campus_occupancy" ||
+      field === "service_line_occupancy" || field === "room_type_occupancy") {
+    const occNorm = Math.abs(value) <= 1 && value !== 0 ? value * 100 : value;
+    const isCampusWide = field === "occupancy" || field === "campus_occupancy";
+    // room_type_occupancy passes sl (not null) so the lookup finds the SL+RT
+    // specific metric before falling back.
+    const lookupSl = isCampusWide ? null : sl;
+    const lookupRt = field === "room_type_occupancy" ? rt : null;
+    return cmpMetricWith(
+      _lookupCampusMetric(clientId, unit.locationId, lookupSl, lookupRt, 'occupancy_pct'),
+      occNorm,
+    );
   }
 
   // ── Trailing-window occupancy variants ───────────────────────────────────
