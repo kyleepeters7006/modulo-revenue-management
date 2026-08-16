@@ -508,7 +508,7 @@ export default function RateCardTable({
     filteredUnits.find((u: any) => u.roomNumber === selectedUnit)?.id : null;
 
   // Vacant beds are the rows that need pricing attention, so the whole row is tinted
-  // amber rather than relying on the Status badge alone. A selected/scrolled-to unit
+  // blue rather than relying on the Status badge alone. A selected/scrolled-to unit
   // keeps its teal highlight — that's a deliberate user action and outranks the tint.
   // Sticky columns must repeat the tint as a SOLID colour: they scroll over the other
   // cells, so a translucent background would let the underlying row show through.
@@ -520,7 +520,7 @@ export default function RateCardTable({
     highlightedUnitId === unit.id
       ? 'bg-[var(--trilogy-teal)]/10 border-[var(--trilogy-teal)]'
       : !unit.occupiedYN
-        ? 'bg-amber-50 hover:bg-amber-100'
+        ? 'bg-blue-50 hover:bg-blue-100'
         : '';
 
   // Same colours as rowTint, but every branch must be fully OPAQUE — the selected-unit
@@ -530,7 +530,7 @@ export default function RateCardTable({
     highlightedUnitId === unit.id
       ? 'bg-[color-mix(in_srgb,var(--trilogy-teal)_10%,white)]'
       : !unit.occupiedYN
-        ? 'bg-amber-50'
+        ? 'bg-blue-50'
         : 'bg-white';
 
   if (isLoading) {
@@ -1102,7 +1102,7 @@ export default function RateCardTable({
                       id={`unit-row-${unit.id}`}
                       className={rowTint(unit)}
                     >
-                      <TableCell className={`truncate ${colWidth.location} ${freeze('location', 'z-10')} ${stickyCellTint(unit)} ${!unit.occupiedYN && highlightedUnitId !== unit.id ? 'border-l-4 border-l-amber-400' : ''}`} title={unit.location || unit.locationName || unit.campusName || '-'}>
+                      <TableCell className={`truncate ${colWidth.location} ${freeze('location', 'z-10')} ${stickyCellTint(unit)} ${!unit.occupiedYN && highlightedUnitId !== unit.id ? 'border-l-4 border-l-blue-400' : ''}`} title={unit.location || unit.locationName || unit.campusName || '-'}>
                         {unit.location || unit.locationName || unit.campusName || '-'}
                       </TableCell>
                       <TableCell className={`font-medium ${colWidth.unit} ${freeze('unit', 'z-10')} ${stickyCellTint(unit)}`}>
@@ -1152,7 +1152,7 @@ export default function RateCardTable({
                           variant={unit.occupiedYN ? "outline" : "default"}
                           className={unit.occupiedYN
                             ? 'text-muted-foreground font-normal'
-                            : 'bg-amber-500 hover:bg-amber-500 text-white border-transparent'}
+                            : 'bg-blue-500 hover:bg-blue-500 text-white border-transparent'}
                         >
                           {unit.occupiedYN ? "Occupied" : `Vacant ${unit.daysVacant}d`}
                         </Badge>
