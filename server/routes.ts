@@ -16405,6 +16405,7 @@ Respond in JSON format:
     predictedDaysToSellChange: number | null;
     elasticityMonthlyImpact: number | null;
     elasticityAnnualImpact: number | null;
+    elasticitySampleSize: number | null;
   };
   async function computeRuleElasticityImpact(
     clientId: string,
@@ -16415,6 +16416,7 @@ Respond in JSON format:
       unitsImpacted: 0, monthlyImpact: null, annualImpact: null,
       elasticity: null, daysToSellAfter: null, predictedDaysToSellChange: null,
       elasticityMonthlyImpact: null, elasticityAnnualImpact: null,
+      elasticitySampleSize: null,
     };
     try {
       const { getElasticityMap, toDailyRate, predictDaysToSellChange, calculateElasticityRevenueImpact } =
@@ -16479,6 +16481,7 @@ Respond in JSON format:
       let elAnnual: number | null = null;
       let wElasticity: number | null = null, wDaysAfter: number | null = null, wPredDays: number | null = null;
       let elWeight = 0, daysWeight = 0, predWeight = 0;
+      let minSampleSize: number | null = null;
 
       for (const [key, g] of Array.from(byRt.entries())) {
         const el = elasticityMap.get(key) ?? null;
@@ -16495,7 +16498,7 @@ Respond in JSON format:
         if (moveIns !== null && moveIns > 0) mirMonthly += moveIns * avgDelta;
         if (impact.monthly !== null) elMonthly = (elMonthly ?? 0) + impact.monthly;
         if (impact.annual !== null) elAnnual = (elAnnual ?? 0) + impact.annual;
-        if (elasticity !== null) { wElasticity = (wElasticity ?? 0) + elasticity * g.count; elWeight += g.count; }
+        if (elasticity !== null) { wElasticity = (wElasticity ?? 0) + elasticity * g.count; elWeight += g.count; const ss = el?.sampleSize ?? 0; minSampleSize = minSampleSize === null ? ss : Math.min(minSampleSize, ss); }
         if (daysAfter !== null) { wDaysAfter = (wDaysAfter ?? 0) + daysAfter * g.count; daysWeight += g.count; }
         if (predDays !== null) { wPredDays = (wPredDays ?? 0) + predDays * g.count; predWeight += g.count; }
       }
@@ -16515,6 +16518,7 @@ Respond in JSON format:
         predictedDaysToSellChange: predWeight > 0 && wPredDays !== null ? wPredDays / predWeight : null,
         elasticityMonthlyImpact: elMonthly !== null ? Math.round(elMonthly) : null,
         elasticityAnnualImpact: elAnnual !== null ? Math.round(elAnnual) : null,
+        elasticitySampleSize: minSampleSize,
       };
     } catch (err) {
       console.error('computeRuleElasticityImpact error:', err);
@@ -17303,6 +17307,7 @@ Respond in JSON format:
           predictedDaysToSellChange: impact.predictedDaysToSellChange,
           elasticityMonthlyImpact: impact.elasticityMonthlyImpact,
           elasticityAnnualImpact: impact.elasticityAnnualImpact,
+          elasticitySampleSize: impact.elasticitySampleSize ?? null,
         });
       }
 
@@ -22655,6 +22660,7 @@ Return ONLY valid JSON, no markdown fences:
             return {
               elasticity,
               elasticityConfidence: elas?.confidence ?? null,
+              elasticitySampleSize: elas?.sampleSize ?? 0,
               daysToSellBefore,
               daysToSellAfter,
               daysToSellChange,
@@ -23025,6 +23031,8 @@ Return ONLY valid JSON, no markdown fences:
         daysToSellBefore: number | null;
         daysToSellAfter: number | null;
         daysToSellChange: number | null;
+        elasticityConfidence: number | null;
+        elasticitySampleSize: number;
       }>();
       {
         const { getElasticityMap, toDailyRate, predictDaysToSellChange, calculateElasticityRevenueImpact } =
@@ -23057,7 +23065,7 @@ Return ONLY valid JSON, no markdown fences:
           });
           groupElasticityMonthlyImpactMap.set(key, elasticImpact.monthly);
           // Store raw elasticity/DTS per group so unit rows can display them.
-          groupElasticityDataMap.set(key, { elasticity, daysToSellBefore, daysToSellAfter, daysToSellChange });
+          groupElasticityDataMap.set(key, { elasticity, daysToSellBefore, daysToSellAfter, daysToSellChange, elasticityConfidence: elas?.confidence ?? null, elasticitySampleSize: elas?.sampleSize ?? 0 });
         }
       }
 
@@ -23129,14 +23137,16 @@ Return ONLY valid JSON, no markdown fences:
           // Raw elasticity / DTS metrics — group-level values repeated on each unit row,
           // same pattern as campusOccSpot / slOccSpot so the Room Detail view can
           // display them and they aggregate correctly in the grouping layers.
-          ...((): { elasticity: number | null; daysToSellBefore: number | null; daysToSellAfter: number | null; daysToSellChange: number | null } => {
+          ...((): { elasticity: number | null; daysToSellBefore: number | null; daysToSellAfter: number | null; daysToSellChange: number | null; elasticityConfidence: number | null; elasticitySampleSize: number } => {
             const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
-            const d = groupElasticityDataMap.get(key);
+            const d = groupElasticityDataMap.get(key) as any;
             return {
               elasticity: d?.elasticity ?? null,
               daysToSellBefore: d?.daysToSellBefore ?? null,
               daysToSellAfter: d?.daysToSellAfter ?? null,
               daysToSellChange: d?.daysToSellChange ?? null,
+              elasticityConfidence: d?.elasticityConfidence ?? null,
+              elasticitySampleSize: d?.elasticitySampleSize ?? 0,
             };
           })(),
         };

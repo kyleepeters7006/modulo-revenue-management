@@ -49,6 +49,7 @@ interface RuleSuggestion {
   elasticity: number | null;
   daysToSellAfter: number | null;
   predictedDaysToSellChange: number | null;
+  elasticitySampleSize: number | null;
   elasticityMonthlyImpact: number | null;
   elasticityAnnualImpact: number | null;
 }
@@ -545,12 +546,16 @@ export default function AiRuleGenerator({
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <div className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center cursor-default">
-                            <p className="text-sm font-semibold text-gray-900">{s.elasticity != null ? s.elasticity.toFixed(1) : '—'}</p>
-                            <p className="text-[10px] uppercase tracking-wide text-gray-400">Avg. Elast.</p>
+                            <p className={`text-sm font-semibold ${s.elasticity != null && s.elasticitySampleSize != null && s.elasticitySampleSize < 6 ? 'text-amber-600' : 'text-gray-900'}`}>
+                              {s.elasticity != null ? s.elasticity.toFixed(1) : '—'}
+                            </p>
+                            <p className="text-[10px] uppercase tracking-wide text-gray-400">
+                              {s.elasticitySampleSize != null ? `Avg. Elast. (min ${s.elasticitySampleSize}mo)` : 'Avg. Elast.'}
+                            </p>
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-[220px] text-xs">
-                          Count-weighted average elasticity across the {s.unitsImpacted ?? 'affected'} unit{s.unitsImpacted === 1 ? '' : 's'} this rule would impact. Segments with opposite signs can average toward zero — check Reference Data for per-segment values.
+                        <TooltipContent side="top" className="max-w-[240px] text-xs">
+                          Count-weighted average elasticity across the {s.unitsImpacted ?? 'affected'} unit{s.unitsImpacted === 1 ? '' : 's'} this rule would impact. Segments with opposite signs can average toward zero — check Reference Data for per-segment values.{s.elasticitySampleSize != null ? ` The least-observed segment has ${s.elasticitySampleSize} month${s.elasticitySampleSize === 1 ? '' : 's'} of history${s.elasticitySampleSize < 6 ? ' — too few for a stable reading, shown in amber' : ''}.` : ''}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>

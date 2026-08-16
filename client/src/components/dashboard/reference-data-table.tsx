@@ -268,7 +268,8 @@ const GROUPS: GroupDef[] = [
     id: "elasticity",
     label: "Elasticity & DTS",
     cols: [
-      { key: "elasticity", label: "Elast.", type: "num1", w: 65, tip: "Estimated price elasticity for this specific campus × service line × room type segment: % change in days-to-sell ÷ % change in street rate. Positive means rate and days-to-sell moved together (higher rate → slower fill, typical price sensitivity). Negative means they moved in opposite directions (higher rate coincided with faster fill). This is a single-segment measurement, not an average across multiple room types." },
+      { key: "elasticity", label: "Elast.", type: "num1", w: 65, tip: "Estimated price elasticity for this specific campus × service line × room type segment: % change in days-to-sell ÷ % change in street rate. Positive means rate and days-to-sell moved together (higher rate → slower fill, typical price sensitivity). Negative means they moved in opposite directions. This is a single-segment measurement, not an average. Faded values have fewer than 6 monthly observations and are still stabilising." },
+      { key: "elasticitySampleSize", label: "Samples", type: "int", w: 60, tip: "Number of monthly observations this elasticity estimate is based on. At least 6 are needed for a reasonable reading; 12+ for a stable one. Values below 6 are shown faded in the Elast. column." },
       { key: "daysToSellBefore", label: "DTS Before", type: "num1", w: 75, tip: "Historical avg days to stabilize before pricing change (EMA of past cohorts)." },
       { key: "daysToSellAfter", label: "DTS After", type: "num1", w: 75, tip: "Historical avg days to stabilize after pricing change (EMA of past cohorts)." },
       { key: "daysToSellChange", label: "DTS Δ", type: "num1signed", w: 65, tip: "Change in estimated days to sell (after − before). Positive means slower to sell." },
@@ -363,7 +364,7 @@ const AGG_WAVG_KEYS = [
   "rtOccSpot", "rtOccT3", "rtOccT12", "daysVacantSpot", "daysVacantT3",
   "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
   "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
-  "elasticity", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
+  "elasticity", "elasticityConfidence", "elasticitySampleSize", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
   // The three *YtdGrowth keys are re-derived from summed components in
   // aggregateRows below; they are listed here only so a value always exists.
   "revenueGrowthTarget", "revYtdGrowth", "ihYtdGrowth", "streetYtdGrowth",
@@ -1788,6 +1789,13 @@ export default function ReferenceDataTable({
                     );
                   })() : c.key === "campus" || c.key === "division" ? (
                     <span className="block truncate" title={display}>
+                      {display}
+                    </span>
+                  ) : c.key === "elasticity" ? (
+                    <span
+                      className={row.elasticityConfidence != null && row.elasticityConfidence < 0.5 ? "opacity-40" : undefined}
+                      title={row.elasticityConfidence != null && row.elasticityConfidence < 0.5 ? `Low confidence — only ${row.elasticitySampleSize ?? 0} of 12 observations needed for a stable reading` : undefined}
+                    >
                       {display}
                     </span>
                   ) : (
