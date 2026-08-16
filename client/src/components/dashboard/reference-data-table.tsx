@@ -268,7 +268,7 @@ const GROUPS: GroupDef[] = [
     id: "elasticity",
     label: "Elasticity & DTS",
     cols: [
-      { key: "elasticity", label: "Elast.", type: "num1", w: 65, tip: "Estimated price elasticity for this combo — how sensitive demand (days to sell) is to a rate change." },
+      { key: "elasticity", label: "Elast.", type: "num1", w: 65, tip: "Estimated price elasticity: % change in days-to-sell ÷ % change in street rate. Positive means rate and days-to-sell moved together (higher rate → slower fill, typical price sensitivity). Negative means they moved in opposite directions (higher rate coincided with faster fill)." },
       { key: "daysToSellBefore", label: "DTS Before", type: "num1", w: 75, tip: "Historical avg days to stabilize before pricing change (EMA of past cohorts)." },
       { key: "daysToSellAfter", label: "DTS After", type: "num1", w: 75, tip: "Historical avg days to stabilize after pricing change (EMA of past cohorts)." },
       { key: "daysToSellChange", label: "DTS Δ", type: "num1signed", w: 65, tip: "Change in estimated days to sell (after − before). Positive means slower to sell." },

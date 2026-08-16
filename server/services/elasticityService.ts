@@ -11,10 +11,12 @@ import { pool } from "../db";
 //   - "after"  = the most recent 3 months
 //   - "before" = the 3 months immediately preceding that
 //
-// A negative elasticity is the intuitive case: raising the rate (positive
-// %Δrate) lengthens days-to-sell (positive %Δdays) → here the ratio is
-// positive; lowering the rate shortens days-to-sell. The sign is preserved as
-// computed so downstream consumers can reason about direction directly.
+// A positive elasticity is the normal case: raising the rate (positive %Δrate)
+// lengthens days-to-sell (positive %Δdays) → the ratio is positive, indicating
+// typical price sensitivity. A negative elasticity means rate and days-to-sell
+// moved in opposite directions (e.g. a rate increase coincided with faster
+// fill). The sign is preserved as computed so downstream consumers can reason
+// about direction directly.
 //
 // ── Online learning ────────────────────────────────────────────────────────
 // Each run produces a fresh "raw" elasticity from the latest windows. Instead
@@ -33,7 +35,7 @@ const MIN_RATE_CHANGE_PCT = 0.005; // 0.5%
 
 // Cap applied to days_vacant before computing DTS / elasticity metrics.
 // Units vacant longer than this (offline renovations, legal holds, etc.) would
-// inflate DTS and drive elasticity artificially negative. 180 days is the
+// inflate DTS and skew elasticity artificially positive. 180 days is the
 // configurable default; override by setting ELASTICITY_MAX_DAYS_VACANT env var.
 const MAX_DAYS_VACANT: number =
   process.env.ELASTICITY_MAX_DAYS_VACANT
