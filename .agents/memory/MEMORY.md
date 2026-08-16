@@ -8,11 +8,11 @@
 - [Adjustment rules schema](adjustment-rules-schema.md) — no affected_units/affected_campuses columns; execution_count is NOT a usage signal; pool.query rows are snake_case.
 - [Rule description vs filters](rule-description-filter-mismatch.md) — description can promise a filter action.filters never encodes; check applied_rule_name before deleting, then reprice.
 - [Rule History debugging lessons](rule-history-debug.md) — three root causes fixed for 0 move-ins / 0 speed vs expected in Rule History section.
-- [Occupancy source of truth](occupancy-source.md) — RTO history is authoritative for occupancy AND unit capacity; combined-SL rows split by identical B-bed-excluded weights; compute % before rounding.
+- [Occupancy source of truth](occupancy-source.md) — RTO history is authoritative; combined-SL rows split by identical B-bed-excluded weights everywhere; compute % before rounding counts.
 - [Same-store cohort](same-store-cohort.md) — the same_store columns are true for every row; derive the cohort from campuses reporting in both the current and year-ago period.
 - [Pricing cycle superseding](pricing-cycle-superseding.md) — latest-cycle-wins logic in applyAdjustmentRulesToUnit prevents Apr/Jul cycle stacking; supersededIds in UI marks older-cycle rules crossed-out.
 - [IH-to-street variance metric](ih-street-variance-metric.md) — field aliases ih_street_variance/street_to_ih_var; compute from rent roll, never trust the sparse table cache alone.
-- [Rule preview / engine trigger parity](rule-preview-parity.md) — previews and click-through drill-downs must reuse the shared engine, replay the dedup walk (net, not gross) and resolve the same page filters.
+- [Rule preview / engine trigger parity](rule-preview-parity.md) — triggers are a conditions[] array (AND/OR); preview code must evaluate both shapes and match engine metric scales.
 - [Historical strategy taxonomy](historical-strategy-taxonomy.md) — imported rules have trigger "always"; category inferred from adj value (+5 push, +2.5 hold, other positive ensure); keep backend/frontend groups in lockstep.
 - [Move-in/out event source](move-in-out-events.md) — imported event table is authoritative with rent-roll fallback; event-derived maps must be remapped through room-type groupings for key parity.
 - [Excel round-trip rule import](excel-roundtrip-import.md) — identical import descriptions merge into one scoped rule; exact rates go through manual_rate_overrides, never synthetic adjust rules.
@@ -27,7 +27,7 @@
 - [User account client_id scoping](user-client-scoping.md) — real users with client_id=NULL get silently routed to 'demo'; fix: UPDATE users SET client_id=... + user must re-login; check this first when rules/data are missing.
 - [Rule save visibility](rule-save-visibility.md) — purgeRuleCaches must be awaited BEFORE res.json(); GET /api/adjustment-rules needs Cache-Control: no-store; frontend should optimistically prepend new rule to state.
 - [RT-specific comp benchmark](rt-specific-comp-benchmark.md) — benchmarkForRT() gives room-type-specific comp; SL-level blending distorts variance for mixed-price RTs; compVarMap now keyed campus||sl||rt with SL fallback.
-- [Comp benchmark client_id + AL/MC type](comp-benchmark-client-id.md) — survey data has client_id=NULL everywhere; queries need (client_id=$1 OR client_id IS NULL); AL/MC must also search competitor_type=AL.
+- [Comp benchmark client_id + AL/MC type](comp-benchmark-client-id.md) — survey rows were once all client_id=NULL; NULL-tolerant predicate still worth keeping; AL/MC mapping depends on what each client's import actually produced.
 - [DATABASE_URL vs NEON_DATABASE_URL](db-url-distinction.md) — server uses DATABASE_URL; NEON_DATABASE_URL is a different incomplete DB; always use DATABASE_URL for manual node queries.
 - [room_type_groupings branded names](rtg-branded-names.md) — group_name has branded values like "Legacy Lane - Studio"; breaks ILIKE 'studio%' filter; use rr.room_type directly in competitive-position endpoint.
 - [`dark:` variants always on](dark-variant-always-on.md) — App.tsx wraps everything in `.dark`; literal dark palette colours paint a translucent wash. Sticky cells must be opaque in every branch.

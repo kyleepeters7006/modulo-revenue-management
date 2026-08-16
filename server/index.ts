@@ -24,7 +24,7 @@ app.use(express.urlencoded({ extended: false }));
 
 app.use((req, res, next) => {
   const start = Date.now();
-  const path = req.path;
+      const path = await import('path');
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
   const originalResJson = res.json;
@@ -430,6 +430,33 @@ app.use((req, res, next) => {
     log(`[migration] ai_suggestion_feedback migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: replace the broken full unique index on
+  // (scope, scope_value, is_active) with a partial unique index that only
+  // enforces uniqueness among *active* rows.
+  //
+  // The old index permitted only one inactive row per (scope, scope_value),
+  // so every second training run collided with the already-deactivated row
+  // and discarded the newly learned weights with a duplicate-key error.
+  //
+  // The replacement index:
+  //   - Uses WHERE is_active = true  → multiple historical versions coexist freely
+  //   - Uses NULLS NOT DISTINCT      → treats NULL scope_value (global scope) as
+  //     equal to other NULLs, so exactly one active global model is enforced
+  //
+  // Always DROP + CREATE so a partial environment that ran an earlier partial fix
+  // (without NULLS NOT DISTINCT) is also corrected on the next server start.
+  try {
+    await db.execute(sql`DROP INDEX IF EXISTS "ai_weights_scope_active_idx"`);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX "ai_weights_scope_active_idx"
+        ON "ai_weight_versions" (scope, scope_value) NULLS NOT DISTINCT
+        WHERE is_active = true
+    `);
+    log("[migration] ai_weights_scope_active_idx replaced with partial unique index (NULLS NOT DISTINCT, WHERE is_active = true)");
+  } catch (migErr) {
+    log(`[migration] ai_weights_scope_active_idx migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // One-time repair: fix stale action.filters.serviceLine on adjustment rules
@@ -466,7 +493,7 @@ app.use((req, res, next) => {
   setTimeout(async () => {
     try {
       log("Starting room type normalization backfill (background task)...");
-      const result = await backfillRoomTypes();
+        const result = await geocodeMissingCompetitorSurveys();
       if (result.success) {
         log(`Room type backfill completed: ${result.totalUpdated} types updated in ${result.duration}ms`);
       } else {
@@ -497,7 +524,7 @@ app.use((req, res, next) => {
       for (const { client_id } of clientsRes.rows) {
         try {
           log(`[elasticity-backfill] Computing elasticity for client=${client_id}…`);
-          const result = await computeAndStoreElasticity(client_id);
+        const result = await geocodeMissingCompetitorSurveys();
           log(`[elasticity-backfill] Done for client=${client_id}: ${result.updated} segments updated.`);
         } catch (err) {
           log(`[elasticity-backfill] Failed for client=${client_id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -627,7 +654,7 @@ app.use((req, res, next) => {
         log(`[startup] Cleared stale city-level coords for ${cleared} location(s) — will re-geocode with zip codes.`);
       }
 
-      const result = await geocodeMissingLocations();
+        const result = await geocodeMissingCompetitorSurveys();
       if (result.updated > 0 || result.failed > 0) {
         log(`[startup] Geocoded missing locations: ${result.updated} updated, ${result.failed} failed, ${result.skipped} skipped (no address).`);
       }
@@ -650,7 +677,7 @@ app.use((req, res, next) => {
       const latestJob = await getLatestGeocodingJob('competitor_surveys');
       if (latestJob && latestJob.status === 'running') {
         log(`[startup] Resuming interrupted geocoding job ${latestJob.id} (was processing ${latestJob.processedRows}/${latestJob.totalRows} rows)…`);
-        const result = await geocodeMissingCompetitorSurveys(latestJob.id);
+        const result = await geocodeMissingCompetitorSurveys();
         if (result.updated > 0 || result.failed > 0) {
           log(`[startup] Resumed geocoding: ${result.updated} updated, ${result.failed} failed, ${result.skipped} skipped.`);
         }

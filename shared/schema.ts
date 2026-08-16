@@ -983,7 +983,7 @@ export const aiWeightVersions = pgTable("ai_weight_versions", {
   deactivatedAt: timestamp("deactivated_at"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
-  scopeActiveIdx: uniqueIndex("ai_weights_scope_active_idx").on(table.scope, table.scopeValue, table.isActive),
+  scopeActiveIdx: uniqueIndex("ai_weights_scope_active_idx").on(table.scope, table.scopeValue).where(sql`is_active = true`),
   versionIdx: index("ai_weights_version_idx").on(table.scope, table.scopeValue, table.version),
 }));
 

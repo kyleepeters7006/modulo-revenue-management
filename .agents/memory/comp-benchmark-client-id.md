@@ -37,8 +37,16 @@ before touching any query:
 **Why:** cause 3 is the memorable one — the survey table was originally imported
 with no tenant on any row, so a plain equality predicate filtered out everything —
 but it is the rarest, and rewriting a query to chase it hides the first two. A
-NULL-tolerant predicate is still worth keeping as insurance against an import that
-forgets to stamp the tenant, since it costs nothing when the data is clean.
+NULL-tolerant predicate (`WHERE client_id = $1 OR client_id IS NULL`) is still
+worth keeping as insurance against an import that forgets to stamp the tenant,
+since it costs nothing when the data is clean.
+
+**Note (verified 2026-08-16):** `competitive_survey_data` no longer has any NULL
+`client_id` — every row carries a real tenant value today. A plain
+`WHERE client_id = $1` therefore returns data correctly. Keep the NULL-tolerant
+predicate anyway; re-check the actual data before treating a missing NULL branch
+as the cause of an empty result — the likelier culprit now is the
+unauthenticated-session-resolves-to-demo trap described above.
 
 **How to apply:** confirm which tenant the request actually resolved to before
 concluding the data is missing. Note that different surfaces reach this data
@@ -52,10 +60,10 @@ service-line-to-competitor-type map. It depends on whether the client's survey
 import actually produced AL/MC rows.
 
 **Why:** mapping AL/MC to itself alone is right where the import populates AL/MC
-rows, and the main client's import does for most locations. It is wrong for any
-client whose survey contains no AL/MC rows at all — those locations then get no
-competitor benchmark and no price position, and they fail silently rather than
-erroring.
+rows — the main client's import does for most locations (~137 of 148). It is
+wrong for any client whose survey contains no AL/MC rows at all — those locations
+then get no competitor benchmark and no price position, and they fail silently
+rather than erroring. The demo dataset has no AL/MC rows.
 
 **How to apply:** before changing the mapping, check the actual distribution per
 client:
