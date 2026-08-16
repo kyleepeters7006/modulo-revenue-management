@@ -2299,10 +2299,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const surveyFiles = allFiles
         .filter(f => {
           const lower = f.toLowerCase();
-          return lower.includes('competitive survey data') &&
+          // Match both "competitive survey data" (spaces) and
+          // "competitive_survey_data" (underscores) so files uploaded
+          // via drag-and-drop (which preserves the original filename)
+          // are found alongside manually renamed ones.
+          const isDataFile =
+            lower.includes('competitive survey data') ||
+            lower.includes('competitive_survey_data');
+          return isDataFile &&
             (lower.endsWith('.xlsx') || lower.endsWith('.csv')) &&
             !lower.includes('mapping') &&
-            !lower.includes('template');
+            !lower.includes('template') &&
+            !lower.includes('summarized');
         })
         .map(f => ({ name: f, mtime: fs.statSync(path.join(assetsDir, f)).mtimeMs }))
         .sort((a, b) => b.mtime - a.mtime);
@@ -4647,8 +4655,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     return (v != null && !isNaN(Number(v)) && Number(v) !== 0) ? Number(v) : null;
                   } catch { return null; }
                 })();
+                // careAdjOverride is always stored in monthly dollars (the
+                // survey's *_Comp_Care_Adj columns use monthly amounts).
+                // For HC/HC-MC the base rate is expressed in daily dollars,
+                // so the override must be divided by 30.44 before adding.
                 const adjustment = careAdjOverride != null
-                  ? careAdjOverride
+                  ? (daily ? careAdjOverride / 30.44 : careAdjOverride)
                   : (theirCare != null && ourCareResolved != null)
                     ? theirCare - ourCareResolved.rate
                     : null;

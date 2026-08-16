@@ -550,18 +550,18 @@ export default function AiRuleGenerator({
                         <TooltipTrigger asChild>
                           <div className={`rounded-md border px-2.5 py-1.5 text-center cursor-default ${
                             s.elasticity == null ? 'bg-gray-50 border-gray-100' :
-                            s.elasticity <= -1.5  ? 'bg-emerald-50 border-emerald-200' :
-                            s.elasticity < -0.5   ? 'bg-emerald-50/60 border-emerald-100' :
-                            s.elasticity <= 0.5   ? 'bg-amber-50 border-amber-200' :
+                            s.elasticity >= 1.5   ? 'bg-emerald-50 border-emerald-200' :
+                            s.elasticity > 0.5    ? 'bg-emerald-50/60 border-emerald-100' :
+                            s.elasticity >= -0.5  ? 'bg-amber-50 border-amber-200' :
                                                     'bg-rose-50 border-rose-200'
                           }`}>
                             <p className={`text-sm font-semibold ${
                               s.elasticity == null ? 'text-gray-900' :
                               // Low-confidence (< 6 samples) overrides direction color with amber warning
                               (s.elasticitySampleSize != null && s.elasticitySampleSize < 6) ? 'text-amber-600' :
-                              s.elasticity <= -1.5  ? 'text-emerald-700' :
-                              s.elasticity < -0.5   ? 'text-emerald-600' :
-                              s.elasticity <= 0.5   ? 'text-amber-600' :
+                              s.elasticity >= 1.5   ? 'text-emerald-700' :
+                              s.elasticity > 0.5    ? 'text-emerald-600' :
+                              s.elasticity >= -0.5  ? 'text-amber-600' :
                                                       'text-rose-600'
                             }`}>
                               {s.elasticity != null ? s.elasticity.toFixed(1) : '—'}
@@ -584,10 +584,10 @@ export default function AiRuleGenerator({
                           {s.elasticitySampleSize != null ? ` The least-observed segment has ${s.elasticitySampleSize} month${s.elasticitySampleSize === 1 ? '' : 's'} of history${s.elasticitySampleSize < 6 ? ' — too few for a stable reading, shown in amber' : ''}.` : ''}</p>
                           <p className="mt-1.5 font-semibold">Direction color scale:</p>
                           <ul className="mt-0.5 space-y-0.5">
-                            <li><span className="text-emerald-700">Dark green</span> ≤ −1.5 — strongly elastic (healthy)</li>
-                            <li><span className="text-emerald-600">Green</span> −1.5 to −0.5 — elastic (healthy)</li>
-                            <li><span className="text-amber-600">Amber</span> −0.5 to +0.5 — near-zero (unusual)</li>
-                            <li><span className="text-rose-600">Rose</span> &gt; +0.5 — positive (flag)</li>
+                            <li><span className="text-emerald-700">Dark green</span> ≥ +1.5 — strongly elastic (normal)</li>
+                            <li><span className="text-emerald-600">Green</span> +0.5 to +1.5 — elastic (normal)</li>
+                            <li><span className="text-amber-600">Amber</span> −0.5 to +0.5 — weak signal</li>
+                            <li><span className="text-rose-600">Rose</span> &lt; −0.5 — counter-intuitive (flag)</li>
                           </ul>
                         </TooltipContent>
                       </Tooltip>
