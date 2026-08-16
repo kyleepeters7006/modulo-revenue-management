@@ -881,6 +881,7 @@ export const competitorRateJobs = pgTable("competitor_rate_jobs", {
   errorCount: integer("error_count").default(0),
   lastProcessedId: varchar("last_processed_id"), // For resumable processing
   errorDetails: text("error_details"),
+  careRateFallbackCampuses: jsonb("care_rate_fallback_campuses"), // { campusName: unitCount } for campuses that used the $55/day fallback
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow(),

@@ -80,7 +80,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
 import { getRefDataCache, setRefDataCache, invalidateRefDataCache } from "./refDataCache";
-import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics, uploadHistory } from "@shared/schema";
+import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics, uploadHistory, competitorRateJobs } from "@shared/schema";
 import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import { clampRateWithGuardrails } from "./guardrailsUtil";
@@ -2217,6 +2217,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error('[backfill-care-level-rates] Error:', error);
       return res.status(500).json({ error: 'Backfill failed', details: error.message });
+    }
+  });
+
+  // GET /api/admin/care-rate-fallback-campuses — returns the set of campuses that used
+  // the $55/day default care rate in the most recent completed competitor rate job for
+  // this client. Admins use this to identify which campuses need a care_level_rates entry.
+  app.get('/api/admin/care-rate-fallback-campuses', async (req: any, res) => {
+    const session = req.session as any;
+    if (!session?.userId || !session?.clientId) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    try {
+      const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+      if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+        return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
+      }
+    } catch {
+      return res.status(500).json({ error: 'Failed to verify admin status' });
+    }
+
+    const clientId = session.clientId as string;
+    try {
+      // Find the most recent completed job scoped to this client
+      const [latestJob] = await db.select({
+        id: competitorRateJobs.id,
+        uploadMonth: competitorRateJobs.uploadMonth,
+        completedAt: competitorRateJobs.completedAt,
+        careRateFallbackCampuses: competitorRateJobs.careRateFallbackCampuses,
+      })
+        .from(competitorRateJobs)
+        .where(and(
+          eq(competitorRateJobs.status, 'completed'),
+          eq(competitorRateJobs.clientId, clientId),
+        ))
+        .orderBy(desc(competitorRateJobs.completedAt))
+        .limit(1);
+
+      if (!latestJob) {
+        return res.json({ found: false, fallbackCampuses: null, uploadMonth: null, completedAt: null });
+      }
+
+      const fallbackCampuses = (latestJob.careRateFallbackCampuses as Record<string, number> | null) ?? null;
+      return res.json({
+        found: true,
+        uploadMonth: latestJob.uploadMonth,
+        completedAt: latestJob.completedAt,
+        fallbackCampuses,
+        fallbackCount: fallbackCampuses ? Object.keys(fallbackCampuses).length : 0,
+      });
+    } catch (error: any) {
+      console.error('[care-rate-fallback-campuses] Error:', error);
+      return res.status(500).json({ error: 'Failed to fetch fallback campuses', details: error.message });
     }
   });
 

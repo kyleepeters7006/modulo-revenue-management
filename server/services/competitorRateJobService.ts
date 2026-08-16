@@ -18,6 +18,8 @@ interface JobProgress {
   updated: number;
   skipped: number;
   errors: number;
+  /** campusName → number of units that used the $55/day fallback care rate */
+  fallbackCampuses: Map<string, number>;
 }
 
 // Service line mapping for matching based on Competitive Survey Mapping document
@@ -170,7 +172,11 @@ export async function getJobStatus(jobId: string) {
     estimatedTimeRemaining: job.status === 'running' && processedUnits > 0
       ? Math.round(((totalUnits - processedUnits) / processedUnits) * 
           ((Date.now() - (job.startedAt?.getTime() || Date.now())) / 1000))
-      : null
+      : null,
+    // careRateFallbackCampuses: { [campusName]: unitCount } — campuses that used
+    // the $55/day default because they have no care_level_rates entry. Null when
+    // all campuses had real rates, or when the job is still running.
+    careRateFallbackCampuses: (job.careRateFallbackCampuses as Record<string, number> | null) ?? null,
   };
 }
 
@@ -185,14 +191,21 @@ export async function getJobsForMonth(uploadMonth: string) {
 }
 
 /**
- * Process a single batch of units
+ * Process a single batch of units.
+ *
+ * @param accumulatedFallbacks  The fallback-campus map merged from all previous
+ *   batches.  This batch's new fallbacks are merged in and then written to the DB
+ *   in the same UPDATE that advances lastProcessedId, so the two are always
+ *   atomically consistent — a mid-batch crash cannot advance the cursor while
+ *   leaving the fallback counts behind.
  */
 async function processBatch(
   job: typeof competitorRateJobs.$inferSelect,
   surveyData: Map<string, any>,
-  careRateMap: CareRateMap
+  careRateMap: CareRateMap,
+  accumulatedFallbacks: Map<string, number>
 ): Promise<JobProgress> {
-  const progress: JobProgress = { processed: 0, updated: 0, skipped: 0, errors: 0 };
+  const progress: JobProgress = { processed: 0, updated: 0, skipped: 0, errors: 0, fallbackCampuses: new Map() };
 
   // Build base conditions - always filter by uploadMonth, optionally by clientId
   const baseConditions = job.clientId
@@ -301,9 +314,19 @@ async function processBatch(
         if (CARE_LEVEL_2_APPLIES[serviceLine] && competitorCareLevel2Monthly > 0) {
           const campusCare = careRateMap.get(campusCareKey(unit.clientId, location));
           const resolved = resolveCareLevel2(campusCare, serviceLine);
-          const trilogyCareLevel2Monthly = resolved
-            ? (isDailyRateServiceLine(serviceLine) ? resolved.rate * DAYS_PER_MONTH : resolved.rate)
-            : FALLBACK_CARE_LEVEL_2_DAILY * DAYS_PER_MONTH; // no care_level_rates entry for this campus
+          let trilogyCareLevel2Monthly: number;
+          if (resolved) {
+            trilogyCareLevel2Monthly = isDailyRateServiceLine(serviceLine)
+              ? resolved.rate * DAYS_PER_MONTH
+              : resolved.rate;
+          } else {
+            // No care_level_rates entry for this campus — use the $55/day default
+            trilogyCareLevel2Monthly = FALLBACK_CARE_LEVEL_2_DAILY * DAYS_PER_MONTH;
+            progress.fallbackCampuses.set(
+              location,
+              (progress.fallbackCampuses.get(location) ?? 0) + 1
+            );
+          }
           careLevel2Adjustment = competitorCareLevel2Monthly - trilogyCareLevel2Monthly;
         }
         
@@ -359,7 +382,18 @@ async function processBatch(
     }
   }
 
-  // Update job progress
+  // Merge this batch's fallback campuses into the running accumulator
+  Array.from(progress.fallbackCampuses.entries()).forEach(([campus, count]) => {
+    accumulatedFallbacks.set(campus, (accumulatedFallbacks.get(campus) ?? 0) + count);
+  });
+
+  // Update job progress AND careRateFallbackCampuses in a SINGLE atomic write.
+  // Both lastProcessedId (cursor) and the fallback JSON are committed together so
+  // a crash between them cannot advance the cursor while leaving fallback data
+  // behind (which would cause an under-count on resume).
+  const mergedFallbacksForDb = accumulatedFallbacks.size > 0
+    ? Object.fromEntries(accumulatedFallbacks)
+    : null;
   await db.update(competitorRateJobs)
     .set({
       processedUnits: sql`${competitorRateJobs.processedUnits} + ${progress.processed}`,
@@ -367,6 +401,7 @@ async function processBatch(
       skippedUnits: sql`${competitorRateJobs.skippedUnits} + ${progress.skipped}`,
       errorCount: sql`${competitorRateJobs.errorCount} + ${progress.errors}`,
       lastProcessedId,
+      careRateFallbackCampuses: mergedFallbacksForDb,
       updatedAt: new Date(),
     })
     .where(eq(competitorRateJobs.id, job.id));
@@ -482,6 +517,18 @@ export async function processJob(jobId: string): Promise<void> {
   }
   console.log(`[CompetitorJob] Loaded care level 2 rates for ${careRateMap.size} campuses`);
 
+  // Accumulate fallback campuses across all batches: campusName → unit count.
+  // Seed from any value already persisted (handles resume after server restart —
+  // batches processed before the restart are already in the DB).
+  const fallbackCampusAccumulator = new Map<string, number>();
+  const existingFallbacks = currentJobRow.careRateFallbackCampuses as Record<string, number> | null;
+  if (existingFallbacks) {
+    Object.entries(existingFallbacks).forEach(([campus, count]) => {
+      fallbackCampusAccumulator.set(campus, count);
+    });
+    console.log(`[CompetitorJob] Resumed with ${fallbackCampusAccumulator.size} previously-recorded fallback campus(es)`);
+  }
+
   try {
     let hasMoreUnits = true;
     let batchCount = 0;
@@ -498,7 +545,10 @@ export async function processJob(jobId: string): Promise<void> {
         return;
       }
 
-      const batchProgress = await processBatch(currentJob, surveyData, careRateMap);
+      // processBatch merges fallbacks into fallbackCampusAccumulator and writes
+      // both the cursor (lastProcessedId) and the merged fallback JSON in a single
+      // atomic DB UPDATE — see processBatch for the atomicity guarantee.
+      const batchProgress = await processBatch(currentJob, surveyData, careRateMap, fallbackCampusAccumulator);
       batchCount++;
 
       console.log(`[CompetitorJob] Batch ${batchCount}: processed=${batchProgress.processed}, updated=${batchProgress.updated}, skipped=${batchProgress.skipped}`);
@@ -511,6 +561,21 @@ export async function processJob(jobId: string): Promise<void> {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
+    // Log fallback campus summary
+    if (fallbackCampusAccumulator.size > 0) {
+      const sortedFallbacks = Array.from(fallbackCampusAccumulator.entries())
+        .sort((a, b) => b[1] - a[1]);
+      console.log(
+        `[CompetitorJob] ${fallbackCampusAccumulator.size} campus(es) used the $${FALLBACK_CARE_LEVEL_2_DAILY}/day care rate fallback ` +
+        `(no care_level_rates entry). These campuses need a care_level_rates row:\n` +
+        sortedFallbacks.map(([campus, count]) => `  • ${campus}: ${count} unit(s)`).join('\n')
+      );
+    } else {
+      console.log(`[CompetitorJob] All campuses have care_level_rates entries — no fallback rate was used.`);
+    }
+
+    // careRateFallbackCampuses was already written after the final batch; just
+    // update status/timestamps to mark completion without overwriting it.
     // Mark job as completed
     await db.update(competitorRateJobs)
       .set({ 

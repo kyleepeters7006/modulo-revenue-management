@@ -317,6 +317,137 @@ function CampusRow({ campus }: { campus: RtCampusSummary }) {
   );
 }
 
+// ── Care Rate Fallback Panel ──────────────────────────────────────────────────
+type CareRateFallbackData = {
+  found: boolean;
+  uploadMonth: string | null;
+  completedAt: string | null;
+  fallbackCampuses: Record<string, number> | null;
+  fallbackCount: number;
+};
+
+function CareRateFallbackPanel() {
+  const [expanded, setExpanded] = useState(false);
+
+  const { data, isLoading, refetch, isFetching } = useQuery<CareRateFallbackData>({
+    queryKey: ['/api/admin/care-rate-fallback-campuses'],
+    enabled: expanded,
+    staleTime: 120_000,
+  });
+
+  const hasFallbacks = (data?.fallbackCount ?? 0) > 0;
+
+  return (
+    <Card className="border border-dashed border-amber-300 bg-amber-50">
+      <CardHeader className="pb-3">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center justify-between w-full text-left group"
+          data-testid="btn-care-rate-fallback-toggle"
+        >
+          <div className="flex items-center gap-2">
+            {hasFallbacks ? (
+              <ShieldAlert className="w-4 h-4 text-amber-600" />
+            ) : (
+              <Info className="w-4 h-4 text-gray-400" />
+            )}
+            <CardTitle className="text-sm font-semibold text-amber-900 group-hover:text-amber-950">
+              Care Rate Fallback Campuses
+            </CardTitle>
+            {expanded && hasFallbacks && (
+              <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-400 text-xs">
+                {data!.fallbackCount} campus{data!.fallbackCount !== 1 ? 'es' : ''} using $55/day default
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {expanded ? (
+              <ChevronDown className="w-4 h-4 text-amber-500" />
+            ) : (
+              <ChevronRight className="w-4 h-4 text-amber-500" />
+            )}
+          </div>
+        </button>
+        {!expanded && (
+          <CardDescription className="text-xs mt-1 ml-6 text-amber-700">
+            Shows which campuses used the $55/day default care rate in the most recent competitor rate job because they have no entry in care_level_rates.
+          </CardDescription>
+        )}
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="pt-0 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-amber-700">
+              Campuses listed below need a <code className="font-mono bg-amber-100 px-1 rounded">care_level_rates</code> entry.
+              Use <strong>Backfill Level 2 Care Rates</strong> above to populate them from historical rent roll data,
+              or enter them manually in the care rates configuration.
+            </p>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className="h-7 text-xs ml-2 shrink-0"
+            >
+              <RefreshCw className={`w-3 h-3 mr-1 ${isFetching ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
+
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-amber-600 py-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading…
+            </div>
+          ) : !data?.found ? (
+            <p className="text-sm text-amber-600 py-2">
+              No completed competitor rate job found for this client. Run the competitor rate job first.
+            </p>
+          ) : !hasFallbacks ? (
+            <div className="flex items-center gap-2 text-sm text-green-700 py-2">
+              <CheckCircle2 className="w-4 h-4 text-green-500" />
+              All campuses have care_level_rates entries — no fallback rate was used
+              {data.uploadMonth && (
+                <span className="text-gray-500 text-xs ml-1">({data.uploadMonth})</span>
+              )}
+            </div>
+          ) : (
+            <>
+              {data.uploadMonth && (
+                <p className="text-xs text-amber-600">
+                  From the {data.uploadMonth} competitor rate job
+                  {data.completedAt && (
+                    <span className="text-gray-500"> · completed {formatUploadTime(data.completedAt)}</span>
+                  )}
+                </p>
+              )}
+              <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+                {Object.entries(data.fallbackCampuses!)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([campus, count]) => (
+                    <div
+                      key={campus}
+                      className="flex items-center justify-between bg-white border border-amber-200 rounded-md px-3 py-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <AlertCircle className="w-3 h-3 text-amber-500 shrink-0" />
+                        <span className="font-medium text-gray-800 truncate">{campus}</span>
+                      </div>
+                      <span className="text-amber-700 font-semibold shrink-0 ml-2">
+                        {count} unit{count !== 1 ? 's' : ''} affected
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
 function formatUploadTime(ts: string | null): string {
   if (!ts) return '';
   const d = new Date(ts);
@@ -1793,6 +1924,9 @@ export default function DataManagement() {
               </CardContent>
             </Card>
           )}
+
+          {/* Admin: Care Rate Fallback Campuses — visible to authenticated admins only */}
+          {isAdmin && <CareRateFallbackPanel />}
 
           {/* Admin: Cleanup Orphaned Locations — visible to authenticated admins only */}
           {isAdmin && (

@@ -456,6 +456,20 @@ app.use((req, res, next) => {
     log(`[migration] ai_weights_scope_active_idx migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: add care_rate_fallback_campuses JSONB column to
+  // competitor_rate_jobs. Stores { campusName: unitCount } for every campus that
+  // used the $55/day default in a given job run, written atomically alongside
+  // lastProcessedId so the data survives server restarts during long jobs.
+  try {
+    await db.execute(sql`
+      ALTER TABLE competitor_rate_jobs
+        ADD COLUMN IF NOT EXISTS care_rate_fallback_campuses jsonb
+    `);
+    log("[migration] competitor_rate_jobs care_rate_fallback_campuses column ensured");
+  } catch (migErr) {
+    log(`[migration] care_rate_fallback_campuses column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // One-time repair: fix stale action.filters.serviceLine on adjustment rules
