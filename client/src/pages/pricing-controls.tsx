@@ -500,13 +500,6 @@ export default function PricingControls() {
         />
 
         <div className="space-y-6 sm:space-y-8">
-          <RulePerformanceTable
-            selectedServiceLine={selectedServiceLine}
-            selectedRegions={selectedRegions}
-            selectedDivisions={selectedDivisions}
-            selectedLocations={selectedLocations}
-          />
-
           <ReferenceDataTable
             selectedServiceLine={selectedServiceLine}
             selectedRegions={selectedRegions}
@@ -541,6 +534,13 @@ export default function PricingControls() {
             }}
           />
           </div>
+
+          <RulePerformanceTable
+            selectedServiceLine={selectedServiceLine}
+            selectedRegions={selectedRegions}
+            selectedDivisions={selectedDivisions}
+            selectedLocations={selectedLocations}
+          />
 
           <GuardrailsEditor 
             locationId={selectedLocationId}
