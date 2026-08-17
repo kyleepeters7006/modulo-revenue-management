@@ -1,4 +1,4 @@
-import { db } from '../db';
+import { db, pool } from '../db';
 import { competitorRateJobs, rentRollData, competitiveSurveyData, careLevelRates, locations } from '@shared/schema';
 import { eq, and, isNull, gt, desc, sql, or } from 'drizzle-orm';
 import { buildCompetitorRateUpdate } from './competitorRateSanitizer';
@@ -387,9 +387,72 @@ async function processBatch(
 }
 
 /**
- * Process a job to completion
+ * Namespace for the per-job Postgres advisory lock. Arbitrary but stable, so
+ * these locks cannot collide with an advisory lock taken anywhere else.
+ */
+const JOB_LOCK_NAMESPACE = 0x636f6d70; // 'comp'
+
+/**
+ * Take an exclusive, session-scoped advisory lock for a job.
+ *
+ * Two workers can legitimately reach the same job at once: the CLI runner
+ * (`server/scripts/runCompetitorRateJob.ts`) resumes any job left in `running`,
+ * and the server calls `resumeInterruptedJobs()` on boot. Without a lock both
+ * read the same cursor, write the same units twice and double-increment the
+ * progress counters. The lock lives on a dedicated pooled connection, so if the
+ * process dies the lock is released automatically — no stale-lease bookkeeping.
+ */
+async function acquireJobLock(jobId: string): Promise<{ release: () => Promise<void> } | null> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      'SELECT pg_try_advisory_lock($1::int, hashtext($2)::int) AS locked',
+      [JOB_LOCK_NAMESPACE, jobId],
+    );
+    if (!res.rows[0]?.locked) {
+      client.release();
+      return null;
+    }
+    return {
+      release: async () => {
+        try {
+          await client.query(
+            'SELECT pg_advisory_unlock($1::int, hashtext($2)::int)',
+            [JOB_LOCK_NAMESPACE, jobId],
+          );
+        } catch (err) {
+          console.error(`[CompetitorJob] Failed to release advisory lock for ${jobId}:`, err);
+        } finally {
+          client.release();
+        }
+      },
+    };
+  } catch (err) {
+    client.release();
+    throw err;
+  }
+}
+
+/**
+ * Process a job to completion.
+ *
+ * Guarded so that a concurrent worker already processing this job is a no-op
+ * rather than a duplicate run.
  */
 export async function processJob(jobId: string): Promise<void> {
+  const lock = await acquireJobLock(jobId);
+  if (!lock) {
+    console.warn(`[CompetitorJob] Job ${jobId} is already being processed by another worker — skipping duplicate run`);
+    return;
+  }
+  try {
+    await processJobLocked(jobId);
+  } finally {
+    await lock.release();
+  }
+}
+
+async function processJobLocked(jobId: string): Promise<void> {
   console.log(`[CompetitorJob] Starting job ${jobId}`);
 
   // Mark job as running and fetch the job row to read clientId and other fields
