@@ -21,6 +21,7 @@ import FloorPlans from "@/pages/floor-plans";
 import FloorPlansAdmin from "@/pages/floor-plans-admin";
 import DataImport from "@/pages/data-import";
 import DataImports from "@/pages/data-imports";
+import StreetRateQuality from "@/pages/street-rate-quality";
 import NotFound from "@/pages/not-found";
 
 function AppContent() {
@@ -55,6 +56,7 @@ function Router() {
       <Route path="/floor-plans" component={FloorPlans} />
       <Route path="/floor-plans-admin" component={FloorPlansAdmin} />
       <Route path="/data-import" component={DataImport} />
+      <Route path="/street-rate-quality" component={StreetRateQuality} />
       <Route path="/data-imports">
         <Redirect to="/data-management" />
       </Route>

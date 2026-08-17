@@ -124,7 +124,7 @@ export interface IStorage {
   getRentRollDataByLocation(location: string, clientId?: string): Promise<RentRollData[]>;
   getRevenueByMonths(months: string[], clientId?: string, sameStoreOnly?: boolean): Promise<Record<string, number>>;
   createRentRollData(data: InsertRentRollData): Promise<RentRollData>;
-  uploadRentRollData(month: string, data: any[]): Promise<void>;
+  uploadRentRollData(month: string, data: any[], clientId: string): Promise<void>;
   bulkInsertRentRollData(data: any[]): Promise<void>;
   bulkUpdateModuloRates(updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }>): Promise<void>;
   bulkUpdateAIRates(updates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }>): Promise<void>;
@@ -628,12 +628,19 @@ export class DatabaseStorage implements IStorage {
     await db.delete(rentRollData).where(eq(rentRollData.location, location));
   }
 
-  async uploadRentRollData(month: string, data: any[]): Promise<void> {
+  async uploadRentRollData(month: string, data: any[], clientId: string): Promise<void> {
+    // The replace is always scoped to the uploading client, so re-importing a
+    // month can never delete another tenant's rows for that month.
+    if (!clientId) {
+      throw new Error('uploadRentRollData requires a clientId to scope the month replace');
+    }
+    const monthFilter = and(eq(rentRollData.uploadMonth, month), eq(rentRollData.clientId, clientId));
+
     // Get IDs of rent_roll_data records we're about to delete
     const recordsToDelete = await db
       .select({ id: rentRollData.id })
       .from(rentRollData)
-      .where(eq(rentRollData.uploadMonth, month));
+      .where(monthFilter);
     
     const idsToDelete = recordsToDelete.map(r => r.id);
     
@@ -659,7 +666,7 @@ export class DatabaseStorage implements IStorage {
     }
     
     // Now safe to delete the rent_roll_data records
-    await db.delete(rentRollData).where(eq(rentRollData.uploadMonth, month));
+    await db.delete(rentRollData).where(monthFilter);
     
     // Insert new data in batches to avoid stack overflow
     if (data.length > 0) {

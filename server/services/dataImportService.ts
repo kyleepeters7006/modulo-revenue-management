@@ -390,6 +390,33 @@ export async function executeImport(params: ImportParams): Promise<ImportRun> {
     }
   }
 
+  // Street-rate plausibility guard (warn-only, mirrors the competitor-rate
+  // sanitizer's philosophy): flag campuses whose incoming median street rate
+  // moved ~an order of magnitude vs the previous month already in the DB —
+  // the signature of a monthly<->daily unit change in the export.
+  if (datasetId === "rent_roll") {
+    try {
+      const { computeStreetRateShiftWarnings } = await import("./streetRateQualityService");
+      const byMonth = new Map<string, any[]>();
+      for (const r of validation.records) {
+        const m = r.uploadMonth || period;
+        if (!m) continue;
+        const arr = byMonth.get(m) || [];
+        arr.push(r);
+        byMonth.set(m, arr);
+      }
+      for (const [m, rows] of Array.from(byMonth.entries())) {
+        const warns = await computeStreetRateShiftWarnings(clientId, m, rows);
+        for (const w of warns) {
+          validation.warnings.push(w);
+          console.warn(`[DataImport] ⚠️ ${w}`);
+        }
+      }
+    } catch (err) {
+      console.error("[DataImport] street-rate shift guard failed:", err);
+    }
+  }
+
   // Create the audit run record up front
   const [run] = await db.insert(importRuns).values({
     clientId,

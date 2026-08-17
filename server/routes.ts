@@ -8220,10 +8220,17 @@ ${campusOccLines.join('\n')}
       }
       console.log('===================================');
       
+      // Import-time street-rate plausibility guard (warn-only): flag campuses
+      // whose median street rate moved ~an order of magnitude vs the prior
+      // month (e.g. a monthly->daily unit change in the export).
+      const { computeStreetRateShiftWarnings } = await import('./services/streetRateQualityService');
+      const streetRateWarnings = await computeStreetRateShiftWarnings(clientId, uploadMonth, processedRecords);
+      for (const w of streetRateWarnings) console.warn(`⚠️ ${w}`);
+
       // Delete existing data for this upload month and insert new data
       // This prevents duplicates when re-uploading the same month
       console.log(`Deleting existing records for ${uploadMonth}...`);
-      await storage.uploadRentRollData(uploadMonth, processedRecords);
+      await storage.uploadRentRollData(uploadMonth, processedRecords, clientId);
 
       // Upsert harvested Level 2 care rates into care_level_rates (overwrite on conflict so re-uploads refresh stale rates)
       if (level2HarvestedUpload.size > 0) {
@@ -8312,7 +8319,8 @@ ${campusOccLines.join('\n')}
         message: 'Upload successful',
         recordsProcessed: processedRecords.length,
         uploadMonth: uploadMonth,
-        uploadDate: uploadDate
+        uploadDate: uploadDate,
+        warnings: streetRateWarnings
       });
 
     } catch (error) {
@@ -14471,15 +14479,36 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
     }
   });
 
+  // Street-rate data-quality report: suspect rows for a month, grouped by
+  // campus, with prior-month + sibling context. Excludes 2ND OCCUPANT B-bed
+  // surcharge rows; classifies prorated move-ins as expected, not corrupt.
+  app.get("/api/street-rate-quality", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const month = String(req.query.month || '');
+      if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(month)) {
+        return res.status(400).json({ error: "month must be YYYY-MM" });
+      }
+      const { getStreetRateQualityReport } = await import('./services/streetRateQualityService');
+      res.json(await getStreetRateQualityReport(clientId, month));
+    } catch (error) {
+      console.error('Error building street-rate quality report:', error);
+      res.status(500).json({ error: 'Failed to build street-rate quality report' });
+    }
+  });
+
   // Update a single unit's street rate (after attribute change confirmation)
   app.patch("/api/rent-roll/:id/street-rate", async (req: any, res) => {
     try {
       const { id } = req.params;
       const clientId = req.clientId || 'demo';
-      const { streetRate } = req.body;
+      const { streetRate, scope } = req.body;
 
       if (typeof streetRate !== 'number' || streetRate < 0) {
         return res.status(400).json({ error: 'streetRate must be a non-negative number' });
+      }
+      if (scope !== undefined && scope !== 'all_months' && scope !== 'single_month') {
+        return res.status(400).json({ error: "scope must be 'all_months' or 'single_month'" });
       }
 
       // Look up the room to update all months for same location+room
@@ -14491,16 +14520,26 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
 
       if (!rows.length) return res.status(404).json({ error: 'Unit not found' });
 
-      const { location, roomNumber } = rows[0];
-      await db.update(rentRollData)
-        .set({ streetRate })
-        .where(and(
-          eq(rentRollData.clientId, clientId),
-          eq(rentRollData.location, location!),
-          eq(rentRollData.roomNumber, roomNumber!)
-        ));
+      if (scope === 'single_month') {
+        // One-month correction: touch only the addressed row (a row = one
+        // upload month), leaving the room's history untouched.
+        await db.update(rentRollData)
+          .set({ streetRate })
+          .where(and(eq(rentRollData.id, id), eq(rentRollData.clientId, clientId)));
+      } else {
+        // Default (existing behavior): propagate to the same room across all
+        // months — deliberate for attribute-driven repricing.
+        const { location, roomNumber } = rows[0];
+        await db.update(rentRollData)
+          .set({ streetRate })
+          .where(and(
+            eq(rentRollData.clientId, clientId),
+            eq(rentRollData.location, location!),
+            eq(rentRollData.roomNumber, roomNumber!)
+          ));
+      }
 
-      res.json({ success: true });
+      res.json({ success: true, scope: scope || 'all_months' });
     } catch (error) {
       console.error('Error updating street rate:', error);
       res.status(500).json({ error: 'Failed to update street rate' });

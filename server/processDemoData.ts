@@ -71,12 +71,14 @@ export async function processDemoData() {
         size: row["Room Type"],
         renovated: row["Last Renovated"] && new Date(row["Last Renovated"]).getFullYear() >= 2020,
         competitorRate: parseFloat(row["Market Rate"]) * 1.05, // Add competitor rate
-        notes: row.Notes || ''
+        notes: row.Notes || '',
+        clientId: 'demo' // Demo data always belongs to the demo tenant
+
       }));
       
       // Store the data
       try {
-        await storage.uploadRentRollData(monthKey, transformedData);
+        await storage.uploadRentRollData(monthKey, transformedData, 'demo');
         console.log(`✓ Successfully stored data for ${monthKey}`);
       } catch (error) {
         console.error(`✗ Failed to store data for ${monthKey}:`, error);

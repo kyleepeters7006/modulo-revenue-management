@@ -101,6 +101,7 @@ export default function RoomAttributes() {
   const [savedRoomTypes, setSavedRoomTypes] = useState<Set<string>>(new Set());
   // Pending attribute change waiting for street rate confirmation
   const [pendingAttributeChange, setPendingAttributeChange] = useState<PendingAttributeChange | null>(null);
+  const [applyToCurrentMonthOnly, setApplyToCurrentMonthOnly] = useState(false);
   
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -196,8 +197,8 @@ export default function RoomAttributes() {
   });
 
   const updateStreetRateMutation = useMutation({
-    mutationFn: async ({ id, streetRate }: { id: string; streetRate: number }) => {
-      return apiRequest(`/api/rent-roll/${id}/street-rate`, 'PATCH', { streetRate });
+    mutationFn: async ({ id, streetRate, scope }: { id: string; streetRate: number; scope?: 'all_months' | 'single_month' }) => {
+      return apiRequest(`/api/rent-roll/${id}/street-rate`, 'PATCH', { streetRate, scope: scope || 'all_months' });
     },
     onMutate: async ({ id, streetRate }) => {
       await queryClient.cancelQueries({ queryKey: ['/api/rent-roll'] });
@@ -346,9 +347,14 @@ export default function RoomAttributes() {
     const { unitId, field, newValue, newStreetRate } = pendingAttributeChange;
     updateRatingMutation.mutate({ id: unitId, field, value: newValue });
     if (updateStreetRate) {
-      updateStreetRateMutation.mutate({ id: unitId, streetRate: newStreetRate });
+      updateStreetRateMutation.mutate({
+        id: unitId,
+        streetRate: newStreetRate,
+        scope: applyToCurrentMonthOnly ? 'single_month' : 'all_months',
+      });
     }
     setPendingAttributeChange(null);
+    setApplyToCurrentMonthOnly(false);
   };
 
   const seniorHousingServiceLines = ['AL', 'IL', 'SL', 'AL/MC'];
@@ -1311,6 +1317,16 @@ export default function RoomAttributes() {
               <p className="text-sm text-gray-600">
                 Would you like to push this street rate adjustment to the Rate Card?
               </p>
+              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-gray-300"
+                  checked={applyToCurrentMonthOnly}
+                  onChange={(e) => setApplyToCurrentMonthOnly(e.target.checked)}
+                  data-testid="checkbox-single-month"
+                />
+                Apply to this month only (leave the room's history in other months unchanged)
+              </label>
             </div>
           )}
           <DialogFooter className="flex gap-2 sm:gap-2">
