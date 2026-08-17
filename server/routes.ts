@@ -144,6 +144,7 @@ import { fetchAndApplyAdjustmentRules, resolvePostServiceLineScope, resolvePatch
 import { buildRuleImpactContext, computeQualifiedRuleImpact, computeProspectiveRuleImpact, compareRuleDedupOrder, isDedupEligibleRule, getT3MoveInsMap as getT3MoveInsMapSvc, getGroupedT3MoveInsMap as getGroupedT3MoveInsMapSvc, ruleSpecificityScore } from "./services/ruleImpactService";
 import { loadCompBenchmark, loadStudioCompBenchmark, unitWeightedBenchmark, pickComparisonRate } from "./services/compBenchmark";
 import { queryCompPositionOwnRates } from "./services/compPositionOwnRates";
+import { lookupRtPhysMap, lookupRtOccWindow, rtoOccWindow, physVacWindow } from "./services/rtOccupancyHistory";
 import { 
   getRevenuePerformanceForScope, 
   calculateGapAnalysis, 
@@ -22447,7 +22448,8 @@ Return ONLY valid JSON, no markdown fences:
       // ── Room Type Occupancy History: fetch all months in T12 window ──
       // Used to override ALL occupancy stats below (spot + T3/T6/T12 windows).
       // Key structures: campus||sl||rt  /  campus||sl  /  campus  → YYYY-MM → {occ, avail}
-      type RtoEntry = { occ: number; avail: number };
+      // RtoEntry type and helpers (rtoOccWindow, physVacWindow, lookupRtPhysMap, lookupRtOccWindow)
+      // are imported from server/services/rtOccupancyHistory.ts so tests can couple to the same code.
       const rtoRTMap     = new Map<string, Map<string, RtoEntry>>(); // campus||sl||rt
       const rtoSLMap     = new Map<string, Map<string, RtoEntry>>(); // campus||sl
       const rtoCampusMap = new Map<string, Map<string, RtoEntry>>(); // campus
@@ -22502,13 +22504,7 @@ Return ONLY valid JSON, no markdown fences:
       // counts (available_units / occ_units), so avail - occ gives the true vacant room count.
       // rtoRTMap is already keyed campus||combined_sl||rt — each service line has its own
       // history entry, so we look up directly by SL rather than collapsing across SLs.
-      // Average (avail - occ) over a window of months — mirrors the rent-roll vacWindow helper.
-      const physVacWindow = (map: Map<string, RtoEntry> | undefined, window: string[]): number | null => {
-        if (!map) return null;
-        const vals: number[] = [];
-        for (const mm of window) { const e = map.get(mm); if (e) vals.push(e.avail - e.occ); }
-        return vals.length ? Math.round(avg(vals) * 10) / 10 : null;
-      };
+      // physVacWindow and rtoOccWindow are imported from server/services/rtOccupancyHistory.ts.
 
       // Occupancy data can lag the rent-roll upload (e.g. rent roll has July but the
       // occupancy table's latest month is June). Anchor the occupancy "spot" window
@@ -22529,13 +22525,6 @@ Return ONLY valid JSON, no markdown fences:
         if (e && e.avail > 0) refCampusOcc.set(campus, e.occ / e.avail);
       });
 
-      // Helper: RTO-based occupancy % over a month window (SUM occ / SUM avail — not an average)
-      const rtoOccWindow = (map: Map<string, RtoEntry> | undefined, window: string[]): number | null => {
-        if (!map) return null;
-        let totalOcc = 0, totalAvail = 0;
-        for (const mm of window) { const e = map.get(mm); if (e) { totalOcc += e.occ; totalAvail += e.avail; } }
-        return totalAvail > 0 ? (totalOcc / totalAvail) * 100 : null;
-      };
 
       // 6b) Per-rule rates (spot month only): shared rule-preview pipeline
       //     (buildGroupRulePreviewRates) evaluates triggers and computes adjusted
@@ -23028,8 +23017,9 @@ Return ONLY valid JSON, no markdown fences:
           ...((): { vacantSpot: number|null; vacantT3: number|null; vacantT6: number|null; vacantT12: number|null } => {
             // Try branded group name first, then raw normalised room type (modeRoomType) as
             // a fallback — the RTO history is keyed by normalized_room_type, not group_name.
-            const physMap = rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`)
-                         ?? rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`);
+            // lookupRtPhysMap (server/services/rtOccupancyHistory.ts) encapsulates this
+            // two-key pattern so tests can import and exercise the same logic.
+            const physMap = lookupRtPhysMap(rtoRTMap, c.campus, c.serviceLine, c.roomType, c.modeRoomType);
             if (!physMap) {
               return {
                 vacantSpot: spot ? spot.total - spot.occupied : null,
@@ -23066,20 +23056,16 @@ Return ONLY valid JSON, no markdown fences:
           // The RTO history is keyed by normalized_room_type; c.roomType may be a branded group name
           // (e.g. "Legacy Lane - Studio") that won't match. Try c.modeRoomType (raw rr.room_type
           // mode, e.g. "studio") as a secondary key before falling to SL-level.
-          rtOccSpot: (rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), rtoSpotWindow)
-            ?? rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`), rtoSpotWindow))
+          rtOccSpot: lookupRtOccWindow(rtoRTMap, c.campus, c.serviceLine, c.roomType, c.modeRoomType, rtoSpotWindow)
             ?? rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), rtoSpotWindow)
             ?? occPctWindow(sOcc, [spotMonth]),
-          rtOccT3:   (rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t3Months)
-            ?? rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`), t3Months))
+          rtOccT3:   lookupRtOccWindow(rtoRTMap, c.campus, c.serviceLine, c.roomType, c.modeRoomType, t3Months)
             ?? rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t3Months)
             ?? occPctWindow(sOcc, t3Months),
-          rtOccT6:   (rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t6Months)
-            ?? rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`), t6Months))
+          rtOccT6:   lookupRtOccWindow(rtoRTMap, c.campus, c.serviceLine, c.roomType, c.modeRoomType, t6Months)
             ?? rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t6Months)
             ?? occPctWindow(sOcc, t6Months),
-          rtOccT12:  (rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t12Months)
-            ?? rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`), t12Months))
+          rtOccT12:  lookupRtOccWindow(rtoRTMap, c.campus, c.serviceLine, c.roomType, c.modeRoomType, t12Months)
             ?? rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t12Months)
             ?? occPctWindow(sOcc, t12Months),
           // Days vacant avg
@@ -23204,7 +23190,7 @@ Return ONLY valid JSON, no markdown fences:
             months.map(mm => [mm, rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), [mm]) ?? occPctWindow(sOcc, [mm])])
           ),
           rtOccHistory: Object.fromEntries(
-            months.map(mm => [mm, (rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), [mm]) ?? rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`), [mm])) ?? occWindowCombo(bm, [mm])])
+            months.map(mm => [mm, lookupRtOccWindow(rtoRTMap, c.campus, c.serviceLine, c.roomType, c.modeRoomType, [mm]) ?? occWindowCombo(bm, [mm])])
           ),
           ihHistory: Object.fromEntries(
             months.map(mm => [mm, bm.get(mm)?.avgIh ?? null])

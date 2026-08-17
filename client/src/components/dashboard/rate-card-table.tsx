@@ -192,8 +192,6 @@ export default function RateCardTable({
 
   const [activeModuloJobId, setActiveModuloJobId] = useState<string | null>(null);
   const [moduloJobProgress, setModuloJobProgress] = useState<number>(0);
-  // Track whether we've already auto-triggered the rules run for the current data snapshot
-  const autoTriggeredRef = useRef(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -404,20 +402,6 @@ export default function RateCardTable({
       });
     }
   });
-
-  // Auto-apply rules when data first loads and no rule rates exist yet
-  useEffect(() => {
-    if (autoTriggeredRef.current) return;
-    if (isLoading || isFetching) return;
-    if (!rateCardData) return;
-    const allUnits: any[] = rateCardData.units || [];
-    if (allUnits.length === 0) return;
-    const anyApplied = allUnits.some((u: any) => u.ruleAdjustedRate);
-    if (anyApplied) return; // already have rates — no need to re-run
-    if (activeModuloJobId || generateModuloMutation.isPending) return;
-    autoTriggeredRef.current = true;
-    generateModuloMutation.mutate();
-  }, [isLoading, isFetching, rateCardData, activeModuloJobId, generateModuloMutation.isPending]);
 
   const acceptSuggestionsMutation = useMutation({
     mutationFn: ({ unitIds, type }: { unitIds: string[], type: string }) => 
@@ -694,11 +678,9 @@ export default function RateCardTable({
               <div className="overflow-x-auto -mx-1 px-1">
                 <div className="flex space-x-4 min-w-max">
                 <Button
-                  onClick={() => { autoTriggeredRef.current = true; generateModuloMutation.mutate(); }}
+                  onClick={() => generateModuloMutation.mutate()}
                   disabled={generateModuloMutation.isPending || !!activeModuloJobId || filteredUnits.length === 0}
                   data-testid="button-generate-modulo"
-                  variant="outline"
-                  size="sm"
                 >
                   {(generateModuloMutation.isPending || activeModuloJobId) ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -707,10 +689,10 @@ export default function RateCardTable({
                   )}
                   {(generateModuloMutation.isPending || activeModuloJobId)
                     ? "Applying Rules..."
-                    : "Recalculate Rules"}
+                    : "Apply Rules Rate"}
                 </Button>
                 <span className="text-xs text-muted-foreground self-center">
-                  Rules are applied automatically. Recalculate after editing rules in <strong>Pricing Controls</strong>.
+                  Applies your saved pricing rules to all units. To create or edit rules, go to <strong>Pricing Controls</strong>.
                 </span>
                 </div>
               </div>

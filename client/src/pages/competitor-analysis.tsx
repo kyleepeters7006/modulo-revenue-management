@@ -37,9 +37,6 @@ const loadCompetitorFiltersFromStorage = () => {
 export default function CompetitorAnalysis() {
   const { isAdmin, clientShortName } = useAuth();
 
-  // Scroll to top on initial mount
-  useEffect(() => { window.scrollTo(0, 0); }, []);
-
   // Check for URL parameters first
   const urlParams = new URLSearchParams(window.location.search);
   const urlLocation = urlParams.get('location');
