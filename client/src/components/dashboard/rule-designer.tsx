@@ -15,7 +15,7 @@ import {
   Mic, MicOff, Sparkles, Play, CheckCircle2,
   Trash2, Plus, ChevronDown, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle, StickyNote,
   Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers, History, FileBarChart, PowerOff,
-  Filter, ArrowUp, ArrowDown, ChevronsUpDown, Building2, Loader2, Search
+  Filter, ArrowUp, ArrowDown, ChevronsUpDown, Building2, Loader2, Search, Maximize2, Minimize2
 } from 'lucide-react';
 import { HistoryReportModal } from '@/components/dashboard/pricing-reports';
 import {
@@ -562,6 +562,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   const [bubbleMapOpen, setBubbleMapOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(true);
   const [rulesExpanded, setRulesExpanded] = useState(false);
+  const [rulesFullscreen, setRulesFullscreen] = useState(false);
   // Bubble-map hover tooltip. It is portalled onto document.body and clamped to
   // the viewport rather than placed inside the dialog — see usePortalTooltip for
   // why in-dialog placement cannot keep this card fully visible.
@@ -843,6 +844,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Escape key dismisses the Rule Administration fullscreen overlay
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setRulesFullscreen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, []);
 
   const toggleRecording = () => {
@@ -2256,8 +2264,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
 
         return (
           <>
-            <Collapsible open={rulesOpen} onOpenChange={setRulesOpen}>
-              <Card className="w-full shadow-sm bg-white border border-gray-200">
+            <Collapsible open={rulesFullscreen ? true : rulesOpen} onOpenChange={rulesFullscreen ? undefined : setRulesOpen}>
+              <Card className={`w-full shadow-sm bg-white border border-gray-200${rulesFullscreen ? ' fixed inset-0 z-50 rounded-none overflow-y-auto flex flex-col' : ''}`}>
                 <CollapsibleTrigger asChild>
                   <CardHeader className="pb-4 cursor-pointer select-none hover:bg-gray-50 rounded-t-lg transition-colors">
                     <div className="flex items-center justify-between gap-2">
@@ -2302,6 +2310,15 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                         >
                           <Download className="h-3 w-3" />
                           Export Excel
+                        </Button>
+                        <Button
+                          variant="outline" size="sm"
+                          className="h-7 text-xs gap-1.5 text-gray-600 border-gray-300 bg-white hover:bg-gray-50"
+                          onClick={e => { e.stopPropagation(); setRulesFullscreen(v => !v); if (!rulesOpen) setRulesOpen(true); }}
+                          title={rulesFullscreen ? 'Exit fullscreen' : 'View fullscreen'}
+                        >
+                          {rulesFullscreen ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+                          {rulesFullscreen ? 'Exit' : 'Fullscreen'}
                         </Button>
                         <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${rulesOpen ? '' : '-rotate-90'}`} />
                       </div>
