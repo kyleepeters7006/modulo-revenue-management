@@ -2095,10 +2095,15 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
         const histRules     = rules.filter(r => r.isHistorical);
         const activeRules   = liveRules.filter(r => r.isActive);
         const disabledRules = liveRules.filter(r => !r.isActive);
-        // Count all toggled-on rules, not just those whose conditions are currently met.
-        // Rules with 0 affected units still show in the list with a "0 units" badge —
-        // filtering them out of the count made it look like the rule wasn't saved.
-        const activeCount   = activeRules.length;
+        // When a location/region/division filter is active, only count rules that
+        // actually impact units within that scope. Portfolio-wide (no filter), count
+        // every toggled-on rule so the badge stays in sync with the full list.
+        const hasFilter = (selectedLocations?.length ?? 0) > 0
+          || (selectedRegions?.length ?? 0) > 0
+          || (selectedDivisions?.length ?? 0) > 0;
+        const activeCount = hasFilter
+          ? activeRules.filter(r => (r.affectedUnits ?? 0) > 0).length
+          : activeRules.length;
 
         // Priority-ordered active rules: exclusive rules compete for units; additive always stack
         const sortedActive   = [...activeRules].reverse(); // oldest first → priority 1, 2, 3...

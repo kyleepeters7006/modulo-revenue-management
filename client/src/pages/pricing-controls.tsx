@@ -753,11 +753,17 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     setScatterPopupPos({ x: clientX, y: clientY });
   };
 
-  // Every rule toggled on, whether or not it currently claims units. A rule whose
-  // conditions match nothing today is still active and is still shown in the list
-  // below, so counting only rules with affectedUnits > 0 made this badge disagree
-  // with both its own section and the count in Rule Administration.
-  const activeRules = useMemo(() => (rulesData || []).filter((r: any) => r.isActive), [rulesData]);
+  // When viewing the full portfolio (no location/region/division filter), count every
+  // toggled-on rule so the badge stays in sync with the list even for rules whose
+  // conditions currently match nothing.  When a scope filter IS active, only count
+  // rules that actually impact units within that scope — a rule with 0 affected units
+  // at the filtered campus is not meaningfully "active" there.
+  const activeRules = useMemo(() => {
+    const hasFilter = selectedLocations.length > 0 || selectedRegions.length > 0 || selectedDivisions.length > 0;
+    return (rulesData || []).filter((r: any) =>
+      r.isActive && (!hasFilter || (r.affectedUnits ?? 0) > 0)
+    );
+  }, [rulesData, selectedLocations, selectedRegions, selectedDivisions]);
 
   // ── Latest-cycle-wins: detect rules superseded by a newer cycle ──
   // Two rules can supersede each other only when they have the SAME effective scope
