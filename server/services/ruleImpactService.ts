@@ -897,7 +897,12 @@ function unitPasses(rule: any, u: UnitRow, rtgReverse?: Map<string, Set<string>>
       const { operator, days } = conds.vacancyDuration;
       if (!cmp(Number(u.days_vacant), operator, days)) return false;
     }
-    if (conds.serviceLine && conds.serviceLine !== u.service_line) return false;
+    if (conds.serviceLine) {
+      // Family matching: an AL trigger also covers AL/MC units; HC covers HC/MC.
+      const tsl = conds.serviceLine as string;
+      const tFamily = tsl === 'AL' ? ['AL', 'AL/MC'] : tsl === 'HC' ? ['HC', 'HC/MC'] : [tsl];
+      if (!tFamily.includes(u.service_line ?? '')) return false;
+    }
   }
   return true;
 }
@@ -1416,7 +1421,11 @@ export function buildGroupRulePreviewRates(
       // names in filters.roomType, so without the sourceRt fallback a rule scoped to
       // "Studio" would silently miss every group that has been renamed by RTG.
       if (filters.roomType?.length && !filters.roomType.includes(g.rt) && !filters.roomType.includes(g.sourceRt ?? '')) continue;
-      if (filters.serviceLine?.length && !filters.serviceLine.includes(g.sl))  continue;
+      if (filters.serviceLine?.length) {
+        // Family matching: AL in filters also covers AL/MC groups; HC covers HC/MC.
+        const gSlFamily: string[] = g.sl === 'AL/MC' ? ['AL', 'AL/MC'] : g.sl === 'HC/MC' ? ['HC', 'HC/MC'] : [g.sl];
+        if (!(filters.serviceLine as string[]).some((s: string) => gSlFamily.includes(s))) continue;
+      }
       if (filters.location?.length    && !filters.location.includes(g.campus)) continue;
       if (filters.occupancyStatus === 'vacant'   && g.occ >= g.total) continue;
       if (filters.occupancyStatus === 'occupied' && g.occ === 0)      continue;

@@ -16708,9 +16708,17 @@ Respond in JSON format:
       }
       // rule.serviceLine is authoritative — override stale action.filters.serviceLine
       // so pre-#336 rules (saved with ['AL'] instead of ['AL/MC']) count the right units.
-      const effectiveSlFilter: string[] | null = rule.serviceLine
+      // Apply family matching: an AL-scoped rule also covers AL/MC units; HC covers HC/MC.
+      const baseSlFilter: string[] | null = rule.serviceLine
         ? [rule.serviceLine]
         : (filters.serviceLine?.length ? filters.serviceLine : null);
+      let effectiveSlFilter: string[] | null = null;
+      if (baseSlFilter?.length) {
+        const expanded = new Set<string>(baseSlFilter);
+        if (expanded.has('AL')) expanded.add('AL/MC');
+        if (expanded.has('HC')) expanded.add('HC/MC');
+        effectiveSlFilter = Array.from(expanded);
+      }
       if (effectiveSlFilter?.length) {
         whereParts.push(`service_line = ANY($${idx}::text[])`);
         params.push(effectiveSlFilter); idx++;
