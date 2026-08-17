@@ -2,7 +2,6 @@ import { db } from '../db';
 import { competitorRateJobs, rentRollData, competitiveSurveyData, careLevelRates, locations } from '@shared/schema';
 import { eq, and, isNull, gt, desc, sql, or } from 'drizzle-orm';
 import { buildCompetitorRateUpdate } from './competitorRateSanitizer';
-import { resolveCareLevel2 } from '@shared/careRates';
 import { invalidateRefDataCache } from '../refDataCache';
 
 const BATCH_SIZE = 500;
@@ -25,40 +24,13 @@ interface JobProgress {
 // Service line mapping for matching based on Competitive Survey Mapping document
 // Maps Trilogy service lines to competitor survey types
 // Survey data has: AL, HC, SMC, IL_IL, IL_Villa competitor types
-const SERVICE_LINE_MAPPING: Record<string, string[]> = {
-  'AL': ['AL'],           // AL → AL
-  'AL/MC': ['AL'],        // AL/MC → AL (not SMC, per mapping doc)
-  'HC': ['HC'],           // HC → HC
-  'HC/MC': ['SMC'],       // HC/MC → SMC
-  'SL': ['IL_IL'],        // SL → IL_IL (Independent Living apartments)
-  'VIL': ['IL_Villa']     // VIL → IL_Villa (Independent Living villas)
-};
+// Shared matching policy — MUST stay identical across all writers of the
+// stored competitor columns. See competitorMatchPolicy.ts.
+import { SURVEY_TYPE_CHAIN, roomTypeFallbackChain, isDailySurveyType, normalizeUnitRoomType, computeCompetitorAdjustments, formatAdjustmentExplanation } from './competitorMatchPolicy';
+import { FALLBACK_CARE_LEVEL_2_DAILY } from './competitorMatchPolicy';
+export { roomTypeFallbackChain, isDailySurveyType };
 
-// Care Level 2 applies only to HC and AL service lines
-const CARE_LEVEL_2_APPLIES: Record<string, boolean> = {
-  'HC': true,
-  'HC/MC': true,
-  'AL': true,
-  'AL/MC': true,
-  'SL': false,
-  'VIL': false
-};
-
-// Medication Management applies only to AL service lines (Trilogy charges $0)
-const MED_MGMT_APPLIES: Record<string, boolean> = {
-  'HC': false,
-  'HC/MC': false,
-  'AL': true,
-  'AL/MC': true,
-  'SL': false,
-  'VIL': false
-};
-
-// Fallback Care Level 2 rate ($55/day), used ONLY when a campus has no entry in
-// care_level_rates (directly or via memory-care inheritance from its base line).
-// The real per-campus rates are loaded from care_level_rates in processJob and
-// resolved via resolveCareLevel2 — mirroring the competitor card in routes.ts.
-const FALLBACK_CARE_LEVEL_2_DAILY = 55;
+const SERVICE_LINE_MAPPING: Record<string, string[]> = SURVEY_TYPE_CHAIN;
 
 // campusKey(clientId, locationName) -> Map<serviceLine, level2Rate (native basis:
 // daily for HC lines, monthly for AL lines)>
@@ -67,15 +39,9 @@ const campusCareKey = (clientId: string | null | undefined, location: string) =>
   `${clientId || 'demo'}||${location}`;
 
 // Room type normalization
-function normalizeRoomType(roomType: string): string {
-  const normalized = (roomType || '').toLowerCase().trim();
-  if (normalized.includes('studio dlx') || normalized.includes('deluxe')) return 'Studio Dlx';
-  if (normalized.includes('studio')) return 'Studio';
-  if (normalized.includes('one') || normalized.includes('1 bed')) return 'One Bedroom';
-  if (normalized.includes('two') || normalized.includes('2 bed')) return 'Two Bedroom';
-  if (normalized.includes('companion') || normalized.includes('semi')) return 'Companion';
-  return roomType;
-}
+// Shared with all writers — see competitorMatchPolicy.normalizeUnitRoomType
+// (includes Private → Studio and Semi-Private → Companion).
+const normalizeRoomType = normalizeUnitRoomType;
 
 // Check if service line uses daily rates
 function isDailyRateServiceLine(serviceLine: string | null): boolean {
@@ -257,34 +223,37 @@ async function processBatch(
       const serviceLine = unit.serviceLine || 'AL';
       const roomType = normalizeRoomType(unit.roomType || '');
 
-      // Build survey key for lookup
+      // Build survey key for lookup. Room-type-specific first (exact room type
+      // for the primary survey type), then the deterministic room-type fallback
+      // chain, per survey type in priority order. There is deliberately NO
+      // "any room type" fallback — a rate from an unrelated room type is a
+      // spurious competitor benchmark (see roomTypeFallbackChain).
       const surveyTypes = SERVICE_LINE_MAPPING[serviceLine] || [serviceLine];
+      const rtChain = roomTypeFallbackChain(roomType, serviceLine);
       let matchedCompetitor = null;
 
-      for (const surveyType of surveyTypes) {
-        const key = `${location}|${surveyType}|${roomType}`;
-        if (surveyData.has(key)) {
-          matchedCompetitor = surveyData.get(key);
-          break;
-        }
-      }
-
-      if (!matchedCompetitor) {
-        // Try broader match with just location and survey type
+      // Room-type specificity outranks survey-type preference: a legacy-type
+      // row for the RIGHT room type beats a dedicated-type row for a substitute.
+      outer:
+      for (const rt of rtChain) {
         for (const surveyType of surveyTypes) {
-          surveyData.forEach((data, key) => {
-            if (!matchedCompetitor && key.startsWith(`${location}|${surveyType}|`)) {
-              matchedCompetitor = data;
-            }
-          });
-          if (matchedCompetitor) break;
+          // Survey map is keyed by TENANT first — an unscoped ("all clients")
+          // job must never apply one tenant's survey row to another tenant's
+          // units, even when campus names collide across tenants.
+          const key = `${unit.clientId || 'demo'}|${location}|${surveyType}|${rt}`;
+          if (surveyData.has(key)) {
+            matchedCompetitor = surveyData.get(key);
+            break outer;
+          }
         }
       }
 
       if (matchedCompetitor) {
-        // Get competitor type to determine if rates are daily or monthly in survey
-        const competitorType = surveyTypes[0]; // First matching type
-        const isHCOrSMC = competitorType === 'HC' || competitorType === 'SMC';
+        // Get competitor type to determine if rates are daily or monthly in survey.
+        // Use the ACTUALLY MATCHED record's type, not the first candidate type —
+        // an HC/MC unit can fall back to a legacy SMC row, whose rates are daily.
+        const competitorType = matchedCompetitor.competitorType;
+        const isHCOrSMC = isDailySurveyType(competitorType);
         
         // Survey data: HC/SMC rates are stored as DAILY, AL/IL rates are MONTHLY
         let baseRateMonthly = matchedCompetitor.monthlyRateAvg || 0;
@@ -302,37 +271,21 @@ async function processBatch(
           }
         }
         
-        // Calculate adjustments based on service line rules
-        let careLevel2Adjustment = 0;
-        let medMgmtAdjustment = 0;
-        
-        // Care Level 2 Adjustment (HC/AL only): Competitor - our actual per-campus rate.
-        // resolveCareLevel2 mirrors the competitor card: direct row first, then the
-        // memory-care lines inherit from their base line (AL/MC→AL, HC/MC→HC).
-        // Rates in care_level_rates are in the line's native basis — daily for the
-        // HC lines, monthly for AL — so convert to monthly before differencing.
-        if (CARE_LEVEL_2_APPLIES[serviceLine] && competitorCareLevel2Monthly > 0) {
-          const campusCare = careRateMap.get(campusCareKey(unit.clientId, location));
-          const resolved = resolveCareLevel2(campusCare, serviceLine);
-          let trilogyCareLevel2Monthly: number;
-          if (resolved) {
-            trilogyCareLevel2Monthly = isDailyRateServiceLine(serviceLine)
-              ? resolved.rate * DAYS_PER_MONTH
-              : resolved.rate;
-          } else {
-            // No care_level_rates entry for this campus — use the $55/day default
-            trilogyCareLevel2Monthly = FALLBACK_CARE_LEVEL_2_DAILY * DAYS_PER_MONTH;
-            progress.fallbackCampuses.set(
-              location,
-              (progress.fallbackCampuses.get(location) ?? 0) + 1
-            );
-          }
-          careLevel2Adjustment = competitorCareLevel2Monthly - trilogyCareLevel2Monthly;
-        }
-        
-        // Medication Management Adjustment (AL only): Competitor - Trilogy ($0)
-        if (MED_MGMT_APPLIES[serviceLine] && competitorMedMgmtMonthly > 0) {
-          medMgmtAdjustment = competitorMedMgmtMonthly; // Trilogy charges $0
+        // Adjustments via the SHARED policy math (care resolution incl.
+        // memory-care inheritance, native-basis conversion, $55/day fallback,
+        // med mgmt) — identical to the recalculation path.
+        const adjResult = computeCompetitorAdjustments(
+            serviceLine,
+            competitorCareLevel2Monthly,
+            competitorMedMgmtMonthly,
+            careRateMap.get(campusCareKey(unit.clientId, location))
+          );
+        const { careLevel2Adjustment, medMgmtAdjustment, usedCareFallback } = adjResult;
+        if (usedCareFallback) {
+          progress.fallbackCampuses.set(
+            location,
+            (progress.fallbackCampuses.get(location) ?? 0) + 1
+          );
         }
         
         // Final rate = Base + Care Level 2 Adjustment + Med Mgmt Adjustment
@@ -366,14 +319,38 @@ async function processBatch(
           );
         }
 
-        // Always write (valid fields or NULLs) so stale corrupt values are cleared.
+        // Always write (valid fields or NULLs) so stale corrupt values are
+        // cleared — including the legacy competitorRate column and the shared
+        // adjustment explanation, mirroring the recalculation path exactly.
         await db.update(rentRollData)
-          .set(sanitized.update)
+          .set({
+            ...sanitized.update,
+            competitorRate: sanitized.update.competitorFinalRate,
+            competitorAdjustmentExplanation: sanitized.plausible
+              ? formatAdjustmentExplanation(baseRateMonthly, adjResult)
+              : null,
+          })
           .where(eq(rentRollData.id, unit.id));
 
         if (sanitized.plausible) progress.updated++;
         else progress.skipped++;
       } else {
+        // No survey match — explicitly CLEAR any stale competitor fields so a
+        // unit whose survey coverage disappeared does not keep serving an old
+        // rate. Mirrors the recalculation path (processAllUnitsForCompetitorRates),
+        // which always writes NULLs on no match.
+        await db.update(rentRollData)
+          .set({
+            competitorName: null,
+            competitorBaseRate: null,
+            competitorFinalRate: null,
+            competitorWeight: null,
+            competitorCareLevel2Adjustment: null,
+            competitorMedManagementAdjustment: null,
+            competitorRate: null,
+            competitorAdjustmentExplanation: null,
+          })
+          .where(eq(rentRollData.id, unit.id));
         progress.skipped++;
       }
     } catch (error) {
@@ -461,7 +438,9 @@ export async function processJob(jobId: string): Promise<void> {
 
   const surveyData = new Map<string, any>();
   for (const record of surveyRecords) {
-    const key = `${record.keyStatsLocation}|${record.competitorType}|${record.roomType}`;
+    // Tenant-scoped key: identical campus/room-type names across clients must
+    // never overwrite each other (cross-tenant isolation for unscoped jobs).
+    const key = `${record.clientId || 'demo'}|${record.keyStatsLocation}|${record.competitorType}|${record.roomType}`;
     
     // Extract weight from notes JSON if available
     let weight: number | null = null;

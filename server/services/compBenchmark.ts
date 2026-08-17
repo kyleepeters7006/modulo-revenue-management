@@ -431,6 +431,15 @@ function parseNoteWeight(notes: string | null): number {
   } catch { return 0; }
 }
 
+// DECISION (recorded): comp granularity is room-type-specific wherever the
+// consuming surface is room-type-specific. Reference Data rows and the stored
+// per-unit competitor_base/final_rate columns (competitorRateJobService) match
+// the survey's exact room type (Studio Dlx → Studio Dlx, falling back to Studio
+// only when the survey lacks a Studio Dlx row). This chart benchmark is the one
+// deliberate exception: the Competitive Position scatter plots ONE point per
+// campus/SL against "our studio-family rate", so it blends the top competitor's
+// studio-family rows (Studio + Studio Dlx via ILIKE 'studio%'). Do not switch it
+// to a single room type without also changing the chart's own-rate basis.
 export async function loadStudioCompBenchmark(pool: Pool, clientId: string): Promise<StudioCompBenchmark> {
   const [surveyRes, careRes] = await Promise.all([
     // Use a CTE to restrict to the latest survey month per keystats_location,

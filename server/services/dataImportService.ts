@@ -21,6 +21,7 @@ import {
 } from "@shared/schema";
 import { IMPORT_DATASETS, getDataset, type DatasetDefinition, type RegistryField } from "@shared/importRegistry";
 import { normalizeRoomType } from "@shared/roomTypes";
+import { invalidateLatestSurveyMonthCache } from "./competitorRateMatching";
 
 // Infer a service-line family string from a raw room-type name prefix
 // ("AL Companion" → "AL", "HC Companion" → "HC").  Mirrors the same helper in
@@ -526,6 +527,10 @@ export async function executeImport(params: ImportParams): Promise<ImportRun> {
           await tx.insert(competitiveSurveyData).values(recs.slice(i, i + 500));
         }
         inserted = recs.length;
+        // Survey rows changed — the matcher's latest-survey-month memo is now
+        // stale; drop it so the recalculation scheduled right after this
+        // import matches against the newly imported month.
+        invalidateLatestSurveyMonthCache(clientId);
       } else if (datasetId === "inquiry") {
         const recs = validation.records.map((r) => ({
           uploadMonth: r.uploadMonth || period,

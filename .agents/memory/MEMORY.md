@@ -60,3 +60,4 @@
 - [Street-rate aggregation](street-rate-aggregation.md) — Reference Data uses modal rate, other surfaces use AVG; junk sub-$1000 rent-roll rows make them disagree. Prefer mode().
 - [Street-rate quality rules](street-rate-quality.md) — prorated move-in months overwrite street_rate (expected); 2ND OCCUPANT is in payor_type; HC rates are daily; plausibility checks must be relative per location+SL.
 - [room_type normalization fixed](normalized-room-type-unreliable.md) — room-type keywords now beat occupancy style; backfill re-derives from source_room_type (set-based); group_name is branded, never prefix-match it.
+- [Comp rate writer lineage](comp-rate-writer-lineage.md) — all writers share one matching policy (normalization, fallback chains, no-match clearing); .2/.8 adjustments = stale $55/day fallback data, re-run the job.

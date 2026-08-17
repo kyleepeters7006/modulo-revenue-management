@@ -18,106 +18,20 @@ import type { CompetitiveSurveyData, RentRollData } from "@shared/schema";
 import { eq, and, sql, desc, asc } from "drizzle-orm";
 import { isDailyRateServiceLine, normalizeToMonthlyRate, convertToStoredRate } from "./rateNormalization";
 import { buildCompetitorRateUpdate } from "./competitorRateSanitizer";
+// Shared matching policy — MUST stay identical across all writers of the
+// stored competitor columns (this path and competitorRateJobService).
+import { SURVEY_TYPE_CHAIN, roomTypeFallbackChain, isDailySurveyType, normalizeUnitRoomType, computeCompetitorAdjustments, formatAdjustmentExplanation, CARE_LEVEL_2_APPLIES } from "./competitorMatchPolicy";
 
-// Mapping from Trilogy service line to competitor survey type
-// IL data is split: "IL_Villa" for VIL service line, "IL_IL" for SL service line
-export const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = {
-  'HC': 'HC',
-  'HC/MC': 'HC/MC',   // HC/MC has its own dedicated type; legacy SMC rows handled via fallback
-  'AL': 'AL',
-  'AL/MC': 'AL/MC',   // AL/MC has its own dedicated type in the survey data
-  'SL': 'IL_IL',      // SL (Senior Living) uses IL_IL competitor type from competitive survey
-  'VIL': 'IL_Villa'   // VIL (Villas) uses IL_Villa competitor type from competitive survey
-};
-
-// Secondary-type fallbacks for service lines that have legacy data formats.
-// HC/MC was historically written as SMC in older imports; fall back to SMC so
-// those locations still resolve until Task #88 renames those records.
-// No other fallbacks — in particular, no fallback to AL rates for IL/SL/VIL.
-const COMPETITOR_TYPE_FALLBACK: Record<string, string> = {
-  'HC/MC': 'SMC',
-};
-
-// Room type mapping based on the "Base Competitor Rate Column" in the mapping document
-// Maps (Trilogy Service Line, Trilogy Room Type) -> Survey Room Type
-const ROOM_TYPE_MAPPING: Record<string, Record<string, string>> = {
-  'HC': {
-    'Studio': 'Studio',           // HC_PrivateRoomRate
-    'Studio Dlx': 'Studio Dlx',   // HC_PrivateDeluxeRoomRate
-    'Companion': 'Companion',     // HC_CompanionSemiPrivateRoomRate
-    'One Bedroom': 'Studio',      // HC_PrivateRoomRate (fallback)
-    'Two Bedroom': 'Studio',      // HC_PrivateRoomRate (fallback)
-    'Private': 'Studio',
-    'Semi-Private': 'Companion'
-  },
-  'HC/MC': {
-    'Studio': 'Studio',           // SMC_PrivateRoomRate
-    'Studio Dlx': 'Studio Dlx',   // SMC_PrivateDeluxeRoomRate
-    'Companion': 'Companion',     // SMC_CompanionRoomRate
-    'One Bedroom': 'Studio',      // SMC_PrivateRoomRate (fallback)
-    'Two Bedroom': 'Studio',      // SMC_PrivateRoomRate (fallback)
-    'Private': 'Studio',
-    'Semi-Private': 'Companion'
-  },
-  'AL': {
-    'Studio': 'Studio',           // AL_StudioRoomRate
-    'Studio Dlx': 'Studio',       // AL_StudioRoomRate (fallback)
-    'Companion': 'Companion',     // AL_CompanionRoomRate
-    'One Bedroom': 'One Bedroom', // AL_1BRRoomRate
-    'Two Bedroom': 'Two Bedroom', // AL_2BRRoomRate
-    'Private': 'Studio'
-  },
-  'AL/MC': {
-    'Studio': 'Studio',           // AL_MCStudioRoomRate
-    'Studio Dlx': 'Studio',       // AL_MCStudioRoomRate (fallback)
-    'Companion': 'Companion',     // AL_MCCompanionRoomRate
-    'One Bedroom': 'One Bedroom', // AL_MC1BRRoomRate
-    'Two Bedroom': 'Two Bedroom', // AL_MC2BRRoomRate
-    'Private': 'Studio'
-  },
-  'SL': {
-    'Studio': 'Studio',           // IL_ILStudioRoomRate
-    'Studio Dlx': 'Studio',       // IL_ILStudioRoomRate (fallback)
-    'Companion': 'Companion',     // IL_ILStudioCompanionRoomRate
-    'One Bedroom': 'One Bedroom', // IL_IL1BRRoomRate
-    'Two Bedroom': 'Two Bedroom', // IL_IL2BRRoomRate
-    'Private': 'Studio'
-  },
-  'VIL': {
-    'Studio': 'Studio',           // IL_VillaStudioPrivateRoomRate
-    'Studio Dlx': 'Studio',       // IL_VillaStudioPrivateRoomRate (fallback)
-    'Companion': 'Companion',     // IL_VillaStudioCompanionRoomRate
-    'One Bedroom': 'One Bedroom', // IL_Villa1BRPrivateRoomRate
-    'Two Bedroom': 'Two Bedroom', // IL_Villa2BRPrivateRoomRate
-    'Private': 'Studio'
-  }
-};
+// Primary competitor survey type per service line (first entry of the shared
+// chain), kept for callers/tests that reference it.
+export const SERVICE_LINE_TO_COMPETITOR_TYPE: Record<string, string> = Object.fromEntries(
+  Object.entries(SURVEY_TYPE_CHAIN).map(([sl, chain]) => [sl, chain[0]])
+);
 
 // Plausibility guard for computed competitor rates.
 // Monthly rates above this threshold are treated as corrupt and skipped rather
 // than written to the DB, preventing a repeat of the $375M Romeo - 2512 incident
 // where a bad care-level value produced an astronomically large final rate.
-
-// Service lines that should apply care level 2 adjustments
-const CARE_LEVEL_2_APPLIES: Record<string, boolean> = {
-  'HC': true,      // Apply differential
-  'HC/MC': true,   // Apply differential
-  'AL': true,      // Apply differential
-  'AL/MC': true,   // Apply differential
-  'SL': false,     // Does not apply, no adjustment
-  'VIL': false     // Does not apply, no adjustment
-};
-
-// Service lines that should apply medication management adjustments
-// From "Competitor Medication Management" column - "Do not apply" for HC, add fee for AL
-const MEDICATION_MGMT_APPLIES: Record<string, boolean> = {
-  'HC': false,     // Do not apply
-  'HC/MC': false,  // Do not apply
-  'AL': true,      // Apply competitor's med mgmt fee (Trilogy is $0)
-  'AL/MC': true,   // Apply competitor's med mgmt fee (Trilogy is $0)
-  'SL': false,     // Does not apply, no adjustment
-  'VIL': false     // Does not apply, no adjustment
-};
 
 interface CompetitorRateResult {
   unitId: string;
@@ -155,11 +69,38 @@ function extractWeight(notes: string | null): number | null {
  * 1. If weights exist, use the highest weighted competitor
  * 2. If no weights, use the closest competitor that has the service line
  */
-async function getBestCompetitorRate(
+// Latest-survey-month memo per client (shared SURVEY-MONTH POLICY: every
+// writer matches only the client's most recent survey month). Short TTL so a
+// fresh survey upload is picked up quickly.
+const latestSurveyMonthCache = new Map<string, { month: string | null; ts: number }>();
+
+/**
+ * Drop the memoized latest survey month. MUST be called whenever
+ * competitive_survey_data rows are written (imports/deletes) so an immediately
+ * scheduled recalculation never matches against the pre-import month.
+ */
+export function invalidateLatestSurveyMonthCache(clientId?: string): void {
+  if (clientId) latestSurveyMonthCache.delete(clientId);
+  else latestSurveyMonthCache.clear();
+}
+const LATEST_MONTH_TTL_MS = 60_000;
+
+async function getLatestSurveyMonth(clientId: string): Promise<string | null> {
+  const cached = latestSurveyMonthCache.get(clientId);
+  if (cached && Date.now() - cached.ts < LATEST_MONTH_TTL_MS) return cached.month;
+  const rows = await db.select({ m: sql<string | null>`MAX(${competitiveSurveyData.surveyMonth})` })
+    .from(competitiveSurveyData)
+    .where(eq(competitiveSurveyData.clientId, clientId));
+  const month = rows[0]?.m ?? null;
+  latestSurveyMonthCache.set(clientId, { month, ts: Date.now() });
+  return month;
+}
+
+export async function getBestCompetitorRate(
   location: string,
   serviceLine: string,
   roomType: string,
-  surveyMonth?: string
+  clientId: string
 ): Promise<{
   competitorName: string;
   baseRate: number;
@@ -170,130 +111,64 @@ async function getBestCompetitorRate(
   surveyData: CompetitiveSurveyData;
 } | null> {
   try {
-    // Get the competitor type for this service line
-    const competitorType = SERVICE_LINE_TO_COMPETITOR_TYPE[serviceLine];
-    if (!competitorType) {
+    // Get the ordered survey-type chain for this service line (dedicated type
+    // first, legacy format second — e.g. AL/MC → ['AL/MC', 'AL']).
+    const surveyTypeChain = SURVEY_TYPE_CHAIN[serviceLine];
+    if (!surveyTypeChain) {
       console.warn(`No competitor type mapping for service line: ${serviceLine}`);
       return null;
     }
     
-    // Get the room type mapping for this service line
-    const roomTypeMap = ROOM_TYPE_MAPPING[serviceLine];
-    if (!roomTypeMap) {
-      console.warn(`No room type mapping for service line: ${serviceLine}`);
-      return null;
-    }
-    
-    const mappedRoomType = roomTypeMap[roomType];
-    if (!mappedRoomType) {
-      console.warn(`No mapping for room type: ${roomType} in service line: ${serviceLine}`);
-      return null;
-    }
-    
-    // Build query conditions
-    const conditions: any[] = [
-      eq(competitiveSurveyData.keyStatsLocation, location),
-      eq(competitiveSurveyData.competitorType, competitorType),
-      eq(competitiveSurveyData.roomType, mappedRoomType),
-      sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`
-    ];
-    
-    // Add survey month filter if provided
-    if (surveyMonth) {
-      conditions.push(eq(competitiveSurveyData.surveyMonth, surveyMonth));
-    }
-    
-    // Query competitive survey data for this location
-    let surveyRecords = await db.select()
-      .from(competitiveSurveyData)
-      .where(and(...conditions))
-      .orderBy(desc(competitiveSurveyData.surveyMonth));
-    
-    // If no exact-month match, retry without month filter to use latest available survey data.
-    // This handles cases where the rent roll upload month has no corresponding survey month
-    // (e.g. 2026-03 rent roll but surveys only exist for 2026-05, 2025-12, 2025-11).
-    if (surveyRecords.length === 0 && surveyMonth) {
-      const anyMonthConditions = [
-        eq(competitiveSurveyData.keyStatsLocation, location),
-        eq(competitiveSurveyData.competitorType, competitorType),
-        eq(competitiveSurveyData.roomType, mappedRoomType),
-        sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`
-      ];
-      surveyRecords = await db.select()
-        .from(competitiveSurveyData)
-        .where(and(...anyMonthConditions))
-        .orderBy(desc(competitiveSurveyData.surveyMonth));
+    // Normalize the unit room type with the SHARED normalizer (Private →
+    // Studio, Semi-Private → Companion, etc.) so this path resolves the exact
+    // same survey room type as the batch job, then take the candidates from
+    // the shared fallback chain: exact room type first (room-type-specific
+    // comp), then only the deterministic substitutes (e.g. Studio Dlx →
+    // Studio; AL Companion never falls back). A rate from an unrelated room
+    // type is a spurious benchmark, so there is no "any room type" fallback
+    // anywhere below.
+    const mappedRoomType = normalizeUnitRoomType(roomType);
+    const rtCandidates = roomTypeFallbackChain(mappedRoomType, serviceLine);
+
+    // Shared SURVEY-MONTH POLICY: match only the client's most recent survey
+    // month (same as the batch job) — never walk back to older months per unit.
+    const latestMonth = await getLatestSurveyMonth(clientId);
+    if (!latestMonth) return null;
+
+    // Query competitive survey data for this location, ALWAYS scoped to the
+    // unit's client (tenant isolation) and to the latest survey month.
+    // Room-type specificity outranks survey-type preference: walk room-type
+    // candidates in the outer loop and survey types (dedicated first, legacy
+    // second) in the inner loop, so a legacy row for the RIGHT room type beats
+    // a dedicated-type row for a substitute room type.
+    let surveyRecords: CompetitiveSurveyData[] = [];
+    let matchedSurveyType: string | null = null;
+
+    outer:
+    for (const rtCandidate of rtCandidates) {
+      for (const surveyType of surveyTypeChain) {
+        surveyRecords = await db.select()
+          .from(competitiveSurveyData)
+          .where(and(
+            eq(competitiveSurveyData.clientId, clientId),
+            eq(competitiveSurveyData.keyStatsLocation, location),
+            eq(competitiveSurveyData.competitorType, surveyType),
+            eq(competitiveSurveyData.roomType, rtCandidate),
+            eq(competitiveSurveyData.surveyMonth, latestMonth),
+            sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`
+          ));
+
+        if (surveyRecords.length > 0) {
+          matchedSurveyType = surveyType;
+          break outer;
+        }
+      }
     }
     
     if (surveyRecords.length === 0) {
-      // No survey row for this location + competitor type + room type.
-      // Try competitor-type fallback (e.g. HC/MC → SMC) — this is a valid
-      // cross-type fallback and is intentional. Room-type-agnostic fallback
-      // is intentionally NOT done here: returning a rate from a different room
-      // type would produce a spurious competitor benchmark.
-      const fallbackType = COMPETITOR_TYPE_FALLBACK[competitorType];
-      if (fallbackType) {
-        console.log(`No ${competitorType} data found for ${location} / ${mappedRoomType}, trying competitor-type fallback to ${fallbackType}`);
-        const fallbackTypeConditions: any[] = [
-          eq(competitiveSurveyData.keyStatsLocation, location),
-          eq(competitiveSurveyData.competitorType, fallbackType),
-          sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`
-        ];
-
-        if (surveyMonth) {
-          fallbackTypeConditions.push(eq(competitiveSurveyData.surveyMonth, surveyMonth));
-        }
-
-        let fallbackTypeRecords = await db.select()
-          .from(competitiveSurveyData)
-          .where(and(...fallbackTypeConditions))
-          .orderBy(desc(competitiveSurveyData.surveyMonth));
-
-        // Same month fallback: if exact month has no data, retry without month filter
-        if (fallbackTypeRecords.length === 0 && surveyMonth) {
-          const anyMonthFallbackConditions = [
-            eq(competitiveSurveyData.keyStatsLocation, location),
-            eq(competitiveSurveyData.competitorType, fallbackType),
-            sql`${competitiveSurveyData.monthlyRateAvg} IS NOT NULL`
-          ];
-          fallbackTypeRecords = await db.select()
-            .from(competitiveSurveyData)
-            .where(and(...anyMonthFallbackConditions))
-            .orderBy(desc(competitiveSurveyData.surveyMonth));
-        }
-
-        if (fallbackTypeRecords.length > 0) {
-          const record = fallbackTypeRecords[0];
-          console.log(`✓ Using ${fallbackType} fallback competitor: ${record.competitorName} for ${serviceLine}`);
-
-          const DAYS_PER_MONTH_FB = 30.44;
-          const isFallbackDailyRate = fallbackType === 'HC' || fallbackType === 'HC/MC' || fallbackType === 'SMC';
-          let fallbackBaseRate = record.monthlyRateAvg || 0;
-          let fallbackCareLevel2Rate = record.careLevel2Rate;
-          let fallbackMedMgmtFee = record.medicationManagementFee;
-          if (isFallbackDailyRate && fallbackBaseRate > 0 && fallbackBaseRate < 1000) {
-            fallbackBaseRate = fallbackBaseRate * DAYS_PER_MONTH_FB;
-            if (fallbackCareLevel2Rate && fallbackCareLevel2Rate < 500) {
-              fallbackCareLevel2Rate = fallbackCareLevel2Rate * DAYS_PER_MONTH_FB;
-            }
-            if (fallbackMedMgmtFee && fallbackMedMgmtFee < 100) {
-              fallbackMedMgmtFee = fallbackMedMgmtFee * DAYS_PER_MONTH_FB;
-            }
-          }
-
-          return {
-            competitorName: record.competitorName,
-            baseRate: fallbackBaseRate,
-            weight: extractWeight(record.notes),
-            careLevel2Rate: fallbackCareLevel2Rate,
-            medicationManagementFee: fallbackMedMgmtFee,
-            distanceMiles: record.distanceMiles,
-            surveyData: record
-          };
-        }
-      }
-
-      // No match for this room type — return null (no competitor signal)
+      // No survey row for any (survey type, room type) candidate pair —
+      // return null (no competitor signal) rather than borrowing a rate
+      // from an unrelated room type.
       return null;
     }
     
@@ -329,10 +204,11 @@ async function getBestCompetitorRate(
       }
     }
     
-    // Convert rates from daily to monthly for HC/HC/MC/SMC competitor types
-    // Survey data for HC, HC/MC and SMC is stored as daily rates
+    // Convert rates from daily to monthly for HC/HC-MC/SMC competitor types.
+    // The basis comes from the ACTUALLY MATCHED record's type — an HC/MC unit
+    // can match a legacy daily SMC row via the shared survey-type chain.
     const DAYS_PER_MONTH = 30.44;
-    const isHCOrSMC = competitorType === 'HC' || competitorType === 'HC/MC' || competitorType === 'SMC';
+    const isHCOrSMC = isDailySurveyType(matchedSurveyType ?? bestRecord.competitorType ?? '');
     
     let baseRate = bestRecord.monthlyRateAvg || 0;
     let careLevel2Rate = bestRecord.careLevel2Rate;
@@ -350,7 +226,7 @@ async function getBestCompetitorRate(
         medicationManagementFee = medicationManagementFee * DAYS_PER_MONTH;
       }
       
-      console.log(`✓ Converted ${competitorType} daily rate $${originalRate.toFixed(2)}/day to $${baseRate.toFixed(2)}/month`);
+      console.log(`✓ Converted ${matchedSurveyType} daily rate $${originalRate.toFixed(2)}/day to $${baseRate.toFixed(2)}/month`);
     }
     
     return {
@@ -367,92 +243,6 @@ async function getBestCompetitorRate(
     console.error('Error getting best competitor rate:', error);
     return null;
   }
-}
-
-/**
- * Calculate the adjusted competitor rate based on the mapping document logic:
- * 
- * Adjusted Rate = Base Rate + Care Level 2 Adjustment + Medication Management Adjustment
- * 
- * Care Level 2 Adjustment (HC/AL only):
- *   = Competitor Care Level 2 - Trilogy Care Level 2
- *   
- * Medication Management Adjustment (AL only):
- *   = Competitor Med Mgmt Fee - Trilogy Med Mgmt Fee ($0)
- *   = Competitor Med Mgmt Fee (since Trilogy is $0)
- */
-function calculateAdjustedRate(
-  serviceLine: string,
-  baseRate: number,
-  competitorCareLevel2Rate: number | null,
-  competitorMedicationManagementFee: number | null,
-  trilogyCareLevel2Rate: number | null = null
-): {
-  adjustedRate: number;
-  careLevel2Adjustment: number;
-  medicationManagementAdjustment: number;
-  explanation: string;
-} {
-  let careLevel2Adjustment = 0;
-  let medicationManagementAdjustment = 0;
-  const explanationParts: string[] = [];
-  
-  explanationParts.push(`Base Rate: $${baseRate.toFixed(0)}`);
-  
-  // Care Level 2 Adjustment (only for HC/AL service lines)
-  if (CARE_LEVEL_2_APPLIES[serviceLine]) {
-    if (trilogyCareLevel2Rate === null) {
-      // No Trilogy care rate on record — apply no adjustment
-      explanationParts.push(`Care Level 2: No Trilogy rate on record — no adjustment applied`);
-    } else if (competitorCareLevel2Rate !== null && competitorCareLevel2Rate > 0) {
-      // Calculate difference: Competitor - Trilogy
-      // A positive value means competitor charges more, so we add it to make comparison fair
-      careLevel2Adjustment = competitorCareLevel2Rate - trilogyCareLevel2Rate;
-      
-      if (careLevel2Adjustment !== 0) {
-        explanationParts.push(
-          `Care Level 2: Competitor $${competitorCareLevel2Rate.toFixed(0)} - Trilogy $${trilogyCareLevel2Rate.toFixed(0)} = ${careLevel2Adjustment >= 0 ? '+' : ''}$${careLevel2Adjustment.toFixed(0)}`
-        );
-      } else {
-        explanationParts.push(
-          `Care Level 2: No adjustment (both $${trilogyCareLevel2Rate.toFixed(0)})`
-        );
-      }
-    } else {
-      explanationParts.push(`Care Level 2: No competitor data`);
-    }
-  } else {
-    explanationParts.push(`Care Level 2: Does not apply for ${serviceLine}`);
-  }
-  
-  // Medication Management Adjustment (only for AL service lines)
-  if (MEDICATION_MGMT_APPLIES[serviceLine]) {
-    if (competitorMedicationManagementFee !== null && competitorMedicationManagementFee > 0) {
-      // Trilogy doesn't charge for med mgmt ($0), so we add the full competitor fee
-      medicationManagementAdjustment = competitorMedicationManagementFee;
-      explanationParts.push(
-        `Medication Management: Competitor $${competitorMedicationManagementFee.toFixed(0)}, Trilogy $0 = +$${medicationManagementAdjustment.toFixed(0)}`
-      );
-    } else {
-      explanationParts.push(`Medication Management: No adjustment (competitor $0)`);
-    }
-  } else if (serviceLine === 'HC' || serviceLine === 'HC/MC') {
-    explanationParts.push(`Medication Management: Does not apply for ${serviceLine}`);
-  } else {
-    explanationParts.push(`Medication Management: Does not apply for ${serviceLine}`);
-  }
-  
-  // Calculate adjusted rate
-  const adjustedRate = baseRate + careLevel2Adjustment + medicationManagementAdjustment;
-  
-  explanationParts.push(`Adjusted Rate: $${baseRate.toFixed(0)} + $${careLevel2Adjustment.toFixed(0)} + $${medicationManagementAdjustment.toFixed(0)} = $${adjustedRate.toFixed(0)}`);
-  
-  return {
-    adjustedRate,
-    careLevel2Adjustment,
-    medicationManagementAdjustment,
-    explanation: explanationParts.join('\n')
-  };
 }
 
 /**
@@ -477,12 +267,16 @@ export async function calculateCompetitorRateForUnit(
   };
   
   try {
-    // Get the best competitor rate for this location, service line, and room type
+    const clientId = unit.clientId || 'demo';
+
+    // Get the best competitor rate for this location, service line, and room
+    // type — ALWAYS scoped to the unit's client (tenant isolation) and to the
+    // client's latest survey month (shared SURVEY-MONTH POLICY).
     const competitorData = await getBestCompetitorRate(
       unit.location,
       unit.serviceLine,
       unit.roomType,
-      unit.uploadMonth
+      clientId
     );
     
     if (!competitorData) {
@@ -493,37 +287,46 @@ export async function calculateCompetitorRateForUnit(
     result.competitorBaseRate = competitorData.baseRate;
     result.competitorWeight = competitorData.weight;
     
-    // Look up Trilogy's actual care level 2 rate from care_level_rates for this location/service line.
-    // If no entry exists, pass null so calculateAdjustedRate applies no care adjustment.
-    let trilogyCareLevel2Rate: number | null = null;
+    // Load our campus care rates for ALL service lines at this location so the
+    // shared resolver can apply memory-care inheritance (AL/MC→AL, HC/MC→HC).
+    // Rates are stored in the line's native basis (daily for HC lines).
+    let careRatesByServiceLine: Map<string, number> | undefined;
     if (CARE_LEVEL_2_APPLIES[unit.serviceLine]) {
-      const locationRecord = await db.select({ id: locations.id })
-        .from(locations)
-        .where(and(eq(locations.name, unit.location), eq(locations.clientId, unit.clientId || 'demo')))
-        .limit(1);
-      if (locationRecord.length > 0) {
-        const careRow = await db.select({ level2Rate: careLevelRates.level2Rate })
-          .from(careLevelRates)
-          .where(and(
-            eq(careLevelRates.locationId, locationRecord[0].id),
-            eq(careLevelRates.clientId, unit.clientId || 'demo'),
-            eq(careLevelRates.serviceLine, unit.serviceLine)
-          ))
-          .limit(1);
-        if (careRow.length > 0) {
-          trilogyCareLevel2Rate = careRow[0].level2Rate;
-        }
+      const careRows = await db.select({
+          serviceLine: careLevelRates.serviceLine,
+          level2Rate: careLevelRates.level2Rate,
+        })
+        .from(careLevelRates)
+        .innerJoin(locations, eq(careLevelRates.locationId, locations.id))
+        .where(and(
+          eq(locations.name, unit.location),
+          eq(locations.clientId, clientId),
+          eq(careLevelRates.clientId, clientId)
+        ));
+      if (careRows.length > 0) {
+        careRatesByServiceLine = new Map(
+          careRows
+            .filter(r => r.serviceLine != null && r.level2Rate != null)
+            .map(r => [r.serviceLine as string, r.level2Rate as number])
+        );
       }
     }
 
-    // Calculate adjusted rate using the mapping document logic
-    const adjustment = calculateAdjustedRate(
+    // SHARED adjustment math — identical to the batch job: care resolution
+    // with inheritance and native-basis conversion, $55/day fallback when the
+    // campus has no care entry at all, med mgmt for the AL lines. All monthly.
+    const adj = computeCompetitorAdjustments(
       unit.serviceLine,
-      competitorData.baseRate,
-      competitorData.careLevel2Rate,
-      competitorData.medicationManagementFee,
-      trilogyCareLevel2Rate
+      competitorData.careLevel2Rate ?? 0,
+      competitorData.medicationManagementFee ?? 0,
+      careRatesByServiceLine
     );
+    const adjustment = {
+      adjustedRate: competitorData.baseRate + adj.careLevel2Adjustment + adj.medMgmtAdjustment,
+      careLevel2Adjustment: adj.careLevel2Adjustment,
+      medicationManagementAdjustment: adj.medMgmtAdjustment,
+      explanation: formatAdjustmentExplanation(competitorData.baseRate, adj),
+    };
     
     result.competitorAdjustedRate = adjustment.adjustedRate;
     result.careLevel2Adjustment = adjustment.careLevel2Adjustment;
@@ -558,6 +361,10 @@ export async function processAllUnitsForCompetitorRates(
   errors: number;
   details: CompetitorRateResult[];
 }> {
+  // Never trust a pre-import memo: recalculation is scheduled right after
+  // survey imports, so re-resolve the latest survey month fresh for this run.
+  invalidateLatestSurveyMonthCache(clientId);
+
   const stats = {
     processed: 0,
     updated: 0,
