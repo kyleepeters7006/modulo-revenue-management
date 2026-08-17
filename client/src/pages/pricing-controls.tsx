@@ -939,7 +939,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
           <p className="text-slate-500">Market Avg: <strong>${d.avgCompRate?.toLocaleString()}</strong>{d.compCount ? <span className="text-slate-400"> · {d.compCount} comps</span> : null}</p>
         )}
         <p className={`font-bold mt-0.5 ${d.marketPosition > 100 ? 'text-emerald-600' : d.marketPosition < 95 ? 'text-amber-600' : 'text-slate-600'}`}>
-          {d.marketPosition}% of top competitor
+          {(() => { const delta = Math.round(d.marketPosition - 100); return delta > 0 ? `+${delta}% above top competitor` : delta < 0 ? `${delta}% below top competitor` : 'At top competitor rate'; })()}
         </p>
       </div>
     );
@@ -1757,7 +1757,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
             <p className="text-slate-500">Market Avg: <strong>${pinnedScatterPoint.avgCompRate?.toLocaleString()}</strong>{pinnedScatterPoint.compCount ? <span className="text-slate-400"> · {pinnedScatterPoint.compCount} comps</span> : null}</p>
           )}
           <p className={`font-bold mt-0.5 ${pinnedScatterPoint.marketPosition > 100 ? 'text-emerald-600' : pinnedScatterPoint.marketPosition < 95 ? 'text-amber-600' : 'text-slate-600'}`}>
-            {pinnedScatterPoint.marketPosition}% of top competitor
+            {(() => { const delta = Math.round(pinnedScatterPoint.marketPosition - 100); return delta > 0 ? `+${delta}% above top competitor` : delta < 0 ? `${delta}% below top competitor` : 'At top competitor rate'; })()}
           </p>
 
           {/* quick rate adjust */}
