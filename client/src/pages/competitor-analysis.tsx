@@ -288,47 +288,34 @@ export default function CompetitorAnalysis() {
             )}
           </div>
 
-          {/* Snapshot of what's currently in scope. The page used to open straight into a
-              wall of filter dropdowns with no sense of scale or data health. */}
-          <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {[
-              // "Shown", not "tracked": the API caps results at the top 3 per location when
-              // several locations are filtered, so items[] is the displayed set. Every tile
-              // below is derived from that same set, so they stay consistent with each other.
-              { label: 'Competitors shown', value: competitorStats.total, note: null as string | null, accent: false },
-              {
-                // Deliberately not "plotted on map" — the map dedupes stacked pins and
-                // filters by radius, so its own count is legitimately lower.
-                label: 'With coordinates',
-                value: competitorStats.mapped,
-                note: competitorStats.unmapped > 0 ? `${competitorStats.unmapped.toLocaleString()} missing coordinates` : null,
-                accent: true,
-              },
-              { label: 'With rate data', value: competitorStats.withRates, note: null as string | null, accent: false },
-              { label: 'Service lines covered', value: competitorStats.serviceLines, note: null as string | null, accent: false },
-            ].map((stat) => (
-              <div
-                key={stat.label}
-                className="rounded-xl border border-[var(--dashboard-border)] bg-white px-4 py-3 shadow-sm transition-shadow hover:shadow-md"
-                data-testid={`stat-${stat.label.toLowerCase().replace(/\s+/g, '-')}`}
-              >
-                <div className={`text-2xl font-semibold tabular-nums ${stat.accent ? 'text-teal-600' : 'text-gray-900'}`}>
-                  {stat.value.toLocaleString()}
+          {/* Stats + Filters — single compact band */}
+          <div className="mt-4 rounded-xl border border-[var(--dashboard-border)] bg-white shadow-sm px-4 py-3 space-y-3">
+            {/* Stat chips row */}
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
+              {[
+                { label: 'Competitors shown', value: competitorStats.total, note: null as string | null, accent: false },
+                { label: 'With coordinates', value: competitorStats.mapped, note: competitorStats.unmapped > 0 ? `${competitorStats.unmapped} missing coordinates` : null, accent: true },
+                { label: 'With rate data', value: competitorStats.withRates, note: null as string | null, accent: false },
+                { label: 'Service lines covered', value: competitorStats.serviceLines, note: null as string | null, accent: false },
+              ].map((stat) => (
+                <div key={stat.label} className="flex items-baseline gap-1.5" data-testid={`stat-${stat.label.toLowerCase().replace(/\s+/g, '-')}`}>
+                  <span className={`text-lg font-semibold tabular-nums leading-none ${stat.accent ? 'text-teal-600' : 'text-gray-900'}`}>
+                    {stat.value.toLocaleString()}
+                  </span>
+                  <span className="text-xs text-[var(--dashboard-muted)] uppercase tracking-wide">{stat.label}</span>
+                  {stat.note && <span className="text-[11px] text-amber-600 ml-1">{stat.note}</span>}
                 </div>
-                <div className="mt-0.5 text-xs font-medium uppercase tracking-wide text-[var(--dashboard-muted)]">
-                  {stat.label}
-                </div>
-                {stat.note && <div className="mt-1 text-[11px] text-amber-600">{stat.note}</div>}
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
 
-          {/* Filters */}
-          <div className="mt-6 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* Divider */}
+            <div className="border-t border-[var(--dashboard-border)]" />
+
+            {/* Filter row */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               {/* Region Multi-Select */}
               <div>
-                <h3 className="text-sm font-medium text-gray-900 mb-2">Regions:</h3>
+                <h3 className="text-xs font-medium text-gray-500 mb-1">Regions:</h3>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -388,7 +375,7 @@ export default function CompetitorAnalysis() {
 
               {/* Division Multi-Select */}
               <div>
-                <h3 className="text-sm font-medium text-gray-900 mb-2">Divisions:</h3>
+                <h3 className="text-xs font-medium text-gray-500 mb-1">Divisions:</h3>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -448,7 +435,7 @@ export default function CompetitorAnalysis() {
 
               {/* Location Multi-Select */}
               <div>
-                <h3 className="text-sm font-medium text-gray-900 mb-2">Locations:</h3>
+                <h3 className="text-xs font-medium text-gray-500 mb-1">Locations:</h3>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -508,7 +495,7 @@ export default function CompetitorAnalysis() {
 
               {/* Service Lines Multi-Select */}
               <div>
-                <h3 className="text-sm font-medium text-gray-900 mb-2">Service Lines:</h3>
+                <h3 className="text-xs font-medium text-gray-500 mb-1">Service Lines:</h3>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
