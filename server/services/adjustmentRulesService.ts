@@ -89,15 +89,29 @@ function _lookupCampusMetric(
  */
 export async function recalculateAndPreloadCampusMetrics(
   clientId: string,
-  locationId: string
+  locationId: string,
+  targetMonth?: string | null
 ): Promise<void> {
   try {
-    // Get latest upload_month for this campus
-    const latestRes = await pool.query<{ month: string }>(
-      `SELECT MAX(upload_month) AS month FROM rent_roll_data WHERE location_id=$1 AND client_id=$2`,
-      [locationId, clientId]
-    );
-    const latestMonth = latestRes.rows[0]?.month;
+    // Snapshot month: use the caller-supplied month (the month being priced)
+    // when this campus has rows for it, so metrics are computed on the exact
+    // snapshot the pricing run and impact preview both evaluate. Fall back to
+    // this campus's own latest upload_month (staggered-upload campuses).
+    let latestMonth: string | undefined;
+    if (targetMonth) {
+      const hasRes = await pool.query<{ n: string }>(
+        `SELECT COUNT(*) AS n FROM rent_roll_data WHERE location_id=$1 AND client_id=$2 AND upload_month=$3`,
+        [locationId, clientId, targetMonth]
+      );
+      if (Number(hasRes.rows[0]?.n) > 0) latestMonth = targetMonth;
+    }
+    if (!latestMonth) {
+      const latestRes = await pool.query<{ month: string }>(
+        `SELECT MAX(upload_month) AS month FROM rent_roll_data WHERE location_id=$1 AND client_id=$2`,
+        [locationId, clientId]
+      );
+      latestMonth = latestRes.rows[0]?.month;
+    }
     if (!latestMonth) return;
 
     // Fetch all units for the latest month
@@ -189,7 +203,12 @@ export async function recalculateAndPreloadCampusMetrics(
       // Benchmark is per location+SL; skip at campus level (sl=null) since we
       // cannot blend SLs into a single coherent comp rate.
       if (sl && locationName) {
-        const bench = compBenchmark.benchmarkFor(locationName, sl);
+        // RT-level groups use the room-type-specific benchmark when the survey
+        // has that room type (mirrors ruleImpactService.lookupMetric); the
+        // SL-level blended benchmark is the fallback so both live pricing and
+        // the impact preview evaluate street_to_comp_var against the same comp.
+        const bench = (rt ? compBenchmark.benchmarkForRT(locationName, sl, rt) : null)
+          ?? compBenchmark.benchmarkFor(locationName, sl);
         if (bench && bench.adjusted > 0) {
           // Street rate: average of non-B-bed units with a valid street rate.
           const stUnits = group.filter(u => (u.street_rate || 0) > 100 && !isBBed(u));
@@ -198,6 +217,22 @@ export async function recalculateAndPreloadCampusMetrics(
             const pct = (avgSt - bench.adjusted) / bench.adjusted * 100;
             metrics.push({ sl, rt, name: 'competitor_variance_pct', val: pct });
             metrics.push({ sl, rt, name: 'street_to_comp_var_pct',  val: pct });
+          }
+        } else {
+          // No survey benchmark for this SL at this location — fall back to
+          // paired rent-roll competitor_final_rate values, mirroring
+          // ruleImpactService.lookupMetric so live pricing and the impact
+          // preview evaluate street_to_comp_var against the same comp data.
+          const pairs = group.filter(u =>
+            (u.street_rate || 0) > 100 && (u.competitor_final_rate || 0) > 100 && !isBBed(u));
+          if (pairs.length > 0) {
+            const avgSt = avgArr(pairs.map(u => u.street_rate));
+            const avgComp = avgArr(pairs.map(u => u.competitor_final_rate));
+            if (avgComp > 0) {
+              const pct = (avgSt - avgComp) / avgComp * 100;
+              metrics.push({ sl, rt, name: 'competitor_variance_pct', val: pct });
+              metrics.push({ sl, rt, name: 'street_to_comp_var_pct',  val: pct });
+            }
           }
         }
       }
@@ -356,6 +391,32 @@ export async function recalculateAndPreloadCampusMetrics(
       console.warn(`[adjustmentRules] Trailing occupancy history failed for ${locationId}:`, err);
     }
 
+    // ── Preserve externally computed street_to_comp_var_pct rows ─────────
+    // The impact preview's final fallback (ruleImpactService.lookupMetric →
+    // ctx.campusStreetToCompVar) reads SL-level street_to_comp_var_pct rows
+    // persisted by the reference-data calculation. When neither a survey
+    // benchmark nor paired rent-roll comp rates exist here, carry those rows
+    // over instead of deleting them, so live evaluation keeps the same value
+    // the preview falls back to rather than silently reading null.
+    try {
+      const existingVarRes = await pool.query<{ service_line: string; value: number }>(
+        `SELECT service_line, value FROM campus_metrics
+         WHERE client_id=$1 AND location_id=$2 AND metric_name='street_to_comp_var_pct'
+           AND service_line IS NOT NULL AND room_type IS NULL`,
+        [clientId, locationId]
+      );
+      const freshSlVar = new Set(
+        metrics.filter(m => m.name === 'street_to_comp_var_pct' && m.sl && m.rt === null).map(m => m.sl as string)
+      );
+      for (const r of existingVarRes.rows) {
+        if (!freshSlVar.has(r.service_line)) {
+          metrics.push({ sl: r.service_line, rt: null, name: 'street_to_comp_var_pct', val: Number(r.value) });
+        }
+      }
+    } catch (err) {
+      console.warn(`[adjustmentRules] Failed to carry over street_to_comp_var_pct for ${locationId}:`, err);
+    }
+
     // ── Persist: delete old + bulk insert new ────────────────────────────
     await pool.query(`DELETE FROM campus_metrics WHERE client_id=$1 AND location_id=$2`, [clientId, locationId]);
     if (metrics.length > 0) {
@@ -450,9 +511,15 @@ function evaluateSingleCondition(
         default: return false;
       }
     };
+    // Prefer the freshly recalculated campus metric, RT-specific first (SL+RT →
+    // SL → campus fallback) so live pricing matches the impact preview, which
+    // evaluates ih_street_variance RT-first from the same rent-roll snapshot.
+    // The recalculate-endpoint table cache is only a fallback — it is SL-level
+    // and can be stale relative to the metrics computed at run time.
+    const fresh = _lookupCampusMetric(clientId, unit.locationId, sl, rt, 'ih_street_var_pct');
+    if (fresh !== null) return cmpPct(fresh);
     const cached = _lookupIhVariance(clientId, unit.locationId, unit.serviceLine || 'ALL');
-    if (cached !== null) return cmpPct(cached);
-    return cmpPct(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'ih_street_var_pct'));
+    return cmpPct(cached);
   }
 
   // Campus / service-line / room-type occupancy.
@@ -931,11 +998,16 @@ export async function fetchAndApplyAdjustmentRules(
 
     if (hasMetricCondition) {
       const clientId = units.find(u => u.unit?.clientId)?.unit?.clientId || 'demo';
+      // The month being priced — pass it through so campus metrics are
+      // computed on the same snapshot the rules are being applied to (and
+      // that the impact preview evaluates), not each campus's own MAX month.
+      const targetMonth: string | null =
+        units.find(u => u.unit?.uploadMonth)?.unit?.uploadMonth ?? null;
       const uniqueLocationIds = Array.from(new Set(
         units.map(u => u.unit?.locationId).filter((id): id is string => Boolean(id))
       ));
       await Promise.all(uniqueLocationIds.map(locId =>
-        recalculateAndPreloadCampusMetrics(clientId, locId)
+        recalculateAndPreloadCampusMetrics(clientId, locId, targetMonth)
       ));
     }
 
