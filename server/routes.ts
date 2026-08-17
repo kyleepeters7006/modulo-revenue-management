@@ -143,6 +143,7 @@ import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules, resolvePostServiceLineScope, resolvePatchServiceLineScope, recalculateAndPreloadCampusMetrics } from "./services/adjustmentRulesService";
 import { buildRuleImpactContext, computeQualifiedRuleImpact, computeProspectiveRuleImpact, compareRuleDedupOrder, isDedupEligibleRule, getT3MoveInsMap as getT3MoveInsMapSvc, getGroupedT3MoveInsMap as getGroupedT3MoveInsMapSvc, ruleSpecificityScore } from "./services/ruleImpactService";
 import { loadCompBenchmark, loadStudioCompBenchmark, unitWeightedBenchmark, pickComparisonRate } from "./services/compBenchmark";
+import { queryCompPositionOwnRates } from "./services/compPositionOwnRates";
 import { 
   getRevenuePerformanceForScope, 
   calculateGapAnalysis, 
@@ -18819,65 +18820,24 @@ Return ONLY valid JSON with no markdown fences:
       if (regions.length) { weightWhere += ` AND loc.region = ANY($${wp++})`; weightParams.push(regions); }
       if (divisions.length) { weightWhere += ` AND loc.division = ANY($${wp++})`; weightParams.push(divisions); }
 
-      const [ourRates, rtoOccRes, weightRes] = await Promise.all([
+      // queryCompPositionOwnRates is extracted into a shared module so that this
+      // route and the regression test (tests/compPositionRefDataParity.test.ts)
+      // execute the EXACT same SQL. See server/services/compPositionOwnRates.ts.
+      const [ownRateRows, rrOccRes, rtoOccRes, weightRes] = await Promise.all([
+        queryCompPositionOwnRates(
+          (sql: string, params: any[]) => pool.query(sql, params),
+          clientId, latestMonth,
+          { locations, regions, divisions, serviceLine: slFilter },
+        ),
+        // Rent-roll occupancy per location+SL — fallback when RTO history has no
+        // coverage for a given service line (same WHERE scope as the rates query).
         pool.query(`
-          -- Our-rate aggregation mirrors Reference Data's mode() WITHIN GROUP
-          -- (ORDER BY rr.street_rate) instead of AVG(). The published street rate
-          -- is uniform per room type, so the modal rate per room type ignores
-          -- junk rent-roll rows (e.g. a stray $159 on a Studio) that used to drag
-          -- the campus average — and its market position — artificially low.
-          -- Per-room-type modes are then unit-weighted so the "all room types"
-          -- figure still reflects the campus's room mix.
-          WITH rt_modes AS (
-            SELECT rr.location,
-              -- Use the canonical KeyStats location name from the locations table
-              -- (matched via location_id) so benchmarkFor() finds the survey rows
-              -- keyed by keystats_location. Falls back to rr.location when the
-              -- location_id FK is not populated.
-              COALESCE(loc.name, rr.location) AS location_name,
-              rr.service_line,
-              -- rr.room_type is already backfill-normalized ("Studio", "Studio Dlx",
-              -- etc.) so no room_type_groupings join is needed — branded names like
-              -- "Legacy Lane - Studio" (group_name) would break the 'studio%' filter.
-              rr.room_type,
-              mode() WITHIN GROUP (ORDER BY rr.street_rate) AS mode_rate,
-              COUNT(*) AS cnt
-            FROM rent_roll_data rr
-            -- Join via location_id (FK) to get the canonical KeyStats name that
-            -- matches competitive_survey_data.keystats_location. The region/division
-            -- filters below use loc.region / loc.division from this same join.
-            LEFT JOIN locations loc ON loc.id = rr.location_id
-            WHERE ${whereClause}
-              -- B beds excluded as everywhere else.
-              AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
-            GROUP BY rr.location, loc.name, rr.service_line, rr.room_type
-          ),
-          rates AS (
-            SELECT location, location_name, service_line,
-              -- Both candidate rates are returned and pickComparisonRate() chooses
-              -- between them, so this chart and the Position vs Top Competitor KPI
-              -- cannot drift apart.
-              ROUND((SUM(mode_rate * cnt) FILTER (WHERE room_type ILIKE 'studio%')
-                / NULLIF(SUM(cnt) FILTER (WHERE room_type ILIKE 'studio%'), 0))::numeric, 0) AS our_studio_rate,
-              ROUND((SUM(mode_rate * cnt) / NULLIF(SUM(cnt), 0))::numeric, 0) AS our_all_rate
-            FROM rt_modes
-            GROUP BY location, location_name, service_line
-          ),
-          occ AS (
-            SELECT rr.location,
-              COALESCE(loc.name, rr.location) AS location_name,
-              rr.service_line,
-              ROUND(COUNT(*) FILTER (WHERE rr.occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS rr_occupancy
-            FROM rent_roll_data rr
-            LEFT JOIN locations loc ON loc.id = rr.location_id
-            WHERE ${whereClause}
-            GROUP BY rr.location, loc.name, rr.service_line
-          )
-          SELECT occ.location, occ.location_name, occ.service_line,
-                 rates.our_studio_rate, rates.our_all_rate, occ.rr_occupancy
-          FROM occ
-          LEFT JOIN rates
-            ON rates.location = occ.location AND rates.service_line = occ.service_line
+          SELECT rr.location, rr.service_line,
+            ROUND(COUNT(*) FILTER (WHERE rr.occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS rr_occupancy
+          FROM rent_roll_data rr
+          LEFT JOIN locations loc ON loc.id = rr.location_id
+          WHERE ${whereClause}
+          GROUP BY rr.location, rr.service_line
         `, params),
         // Authoritative occupancy per location + (possibly combined) service line grouping
         // (physical rooms, no B-bed inflation). Combined SL strings like "AL, AL/MC, HC"
@@ -18908,7 +18868,13 @@ Return ONLY valid JSON with no markdown fences:
         `, weightParams),
       ]);
 
-      if (!ourRates.rows.length) return res.json([]);
+      if (!ownRateRows.length) return res.json([]);
+
+      // Build rent-roll occupancy fallback map: "location|||SL" → rr_occupancy %
+      const rrOccMap = new Map<string, number>();
+      for (const r of rrOccRes.rows) {
+        rrOccMap.set(`${r.location}|||${r.service_line}`, Number(r.rr_occupancy) || 0);
+      }
 
       const rlUnitsByLocSL = new Map<string, SlWeight>();
       for (const row of weightRes.rows) {
@@ -18948,8 +18914,8 @@ Return ONLY valid JSON with no markdown fences:
       // rate; the market average across competitors is included for the tooltip.
       const scatterBenchmark = await loadStudioCompBenchmark(pool, clientId);
 
-      const points = ourRates.rows.map((row: any) => {
-        const sl = row.service_line as string;
+      const points = ownRateRows.map(row => {
+        const sl = row.service_line;
         // Use the canonical KeyStats location name (loc.name via location_id join)
         // so the lookup matches competitive_survey_data.keystats_location keys.
         // Falls back to rr.location when location_id wasn't populated.
@@ -18959,14 +18925,14 @@ Return ONLY valid JSON with no markdown fences:
 
         // Studio where we have a Studio product, otherwise all room types (VIL and
         // patio-home style SL campuses). Shared with the analytics KPI.
-        const ourRate = pickComparisonRate(sl, Number(row.our_studio_rate), Number(row.our_all_rate));
+        const ourRate = pickComparisonRate(sl, row.our_studio_rate ?? 0, row.our_all_rate ?? 0);
         if (!(ourRate > 0)) return null; // no rated units at this location/SL
         const marketPosition = Math.round((ourRate / bench.topAdjusted) * 100);
         // Per-service-line occupancy: prefer authoritative RTO history (physical
         // rooms, no B-bed inflation) distributed to this location+SL; fall back
         // to the rent-roll count when history has no coverage for this SL.
         const rtoKey = `${row.location}|||${sl}`;
-        const rtoOccPct = rtoOccMap.has(rtoKey) ? rtoOccMap.get(rtoKey)! : Number(row.rr_occupancy);
+        const rtoOccPct = rtoOccMap.has(rtoKey) ? rtoOccMap.get(rtoKey)! : (rrOccMap.get(rtoKey) ?? 0);
         return {
           location: row.location,
           serviceLine: sl,

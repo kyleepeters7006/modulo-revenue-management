@@ -1,0 +1,105 @@
+/**
+ * compPositionOwnRates — shared own-rate aggregation for the competitive-position scatter.
+ *
+ * Extracted so that:
+ *   1. The live route (GET /api/pricing-controls/competitive-position in routes.ts) and
+ *   2. The regression test (tests/compPositionRefDataParity.test.ts)
+ * execute the EXACT same SQL. Any change here affects both surfaces simultaneously,
+ * making it impossible for the test to stay green while the production query regresses.
+ *
+ * ── CRITICAL NOTE ──────────────────────────────────────────────────────────────────
+ * Do NOT add a room_type_groupings JOIN to the rt_modes CTE.
+ * rr.room_type is already backfill-normalized ("Studio", "Studio Dlx", etc.).
+ * A JOIN would substitute group_name (e.g. "Legacy Lane - Studio") as the room_type
+ * value, which does NOT match the `ILIKE 'studio%'` filter in the rates CTE — causing
+ * our_studio_rate to silently return NULL for every branded campus and blanking those
+ * scatter points on the chart.
+ * See .agents/memory/rtg-branded-names.md and tests/compPositionRefDataParity.test.ts
+ * (assertion RTG-6) for the full rationale and regression test.
+ * ───────────────────────────────────────────────────────────────────────────────────
+ */
+
+export interface OwnRateRow {
+  location: string;
+  location_name: string;
+  service_line: string;
+  our_studio_rate: number | null;
+  our_all_rate: number | null;
+}
+
+export interface OwnRateFilters {
+  locations?: string[];
+  regions?: string[];
+  divisions?: string[];
+  serviceLine?: string;
+}
+
+/**
+ * Query the own (street) rate per location + service line using mode() WITHIN GROUP
+ * per room type, then unit-weight the per-RT modal rates to a single all-room figure.
+ *
+ * @param queryFn  - A function matching `pool.query(sql, params)` — accepts either
+ *                   a `pg.Pool` or any compatible query wrapper.
+ * @param clientId - The tenant whose rent-roll rows to aggregate.
+ * @param month    - The upload_month to scope to (YYYY-MM string).
+ * @param filters  - Optional location / region / division / serviceLine filters.
+ */
+export async function queryCompPositionOwnRates(
+  queryFn: (sql: string, params: any[]) => Promise<{ rows: any[] }>,
+  clientId: string,
+  month: string,
+  filters: OwnRateFilters = {},
+): Promise<OwnRateRow[]> {
+  const { locations = [], regions = [], divisions = [], serviceLine } = filters;
+
+  let whereClause = `loc.client_id=$1 AND rr.upload_month=$2 AND rr.street_rate>0`;
+  const params: any[] = [clientId, month];
+  let p = 3;
+
+  if (locations.length) { whereClause += ` AND rr.location = ANY($${p++})`; params.push(locations); }
+  if (regions.length)   { whereClause += ` AND loc.region = ANY($${p++})`; params.push(regions); }
+  if (divisions.length) { whereClause += ` AND loc.division = ANY($${p++})`; params.push(divisions); }
+  if (serviceLine && serviceLine !== 'All') { whereClause += ` AND rr.service_line=$${p++}`; params.push(serviceLine); }
+
+  const res = await queryFn(`
+    -- Own-rate aggregation for competitive-position scatter.
+    -- mode() WITHIN GROUP suppresses junk rent-roll rows (e.g. $159 on a Studio);
+    -- per-RT modes are then unit-weighted so the all-rooms figure reflects room mix.
+    WITH rt_modes AS (
+      SELECT rr.location,
+        -- Canonical KeyStats location name for benchmarkFor() lookups.
+        -- Falls back to rr.location when location_id FK is not populated.
+        COALESCE(loc.name, rr.location) AS location_name,
+        rr.service_line,
+        -- rr.room_type is already backfill-normalized ("Studio", "Studio Dlx", etc.).
+        -- DO NOT join room_type_groupings here — group_name values like
+        -- "Legacy Lane - Studio" would break the ILIKE 'studio%' filter below,
+        -- silently NULLing our_studio_rate for every branded campus.
+        rr.room_type,
+        mode() WITHIN GROUP (ORDER BY rr.street_rate) AS mode_rate,
+        COUNT(*) AS cnt
+      FROM rent_roll_data rr
+      LEFT JOIN locations loc ON loc.id = rr.location_id
+      WHERE ${whereClause}
+        AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+      GROUP BY rr.location, loc.name, rr.service_line, rr.room_type
+    )
+    SELECT location, location_name, service_line,
+      -- Studio-only rate: ILIKE 'studio%' matches "Studio", "Studio Dlx", etc.
+      -- against rr.room_type (normalized) — NOT against a branded group_name.
+      ROUND((SUM(mode_rate * cnt) FILTER (WHERE room_type ILIKE 'studio%')
+        / NULLIF(SUM(cnt) FILTER (WHERE room_type ILIKE 'studio%'), 0))::numeric, 0) AS our_studio_rate,
+      -- All-rooms weighted rate (used as the fallback when no studio units exist).
+      ROUND((SUM(mode_rate * cnt) / NULLIF(SUM(cnt), 0))::numeric, 0) AS our_all_rate
+    FROM rt_modes
+    GROUP BY location, location_name, service_line
+  `, params);
+
+  return res.rows.map(r => ({
+    location:       r.location as string,
+    location_name:  r.location_name as string,
+    service_line:   r.service_line as string,
+    our_studio_rate: r.our_studio_rate != null ? Number(r.our_studio_rate) : null,
+    our_all_rate:    r.our_all_rate    != null ? Number(r.our_all_rate)    : null,
+  }));
+}

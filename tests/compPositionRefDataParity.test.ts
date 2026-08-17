@@ -24,6 +24,7 @@
  * Run with: npx tsx tests/compPositionRefDataParity.test.ts
  */
 import pg from 'pg';
+import { queryCompPositionOwnRates } from '../server/services/compPositionOwnRates.js';
 const { Pool } = pg;
 
 const CLIENT   = 'ptest-cp-refdata-parity';
@@ -268,7 +269,7 @@ const EXPECTED: Record<string, number> = {
   [`${LOC_B}||VIL`]: 2900,
 };
 
-// ===========================================================================
+// ---------------------------------------------------------------------------
 // SCENARIO 2 — room_type_groupings remapping
 //
 // Confirms that scatter and Reference Data still agree on the modal rate
@@ -285,7 +286,7 @@ const EXPECTED: Record<string, number> = {
 // The refData SQL (Reference Data) groups by COALESCE(rtg.group_name, rr.room_type).
 // Both should produce identical unit-weighted averages because the rows in each
 // group are the same physical units — only the display key differs.
-// ===========================================================================
+// ---------------------------------------------------------------------------
 const CLIENT_RTG = 'ptest-cp-refdata-rtg';
 const LOC_RTG    = 'RTG Campus - 999';
 const EXPECTED_RTG_OUR_ALL = 4688; // round((4200*5 + 5500*3) / 8) = round(4687.5)
@@ -343,40 +344,6 @@ async function seedRtg(): Promise<void> {
     [CLIENT_RTG, LOC_RTG],
   );
 }
-
-// Scatter SQL: groups by rr.room_type (no room_type_groupings join) — mirrors
-// competitive-position's rt_modes CTE exactly.
-async function runScatterSQLRtg(): Promise<number | null> {
-  const res = await pool.query<{ our_all_rate: string }>(`
-    WITH rt_modes AS (
-      SELECT rr.location,
-             rr.service_line,
-             rr.room_type,
-             mode() WITHIN GROUP (ORDER BY rr.street_rate) AS mode_rate,
-             COUNT(*) AS cnt
-      FROM rent_roll_data rr
-      JOIN locations loc ON loc.id = rr.location_id
-      WHERE loc.client_id = $1
-        AND rr.upload_month = $2
-        AND rr.street_rate > 0
-        AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL')
-                 AND rr.room_number ~* '/[B-Zb-z]$')
-      GROUP BY rr.location, rr.service_line, rr.room_type
-    )
-    SELECT location, service_line,
-      ROUND((SUM(mode_rate * cnt) / NULLIF(SUM(cnt), 0))::numeric, 0) AS our_all_rate
-    FROM rt_modes
-    GROUP BY location, service_line
-  `, [CLIENT_RTG, MONTH]);
-
-  if (!res.rows.length) return null;
-  return Number(res.rows[0].our_all_rate);
-}
-
-// Reference Data SQL: groups by COALESCE(rtg.group_name, rr.room_type) — mirrors
-// routes.ts reference-data aggregation CTE with the room_type_groupings join.
-// Unit-weights the per-group modal rates to produce a single our_all_rate per
-// (location, service_line), exactly as the client-side table does.
 async function runRefDataSQLRtg(): Promise<number | null> {
   const res = await pool.query<{ display_rt: string; avg_street: string; total: string }>(`
     SELECT
@@ -415,39 +382,72 @@ async function runRefDataSQLRtg(): Promise<number | null> {
   return Math.round(wSum / totalN);
 }
 
+// Expected values for the RTG scenario (single campus, AL service line):
+//   our_all_rate    = ROUND((4200*5 + 5500*3) / 8) = ROUND(4687.5) = 4688
+//   our_studio_rate = ROUND(4200*5 / 5) = 4200
+//
+// RTG-6 is the primary regression guard for this task: it calls the SAME
+// queryCompPositionOwnRates() function that routes.ts uses (imported from
+// server/services/compPositionOwnRates.ts), so any future edit to that
+// function is immediately reflected here. An accidental room_type_groupings
+// JOIN would substitute group_name ("Legacy Lane - Studio") as room_type,
+// breaking the ILIKE 'studio%' filter and returning NULL for our_studio_rate.
+const EXPECTED_RTG_STUDIO_RATE = 4200;
 async function runRtgScenario(): Promise<void> {
   await seedRtg();
   try {
-    const [scatter, refData] = await Promise.all([
-      runScatterSQLRtg(),
+    // ── Call the SHARED production function directly (RTG-6 coupling) ────────
+    // queryCompPositionOwnRates is imported from server/services/compPositionOwnRates.ts,
+    // which is also what routes.ts calls for GET /api/pricing-controls/competitive-position.
+    // Any change to that function's SQL (e.g. adding a room_type_groupings JOIN) will
+    // immediately surface as a failing assertion here.
+    const [scatterRows, refData] = await Promise.all([
+      queryCompPositionOwnRates(
+        (sql, params) => pool.query(sql, params),
+        CLIENT_RTG, MONTH,
+      ),
       runRefDataSQLRtg(),
     ]);
 
-    // ── RTG-1. Scatter produces a result after remapping ──
-    assert('RTG: scatter SQL returns a result', scatter !== null, true);
+    // The RTG campus has exactly one location+SL combination (LOC_RTG / AL).
+    const row = scatterRows.find(r => r.location === LOC_RTG || r.location_name === LOC_RTG);
+    const scatter    = row?.our_all_rate    ?? null;
+    const studioRate = row?.our_studio_rate ?? null;
+
+    // ── RTG-1. Shared function produces a result after remapping ──
+    assert('RTG: queryCompPositionOwnRates returns a result', scatter !== null, true);
     // ── RTG-2. RefData produces a result after remapping ──
     assert('RTG: refData SQL (with RTG join) returns a result', refData !== null, true);
-    // ── RTG-3. Scatter our_all_rate matches the known expected value ──
+    // ── RTG-3. Shared function our_all_rate matches expected value ──
     assert(
       `RTG: scatter our_all_rate ≈ ${EXPECTED_RTG_OUR_ALL} (Studio×5@4200 + OneBed×3@5500)`,
       scatter ?? -1, EXPECTED_RTG_OUR_ALL,
     );
-    // ── RTG-4. RefData our_all_rate matches the known expected value ──
+    // ── RTG-4. RefData our_all_rate matches expected value ──
     assert(
       `RTG: refData our_all_rate ≈ ${EXPECTED_RTG_OUR_ALL} (branded group_name remapping)`,
       refData ?? -1, EXPECTED_RTG_OUR_ALL,
     );
-    // ── RTG-5. The core parity assertion: scatter === refData despite key rename ──
+    // ── RTG-5. Shared function and RefData agree despite different grouping keys ──
     assert(
       `RTG: scatter === refData after group_name remapping (scatter=${scatter}, refData=${refData})`,
       scatter ?? -1, refData ?? -2,
+    );
+    // ── RTG-6. our_studio_rate is NOT NULL even though Studio is remapped to a branded
+    //    group_name ("Legacy Lane - Studio"). queryCompPositionOwnRates uses rr.room_type
+    //    directly (no room_type_groupings JOIN), so ILIKE 'studio%' still matches.
+    //    A NULL here means someone added an RTG JOIN to the shared function — revert it.
+    //    This assertion exercises the EXACT SQL the live route runs (not a copy of it).
+    assert(
+      `RTG-6: queryCompPositionOwnRates our_studio_rate=${EXPECTED_RTG_STUDIO_RATE} (not NULL) despite branded group_name — production SQL coupling confirmed`,
+      studioRate ?? -1, EXPECTED_RTG_STUDIO_RATE,
     );
   } finally {
     await cleanupRtg();
   }
 }
 
-// ===========================================================================
+// ---------------------------------------------------------------------------
 // SCENARIO 3 — Rule impact counts with room_type_groupings remapping
 //
 // Confirms that:
@@ -462,7 +462,7 @@ async function runRtgScenario(): Promise<void> {
 //   d) A rule scoped to canonical roomType=['Studio'] correctly matches a group
 //      whose display rt='Legacy Lane - Studio' when sourceRt='Studio' is also
 //      checked — confirming the buildGroupRulePreviewRates fix.
-// ===========================================================================
+// ---------------------------------------------------------------------------
 const CLIENT_RI  = 'ptest-ri-rtg';
 const LOC_RI     = 'RI RTG Campus - 888';
 const MONTH_RI   = '2026-06';
