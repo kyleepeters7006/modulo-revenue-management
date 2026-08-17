@@ -1134,6 +1134,15 @@ export interface GroupRateInput {
   campus: string;
   sl: string;
   rt: string;
+  /**
+   * Canonical (pre-grouping) room type from `rent_roll_data.room_type`.
+   * When `room_type_groupings` renames a room type (e.g. "Studio" →
+   * "Legacy Lane - Studio"), `rt` holds the branded display name while
+   * `sourceRt` holds the original canonical name.  Rule `filters.roomType`
+   * values are always canonical, so the filter check must test both so
+   * that a rule scoped to "Studio" still matches a branded group.
+   */
+  sourceRt?: string;
   locationId: string | null;
   /**
    * Mode street rate for the group — mirrors mode() WITHIN GROUP from the
@@ -1327,7 +1336,12 @@ export function buildGroupRulePreviewRates(
       if (slScope && !slScope.includes(g.sl)) continue;
 
       // ── Action filters ──
-      if (filters.roomType?.length    && !filters.roomType.includes(g.rt))     continue;
+      // Compare against both the display room type (g.rt, which may be a branded
+      // group_name like "Legacy Lane - Studio") AND the canonical source room type
+      // (g.sourceRt, which is rr.room_type = "Studio").  Rules always store canonical
+      // names in filters.roomType, so without the sourceRt fallback a rule scoped to
+      // "Studio" would silently miss every group that has been renamed by RTG.
+      if (filters.roomType?.length && !filters.roomType.includes(g.rt) && !filters.roomType.includes(g.sourceRt ?? '')) continue;
       if (filters.serviceLine?.length && !filters.serviceLine.includes(g.sl))  continue;
       if (filters.location?.length    && !filters.location.includes(g.campus)) continue;
       if (filters.occupancyStatus === 'vacant'   && g.occ >= g.total) continue;

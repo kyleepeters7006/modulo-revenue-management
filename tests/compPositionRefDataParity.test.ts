@@ -447,6 +447,241 @@ async function runRtgScenario(): Promise<void> {
   }
 }
 
+// ===========================================================================
+// SCENARIO 3 — Rule impact counts with room_type_groupings remapping
+//
+// Confirms that:
+//   a) getT3MoveInsMap (used by buildRuleImpactContext) keys by rr.room_type
+//      (canonical), so T3 move-in counts for "Studio" groups are non-zero even
+//      when room_type_groupings renames them to "Legacy Lane - Studio".
+//   b) getGroupedT3MoveInsMap (used by /api/reference-data) keys by
+//      COALESCE(rtg.group_name, rr.room_type) = "Legacy Lane - Studio".
+//   c) The aggRes SQL's mode_room_type column returns the canonical room type
+//      ("Studio") so that buildGroupRulePreviewRates can compare rule
+//      filters.roomType against the source room type when branded g.rt fails.
+//   d) A rule scoped to canonical roomType=['Studio'] correctly matches a group
+//      whose display rt='Legacy Lane - Studio' when sourceRt='Studio' is also
+//      checked — confirming the buildGroupRulePreviewRates fix.
+// ===========================================================================
+const CLIENT_RI  = 'ptest-ri-rtg';
+const LOC_RI     = 'RI RTG Campus - 888';
+const MONTH_RI   = '2026-06';
+// 3 Studio move-ins in the T3 window; each unit has move_in_date = MONTH_RI-01
+const RI_STUDIO_COUNT    = 5;
+const RI_STUDIO_MOVEINS  = 3; // units with a move_in_date inside T3
+const RI_STUDIO_RATE     = 4200;
+
+async function cleanupRi(): Promise<void> {
+  await pool.query(`DELETE FROM room_type_groupings WHERE client_id=$1`, [CLIENT_RI]);
+  await pool.query(`DELETE FROM rent_roll_data     WHERE client_id=$1`, [CLIENT_RI]);
+  await pool.query(`DELETE FROM locations          WHERE client_id=$1`, [CLIENT_RI]);
+  await pool.query(`DELETE FROM clients            WHERE id=$1`,        [CLIENT_RI]);
+}
+
+async function seedRi(): Promise<void> {
+  await cleanupRi();
+  await pool.query(
+    `INSERT INTO clients (id, name) VALUES ($1, 'RI RTG Test') ON CONFLICT (id) DO NOTHING`,
+    [CLIENT_RI],
+  );
+  const locRes = await pool.query(
+    `INSERT INTO locations (name, client_id) VALUES ($1, $2) RETURNING id`,
+    [LOC_RI, CLIENT_RI],
+  );
+  const locId = locRes.rows[0].id as string;
+
+  // 5 Studio units; first RI_STUDIO_MOVEINS have a move_in_date inside T3 (MONTH_RI)
+  for (let i = 1; i <= RI_STUDIO_COUNT; i++) {
+    const hasMoveIn = i <= RI_STUDIO_MOVEINS;
+    await pool.query(
+      `INSERT INTO rent_roll_data
+         (client_id, location_id, location, upload_month, service_line, room_type, source_room_type,
+          room_number, street_rate, occupied_yn, in_house_rate, date, size, days_vacant, payor_type,
+          move_in_date)
+       VALUES ($1,$2,$3,$4,'AL','Studio','Studio',$5,$6,true,$7,$8,'Studio',0,'Private',$9)`,
+      [
+        CLIENT_RI, locId, LOC_RI, MONTH_RI, `RIS-${i}`,
+        RI_STUDIO_RATE, RI_STUDIO_RATE - 200, `${MONTH_RI}-01`,
+        hasMoveIn ? `${MONTH_RI}-01` : null,
+      ],
+    );
+  }
+
+  // RTG: remap source_room_type='Studio' → group_name='Legacy Lane - Studio'
+  await pool.query(
+    `INSERT INTO room_type_groupings (client_id, location, service_line, source_room_type, group_name)
+     VALUES ($1,$2,'AL','Studio','Legacy Lane - Studio')`,
+    [CLIENT_RI, LOC_RI],
+  );
+}
+
+// getT3MoveInsMap SQL (no RTG join) — keys by rr.room_type (canonical).
+// Returns move-ins per month averaged over T3.  With one upload_month, T3=[MONTH_RI].
+async function runRiT3MapCanonical(): Promise<Map<string, number>> {
+  const res = await pool.query(`
+    WITH ev AS (
+      SELECT DISTINCT ON (rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type)
+        rr.location, rr.service_line, rr.room_type, rr.payor_type,
+        CASE
+          WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN TO_DATE(rr.move_in_date,'YYYY-MM-DD')
+          WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$' THEN TO_DATE(rr.move_in_date,'MM/DD/YYYY')
+          ELSE NULL END AS dt
+      FROM rent_roll_data rr
+      WHERE rr.client_id = $1 AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
+      ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
+               (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
+    ),
+    valid AS (
+      SELECT location, service_line, room_type, TO_CHAR(dt,'YYYY-MM') AS mm
+      FROM ev WHERE dt IS NOT NULL
+    )
+    SELECT location, service_line, room_type, COUNT(*)::float / 1.0 AS t3_moveins
+    FROM valid WHERE mm = $2
+    GROUP BY location, service_line, room_type
+  `, [CLIENT_RI, MONTH_RI]);
+  const map = new Map<string, number>();
+  for (const r of res.rows as any[]) {
+    map.set(`${r.location}||${r.service_line}||${r.room_type}`, Number(r.t3_moveins));
+  }
+  return map;
+}
+
+// getGroupedT3MoveInsMap SQL (with RTG join) — keys by COALESCE(group_name, room_type) (branded).
+async function runRiT3MapGrouped(): Promise<Map<string, number>> {
+  const res = await pool.query(`
+    WITH ev AS (
+      SELECT DISTINCT ON (rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type)
+        rr.location, rr.service_line,
+        COALESCE(rtg.group_name, rr.room_type) AS room_type,
+        rr.payor_type,
+        CASE
+          WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN TO_DATE(rr.move_in_date,'YYYY-MM-DD')
+          WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$' THEN TO_DATE(rr.move_in_date,'MM/DD/YYYY')
+          ELSE NULL END AS dt
+      FROM rent_roll_data rr
+      LEFT JOIN room_type_groupings rtg
+        ON rtg.client_id = rr.client_id AND rtg.location = rr.location
+       AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
+      WHERE rr.client_id = $1 AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
+      ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
+               (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
+    ),
+    valid AS (
+      SELECT location, service_line, room_type, TO_CHAR(dt,'YYYY-MM') AS mm
+      FROM ev WHERE dt IS NOT NULL
+    )
+    SELECT location, service_line, room_type, COUNT(*)::float / 1.0 AS t3_moveins
+    FROM valid WHERE mm = $2
+    GROUP BY location, service_line, room_type
+  `, [CLIENT_RI, MONTH_RI]);
+  const map = new Map<string, number>();
+  for (const r of res.rows as any[]) {
+    map.set(`${r.location}||${r.service_line}||${r.room_type}`, Number(r.t3_moveins));
+  }
+  return map;
+}
+
+// aggRes SQL column: mode() WITHIN GROUP (ORDER BY rr.room_type) → canonical room type.
+// Returns the display room_type and the mode_room_type for the seeded group.
+async function runRiAggModeRoomType(): Promise<{ roomType: string; modeRoomType: string } | null> {
+  const res = await pool.query<{ room_type: string; mode_room_type: string }>(`
+    SELECT
+      COALESCE(rtg.group_name, rr.room_type) AS room_type,
+      mode() WITHIN GROUP (ORDER BY rr.room_type) FILTER (WHERE rr.room_type IS NOT NULL) AS mode_room_type
+    FROM rent_roll_data rr
+    LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+    LEFT JOIN room_type_groupings rtg
+      ON rtg.client_id = rr.client_id AND rtg.location = rr.location
+     AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
+    WHERE rr.client_id = $1 AND rr.upload_month = $2
+    GROUP BY COALESCE(rtg.group_name, rr.room_type)
+  `, [CLIENT_RI, MONTH_RI]);
+  if (!res.rows.length) return null;
+  return { roomType: res.rows[0].room_type, modeRoomType: res.rows[0].mode_room_type };
+}
+
+async function runRiScenario(): Promise<void> {
+  await seedRi();
+  try {
+    const [canonical, grouped, aggRow] = await Promise.all([
+      runRiT3MapCanonical(),
+      runRiT3MapGrouped(),
+      runRiAggModeRoomType(),
+    ]);
+
+    const canonicalKey = `${LOC_RI}||AL||Studio`;
+    const brandedKey   = `${LOC_RI}||AL||Legacy Lane - Studio`;
+
+    // ── RI-1. Canonical T3 map has non-zero move-ins keyed by "Studio" ──────
+    // This is the key format used by getT3MoveInsMap (buildRuleImpactContext).
+    // A rule scoped to roomType=['Studio'] looks up this exact key.
+    assert(
+      'RI: canonical T3 map has entry for Studio (non-zero move-ins)',
+      (canonical.get(canonicalKey) ?? 0) >= 1, true,
+    );
+    assert(
+      `RI: canonical T3 map returns ${RI_STUDIO_MOVEINS} move-ins for Studio`,
+      canonical.get(canonicalKey) ?? -1, RI_STUDIO_MOVEINS,
+    );
+
+    // ── RI-2. Canonical map has NO entry under the branded key ───────────────
+    // Confirms the two maps use different keys — the root cause of the bug.
+    assert(
+      'RI: canonical T3 map does NOT contain the branded key "Legacy Lane - Studio"',
+      canonical.has(brandedKey), false,
+    );
+
+    // ── RI-3. Grouped T3 map has non-zero move-ins keyed by branded name ────
+    // This is the key format used by getGroupedT3MoveInsMap (Reference Data endpoint).
+    assert(
+      'RI: grouped T3 map has entry for "Legacy Lane - Studio" (non-zero move-ins)',
+      (grouped.get(brandedKey) ?? 0) >= 1, true,
+    );
+    assert(
+      `RI: grouped T3 map returns ${RI_STUDIO_MOVEINS} move-ins for Legacy Lane - Studio`,
+      grouped.get(brandedKey) ?? -1, RI_STUDIO_MOVEINS,
+    );
+
+    // ── RI-4. Grouped map has NO entry under the canonical key ───────────────
+    assert(
+      'RI: grouped T3 map does NOT contain the canonical key "Studio"',
+      grouped.has(canonicalKey), false,
+    );
+
+    // ── RI-5. aggRes SQL: display room_type is branded, mode_room_type is canonical ──
+    // mode_room_type is used as sourceRt in _ruleGroups after the fix.
+    assert(
+      'RI: aggRes room_type (display) = "Legacy Lane - Studio" (branded via COALESCE)',
+      aggRow?.roomType ?? '', 'Legacy Lane - Studio',
+    );
+    assert(
+      'RI: aggRes mode_room_type (canonical) = "Studio" (pre-grouping rr.room_type)',
+      aggRow?.modeRoomType ?? '', 'Studio',
+    );
+
+    // ── RI-6. Rule filter check: branded g.rt alone misses the rule ──────────
+    // Demonstrates the pre-fix behaviour: a rule scoped to ['Studio'] would
+    // NOT match a group with rt='Legacy Lane - Studio' if only g.rt is checked.
+    const ruleFiltersRoomType = ['Studio'];
+    const displayRt  = 'Legacy Lane - Studio';
+    const sourceRt   = 'Studio'; // mode_room_type from aggRes after the fix
+    const matchesRtOnly     = ruleFiltersRoomType.includes(displayRt);
+    const matchesWithSource = ruleFiltersRoomType.includes(displayRt) ||
+                              ruleFiltersRoomType.includes(sourceRt);
+    assert(
+      'RI: rule filter roomType=["Studio"] does NOT match branded rt="Legacy Lane - Studio" alone (bug)',
+      matchesRtOnly, false,
+    );
+    assert(
+      'RI: rule filter roomType=["Studio"] DOES match when sourceRt="Studio" is also checked (fix)',
+      matchesWithSource, true,
+    );
+
+  } finally {
+    await cleanupRi();
+  }
+}
+
 async function main() {
   await seed();
   try {
@@ -516,8 +751,11 @@ async function main() {
     await cleanup();
   }
 
-  // ── Scenario 2: room_type_groupings remapping ──
+  // ── Scenario 2: room_type_groupings rate parity ──
   await runRtgScenario();
+
+  // ── Scenario 3: rule impact counts with RTG remapping ──
+  await runRiScenario();
 
   await pool.end();
 
@@ -527,6 +765,6 @@ async function main() {
 
 main().catch(async (e) => {
   console.error(e);
-  try { await cleanup(); await cleanupRtg(); await pool.end(); } catch {}
+  try { await cleanup(); await cleanupRtg(); await cleanupRi(); await pool.end(); } catch {}
   process.exit(1);
 });

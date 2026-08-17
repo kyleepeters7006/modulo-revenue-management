@@ -22533,14 +22533,17 @@ Return ONLY valid JSON, no markdown fences:
       // Build one GroupRateInput per (campus, SL, RT) from spot-month aggRes rows.
       // avg_street is uniform per room type in aggRes (the SQL uses mode()), so it equals
       // the mode rate — same base as the units endpoint's groupModeStreet.
-      const _ruleGroups: { campus: string; sl: string; rt: string; locationId: string|null; modeStreetRate: number; avgIhRate: number; total: number; occ: number }[] = [];
+      const _ruleGroups: { campus: string; sl: string; rt: string; sourceRt?: string; locationId: string|null; modeStreetRate: number; avgIhRate: number; total: number; occ: number }[] = [];
       {
-        const _gAgg = new Map<string, { campus: string; sl: string; rt: string; locationId: string|null; avgStreet: number; avgIh: number; total: number; occ: number }>();
+        const _gAgg = new Map<string, { campus: string; sl: string; rt: string; sourceRt?: string; locationId: string|null; avgStreet: number; avgIh: number; total: number; occ: number }>();
         for (const r of aggRes.rows as any[]) {
           if (r.month !== spotMonth) continue;
           const campus = r.campus || '', sl = r.service_line || '', rt = r.room_type || '';
           const key = `${campus}||${sl}||${rt}`;
-          const g = _gAgg.get(key) || { campus, sl, rt, locationId: r.location_id ?? null, avgStreet: 0, avgIh: 0, total: 0, occ: 0 };
+          // mode_room_type is mode() WITHIN GROUP (ORDER BY rr.room_type) — the canonical
+          // pre-grouping room type. When RTG renames "Studio" → "Legacy Lane - Studio",
+          // rt holds the branded name and sourceRt holds the canonical "Studio".
+          const g = _gAgg.get(key) || { campus, sl, rt, sourceRt: r.mode_room_type ?? undefined, locationId: r.location_id ?? null, avgStreet: 0, avgIh: 0, total: 0, occ: 0 };
           if (Number(r.avg_street) > 0) g.avgStreet = Number(r.avg_street);
           if (Number(r.avg_ih) > 0) g.avgIh = Number(r.avg_ih);
           g.total += Number(r.total) || 0;
@@ -22548,7 +22551,7 @@ Return ONLY valid JSON, no markdown fences:
           _gAgg.set(key, g);
         }
         for (const g of Array.from(_gAgg.values())) {
-          _ruleGroups.push({ campus: g.campus, sl: g.sl, rt: g.rt, locationId: g.locationId, modeStreetRate: g.avgStreet, avgIhRate: g.avgIh, total: g.total, occ: g.occ });
+          _ruleGroups.push({ campus: g.campus, sl: g.sl, rt: g.rt, sourceRt: g.sourceRt, locationId: g.locationId, modeStreetRate: g.avgStreet, avgIhRate: g.avgIh, total: g.total, occ: g.occ });
         }
       }
 
@@ -23231,6 +23234,7 @@ Return ONLY valid JSON, no markdown fences:
           rr.location                 AS campus,
           rr.service_line,
           COALESCE(rtg.group_name, rr.room_type) AS room_type,
+          rr.room_type AS source_room_type,
           rr.room_number,
           rr.occupied_yn,
           rr.days_vacant,
@@ -23324,7 +23328,7 @@ Return ONLY valid JSON, no markdown fences:
         ]);
         if (activeRules2.length) {
           // Build per-group aggregates from unit rows.
-          const gAgg = new Map<string, { campus: string; sl: string; rt: string; locationId: string|null; ihSum: number; ihN: number; total: number; occ: number }>();
+          const gAgg = new Map<string, { campus: string; sl: string; rt: string; sourceRt?: string; locationId: string|null; ihSum: number; ihN: number; total: number; occ: number }>();
           const campT = new Map<string, { total: number; occ: number }>();
           const slT   = new Map<string, { total: number; occ: number }>();
           const ihAcc = new Map<string, { ih: number; st: number }>();
@@ -23332,7 +23336,10 @@ Return ONLY valid JSON, no markdown fences:
             const sl = r.service_line || 'Other';
             const rt = r.room_type || 'Other';
             const key = `${r.campus}||${sl}||${rt}`;
-            const g = gAgg.get(key) || { campus: r.campus, sl, rt, locationId: r.location_id ?? null, ihSum: 0, ihN: 0, total: 0, occ: 0 };
+            // source_room_type is rr.room_type (canonical, pre-grouping). When RTG renames
+            // "Studio" → "Legacy Lane - Studio", rt is the branded name and source_room_type
+            // is "Studio". Both are needed for rule-filter matching in buildGroupRulePreviewRates.
+            const g = gAgg.get(key) || { campus: r.campus, sl, rt, sourceRt: r.source_room_type ?? undefined, locationId: r.location_id ?? null, ihSum: 0, ihN: 0, total: 0, occ: 0 };
             const ih = Number(r.in_house_rate) || 0;
             if (ih > 0) { g.ihSum += ih; g.ihN += 1; }
             g.total += 1; if (r.occupied_yn) g.occ += 1;
@@ -23384,7 +23391,7 @@ Return ONLY valid JSON, no markdown fences:
           // Build GroupRateInput array using pre-computed mode street rates so the
           // base rate matches the grouped endpoint's mode() WITHIN GROUP SQL value.
           const groupInputs = Array.from(gAgg.values()).map(g => ({
-            campus: g.campus, sl: g.sl, rt: g.rt, locationId: g.locationId,
+            campus: g.campus, sl: g.sl, rt: g.rt, sourceRt: g.sourceRt, locationId: g.locationId,
             modeStreetRate: groupModeStreet.get(`${g.campus}||${g.sl}||${g.rt}`) ?? 0,
             avgIhRate: g.ihN ? g.ihSum / g.ihN : 0,
             total: g.total, occ: g.occ,
