@@ -690,6 +690,10 @@ export default function ReferenceDataTable({
     key: string; campus: string; serviceLine: string; roomType: string; locationId: string | null;
   } | null>(null);
   const [overrideInput, setOverrideInput] = useState('');
+  const [deltaPop, setDeltaPop] = useState<{
+    key: string; campus: string; serviceLine: string; roomType: string; locationId: string | null; mode: 'dollar' | 'pct'; streetSpot: number;
+  } | null>(null);
+  const [deltaInput, setDeltaInput] = useState('');
 
   const overrideSaveMutation = useMutation({
     mutationFn: async (payload: { campus: string; serviceLine: string; roomType: string; locationId: string | null; overrideRate: number }) =>
@@ -699,6 +703,7 @@ export default function ReferenceDataTable({
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
       queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-overrides'] });
       setOverridePop(null);
+      setDeltaPop(null);
     },
   });
 
@@ -1808,6 +1813,77 @@ export default function ReferenceDataTable({
                                 </Button>
                               )}
                             </div>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                    );
+                  })() : (c.key === "proposedVarDollar" || c.key === "proposedVarPct") && groupLevel === "roomType" && row.streetSpot ? (() => {
+                    const popKey = `${row.campus}||${row.serviceLine}||${row.roomType}||${c.key}`;
+                    const isOpen = deltaPop?.key === popKey;
+                    const mode = c.key === "proposedVarDollar" ? 'dollar' : 'pct';
+                    const openDelta = () => {
+                      const street = Number(row.streetSpot);
+                      const initVal = mode === 'dollar'
+                        ? (row.proposedVarDollar != null ? String(Math.round(Number(row.proposedVarDollar))) : '')
+                        : (row.proposedVarPct != null ? String(Math.round(Number(row.proposedVarPct) * 1000) / 10) : '');
+                      setDeltaPop({ key: popKey, campus: row.campus, serviceLine: row.serviceLine, roomType: row.roomType, locationId: row.locationId ?? null, mode, streetSpot: street });
+                      setDeltaInput(initVal);
+                    };
+                    const saveRate = () => {
+                      if (!deltaPop) return;
+                      const val = parseFloat(deltaInput);
+                      if (isNaN(val)) return;
+                      const street = deltaPop.streetSpot;
+                      const rate = mode === 'dollar' ? street + val : street * (1 + val / 100);
+                      if (rate <= 0) return;
+                      overrideSaveMutation.mutate({ campus: deltaPop.campus, serviceLine: deltaPop.serviceLine, roomType: deltaPop.roomType, locationId: deltaPop.locationId, overrideRate: Math.round(rate) });
+                    };
+                    const previewRate = deltaInput !== '' && !isNaN(parseFloat(deltaInput))
+                      ? Math.round(mode === 'dollar' ? row.streetSpot + parseFloat(deltaInput) : row.streetSpot * (1 + parseFloat(deltaInput) / 100))
+                      : null;
+                    return (
+                      <div className="flex items-center gap-0.5 justify-end group">
+                        <span className={colorCls}>{display || "—"}</span>
+                        <Popover open={isOpen} onOpenChange={(open) => { if (open) openDelta(); else setDeltaPop(null); }}>
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 hover:bg-muted text-muted-foreground hover:text-primary focus:outline-none focus:opacity-100"
+                              title={mode === 'dollar' ? 'Set $ adjustment vs current' : 'Set % adjustment vs current'}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 p-3" align="end">
+                            <p className="text-xs font-semibold mb-0.5">{mode === 'dollar' ? 'Set Δ$ vs Current' : 'Set Δ% vs Current'}</p>
+                            <p className="text-[10px] text-muted-foreground mb-1 leading-tight">{row.campus} · {row.serviceLine} · {row.roomType}</p>
+                            <p className="text-[10px] text-muted-foreground mb-2">Street rate: <strong>${Math.round(row.streetSpot).toLocaleString()}</strong></p>
+                            <div className="relative mb-2">
+                              <Input
+                                type="number"
+                                step={mode === 'dollar' ? '1' : '0.1'}
+                                value={deltaInput}
+                                onChange={e => setDeltaInput(e.target.value)}
+                                placeholder={mode === 'dollar' ? 'e.g. +250' : 'e.g. +4.0'}
+                                className="h-8 text-xs pr-8"
+                                autoFocus
+                                onKeyDown={e => { if (e.key === 'Enter') saveRate(); }}
+                              />
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
+                                {mode === 'dollar' ? '$' : '%'}
+                              </span>
+                            </div>
+                            {previewRate !== null && (
+                              <p className="text-[10px] text-muted-foreground mb-2">
+                                → Final rate: <strong>${previewRate.toLocaleString()}</strong>
+                              </p>
+                            )}
+                            <Button
+                              size="sm"
+                              className="h-7 w-full text-xs"
+                              disabled={overrideSaveMutation.isPending || deltaInput === ''}
+                              onClick={saveRate}
+                            >Save</Button>
                           </PopoverContent>
                         </Popover>
                       </div>
