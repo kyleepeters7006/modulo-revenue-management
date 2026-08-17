@@ -22950,7 +22950,10 @@ Return ONLY valid JSON, no markdown fences:
           // are always looked up independently — no cross-SL merging or proportional split.
           // Falls back to rent-roll when history is absent.
           ...((): { vacantSpot: number|null; vacantT3: number|null; vacantT6: number|null; vacantT12: number|null } => {
-            const physMap = rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`);
+            // Try branded group name first, then raw normalised room type (modeRoomType) as
+            // a fallback — the RTO history is keyed by normalized_room_type, not group_name.
+            const physMap = rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`)
+                         ?? rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`);
             if (!physMap) {
               return {
                 vacantSpot: spot ? spot.total - spot.occupied : null,
@@ -22984,16 +22987,23 @@ Return ONLY valid JSON, no markdown fences:
           // RT Occ: prefer RT-level RTO history, fall back to SL-level RTO, then campus-level.
           // Never fall back to raw spot.occupied/spot.total — that includes B-beds for senior housing
           // (VIL, AL, SL, AL/MC) and produces falsely-low occupancy when no RT-level RTO row exists.
-          rtOccSpot: rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), rtoSpotWindow)
+          // The RTO history is keyed by normalized_room_type; c.roomType may be a branded group name
+          // (e.g. "Legacy Lane - Studio") that won't match. Try c.modeRoomType (raw rr.room_type
+          // mode, e.g. "studio") as a secondary key before falling to SL-level.
+          rtOccSpot: (rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), rtoSpotWindow)
+            ?? rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`), rtoSpotWindow))
             ?? rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), rtoSpotWindow)
             ?? occPctWindow(sOcc, [spotMonth]),
-          rtOccT3:   rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t3Months)
+          rtOccT3:   (rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t3Months)
+            ?? rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`), t3Months))
             ?? rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t3Months)
             ?? occPctWindow(sOcc, t3Months),
-          rtOccT6:   rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t6Months)
+          rtOccT6:   (rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t6Months)
+            ?? rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`), t6Months))
             ?? rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t6Months)
             ?? occPctWindow(sOcc, t6Months),
-          rtOccT12:  rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t12Months)
+          rtOccT12:  (rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), t12Months)
+            ?? rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`), t12Months))
             ?? rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), t12Months)
             ?? occPctWindow(sOcc, t12Months),
           // Days vacant avg
@@ -23117,7 +23127,7 @@ Return ONLY valid JSON, no markdown fences:
             months.map(mm => [mm, rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), [mm]) ?? occPctWindow(sOcc, [mm])])
           ),
           rtOccHistory: Object.fromEntries(
-            months.map(mm => [mm, rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), [mm]) ?? occWindowCombo(bm, [mm])])
+            months.map(mm => [mm, (rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), [mm]) ?? rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`), [mm])) ?? occWindowCombo(bm, [mm])]))
           ),
           ihHistory: Object.fromEntries(
             months.map(mm => [mm, bm.get(mm)?.avgIh ?? null])
