@@ -6451,8 +6451,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             locationIdToName.get(metrics.units[0]?.locationId) ||
             campusDataMap.get(campusId)?.name ||
             campusId;
-          type SlAcc = { studioSum: number; studioN: number; allSum: number; allN: number };
-          const bySl = new Map<string, SlAcc>();
+          // Per room type, use the MODAL street rate (mirrors Reference Data's
+          // mode() WITHIN GROUP and the Competitive Position scatter). Street
+          // rates are uniform per room type, so a stray junk row (e.g. a $159
+          // Studio) must not drag the campus figure — AVG here used to understate
+          // market position at every campus with a bad rent-roll rate. Per-RT
+          // modes are then unit-weighted so mix still matters.
+          type RtAcc = { freq: Map<number, number>; n: number };
+          const bySl = new Map<string, Map<string, RtAcc>>();
 
           metrics.units.forEach((unit: any) => {
             const sl = unit.serviceLine || '';
@@ -6461,26 +6467,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (isBBedRow(sl, unit.roomNumber)) return;
             const rate = unit.streetRate || unit.inHouseRate || 0;
             if (!(rate > 0)) return;
-            let acc = bySl.get(sl);
-            if (!acc) { acc = { studioSum: 0, studioN: 0, allSum: 0, allN: 0 }; bySl.set(sl, acc); }
-            acc.allSum += rate;
-            acc.allN++;
-            // room_type is backfill-normalized ("Studio", "Studio Dlx"), so a prefix
-            // test is safe here — unlike room_type_groupings.group_name, which
-            // carries branded values such as "Legacy Lane - Studio".
-            if (/^studio/i.test(unit.roomType || '')) { acc.studioSum += rate; acc.studioN++; }
+            let byRt = bySl.get(sl);
+            if (!byRt) { byRt = new Map(); bySl.set(sl, byRt); }
+            const rt = unit.roomType || '';
+            let acc = byRt.get(rt);
+            if (!acc) { acc = { freq: new Map(), n: 0 }; byRt.set(rt, acc); }
+            acc.freq.set(rate, (acc.freq.get(rate) || 0) + 1);
+            acc.n++;
           });
+
+          // Modal rate: highest count wins; ties break to the smaller rate,
+          // matching Postgres mode() ordered ascending.
+          const modalRate = (freq: Map<number, number>): number => {
+            let best = 0, bestCount = 0;
+            for (const [rate, count] of Array.from(freq.entries())) {
+              if (count > bestCount || (count === bestCount && rate < best)) {
+                best = rate; bestCount = count;
+              }
+            }
+            return best;
+          };
 
           let weightedPos = 0;
           let weightTotal = 0;
           let largestSlUnits = -1;
-          for (const [sl, acc] of Array.from(bySl.entries())) {
+          for (const [sl, byRt] of Array.from(bySl.entries())) {
             const bench = scatterBenchmark.benchmarkFor(canonicalLocation, sl);
             if (!bench || !(bench.topAdjusted > 0)) continue;
+            let studioSum = 0, studioN = 0, allSum = 0, allN = 0;
+            for (const [rt, acc] of Array.from(byRt.entries())) {
+              const m = modalRate(acc.freq);
+              allSum += m * acc.n;
+              allN += acc.n;
+              // room_type is backfill-normalized ("Studio", "Studio Dlx"), so a prefix
+              // test is safe here — unlike room_type_groupings.group_name, which
+              // carries branded values such as "Legacy Lane - Studio".
+              if (/^studio/i.test(rt)) { studioSum += m * acc.n; studioN += acc.n; }
+            }
+            const acc = { allN };
             const ourRate = pickComparisonRate(
               sl,
-              acc.studioN > 0 ? acc.studioSum / acc.studioN : 0,
-              acc.allN > 0 ? acc.allSum / acc.allN : 0,
+              studioN > 0 ? studioSum / studioN : 0,
+              allN > 0 ? allSum / allN : 0,
             );
             if (!(ourRate > 0)) continue;
             weightedPos += ((ourRate - bench.topAdjusted) / bench.topAdjusted) * 100 * acc.allN;
@@ -18754,34 +18782,63 @@ Return ONLY valid JSON with no markdown fences:
 
       const [ourRates, rtoOccRes, weightRes] = await Promise.all([
         pool.query(`
-          SELECT rr.location,
-            -- Use the canonical KeyStats location name from the locations table
-            -- (matched via location_id) so benchmarkFor() finds the survey rows
-            -- keyed by keystats_location. Falls back to rr.location when the
-            -- location_id FK is not populated.
-            COALESCE(loc.name, rr.location) AS location_name,
-            rr.service_line,
-            -- Both candidate rates are returned and pickComparisonRate() chooses
-            -- between them, so this chart and the Position vs Top Competitor KPI
-            -- cannot drift apart. B beds excluded as everywhere else.
-            -- rr.room_type is already backfill-normalized ("Studio", "Studio Dlx",
-            -- etc.) so no room_type_groupings join is needed — branded names like
-            -- "Legacy Lane - Studio" (group_name) would break the 'studio%' filter.
-            ROUND(AVG(rr.street_rate) FILTER (WHERE
-              rr.room_type ILIKE 'studio%'
+          -- Our-rate aggregation mirrors Reference Data's mode() WITHIN GROUP
+          -- (ORDER BY rr.street_rate) instead of AVG(). The published street rate
+          -- is uniform per room type, so the modal rate per room type ignores
+          -- junk rent-roll rows (e.g. a stray $159 on a Studio) that used to drag
+          -- the campus average — and its market position — artificially low.
+          -- Per-room-type modes are then unit-weighted so the "all room types"
+          -- figure still reflects the campus's room mix.
+          WITH rt_modes AS (
+            SELECT rr.location,
+              -- Use the canonical KeyStats location name from the locations table
+              -- (matched via location_id) so benchmarkFor() finds the survey rows
+              -- keyed by keystats_location. Falls back to rr.location when the
+              -- location_id FK is not populated.
+              COALESCE(loc.name, rr.location) AS location_name,
+              rr.service_line,
+              -- rr.room_type is already backfill-normalized ("Studio", "Studio Dlx",
+              -- etc.) so no room_type_groupings join is needed — branded names like
+              -- "Legacy Lane - Studio" (group_name) would break the 'studio%' filter.
+              rr.room_type,
+              mode() WITHIN GROUP (ORDER BY rr.street_rate) AS mode_rate,
+              COUNT(*) AS cnt
+            FROM rent_roll_data rr
+            -- Join via location_id (FK) to get the canonical KeyStats name that
+            -- matches competitive_survey_data.keystats_location. The region/division
+            -- filters below use loc.region / loc.division from this same join.
+            LEFT JOIN locations loc ON loc.id = rr.location_id
+            WHERE ${whereClause}
+              -- B beds excluded as everywhere else.
               AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
-            )::numeric, 0) AS our_studio_rate,
-            ROUND(AVG(rr.street_rate) FILTER (WHERE
-              NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
-            )::numeric, 0) AS our_all_rate,
-            ROUND(COUNT(*) FILTER (WHERE rr.occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS rr_occupancy
-          FROM rent_roll_data rr
-          -- Join via location_id (FK) to get the canonical KeyStats name that
-          -- matches competitive_survey_data.keystats_location. The region/division
-          -- filters below use loc.region / loc.division from this same join.
-          LEFT JOIN locations loc ON loc.id = rr.location_id
-          WHERE ${whereClause}
-          GROUP BY rr.location, loc.name, rr.service_line
+            GROUP BY rr.location, loc.name, rr.service_line, rr.room_type
+          ),
+          rates AS (
+            SELECT location, location_name, service_line,
+              -- Both candidate rates are returned and pickComparisonRate() chooses
+              -- between them, so this chart and the Position vs Top Competitor KPI
+              -- cannot drift apart.
+              ROUND((SUM(mode_rate * cnt) FILTER (WHERE room_type ILIKE 'studio%')
+                / NULLIF(SUM(cnt) FILTER (WHERE room_type ILIKE 'studio%'), 0))::numeric, 0) AS our_studio_rate,
+              ROUND((SUM(mode_rate * cnt) / NULLIF(SUM(cnt), 0))::numeric, 0) AS our_all_rate
+            FROM rt_modes
+            GROUP BY location, location_name, service_line
+          ),
+          occ AS (
+            SELECT rr.location,
+              COALESCE(loc.name, rr.location) AS location_name,
+              rr.service_line,
+              ROUND(COUNT(*) FILTER (WHERE rr.occupied_yn=true) * 100.0 / NULLIF(COUNT(*),0), 1) AS rr_occupancy
+            FROM rent_roll_data rr
+            LEFT JOIN locations loc ON loc.id = rr.location_id
+            WHERE ${whereClause}
+            GROUP BY rr.location, loc.name, rr.service_line
+          )
+          SELECT occ.location, occ.location_name, occ.service_line,
+                 rates.our_studio_rate, rates.our_all_rate, occ.rr_occupancy
+          FROM occ
+          LEFT JOIN rates
+            ON rates.location = occ.location AND rates.service_line = occ.service_line
         `, params),
         // Authoritative occupancy per location + (possibly combined) service line grouping
         // (physical rooms, no B-bed inflation). Combined SL strings like "AL, AL/MC, HC"
