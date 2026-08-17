@@ -23127,7 +23127,7 @@ Return ONLY valid JSON, no markdown fences:
             months.map(mm => [mm, rtoOccWindow(rtoSLMap.get(`${c.campus}||${c.serviceLine}`), [mm]) ?? occPctWindow(sOcc, [mm])])
           ),
           rtOccHistory: Object.fromEntries(
-            months.map(mm => [mm, (rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), [mm]) ?? rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`), [mm])) ?? occWindowCombo(bm, [mm])]))
+            months.map(mm => [mm, (rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`), [mm]) ?? rtoOccWindow(rtoRTMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`), [mm])) ?? occWindowCombo(bm, [mm])])
           ),
           ihHistory: Object.fromEntries(
             months.map(mm => [mm, bm.get(mm)?.avgIh ?? null])
