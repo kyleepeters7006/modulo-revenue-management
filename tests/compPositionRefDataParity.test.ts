@@ -682,6 +682,203 @@ async function runRiScenario(): Promise<void> {
   }
 }
 
+// ===========================================================================
+// SCENARIO 4 — Manual rate override with room_type_groupings remapping
+//
+// Confirms that revMonthlyImpact stays non-null when:
+//   - A manual_rate_override is stored with the CANONICAL room type ("Studio")
+//   - A room_type_groupings row renames "Studio" → "Legacy Lane - Studio"
+//
+// The Reference Data endpoint looks up overrides by `campus||sl||roomType`,
+// where roomType is the branded display name.  Without the fix, the branded
+// key misses the canonical-keyed override and effectiveProposed stays null,
+// leaving revMonthlyImpact null.  With the fix, the lookup also tries the
+// canonical key (c.modeRoomType) and finds the override.
+//
+// This test exercises the lookup logic directly (mirroring server/routes.ts
+// lines 22847-22855 and the override-lookup at line 22889) without hitting
+// the HTTP endpoint, so it runs in isolation without a running server.
+// ===========================================================================
+const CLIENT_MO  = 'ptest-mo-rtg';
+const LOC_MO     = 'MO RTG Campus - 777';
+const MONTH_MO   = '2026-06';
+const MO_STREET_RATE   = 4500;   // street rate for the Studio units
+const MO_OVERRIDE_RATE = 4800;   // the manual override rate stored as "Studio"
+const MO_MOVEINS       = 2;      // move-in count for T3 impact calculation
+const EXPECTED_IMPACT  = (MO_OVERRIDE_RATE - MO_STREET_RATE) * MO_MOVEINS; // 600
+
+async function cleanupMo(): Promise<void> {
+  await pool.query(`DELETE FROM manual_rate_overrides WHERE client_id=$1`, [CLIENT_MO]);
+  await pool.query(`DELETE FROM room_type_groupings   WHERE client_id=$1`, [CLIENT_MO]);
+  await pool.query(`DELETE FROM rent_roll_data        WHERE client_id=$1`, [CLIENT_MO]);
+  await pool.query(`DELETE FROM locations             WHERE client_id=$1`, [CLIENT_MO]);
+  await pool.query(`DELETE FROM clients               WHERE id=$1`,        [CLIENT_MO]);
+}
+
+async function seedMo(): Promise<string> {
+  await cleanupMo();
+  await pool.query(
+    `INSERT INTO clients (id, name) VALUES ($1, 'MO RTG Test') ON CONFLICT (id) DO NOTHING`,
+    [CLIENT_MO],
+  );
+  const locRes = await pool.query(
+    `INSERT INTO locations (name, client_id) VALUES ($1, $2) RETURNING id`,
+    [LOC_MO, CLIENT_MO],
+  );
+  const locId = locRes.rows[0].id as string;
+
+  // 4 Studio units; MO_MOVEINS have a move_in_date in MONTH_MO
+  for (let i = 1; i <= 4; i++) {
+    const hasMoveIn = i <= MO_MOVEINS;
+    await pool.query(
+      `INSERT INTO rent_roll_data
+         (client_id, location_id, location, upload_month, service_line, room_type, source_room_type,
+          room_number, street_rate, occupied_yn, in_house_rate, date, size, days_vacant, payor_type,
+          move_in_date)
+       VALUES ($1,$2,$3,$4,'AL','Studio','Studio',$5,$6,true,$7,$8,'Studio',0,'Private',$9)`,
+      [
+        CLIENT_MO, locId, LOC_MO, MONTH_MO, `MOS-${i}`,
+        MO_STREET_RATE, MO_STREET_RATE - 300, `${MONTH_MO}-01`,
+        hasMoveIn ? `${MONTH_MO}-01` : null,
+      ],
+    );
+  }
+
+  // RTG: remap source_room_type='Studio' → branded group_name='Legacy Lane - Studio'
+  await pool.query(
+    `INSERT INTO room_type_groupings (client_id, location, service_line, source_room_type, group_name)
+     VALUES ($1,$2,'AL','Studio','Legacy Lane - Studio')`,
+    [CLIENT_MO, LOC_MO],
+  );
+
+  // Manual override stored with CANONICAL room_type='Studio' (not the branded name)
+  await pool.query(
+    `INSERT INTO manual_rate_overrides (client_id, location_id, location_name, service_line, room_type, override_rate, updated_at)
+     VALUES ($1,$2,$3,'AL','Studio',$4,NOW())`,
+    [CLIENT_MO, locId, LOC_MO, MO_OVERRIDE_RATE],
+  );
+
+  return locId;
+}
+
+// Mirrors the aggRes SQL in server/routes.ts: returns branded room_type and
+// canonical mode_room_type for each group.
+async function runMoAggRes(): Promise<{ roomType: string; modeRoomType: string; avgStreet: number } | null> {
+  const res = await pool.query<{ room_type: string; mode_room_type: string; avg_street: string }>(`
+    SELECT
+      COALESCE(rtg.group_name, rr.room_type) AS room_type,
+      mode() WITHIN GROUP (ORDER BY rr.room_type) FILTER (WHERE rr.room_type IS NOT NULL) AS mode_room_type,
+      mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (
+        WHERE rr.street_rate > 0
+          AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL')
+                   AND rr.room_number ~* '/[B-Zb-z]$')
+      ) AS avg_street
+    FROM rent_roll_data rr
+    LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+    LEFT JOIN room_type_groupings rtg
+      ON rtg.client_id = rr.client_id AND rtg.location = rr.location
+     AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
+    WHERE rr.client_id = $1 AND rr.upload_month = $2
+    GROUP BY COALESCE(rtg.group_name, rr.room_type)
+  `, [CLIENT_MO, MONTH_MO]);
+  if (!res.rows.length) return null;
+  return {
+    roomType: res.rows[0].room_type,
+    modeRoomType: res.rows[0].mode_room_type,
+    avgStreet: Number(res.rows[0].avg_street),
+  };
+}
+
+// Mirrors the grouped T3 move-in query in server/routes.ts.
+async function runMoT3MoveIns(): Promise<number> {
+  const res = await pool.query<{ n: string }>(`
+    WITH ev AS (
+      SELECT DISTINCT ON (rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type)
+        rr.location, rr.service_line,
+        COALESCE(rtg.group_name, rr.room_type) AS room_type, rr.payor_type,
+        CASE
+          WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN TO_DATE(rr.move_in_date,'YYYY-MM-DD')
+          ELSE NULL END AS dt
+      FROM rent_roll_data rr
+      LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+      LEFT JOIN room_type_groupings rtg
+        ON rtg.client_id = rr.client_id AND rtg.location = rr.location
+       AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
+      WHERE rr.client_id = $1 AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
+      ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
+               (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
+    ),
+    valid AS (
+      SELECT location, service_line, room_type, TO_CHAR(dt,'YYYY-MM') AS mm
+      FROM ev WHERE dt IS NOT NULL
+    )
+    SELECT COUNT(*)::int AS n
+    FROM valid WHERE mm = $2
+  `, [CLIENT_MO, MONTH_MO]);
+  return Number(res.rows[0]?.n ?? 0);
+}
+
+async function runMoScenario(): Promise<void> {
+  await seedMo();
+  try {
+    // Load manual overrides exactly as server/routes.ts does (keyed by location_name||sl||room_type)
+    const overrideRes = await pool.query<{ location_name: string; service_line: string; room_type: string; override_rate: number }>(
+      `SELECT location_name, service_line, room_type, override_rate FROM manual_rate_overrides WHERE client_id = $1`,
+      [CLIENT_MO],
+    );
+    const manualOverrideMap = new Map<string, number>();
+    for (const o of overrideRes.rows) {
+      manualOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, Number(o.override_rate));
+    }
+
+    const [aggRow, t3MoveIns] = await Promise.all([
+      runMoAggRes(),
+      runMoT3MoveIns(),
+    ]);
+
+    // ── MO-1. aggRes returns branded room_type and canonical mode_room_type ──
+    assert('MO: aggRes branded room_type = "Legacy Lane - Studio"', aggRow?.roomType ?? '', 'Legacy Lane - Studio');
+    assert('MO: aggRes canonical mode_room_type = "Studio"', aggRow?.modeRoomType ?? '', 'Studio');
+
+    // ── MO-2. Override is stored under canonical key ──
+    const canonicalKey = `${LOC_MO}||AL||Studio`;
+    const brandedKey   = `${LOC_MO}||AL||Legacy Lane - Studio`;
+    assert('MO: override map has entry for canonical key "Studio"', manualOverrideMap.has(canonicalKey), true);
+    assert('MO: override map has NO entry for branded key "Legacy Lane - Studio"', manualOverrideMap.has(brandedKey), false);
+
+    // ── MO-3. Branded-only lookup misses the override (pre-fix behaviour) ──
+    const brandedLookup = manualOverrideMap.get(brandedKey) ?? null;
+    assert('MO: branded-key-only lookup misses override (returns null — bug demonstrated)', brandedLookup, null, 0);
+
+    // ── MO-4. Canonical fallback lookup finds the override (fix behaviour) ──
+    const canonicalFallback = manualOverrideMap.get(brandedKey) ?? manualOverrideMap.get(canonicalKey) ?? null;
+    assert('MO: canonical-fallback lookup finds the override rate', canonicalFallback, MO_OVERRIDE_RATE, 0);
+
+    // ── MO-5. T3 move-ins are non-zero (impact denominator is populated) ──
+    assert(`MO: T3 grouped move-ins = ${MO_MOVEINS}`, t3MoveIns, MO_MOVEINS, 0);
+
+    // ── MO-6. effectiveProposed is non-null when using canonical fallback ──
+    // Mirrors: effectiveProposed = manualRate ?? proposed ?? rulePreviewRate
+    const streetSpot = aggRow?.avgStreet ?? null;
+    const effectiveProposed = canonicalFallback;  // manual override found via canonical fallback
+    assert('MO: effectiveProposed is non-null (override found via canonical fallback)', effectiveProposed !== null, true);
+
+    // ── MO-7. revMonthlyImpact is non-null and correct ──
+    const revMonthlyImpact =
+      (effectiveProposed !== null && streetSpot !== null && t3MoveIns > 0)
+        ? (effectiveProposed - streetSpot) * t3MoveIns
+        : null;
+    assert('MO: revMonthlyImpact is non-null (not silently dropped)', revMonthlyImpact !== null, true);
+    assert(
+      `MO: revMonthlyImpact = (${MO_OVERRIDE_RATE} - ${MO_STREET_RATE}) × ${MO_MOVEINS} = ${EXPECTED_IMPACT}`,
+      revMonthlyImpact ?? -1, EXPECTED_IMPACT, 0,
+    );
+
+  } finally {
+    await cleanupMo();
+  }
+}
+
 async function main() {
   await seed();
   try {
@@ -757,6 +954,9 @@ async function main() {
   // ── Scenario 3: rule impact counts with RTG remapping ──
   await runRiScenario();
 
+  // ── Scenario 4: manual rate override + RTG → revMonthlyImpact stays populated ──
+  await runMoScenario();
+
   await pool.end();
 
   console.log(`\n${passed} passed, ${failed} failed`);
@@ -765,6 +965,6 @@ async function main() {
 
 main().catch(async (e) => {
   console.error(e);
-  try { await cleanup(); await cleanupRtg(); await cleanupRi(); await pool.end(); } catch {}
+  try { await cleanup(); await cleanupRtg(); await cleanupRi(); await cleanupMo(); await pool.end(); } catch {}
   process.exit(1);
 });

@@ -22886,7 +22886,14 @@ Return ONLY valid JSON, no markdown fences:
         const proposed = spot?.avgProposed ?? null;
         const totalUnits = spot?.total ?? rateWindow(bm, t3Months, 'total') ?? 0;
 
-        const manualRate = manualOverrideMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null;
+        // Try branded display name first, then fall back to canonical (pre-grouping) room type.
+        // manual_rate_overrides stores room_type as the canonical name (e.g. "Studio"), but when
+        // room_type_groupings renames it to a branded name (e.g. "Legacy Lane - Studio"), the
+        // display key (c.roomType) won't match.  c.modeRoomType holds the canonical name computed
+        // by mode() WITHIN GROUP (ORDER BY rr.room_type) in the aggRes SQL.
+        const manualRate = manualOverrideMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`)
+          ?? manualOverrideMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`)
+          ?? null;
         // Rule preview fallback: when no rate is stored in rent_roll_data (engine not
         // yet run), use the preview rate of the first matching active rule so the
         // Proposed Rates + Revenue Impact columns populate as soon as a rule matches.
