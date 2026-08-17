@@ -26,6 +26,7 @@
 import pg from 'pg';
 import { queryCompPositionOwnRates } from '../server/services/compPositionOwnRates.js';
 const { Pool } = pg;
+import { buildRuleImpactContext, computeQualifiedRuleImpact } from '../server/services/ruleImpactService';
 
 const CLIENT   = 'ptest-cp-refdata-parity';
 const LOC_A    = 'Alpha Campus - 101';
@@ -490,7 +491,11 @@ async function seedRi(): Promise<void> {
   );
   const locId = locRes.rows[0].id as string;
 
-  // 5 Studio units; first RI_STUDIO_MOVEINS have a move_in_date inside T3 (MONTH_RI)
+  // 5 Studio units.
+  // IMPORTANT: source_room_type='Studio - Pvt' (raw import value) is intentionally
+  // DISTINCT from room_type='Studio' (normalized canonical value).  This exercises
+  // the case where the import pipeline normalizes the source value — the reverse RTG
+  // map must JOIN rent_roll_data to get the actual rr.room_type, not source_room_type.
   for (let i = 1; i <= RI_STUDIO_COUNT; i++) {
     const hasMoveIn = i <= RI_STUDIO_MOVEINS;
     await pool.query(
@@ -498,7 +503,7 @@ async function seedRi(): Promise<void> {
          (client_id, location_id, location, upload_month, service_line, room_type, source_room_type,
           room_number, street_rate, occupied_yn, in_house_rate, date, size, days_vacant, payor_type,
           move_in_date)
-       VALUES ($1,$2,$3,$4,'AL','Studio','Studio',$5,$6,true,$7,$8,'Studio',0,'Private',$9)`,
+       VALUES ($1,$2,$3,$4,'AL','Studio','Studio - Pvt',$5,$6,true,$7,$8,'Studio',0,'Private',$9)`,
       [
         CLIENT_RI, locId, LOC_RI, MONTH_RI, `RIS-${i}`,
         RI_STUDIO_RATE, RI_STUDIO_RATE - 200, `${MONTH_RI}-01`,
@@ -507,10 +512,11 @@ async function seedRi(): Promise<void> {
     );
   }
 
-  // RTG: remap source_room_type='Studio' → group_name='Legacy Lane - Studio'
+  // RTG: remap source_room_type='Studio - Pvt' → group_name='Legacy Lane - Studio'.
+  // The join key is source_room_type (not room_type), matching the import pipeline.
   await pool.query(
     `INSERT INTO room_type_groupings (client_id, location, service_line, source_room_type, group_name)
-     VALUES ($1,$2,'AL','Studio','Legacy Lane - Studio')`,
+     VALUES ($1,$2,'AL','Studio - Pvt','Legacy Lane - Studio')`,
     [CLIENT_RI, LOC_RI],
   );
 }
@@ -676,6 +682,139 @@ async function runRiScenario(): Promise<void> {
       'RI: rule filter roomType=["Studio"] DOES match when sourceRt="Studio" is also checked (fix)',
       matchesWithSource, true,
     );
+
+    // ── RI-7. End-to-end: computeQualifiedRuleImpact with branded roomType filter ──
+    // Calls buildRuleImpactContext + computeQualifiedRuleImpact directly to exercise
+    // the production code path, not a reimplementation.
+    //
+    // Two properties under test:
+    //   a) source_room_type='Studio - Pvt' ≠ room_type='Studio': the reverse map must
+    //      JOIN rent_roll_data to get the actual rr.room_type, not use source_room_type.
+    //   b) Cross-location collision guard: the same branded group name ('Legacy Lane - Studio')
+    //      maps to 'Studio' at LOC_RI but to 'Suite' at a second location (LOC_RI_B).
+    //      An unscoped map would union both → {'Studio','Suite'}, incorrectly matching
+    //      'Suite' units at LOC_RI that are NOT part of the branded group.
+    //      The fix keys by `${location}|${service_line}|${group_name}` so each lookup
+    //      resolves only the canonical types defined at THAT unit's location+SL.
+    //
+    // Seed additions (cleaned up inside this block):
+    //   • 2 ungrouped Suite units at LOC_RI   (room_type='Suite', no RTG row)
+    //   • 3 Suite units at LOC_RI_B           (room_type='Suite', RTG: group_name='Legacy Lane - Studio')
+    {
+      const LOC_RI_B = 'RI RTG Campus B - 889';
+      const RI_SUITE_B_COUNT = 3;
+      const RI_SUITE_UNGROUPED = 2; // ungrouped Suite units at LOC_RI
+
+      // Insert second location + its units + RTG row
+      const locBRes = await pool.query(
+        `INSERT INTO locations (name, client_id) VALUES ($1, $2) RETURNING id`,
+        [LOC_RI_B, CLIENT_RI],
+      );
+      const locBId = locBRes.rows[0].id as string;
+
+      // Ungrouped Suite units at LOC_RI (existing location — reuse locId via query)
+      const locARes = await pool.query(
+        `SELECT id FROM locations WHERE client_id=$1 AND name=$2`, [CLIENT_RI, LOC_RI],
+      );
+      const locAId = locARes.rows[0].id as string;
+
+      for (let i = 1; i <= RI_SUITE_UNGROUPED; i++) {
+        await pool.query(
+          `INSERT INTO rent_roll_data
+             (client_id, location_id, location, upload_month, service_line, room_type, source_room_type,
+              room_number, street_rate, occupied_yn, in_house_rate, date, size, days_vacant, payor_type)
+           VALUES ($1,$2,$3,$4,'AL','Suite','Suite - Std',$5,4500,true,4200,$6,'Suite',0,'Private')`,
+          [CLIENT_RI, locAId, LOC_RI, MONTH_RI, `RIS-U${i}`, `${MONTH_RI}-01`],
+        );
+      }
+
+      // Suite units at LOC_RI_B mapped to 'Legacy Lane - Studio' (collision group_name)
+      for (let i = 1; i <= RI_SUITE_B_COUNT; i++) {
+        await pool.query(
+          `INSERT INTO rent_roll_data
+             (client_id, location_id, location, upload_month, service_line, room_type, source_room_type,
+              room_number, street_rate, occupied_yn, in_house_rate, date, size, days_vacant, payor_type)
+           VALUES ($1,$2,$3,$4,'AL','Suite','Suite - Pvt',$5,4500,true,4200,$6,'Suite',0,'Private')`,
+          [CLIENT_RI, locBId, LOC_RI_B, MONTH_RI, `RIB-${i}`, `${MONTH_RI}-01`],
+        );
+      }
+      await pool.query(
+        `INSERT INTO room_type_groupings (client_id, location, service_line, source_room_type, group_name)
+         VALUES ($1,$2,'AL','Suite - Pvt','Legacy Lane - Studio')`,
+        [CLIENT_RI, LOC_RI_B],
+      );
+
+      try {
+        const ctx = await buildRuleImpactContext(CLIENT_RI);
+        assert('RI: buildRuleImpactContext returns a non-null context', ctx !== null, true);
+
+        if (ctx) {
+          const brandedRule = {
+            isActive: true,
+            serviceLines: ['AL'],
+            action: {
+              filters: { roomType: ['Legacy Lane - Studio'] },
+              adjustmentType: 'percentage',
+              adjustmentValue: 5,
+            },
+            trigger: { type: 'immediate' },
+          };
+
+          const brandedImpact = computeQualifiedRuleImpact(ctx, brandedRule);
+
+          // Expected: RI_STUDIO_COUNT Studio units at LOC_RI + RI_SUITE_B_COUNT Suite units at LOC_RI_B.
+          // The RI_SUITE_UNGROUPED ungrouped Suite units at LOC_RI must NOT be counted —
+          // the location-scoped reverse map maps LOC_RI|AL|'Legacy Lane - Studio' → {'Studio'} only.
+          const expectedTotal = RI_STUDIO_COUNT + RI_SUITE_B_COUNT;
+          assert(
+            `RI: branded filter ['Legacy Lane - Studio'] matches ${RI_STUDIO_COUNT} Studio@LOC_RI ` +
+            `+ ${RI_SUITE_B_COUNT} Suite@LOC_RI_B = ${expectedTotal} units (cross-location collision guard)`,
+            brandedImpact.affectedUnits, expectedTotal,
+          );
+          assert(
+            `RI: branded filter does NOT match the ${RI_SUITE_UNGROUPED} ungrouped Suite units at LOC_RI ` +
+            '(location-scoped reverse map excludes them)',
+            brandedImpact.affectedUnits < RI_STUDIO_COUNT + RI_SUITE_UNGROUPED + RI_SUITE_B_COUNT, true,
+          );
+          assert(
+            `RI: branded filter produces non-zero affectedUnits (was silently 0 before the fix)`,
+            brandedImpact.affectedUnits > 0, true,
+          );
+
+          // Canonical filter regression guard: 'Studio' still matches only Studio units.
+          const canonicalRule = {
+            isActive: true,
+            serviceLines: ['AL'],
+            action: {
+              filters: { roomType: ['Studio'] },
+              adjustmentType: 'percentage',
+              adjustmentValue: 5,
+            },
+            trigger: { type: 'immediate' },
+          };
+          const canonicalImpact = computeQualifiedRuleImpact(ctx, canonicalRule);
+          assert(
+            `RI: canonical filter ['Studio'] still matches only ${RI_STUDIO_COUNT} Studio units (regression guard)`,
+            canonicalImpact.affectedUnits, RI_STUDIO_COUNT,
+          );
+        }
+      } finally {
+        // Clean up collision additions
+        await pool.query(
+          `DELETE FROM room_type_groupings WHERE client_id=$1 AND location=$2`,
+          [CLIENT_RI, LOC_RI_B],
+        );
+        await pool.query(
+          `DELETE FROM rent_roll_data WHERE client_id=$1 AND location=$2`,
+          [CLIENT_RI, LOC_RI_B],
+        );
+        await pool.query(`DELETE FROM locations WHERE id=$1`, [locBId]);
+        await pool.query(
+          `DELETE FROM rent_roll_data WHERE client_id=$1 AND room_number LIKE 'RIS-U%'`,
+          [CLIENT_RI],
+        );
+      }
+    }
 
   } finally {
     await cleanupRi();

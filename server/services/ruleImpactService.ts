@@ -60,6 +60,11 @@ export interface RuleImpactContext {
    *  Key: `${locId}|${sl}|${rt}|trailing${N}` (sl='' campus-level, rt='' SL-level).
    *  Value: weighted avg occ_percent over N most recent months (0–100 scale). */
   trailingOccMap: Map<string, number>;
+  /** Reverse RTG lookup: branded group_name → Set of canonical room_type values.
+   *  Used by unitPasses() to match rules whose filters.roomType contains a
+   *  branded group_name (e.g. 'Legacy Lane - Studio') against units whose
+   *  rent_roll_data.room_type is the canonical value ('Studio'). */
+  rtgReverse: Map<string, Set<string>>;
 }
 
 export interface RuleCampusImpact {
@@ -582,7 +587,47 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
     console.warn('[ruleImpact] Failed to load trailing occupancy history:', err);
   }
 
-  return { clientId, latestMonth, units, groups, metrics, moveMap, slMoveInRate, compBenchmark, locIdToName, campusStreetToCompVar, trailingOccMap };
+  // ── Reverse RTG lookup: `${location}|${service_line}|${group_name}` → Set<rr.room_type> ──
+  // Allows unitPasses() to match a rule whose filters.roomType was saved with
+  // a branded group name (e.g. 'Legacy Lane - Studio') against rent-roll units
+  // whose room_type column holds the canonical normalized value ('Studio').
+  //
+  // The key MUST include location and service_line.  The same branded group name
+  // can map to different canonical room types at different locations/service lines
+  // (e.g. 'Legacy Lane - Studio' → 'Studio' at Campus A but → 'Suite' at Campus B).
+  // A client-wide key would union those canonical types, causing a branded rule
+  // to incorrectly qualify units at a location where the group maps to a
+  // different canonical type.
+  //
+  // We JOIN rent_roll_data (latest month) to get the actual rr.room_type values
+  // that unitPasses() evaluates — NOT source_room_type, which can differ from
+  // room_type after the import normalization step.
+  const rtgReverse = new Map<string, Set<string>>();
+  try {
+    const rtgRevRes = await pool.query(
+      `SELECT DISTINCT rtg.location, rtg.service_line, rtg.group_name, rr.room_type
+       FROM room_type_groupings rtg
+       JOIN rent_roll_data rr
+         ON rr.client_id        = rtg.client_id
+        AND rr.location         = rtg.location
+        AND rr.service_line     = rtg.service_line
+        AND rr.source_room_type = rtg.source_room_type
+       WHERE rtg.client_id = $1
+         AND rr.upload_month = $2
+         AND rtg.group_name IS NOT NULL`,
+      [clientId, latestMonth],
+    );
+    for (const r of rtgRevRes.rows as { location: string; service_line: string; group_name: string; room_type: string }[]) {
+      const key = `${r.location}|${r.service_line}|${r.group_name}`;
+      let set = rtgReverse.get(key);
+      if (!set) { set = new Set(); rtgReverse.set(key, set); }
+      set.add(r.room_type);
+    }
+  } catch (err) {
+    console.warn('[ruleImpact] Failed to load RTG reverse lookup:', err);
+  }
+
+  return { clientId, latestMonth, units, groups, metrics, moveMap, slMoveInRate, compBenchmark, locIdToName, campusStreetToCompVar, trailingOccMap, rtgReverse };
 }
 
 /** Metric lookup with SL+RT → SL → campus fallback (mirrors the rate engine). */
@@ -789,11 +834,34 @@ function groupPassesTrigger(
   return true;
 }
 
-/** Unit-level predicate: action filters + legacy trigger unit conditions. */
-function unitPasses(rule: any, u: UnitRow): boolean {
+/** Unit-level predicate: action filters + legacy trigger unit conditions.
+ *
+ * `rtgReverse` is the branded-group-name → canonical-room-type reverse lookup
+ * from room_type_groupings.  When a filter value is a branded name (e.g.
+ * 'Legacy Lane - Studio') that does not match u.room_type ('Studio') directly,
+ * we check whether any canonical room type in the reverse map matches.  This
+ * prevents rules whose roomType filter was saved with a branded group name from
+ * silently skipping all units and producing 0 impact.
+ */
+function unitPasses(rule: any, u: UnitRow, rtgReverse?: Map<string, Set<string>>): boolean {
   const action = rule.action || {};
   const filters = action.filters || {};
-  if (filters.roomType?.length && !filters.roomType.includes(u.room_type)) return false;
+  if (filters.roomType?.length) {
+    const canonicalRt = u.room_type;
+    const matchesDirect = filters.roomType.includes(canonicalRt);
+    // Reverse RTG lookup: keyed by `${location}|${service_line}|${group_name}` so
+    // that the same branded name at different locations/service lines resolves to
+    // the canonical type defined ONLY at this unit's location+SL, preventing
+    // cross-location contamination.
+    const matchesViaRtg = !matchesDirect && rtgReverse
+      ? (filters.roomType as string[]).some(filterVal => {
+          const key = `${u.location}|${u.service_line}|${filterVal}`;
+          const canonicals = rtgReverse.get(key);
+          return canonicals ? canonicals.has(canonicalRt ?? '') : false;
+        })
+      : false;
+    if (!matchesDirect && !matchesViaRtg) return false;
+  }
   if (filters.location?.length && !filters.location.includes(u.location)) return false;
   if (filters.occupancyStatus === "vacant" && u.occupied_yn) return false;
   if (filters.occupancyStatus === "occupied" && !u.occupied_yn) return false;
@@ -975,7 +1043,7 @@ export function computeQualifiedRuleImpact(
     if (scope?.locationIds && !scope.locationIds.includes(locId)) continue; // empty list = match nothing
     if (!groupPassesTrigger(ctx, rule, locId, sl, rt)) continue;
 
-    const passing = groupUnits.filter(u => unitPasses(rule, u) && !isBBedRow(sl, u.room_number));
+    const passing = groupUnits.filter(u => unitPasses(rule, u, ctx.rtgReverse) && !isBBedRow(sl, u.room_number));
     const qualified = excludeUnitIds ? passing.filter(u => !excludeUnitIds.has(u.id)) : passing;
     overlapExcludedUnits += passing.length - qualified.length;
     if (!qualified.length) continue;
