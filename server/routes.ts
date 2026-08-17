@@ -101,6 +101,7 @@ import * as fs from 'fs';
 import * as cron from 'node-cron';
 import bcrypt from 'bcryptjs';
 import { parseNaturalLanguageRule, validateParsedRule, generateRuleName, checkRuleEnforceable, supportedTriggerMetrics } from "./naturalLanguageParser";
+import { buildRuleFromStructured } from "./structuredRuleBuilder";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -15732,14 +15733,34 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
   app.post("/api/adjustment-rules", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const { description, preview, locationId, serviceLine, serviceLines, roomTypes, effectiveDate, isAdditive, isHistorical, excludeRuleId } = req.body;
+      const { description, preview, locationId, serviceLine, serviceLines, roomTypes, effectiveDate, isAdditive, isHistorical, excludeRuleId, structured } = req.body;
       if (effectiveDate != null && effectiveDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
         return res.status(400).json({ error: "effectiveDate must be in YYYY-MM-DD format" });
       }
-      
-      // Parse the natural language rule
-      const parsedRule = parseNaturalLanguageRule(description);
-      
+
+      // Structured path: the rule designer sends the exact conditions and
+      // action the user picked, so nothing has to be recovered from the
+      // sentence — the description is display-only. A structured payload the
+      // builder cannot represent is REJECTED, never re-read from the sentence:
+      // falling back would reintroduce the guessing this payload exists to
+      // remove. Sentence parsing is reserved for free-text / AI-authored rules.
+      let parsedRule: ReturnType<typeof parseNaturalLanguageRule> = null;
+      let fromStructured = false;
+      if (structured) {
+        const built = buildRuleFromStructured(structured, description || '');
+        if (!built.ok) {
+          return res.status(400).json({
+            error: "The rule's conditions or action cannot be enforced by the pricing engine",
+            details: [built.reason],
+            supportedMetrics: supportedTriggerMetrics(),
+          });
+        }
+        parsedRule = built.rule;
+        fromStructured = true;
+      }
+
+      if (!parsedRule) parsedRule = parseNaturalLanguageRule(description);
+
       if (!parsedRule) {
         return res.status(400).json({ 
           error: "Could not understand the rule. Please try rephrasing." 
@@ -15758,14 +15779,19 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       // Enforceability gate — a description promising a condition the engine
       // cannot evaluate would be stored with trigger {type:'immediate'} and
       // reprice every unit its filters match, far beyond what the text claims.
-      const createEnforceable = checkRuleEnforceable(description, parsedRule);
-      if (!createEnforceable.ok) {
-        return res.status(400).json({
-          error: "Rule cannot be enforced as written",
-          details: [createEnforceable.reason],
-          supportedMetrics: supportedTriggerMetrics(),
-        });
+      // Skipped on the structured path: the trigger was not inferred from the
+      // sentence, so there is nothing to have been silently dropped.
+      if (!fromStructured) {
+        const createEnforceable = checkRuleEnforceable(description, parsedRule);
+        if (!createEnforceable.ok) {
+          return res.status(400).json({
+            error: "Rule cannot be enforced as written",
+            details: [createEnforceable.reason],
+            supportedMetrics: supportedTriggerMetrics(),
+          });
+        }
       }
+
 
       // Resolve effective SL scope using shared utility (also tested in unit tests).
       const { storeServiceLine, storeServiceLines } = resolvePostServiceLineScope({ serviceLine, serviceLines });
@@ -19885,7 +19911,7 @@ Return ONLY valid JSON, no markdown fences:
     try {
       const { id } = req.params;
       const clientId = (req as any).clientId || 'demo';
-      const { description, locationId, serviceLine, serviceLines, roomTypes, effectiveDate, isAdditive } = req.body;
+      const { description, locationId, serviceLine, serviceLines, roomTypes, effectiveDate, isAdditive, structured } = req.body;
       if (effectiveDate != null && effectiveDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
         return res.status(400).json({ error: "effectiveDate must be in YYYY-MM-DD format" });
       }
@@ -19895,7 +19921,27 @@ Return ONLY valid JSON, no markdown fences:
 
       if (!description) return res.status(400).json({ error: "description is required" });
 
-      const parsedRule = parseNaturalLanguageRule(description);
+      // Structured path — same contract as POST /api/adjustment-rules: the
+      // designer's structured tab is the source of truth, the sentence is
+      // display-only, and an unrepresentable structured payload is rejected
+      // rather than re-read from the sentence. Parsing is reserved for
+      // free-text edits.
+      let parsedRule: ReturnType<typeof parseNaturalLanguageRule> = null;
+      let fromStructured = false;
+      if (structured) {
+        const built = buildRuleFromStructured(structured, description);
+        if (!built.ok) {
+          return res.status(400).json({
+            error: "The rule's conditions or action cannot be enforced by the pricing engine",
+            details: [built.reason],
+            supportedMetrics: supportedTriggerMetrics(),
+          });
+        }
+        parsedRule = built.rule;
+        fromStructured = true;
+      }
+
+      if (!parsedRule) parsedRule = parseNaturalLanguageRule(description);
       if (!parsedRule) return res.status(400).json({ error: "Could not understand the rule. Please try rephrasing." });
 
       const validation = validateParsedRule(parsedRule);
@@ -19903,13 +19949,16 @@ Return ONLY valid JSON, no markdown fences:
 
       // Same enforceability gate as creation — editing a rule must not be a
       // back door to storing a condition the engine will never evaluate.
-      const patchEnforceable = checkRuleEnforceable(description, parsedRule);
-      if (!patchEnforceable.ok) {
-        return res.status(400).json({
-          error: "Rule cannot be enforced as written",
-          details: [patchEnforceable.reason],
-          supportedMetrics: supportedTriggerMetrics(),
-        });
+      // Skipped on the structured path (trigger was not inferred from text).
+      if (!fromStructured) {
+        const patchEnforceable = checkRuleEnforceable(description, parsedRule);
+        if (!patchEnforceable.ok) {
+          return res.status(400).json({
+            error: "Rule cannot be enforced as written",
+            details: [patchEnforceable.reason],
+            supportedMetrics: supportedTriggerMetrics(),
+          });
+        }
       }
 
       // Resolve effective SL scope using shared utility (also tested in unit tests).

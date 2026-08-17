@@ -12,6 +12,7 @@
 - [Same-store cohort](same-store-cohort.md) — the same_store columns are true for every row; derive the cohort from campuses reporting in both the current and year-ago period.
 - [Pricing cycle superseding](pricing-cycle-superseding.md) — latest-cycle-wins logic in applyAdjustmentRulesToUnit prevents Apr/Jul cycle stacking; supersededIds in UI marks older-cycle rules crossed-out.
 - [IH-to-street variance metric](ih-street-variance-metric.md) — field aliases ih_street_variance/street_to_ih_var; compute from rent roll, never trust the sparse table cache alone.
+- [Structured rule payload](structured-rule-payload.md) — designer posts conditions/action as JSON; sentence parsing is fallback-only; new metrics must be added to structuredRuleBuilder or they silently ride the parser.
 - [Rule preview / engine trigger parity](rule-preview-parity.md) — triggers are a conditions[] array (AND/OR); preview code must evaluate both shapes and match engine metric scales.
 - [Historical strategy taxonomy](historical-strategy-taxonomy.md) — imported rules have trigger "always"; category inferred from adj value (+5 push, +2.5 hold, other positive ensure); keep backend/frontend groups in lockstep.
 - [Move-in/out event source](move-in-out-events.md) — imported event table is authoritative with rent-roll fallback; event-derived maps must be remapped through room-type groupings for key parity.

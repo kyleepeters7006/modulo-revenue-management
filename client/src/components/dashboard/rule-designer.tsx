@@ -54,16 +54,17 @@ interface CoverageData {
   totalMonthlyImpact: number;
 }
 
+// Only metrics the pricing engine can actually evaluate as rule triggers.
+// Offering anything else (Season, Stock Market, Days To Sell, elasticity,
+// growth targets…) would create rules whose conditions are silently never
+// checked — the blanket-rule failure the enforceability guard exists to stop.
 const METRICS = [
   'Campus Occupancy', 'Service Line Occupancy', 'Room Type Occupancy',
-  'Vacant Units/Beds', 'Total Units/Beds', 'Service Line',
-  'Competitor Rate', 'Days Vacant', 'Room Attributes',
-  'Days To Sell Previously', 'Season', 'Stock Market', 'Inquiry and Tour Volume',
-  'Quality Mix',
+  'Vacant Units/Beds', 'Total Units/Beds',
+  'Competitor Rate', 'Days Vacant',
+  'Inquiry and Tour Volume', 'Quality Mix',
   'In House to Street Rate var % - Single Occupant',
   'Street Rate to Top Comp Var %',
-  'Revenue Growth Target', 'Price Elasticity',
-  'Days To Sell Before', 'Days To Sell After', 'Days To Sell Change',
 ];
 
 // Maps backend trigger field names -> structured-builder metric labels for the
@@ -247,29 +248,32 @@ function AdminTh({
   );
 }
 
+// Only operators the pricing engine's trigger evaluators implement.
+// "does not equal", "contains", and change-over-time operators have no engine
+// encoding — offering them would create rules that silently never fire.
 const OPERATORS = [
   'is greater than', 'is greater than or equal to',
   'is less than', 'is less than or equal to',
-  'equals', 'does not equal',
-  'increases by more than', 'decreases by more than',
-  'is between', 'contains', 'does not contain',
+  'equals', 'is between',
 ];
 
+// Only actions the pricing engine can actually represent (a signed rate
+// adjustment). Set-rate, caps, and min/max have no engine encoding — offering
+// them here would force the server back onto sentence guessing, the exact
+// failure mode the structured payload exists to remove.
 const ACTIONS = [
   { value: 'increase_rate', label: 'Increase rate' },
   { value: 'decrease_rate', label: 'Decrease rate' },
-  { value: 'set_rate', label: 'Set rate' },
   { value: 'apply_discount', label: 'Apply discount' },
-  { value: 'remove_discount', label: 'Remove discount' },
-  { value: 'cap_rate_increase', label: 'Cap rate increase' },
-  { value: 'set_minimum_rate', label: 'Set minimum rate' },
-  { value: 'set_maximum_rate', label: 'Set maximum rate' },
 ];
 
+// Only scopes the engine can enforce. Campus/service-line/room-type scopes are
+// carried by the explicit pickers; "Vacant units only" becomes an occupancy
+// filter. Room-attribute and days-vacant scoping have no engine encoding as a
+// scope — use a Days Vacant condition instead.
 const SCOPES = [
   'All selected campuses', 'Selected campus', 'Selected service line',
-  'Selected room type', 'Vacant units only', 'Units matching room attributes',
-  'Units with days vacant above threshold',
+  'Selected room type', 'Vacant units only',
 ];
 
 const EXAMPLE_RULES = [
@@ -295,6 +299,8 @@ interface RuleAction {
   amountType: 'percent' | 'dollar';
   amountValue: string;
   scope: string;
+  /** Preserved from an edited rule's filters.vacancyDuration; not user-editable here. */
+  vacancyDays?: number;
 }
 
 interface AdjustmentRule {
@@ -847,6 +853,26 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       ? aiInput.trim()
       : buildDescription(conditions, conditionOperator, ruleAction, newRuleRoomTypes);
 
+  // The structured tab's conditions and action, sent verbatim so the server
+  // never has to recover metric/operator/threshold from the sentence. Null on
+  // the free-text tab, where the sentence itself is the source of truth.
+  const getStructured = () =>
+    activeTab === 'ask-ai'
+      ? null
+      : {
+          conditions: conditions
+            .filter(c => c.value.trim())
+            .map(c => ({ metric: c.metric, timePeriod: c.timePeriod, operator: c.operator, value: c.value.trim() })),
+          conditionOperator,
+          action: {
+            type: ruleAction.type,
+            amountType: ruleAction.amountType,
+            amountValue: ruleAction.amountValue,
+            scope: ruleAction.scope,
+            ...(ruleAction.vacancyDays ? { vacancyDays: ruleAction.vacancyDays } : {}),
+          },
+        };
+
   // Preview impact (no save)
   const handlePreviewImpact = async () => {
     const description = getDescription();
@@ -868,11 +894,12 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           description,
+          structured: getStructured(),
           preview: true,
           locationId: locationId || null,
           serviceLine: serviceLine || null,
           serviceLines: isEditing ? editingRuleSLs : newRuleSLs,
-          roomTypes: isEditing ? [] : newRuleRoomTypes,
+          roomTypes: newRuleRoomTypes, // hydrated on edit; structured path cannot recover RTs from the sentence
           effectiveDate: effectiveDate || null,
           isAdditive: stackRule,
           isHistorical: saveAsHistorical,
@@ -916,7 +943,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : newRuleSLs, roomTypes: isEditing ? [] : newRuleRoomTypes, effectiveDate: effectiveDate || null, isAdditive: stackRule, isHistorical: saveAsHistorical }),
+        // roomTypes is always the hydrated picker state — the structured path cannot recover RTs from the sentence on edit.
+        body: JSON.stringify({ description, structured: getStructured(), preview: false, locationId: locationId || null, serviceLines: isEditing ? editingRuleSLs : newRuleSLs, roomTypes: newRuleRoomTypes, effectiveDate: effectiveDate || null, isAdditive: stackRule, isHistorical: saveAsHistorical }),
       });
       if (res.status === 409) {
         const dup = await res.json();
@@ -1033,11 +1061,13 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       amountValue: String(Math.abs(adjValue)),
       scope: (() => {
         const f = action?.filters ?? {};
-        if (f.vacancyDuration) return 'Units with days vacant above threshold';
+        // A vacancy-duration filter implies vacancy; the day threshold itself
+        // is preserved separately via vacancyDays below.
+        if (f.vacancyDuration || f.occupancyStatus === 'vacant') return 'Vacant units only';
         if (f.roomType?.length) return 'Selected room type';
-        if (f.occupancyStatus === 'vacant') return 'Vacant units only';
         return 'All selected campuses';
       })(),
+      vacancyDays: action?.filters?.vacancyDuration?.days ?? undefined,
     };
     setRuleAction(hydratedAction);
 
@@ -1048,7 +1078,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
     const opMap: Record<string, string> = {
       '<': 'is less than', '>': 'is greater than',
       '<=': 'is less than or equal to', '>=': 'is greater than or equal to',
-      '=': 'equals', '!=': 'does not equal',
+      '=': 'equals', '==': 'equals',
     };
 
     // Helper: convert a single NLP-array condition element to a Condition row

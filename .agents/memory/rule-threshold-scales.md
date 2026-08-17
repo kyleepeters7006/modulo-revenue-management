@@ -30,9 +30,10 @@ as a different number, and nothing surfaces the substitution. A percentage-point
 
 ## Inferred scale is a design smell
 
-The rule designer composes a **sentence** and the server **re-parses** it; no structured
-threshold is transmitted. Every scale is therefore inferred from the magnitude of a number,
-which cannot distinguish a fraction from a small percentage.
+The rule designer now transmits its conditions and action as a **structured JSON payload**
+(see structured-rule-payload.md); only free-text/AI-authored rules are still sentence-parsed,
+where every scale is inferred from the magnitude of a number, which cannot distinguish a
+fraction from a small percentage.
 
 - Treat an explicit `%` as the author declaring the scale, and let it win over any
   magnitude heuristic. Reserve the heuristic for when the sign is absent.
