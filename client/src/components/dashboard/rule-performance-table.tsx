@@ -852,30 +852,38 @@ export function RulePerformanceTable({
       });
   }, [rows]);
 
-  // ── Scattergram data: one point per rule breakdown row with T3 move-in data ──
-  // x = occupancy % before the change, y = Δ move-ins/mo (T3 after − T3 before),
+  // ── Scattergram data: one point per rule breakdown row ──
+  // x = occupancy % before the change
+  // yMoveins = Δ move-ins/mo (T3 after − T3 before) — null when calc data absent
+  // yRevenue = monthly revenue impact — null when not available
   // grouped by date applied so each pricing change gets its own color.
   interface ScatterPoint {
-    x: number; y: number;
+    x: number; yMoveins: number | null; yRevenue: number | null;
     ruleName: string; location: string; serviceLine: string; roomType: string;
-    dateApplied: string | null; miBefore: number; miAfter: number;
+    dateApplied: string | null; miBefore: number | null; miAfter: number | null;
   }
   const SCATTER_PALETTE = ["#0d9488", "#0284c7", "#d97706", "#7c3aed", "#db2777", "#059669", "#dc2626", "#475569", "#ca8a04", "#0891b2"];
   const scatterSeries = useMemo(() => {
     const byDate = new Map<string, ScatterPoint[]>();
     const push = (m: PerfMetrics, meta: { ruleName: string; location: string; serviceLine: string; roomType: string }) => {
       const c = m.calc;
-      if (!c || c.moveInsT3Before == null || c.moveInsT3After == null || c.occPctBefore == null) return;
-      const occPct = c.occPctBefore;
+      if (!c || c.occPctBefore == null) return;
+      // Only include if at least one of the two Y-axis values is available
+      const yMoveins = (c.moveInsT3Before != null && c.moveInsT3After != null)
+        ? Math.round((c.moveInsT3After - c.moveInsT3Before) * 10) / 10
+        : null;
+      const yRevenue = m.monthlyRevenueImpact != null ? m.monthlyRevenueImpact : null;
+      if (yMoveins == null && yRevenue == null) return;
       const dateKey = m.dateApplied ? m.dateApplied.slice(0, 10) : "unknown";
       if (!byDate.has(dateKey)) byDate.set(dateKey, []);
       byDate.get(dateKey)!.push({
-        x: Math.round(occPct * 10) / 10,
-        y: Math.round((c.moveInsT3After - c.moveInsT3Before) * 10) / 10,
+        x: Math.round(c.occPctBefore * 10) / 10,
+        yMoveins,
+        yRevenue,
         ...meta,
         dateApplied: m.dateApplied,
-        miBefore: c.moveInsT3Before,
-        miAfter: c.moveInsT3After,
+        miBefore: c.moveInsT3Before ?? null,
+        miAfter: c.moveInsT3After ?? null,
       });
     };
     for (const r of rows) {
@@ -912,21 +920,26 @@ export function RulePerformanceTable({
     return { serviceLines: sort(sls), regions: sort(regions), divisions: sort(divisions), classes: sort(classes) };
   }, [scatterSeries, locMeta]);
 
-  // Filtered + zoomed series actually rendered
+  // Filtered + zoomed series actually rendered — points are mapped to a `y`
+  // field from whichever axis the current winRateMode requires, and points
+  // lacking data for that axis are dropped.
   const scatterXDomain: [number, number] = scatterXRange;
   const isZoomed = scatterXRange[0] > 0 || scatterXRange[1] < 100;
   const visibleScatterSeries = useMemo(() => {
     const [lo, hi] = scatterXRange;
+    const useRevenue = winRateMode === 'revenue';
     return scatterSeries
       .map((g) => ({
         ...g,
-        points: g.points.filter((p) => {
+        points: g.points.flatMap((p) => {
+          const yRaw = useRevenue ? p.yRevenue : p.yMoveins;
+          if (yRaw == null) return [];                       // no data for this mode
           const meta = locMeta.get(p.location);
-          if (scatterRegion !== "All" && (meta?.region || "") !== scatterRegion) return false;
-          if (scatterDivision !== "All" && (meta?.division || "") !== scatterDivision) return false;
-          if (scatterClass !== "All" && (meta?.cls || "") !== scatterClass) return false;
-          if (p.x < lo || p.x > hi) return false;
-          return true;
+          if (scatterRegion !== "All" && (meta?.region || "") !== scatterRegion) return [];
+          if (scatterDivision !== "All" && (meta?.division || "") !== scatterDivision) return [];
+          if (scatterClass !== "All" && (meta?.cls || "") !== scatterClass) return [];
+          if (p.x < lo || p.x > hi) return [];
+          return [{ ...p, y: yRaw }];
         }),
       }))
       .filter((g) => g.points.length > 0);
@@ -1142,7 +1155,9 @@ export function RulePerformanceTable({
               ) : (
                 <div className="rounded-md border border-border p-3" data-testid="chart-perf-scatter">
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold" data-testid="text-scatter-title">Change in Move Ins By Occupancy Level</h3>
+                    <h3 className="text-sm font-semibold" data-testid="text-scatter-title">
+                      {winRateMode === 'revenue' ? 'Revenue Impact By Occupancy Level' : 'Change in Move Ins By Occupancy Level'}
+                    </h3>
                     <div className="flex flex-wrap items-center gap-2">
                       {!scatterExpanded && (
                         <span
@@ -1243,9 +1258,10 @@ export function RulePerformanceTable({
                         label={{ value: "Occupancy before change (%)", position: "insideBottom", offset: -2, fontSize: 11 }}
                       />
                       <YAxis
-                        type="number" dataKey="y" name="Change in Move-ins"
+                        type="number" dataKey="y" name={winRateMode === 'revenue' ? 'Monthly Revenue Impact' : 'Change in Move-ins'}
                         tick={{ fontSize: 11 }}
-                        label={{ value: "Change in move-ins/mo (T3 after − T3 before)", angle: -90, position: "insideLeft", fontSize: 11, style: { textAnchor: "middle" } }}
+                        tickFormatter={winRateMode === 'revenue' ? (v: number) => `$${(v / 1000).toFixed(0)}k` : undefined}
+                        label={{ value: winRateMode === 'revenue' ? 'Monthly revenue impact ($)' : 'Change in move-ins/mo (T3 after − T3 before)', angle: -90, position: "insideLeft", fontSize: 11, style: { textAnchor: "middle" } }}
                       />
                       <ZAxis range={[70, 70]} />
                       <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
@@ -1260,7 +1276,11 @@ export function RulePerformanceTable({
                               <div>{p.location} · {p.serviceLine} · {p.roomType}</div>
                               <div className="text-muted-foreground">Applied {fmtDate(p.dateApplied)}</div>
                               <div className="mt-1">Occupancy before: <span className="font-medium">{p.x}%</span></div>
-                              <div>Move-ins/mo: {p.miBefore} → {p.miAfter} (<span className={`font-medium ${p.y > 0 ? "text-emerald-600" : p.y < 0 ? "text-red-600" : ""}`}>{p.y > 0 ? "+" : ""}{p.y}</span>)</div>
+                              {winRateMode === 'revenue' ? (
+                                <div>Monthly impact: <span className={`font-medium ${(p.y ?? 0) > 0 ? "text-emerald-600" : (p.y ?? 0) < 0 ? "text-red-600" : ""}`}>{(p.y ?? 0) >= 0 ? "+" : ""}${((p.y ?? 0) / 1000).toFixed(1)}k</span></div>
+                              ) : (
+                                <div>Move-ins/mo: {p.miBefore} → {p.miAfter} (<span className={`font-medium ${(p.y ?? 0) > 0 ? "text-emerald-600" : (p.y ?? 0) < 0 ? "text-red-600" : ""}`}>{(p.y ?? 0) > 0 ? "+" : ""}{p.y}</span>)</div>
+                              )}
                             </div>
                           );
                         }}
@@ -1305,8 +1325,11 @@ export function RulePerformanceTable({
                   {scatterExpanded && (
                   <p className="mt-2 text-[11px] text-muted-foreground">
                     Each point is one pricing change applied to a location / service line / room type group — colors distinguish the date the change was applied.{" "}
-                    <span className="font-medium text-emerald-600">Solid dots with a green ring</span> = move-ins increased after the change;{" "}
-                    <span className="font-medium">hollow dots</span> = move-ins stayed flat or declined. Move-ins compare the average per month over the 3 months before vs. after each change.
+                    {winRateMode === 'revenue' ? (
+                      <><span className="font-medium text-emerald-600">Solid dots with a green ring</span> = positive monthly revenue impact; <span className="font-medium">hollow dots</span> = neutral or negative impact.</>
+                    ) : (
+                      <><span className="font-medium text-emerald-600">Solid dots with a green ring</span> = move-ins increased after the change; <span className="font-medium">hollow dots</span> = move-ins stayed flat or declined. Move-ins compare the average per month over the 3 months before vs. after each change.</>
+                    )}
                   </p>
                   )}
                 </div>

@@ -1006,8 +1006,8 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
         <YAxis
           type="number" dataKey="marketPosition" name="Market Position"
           domain={([min, max]: [number,number]) => [Math.min(min - 2, 88), Math.max(max + 2, 112)]}
-          ticks={[75, 100, 125, 150, 175, 200, 225, 250]}
-          tickFormatter={(v) => `${v}%`}
+          ticks={[-25, 0, 25, 50, 75, 100, 125, 150].map(d => d + 100)}
+          tickFormatter={(v) => { const d = v - 100; return d > 0 ? `+${d}%` : `${d}%`; }}
           tick={{ fontSize: tickFontSize, fill: '#94a3b8' }}
           width={42}
         />
