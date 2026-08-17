@@ -284,10 +284,14 @@ export async function generateDemoData(): Promise<{
   const COMP_ROOM_SIZES: Record<string, string[]> = {
     HC:       ['Studio', 'Companion'],
     SMC:      ['Studio', 'Companion'],
-    AL:       ['Studio', 'One Bedroom', 'Two Bedroom'],
+    AL:       ['Studio', 'One Bedroom', 'Two Bedroom', 'Companion'],
     IL_IL:    ['Studio', 'One Bedroom', 'Two Bedroom'],
     IL_Villa: ['One Bedroom', 'Two Bedroom'],
   };
+
+  // Companion in the AL lines is semi-private and priced BELOW Studio.
+  // All other sizes use the standard ROOM_PREMIUM multiplier.
+  const AL_COMPANION_FACTOR = 0.85; // semi-private ≈ 85 % of Studio rate
 
   // Competitor rate lookup: "locName|compType|roomType" -> average monthly rate
   // Used to pre-populate competitorFinalRate in rent roll records
@@ -346,7 +350,10 @@ export async function generateDemoData(): Promise<{
         const rateVariance = randBetween(locSeed, rateVarLow, rateVarHigh);
 
         for (const roomSize of roomSizes) {
-          const premium = ROOM_PREMIUM[roomSize] || 1.0;
+          // AL Companion is semi-private: priced below Studio, not above it.
+          const premium = (roomSize === 'Companion' && compType === 'AL')
+            ? AL_COMPANION_FACTOR
+            : (ROOM_PREMIUM[roomSize] || 1.0);
           const compRate = Math.round(locBaseRate * premium * rateVariance);
 
           competitiveBatch.push({
@@ -405,8 +412,9 @@ export async function generateDemoData(): Promise<{
         const alMcKey = `${loc.name}|AL/MC|${roomSize}`;
         if (competitorRateMap.has(alMcKey)) continue;
 
-        // Base = AL Studio rates scaled to AL/MC range, then apply room premium
-        const roomPremium = ROOM_PREMIUM[roomSize] || 1.0;
+        // Base = AL Studio rates scaled to AL/MC range, then apply room premium.
+        // Companion is semi-private — use the same discount applied to AL survey rows.
+        const roomPremium = (roomSize === 'Companion') ? AL_COMPANION_FACTOR : (ROOM_PREMIUM[roomSize] || 1.0);
         const alMcRates = alStudioRates.map(r => Math.round(r * AL_MC_RATIO * roomPremium));
         competitorRateMap.set(alMcKey, alMcRates);
 
