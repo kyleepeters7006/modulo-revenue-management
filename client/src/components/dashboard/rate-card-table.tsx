@@ -202,13 +202,14 @@ export default function RateCardTable({
     locationName: string; serviceLine: string; roomType: string; locationId: string | null;
   } | null>(null);
   const [overrideRCInput, setOverrideRCInput] = useState('');
+  const [overrideRCNote, setOverrideRCNote] = useState('');
 
   const rcSaveOverride = useMutation({
-    mutationFn: async (p: { locationName: string; serviceLine: string; roomType: string; locationId: string | null; overrideRate: number }) => {
+    mutationFn: async (p: { locationName: string; serviceLine: string; roomType: string; locationId: string | null; overrideRate: number; notes?: string }) => {
       const res = await fetch('/api/manual-rate-override', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ locationName: p.locationName, serviceLine: p.serviceLine, roomType: p.roomType, locationId: p.locationId, overrideRate: p.overrideRate }),
+        body: JSON.stringify({ locationName: p.locationName, serviceLine: p.serviceLine, roomType: p.roomType, locationId: p.locationId, overrideRate: p.overrideRate, notes: p.notes }),
       });
       if (!res.ok) throw new Error('Failed to save override');
       return res.json();
@@ -1323,7 +1324,7 @@ export default function RateCardTable({
                               <Pencil className="h-3.5 w-3.5" />
                             </button>
                           </PopoverTrigger>
-                          <PopoverContent className="w-60 p-3" align="end">
+                          <PopoverContent className="w-64 p-3" align="end">
                             <p className="text-xs font-semibold mb-0.5">Manual Override Rate</p>
                             <p className="text-[10px] text-muted-foreground mb-2 leading-tight">
                               {unit.location} · {unit.serviceLine} · {unit.roomType}
@@ -1340,9 +1341,16 @@ export default function RateCardTable({
                               onKeyDown={e => {
                                 if (e.key === 'Enter') {
                                   const rate = parseFloat(overrideRCInput);
-                                  if (!isNaN(rate) && rate > 0 && overrideRC) rcSaveOverride.mutate({ ...overrideRC, overrideRate: rate });
+                                  if (!isNaN(rate) && rate > 0 && overrideRC) rcSaveOverride.mutate({ ...overrideRC, overrideRate: rate, notes: overrideRCNote || undefined });
                                 }
                               }}
+                            />
+                            <textarea
+                              value={overrideRCNote}
+                              onChange={e => setOverrideRCNote(e.target.value)}
+                              placeholder="Note (optional)…"
+                              rows={2}
+                              className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none mb-2"
                             />
                             <div className="flex gap-1">
                               <Button
@@ -1351,7 +1359,7 @@ export default function RateCardTable({
                                 disabled={rcSaveOverride.isPending || !overrideRCInput}
                                 onClick={() => {
                                   const rate = parseFloat(overrideRCInput);
-                                  if (!isNaN(rate) && rate > 0 && overrideRC) rcSaveOverride.mutate({ ...overrideRC, overrideRate: rate });
+                                  if (!isNaN(rate) && rate > 0 && overrideRC) rcSaveOverride.mutate({ ...overrideRC, overrideRate: rate, notes: overrideRCNote || undefined });
                                 }}
                               >Save</Button>
                               {unit.manualOverrideRate && overrideRC && (

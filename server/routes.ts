@@ -658,6 +658,9 @@ async function checkAndInitializeDatabase() {
       CREATE UNIQUE INDEX IF NOT EXISTS mro_client_loc_sl_rt_idx
       ON manual_rate_overrides (client_id, location_name, service_line, room_type)
     `);
+    await db.execute(sql`
+      ALTER TABLE manual_rate_overrides ADD COLUMN IF NOT EXISTS notes text
+    `);
 
     const unitCount = await storage.getTotalUnits();
     console.log(`Database has ${unitCount} units`);
@@ -5460,6 +5463,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error fetching care level rates:', error);
       res.status(500).json({ error: "Failed to get care level rates" });
+    }
+  });
+
+  // GET /api/care-level-rates/computed — read-only: returns what the backfill WOULD produce
+  // from rent roll history, without saving anything. Used to show the "calculated" rate
+  // alongside manual overrides in the Level 2 Care Rates panel.
+  app.get("/api/care-level-rates/computed", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { rows: histRows } = await pool.query<{ location: string; service_line: string; max_care_rate: string }>(
+        `WITH combined AS (
+           SELECT rrh.location, rrh.service_line, rrh.upload_month, rrh.care_rate
+           FROM rent_roll_history rrh
+           INNER JOIN locations loc
+             ON LOWER(loc.name) = LOWER(rrh.location) AND loc.client_id = $1
+           WHERE (rrh.care_level = '2' OR rrh.care_level ILIKE '%level 2%' OR rrh.care_level ILIKE '%lvl 2%')
+             AND rrh.care_rate > 0
+           UNION ALL
+           SELECT rrd.location, rrd.service_line, rrd.upload_month, rrd.care_rate
+           FROM rent_roll_data rrd
+           WHERE rrd.client_id = $1
+             AND (rrd.care_level = '2' OR rrd.care_level ILIKE '%level 2%' OR rrd.care_level ILIKE '%lvl 2%')
+             AND rrd.care_rate > 0
+         ),
+         ranked AS (
+           SELECT location, service_line, MAX(care_rate) AS max_care_rate,
+             ROW_NUMBER() OVER (PARTITION BY location, service_line ORDER BY upload_month DESC) AS rn
+           FROM combined GROUP BY location, service_line, upload_month
+         )
+         SELECT location, service_line, max_care_rate FROM ranked WHERE rn = 1`,
+        [clientId]
+      );
+
+      const allLocations = await storage.getLocations(clientId);
+      const locByName = new Map(allLocations.map(l => [l.name.toLowerCase().trim(), { id: l.id, name: l.name }]));
+
+      const result: { locationId: string; locationName: string; serviceLine: string; computedRate: number }[] = [];
+      for (const row of histRows) {
+        const loc = locByName.get((row.location || '').toLowerCase().trim());
+        if (!loc) continue;
+        const rate = Number(row.max_care_rate);
+        if (!rate || rate <= 0) continue;
+        result.push({ locationId: loc.id, locationName: loc.name, serviceLine: row.service_line, computedRate: rate });
+      }
+      res.json(result);
+    } catch (error) {
+      console.error('[care-level-rates/computed] Error:', error);
+      res.status(500).json({ error: "Failed to get computed care level rates" });
     }
   });
 
@@ -19065,10 +19116,14 @@ Return ONLY valid JSON with no markdown fences:
             ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0
               AND NOT (rrd.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rrd.room_number ~* '/[B-Zb-z]$')
             )) AS avg_street_rate,
-            ROUND(AVG(rrd.rule_adjusted_rate) FILTER (WHERE rrd.rule_adjusted_rate > 0)) AS avg_rule_rate,
+            ROUND(AVG(COALESCE(mro.override_rate, rrd.rule_adjusted_rate)) FILTER (WHERE COALESCE(mro.override_rate, rrd.rule_adjusted_rate) > 0)) AS avg_rule_rate,
             ROUND(AVG(rrd.days_vacant) FILTER (WHERE NOT rrd.occupied_yn AND rrd.days_vacant > 0 AND rrd.days_vacant < 730)) AS avg_days_vacant
           FROM rent_roll_data rrd
           LEFT JOIN locations l ON l.name = rrd.location AND l.client_id = $1
+          LEFT JOIN manual_rate_overrides mro ON mro.client_id = $1
+            AND mro.location_name = rrd.location
+            AND mro.service_line = rrd.service_line
+            AND mro.room_type = rrd.room_type
           WHERE rrd.client_id = $1
             AND rrd.upload_month = ${maxMonthSubquery}
             ${rrWhere}
@@ -19082,9 +19137,13 @@ Return ONLY valid JSON with no markdown fences:
             ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0
               AND NOT (rrd.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rrd.room_number ~* '/[B-Zb-z]$')
             )) AS avg_street_rate,
-            ROUND(AVG(rrd.rule_adjusted_rate) FILTER (WHERE rrd.rule_adjusted_rate > 0)) AS avg_rule_rate
+            ROUND(AVG(COALESCE(mro.override_rate, rrd.rule_adjusted_rate)) FILTER (WHERE COALESCE(mro.override_rate, rrd.rule_adjusted_rate) > 0)) AS avg_rule_rate
           FROM rent_roll_data rrd
           LEFT JOIN locations l ON l.name = rrd.location AND l.client_id = $1
+          LEFT JOIN manual_rate_overrides mro ON mro.client_id = $1
+            AND mro.location_name = rrd.location
+            AND mro.service_line = rrd.service_line
+            AND mro.room_type = rrd.room_type
           WHERE rrd.client_id = $1
             AND rrd.upload_month >= to_char(NOW() - INTERVAL '6 months', 'YYYY-MM')
             ${rrWhere}
@@ -21144,7 +21203,7 @@ Return ONLY valid JSON, no markdown fences:
     try {
       const clientId: string = req.session?.clientId || 'demo';
       const { rows } = await pool.query(
-        `SELECT id, client_id, location_id, location_name, service_line, room_type, override_rate, created_at, updated_at
+        `SELECT id, client_id, location_id, location_name, service_line, room_type, override_rate, notes, created_at, updated_at
          FROM manual_rate_overrides
          WHERE client_id = $1
          ORDER BY location_name, service_line, room_type`,
@@ -21160,7 +21219,7 @@ Return ONLY valid JSON, no markdown fences:
   app.post("/api/manual-rate-override", async (req: any, res) => {
     try {
       const clientId: string = req.session?.clientId || 'demo';
-      const { locationId, locationName, serviceLine, roomType, overrideRate } = req.body;
+      const { locationId, locationName, serviceLine, roomType, overrideRate, notes } = req.body;
       if (!locationName || !serviceLine || !roomType || overrideRate == null) {
         return res.status(400).json({ error: 'locationName, serviceLine, roomType, overrideRate are required' });
       }
@@ -21169,15 +21228,22 @@ Return ONLY valid JSON, no markdown fences:
         return res.status(400).json({ error: 'overrideRate must be a positive number' });
       }
       const { rows } = await pool.query(
-        `INSERT INTO manual_rate_overrides (client_id, location_id, location_name, service_line, room_type, override_rate, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, now())
+        `INSERT INTO manual_rate_overrides (client_id, location_id, location_name, service_line, room_type, override_rate, notes, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now())
          ON CONFLICT (client_id, location_name, service_line, room_type)
          DO UPDATE SET override_rate = EXCLUDED.override_rate,
                        location_id   = EXCLUDED.location_id,
+                       notes         = EXCLUDED.notes,
                        updated_at    = now()
          RETURNING *`,
-        [clientId, locationId || null, locationName, serviceLine, roomType, rate]
+        [clientId, locationId || null, locationName, serviceLine, roomType, rate, notes || null]
       );
+      // Bust the server-side reference-data cache and the AI commentary cache
+      // so the next GET reflects the new override immediately (not stale data).
+      invalidateRefDataCache();
+      warmRefDataCacheForClient(clientId);
+      pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key LIKE $1`, [`pc-commentary:${clientId}:%`])
+        .catch((err: any) => console.error('[manual-rate-overrides] commentary cache purge error:', err));
       res.json(rows[0]);
     } catch (err) {
       console.error('[manual-rate-overrides] POST error:', err);
@@ -21194,6 +21260,10 @@ Return ONLY valid JSON, no markdown fences:
          WHERE client_id = $1 AND location_name = $2 AND service_line = $3 AND room_type = $4`,
         [clientId, locationName, serviceLine, roomType]
       );
+      invalidateRefDataCache();
+      warmRefDataCacheForClient(clientId);
+      pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key LIKE $1`, [`pc-commentary:${clientId}:%`])
+        .catch((err: any) => console.error('[manual-rate-overrides] commentary cache purge error:', err));
       res.json({ success: true });
     } catch (err) {
       console.error('[manual-rate-overrides] DELETE error:', err);
@@ -22811,13 +22881,16 @@ Return ONLY valid JSON, no markdown fences:
       }
 
       // Load manual rate overrides for this client (keyed by campus||sl||rt)
-      const manualOverridesRes = await pool.query<{ location_name: string; service_line: string; room_type: string; override_rate: number }>(
-        `SELECT location_name, service_line, room_type, override_rate FROM manual_rate_overrides WHERE client_id = $1`,
+      const manualOverridesRes = await pool.query<{ location_name: string; service_line: string; room_type: string; override_rate: number; notes: string | null }>(
+        `SELECT location_name, service_line, room_type, override_rate, notes FROM manual_rate_overrides WHERE client_id = $1`,
         [clientId]
       );
       const manualOverrideMap = new Map<string, number>();
+      const manualNotesMap   = new Map<string, string | null>();
       for (const o of manualOverridesRes.rows) {
-        manualOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, Number(o.override_rate));
+        const k = `${o.location_name}||${o.service_line}||${o.room_type}`;
+        manualOverrideMap.set(k, Number(o.override_rate));
+        manualNotesMap.set(k, o.notes ?? null);
       }
 
       const rows = Array.from(comboMap.values()).map(c => {
@@ -22859,6 +22932,9 @@ Return ONLY valid JSON, no markdown fences:
         // by mode() WITHIN GROUP (ORDER BY rr.room_type) in the aggRes SQL.
         const manualRate = manualOverrideMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`)
           ?? manualOverrideMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`)
+          ?? null;
+        const manualNote = manualNotesMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`)
+          ?? manualNotesMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`)
           ?? null;
         // Rule preview fallback: when no rate is stored in rent_roll_data (engine not
         // yet run), use the preview rate of the first matching active rule so the
@@ -23052,6 +23128,7 @@ Return ONLY valid JSON, no markdown fences:
           // Proposed rates — manual override takes precedence when present
           proposedRule: effectiveProposed,
           hasManualOverride: manualRate !== null,
+          overrideNote: manualNote,
           proposedVarDollar: (effectiveProposed !== null && streetSpot !== null) ? effectiveProposed - streetSpot : null,
           proposedVarPct: (effectiveProposed !== null && streetSpot !== null && streetSpot !== 0) ? (effectiveProposed - streetSpot) / streetSpot : null,
           // Revenue impact: (proposed − street) × T3 move-ins/mo; annual =

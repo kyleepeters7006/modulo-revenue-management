@@ -242,6 +242,7 @@ const GROUPS: GroupDef[] = [
       { key: "proposedRule", label: "Final", type: "money", w: 80, tip: "Final proposed rate after all active rules (and any manual override) are applied. Blank when no adjustment rule applies to this combo." },
       { key: "proposedVarDollar", label: "Δ$ vs Current", type: "moneysigned", w: 90, tip: "Final rules-applied rate minus the current street (spot) rate, in dollars." },
       { key: "proposedVarPct", label: "Δ% vs Current", type: "pctfracsigned", w: 90, tip: "Final rules-applied rate vs the current street (spot) rate, as a percentage." },
+      { key: "overrideNote", label: "Note", type: "text", w: 160, tip: "Optional note saved alongside this manual rate override." },
     ],
   },
   {
@@ -694,10 +695,13 @@ export default function ReferenceDataTable({
     key: string; campus: string; serviceLine: string; roomType: string; locationId: string | null; mode: 'dollar' | 'pct'; streetSpot: number;
   } | null>(null);
   const [deltaInput, setDeltaInput] = useState('');
+  const [overrideNote, setOverrideNote] = useState('');
+  const [noteEditKey, setNoteEditKey] = useState<string | null>(null);
+  const [noteEditVal, setNoteEditVal] = useState('');
 
   const overrideSaveMutation = useMutation({
-    mutationFn: async (payload: { campus: string; serviceLine: string; roomType: string; locationId: string | null; overrideRate: number }) =>
-      apiRequest('/api/manual-rate-override', 'POST', { locationName: payload.campus, serviceLine: payload.serviceLine, roomType: payload.roomType, locationId: payload.locationId, overrideRate: payload.overrideRate }),
+    mutationFn: async (payload: { campus: string; serviceLine: string; roomType: string; locationId: string | null; overrideRate: number; notes?: string }) =>
+      apiRequest('/api/manual-rate-override', 'POST', { locationName: payload.campus, serviceLine: payload.serviceLine, roomType: payload.roomType, locationId: payload.locationId, overrideRate: payload.overrideRate, notes: payload.notes }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/reference-data'] });
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
@@ -1754,6 +1758,7 @@ export default function ReferenceDataTable({
                           if (open) {
                             setOverridePop({ key: popKey, campus: row.campus, serviceLine: row.serviceLine, roomType: row.roomType, locationId: row.locationId ?? null });
                             setOverrideInput(row.proposedRule ? String(Math.round(Number(row.proposedRule))) : '');
+                            setOverrideNote('');
                           } else {
                             setOverridePop(null);
                           }
@@ -1767,7 +1772,7 @@ export default function ReferenceDataTable({
                               <Pencil className="h-3 w-3" />
                             </button>
                           </PopoverTrigger>
-                          <PopoverContent className="w-60 p-3" align="end">
+                          <PopoverContent className="w-64 p-3" align="end">
                             <p className="text-xs font-semibold mb-0.5">Manual Override Rate</p>
                             <p className="text-[10px] text-muted-foreground mb-2 leading-tight">{row.campus} · {row.serviceLine} · {row.roomType}</p>
                             <Input
@@ -1783,10 +1788,17 @@ export default function ReferenceDataTable({
                                 if (e.key === 'Enter') {
                                   const rate = parseFloat(overrideInput);
                                   if (!isNaN(rate) && rate > 0 && overridePop) {
-                                    overrideSaveMutation.mutate({ campus: overridePop.campus, serviceLine: overridePop.serviceLine, roomType: overridePop.roomType, locationId: overridePop.locationId, overrideRate: rate });
+                                    overrideSaveMutation.mutate({ campus: overridePop.campus, serviceLine: overridePop.serviceLine, roomType: overridePop.roomType, locationId: overridePop.locationId, overrideRate: rate, notes: overrideNote || undefined });
                                   }
                                 }
                               }}
+                            />
+                            <textarea
+                              value={overrideNote}
+                              onChange={e => setOverrideNote(e.target.value)}
+                              placeholder="Note (optional)…"
+                              rows={2}
+                              className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none mb-2"
                             />
                             <div className="flex gap-1">
                               <Button
@@ -1796,7 +1808,7 @@ export default function ReferenceDataTable({
                                 onClick={() => {
                                   const rate = parseFloat(overrideInput);
                                   if (!isNaN(rate) && rate > 0 && overridePop) {
-                                    overrideSaveMutation.mutate({ campus: overridePop.campus, serviceLine: overridePop.serviceLine, roomType: overridePop.roomType, locationId: overridePop.locationId, overrideRate: rate });
+                                    overrideSaveMutation.mutate({ campus: overridePop.campus, serviceLine: overridePop.serviceLine, roomType: overridePop.roomType, locationId: overridePop.locationId, overrideRate: rate, notes: overrideNote || undefined });
                                   }
                                 }}
                               >Save</Button>
@@ -1828,6 +1840,7 @@ export default function ReferenceDataTable({
                         : (row.proposedVarPct != null ? String(Math.round(Number(row.proposedVarPct) * 1000) / 10) : '');
                       setDeltaPop({ key: popKey, campus: row.campus, serviceLine: row.serviceLine, roomType: row.roomType, locationId: row.locationId ?? null, mode, streetSpot: street });
                       setDeltaInput(initVal);
+                      setOverrideNote('');
                     };
                     const saveRate = () => {
                       if (!deltaPop) return;
@@ -1836,7 +1849,7 @@ export default function ReferenceDataTable({
                       const street = deltaPop.streetSpot;
                       const rate = mode === 'dollar' ? street + val : street * (1 + val / 100);
                       if (rate <= 0) return;
-                      overrideSaveMutation.mutate({ campus: deltaPop.campus, serviceLine: deltaPop.serviceLine, roomType: deltaPop.roomType, locationId: deltaPop.locationId, overrideRate: Math.round(rate) });
+                      overrideSaveMutation.mutate({ campus: deltaPop.campus, serviceLine: deltaPop.serviceLine, roomType: deltaPop.roomType, locationId: deltaPop.locationId, overrideRate: Math.round(rate), notes: overrideNote || undefined });
                     };
                     const previewRate = deltaInput !== '' && !isNaN(parseFloat(deltaInput))
                       ? Math.round(mode === 'dollar' ? row.streetSpot + parseFloat(deltaInput) : row.streetSpot * (1 + parseFloat(deltaInput) / 100))
@@ -1878,6 +1891,13 @@ export default function ReferenceDataTable({
                                 → Final rate: <strong>${previewRate.toLocaleString()}</strong>
                               </p>
                             )}
+                            <textarea
+                              value={overrideNote}
+                              onChange={e => setOverrideNote(e.target.value)}
+                              placeholder="Note (optional)…"
+                              rows={2}
+                              className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none mb-2"
+                            />
                             <Button
                               size="sm"
                               className="h-7 w-full text-xs"
@@ -1887,6 +1907,44 @@ export default function ReferenceDataTable({
                           </PopoverContent>
                         </Popover>
                       </div>
+                    );
+                  })() : c.key === "overrideNote" && groupLevel === "roomType" && row.proposedRule != null ? (() => {
+                    const cellKey = `${row.campus}||${row.serviceLine}||${row.roomType}`;
+                    const isEditing = noteEditKey === cellKey;
+                    const savedNote = row.overrideNote as string | null | undefined;
+                    if (isEditing) {
+                      return (
+                        <input
+                          autoFocus
+                          value={noteEditVal}
+                          onChange={e => setNoteEditVal(e.target.value)}
+                          onBlur={() => {
+                            overrideSaveMutation.mutate({
+                              campus: row.campus, serviceLine: row.serviceLine, roomType: row.roomType,
+                              locationId: row.locationId ?? null, overrideRate: Number(row.proposedRule),
+                              notes: noteEditVal.trim() || undefined,
+                            });
+                            setNoteEditKey(null);
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                            if (e.key === 'Escape') setNoteEditKey(null);
+                          }}
+                          className="w-full bg-transparent border-b border-primary text-xs outline-none py-0.5 placeholder:text-muted-foreground/50"
+                          placeholder="Add note…"
+                        />
+                      );
+                    }
+                    return (
+                      <span
+                        className="block truncate cursor-text text-xs text-left w-full group/note"
+                        title={savedNote ?? undefined}
+                        onClick={() => { setNoteEditKey(cellKey); setNoteEditVal(savedNote ?? ''); }}
+                      >
+                        {savedNote
+                          ? <span>{savedNote}</span>
+                          : <span className="opacity-0 group-hover/note:opacity-40 italic">Add note…</span>}
+                      </span>
                     );
                   })() : c.key === "campus" || c.key === "division" ? (
                     <span className="block truncate" title={display}>

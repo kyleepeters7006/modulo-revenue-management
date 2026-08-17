@@ -830,7 +830,17 @@ export function applyAdjustmentRulesToUnit(
       (rule as any).serviceLines?.length ? (rule as any).serviceLines
       : rule.serviceLine ? [rule.serviceLine]
       : null;
-    if (slScope && !slScope.includes(unit.serviceLine!)) continue;
+    if (slScope) {
+      // Family matching: AL-scoped rules also cover AL/MC units; HC-scoped rules
+      // also cover HC/MC units. The reverse does NOT hold — an AL/MC rule is
+      // intentionally more specific and should not fire on plain AL units.
+      const unitSL = unit.serviceLine!;
+      const unitSLFamily: string[] =
+        unitSL === 'AL/MC' ? ['AL', 'AL/MC']
+        : unitSL === 'HC/MC' ? ['HC', 'HC/MC']
+        : [unitSL];
+      if (!slScope.some(s => unitSLFamily.includes(s))) continue;
+    }
 
     if (!evaluateTrigger(rule, unit)) continue;
 

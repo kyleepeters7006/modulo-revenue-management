@@ -1037,7 +1037,9 @@ export function computeQualifiedRuleImpact(
 
   for (const [gKey, groupUnits] of Array.from(ctx.groups.entries())) {
     const [locId, sl, rt] = gKey.split("|");
-    if (slScope.length && !slScope.includes(sl)) continue;
+    // Family matching: AL-scoped rules also cover AL/MC groups; HC-scoped rules also cover HC/MC.
+    const slFamily: string[] = sl === 'AL/MC' ? ['AL', 'AL/MC'] : sl === 'HC/MC' ? ['HC', 'HC/MC'] : [sl];
+    if (slScope.length && !slScope.some(s => slFamily.includes(s))) continue;
     if (scope?.serviceLine && sl !== scope.serviceLine) continue;
     if ((scope?.locationId || rule.locationId) && locId !== (scope?.locationId || rule.locationId)) continue;
     if (scope?.locationIds && !scope.locationIds.includes(locId)) continue; // empty list = match nothing
@@ -1401,7 +1403,11 @@ export function buildGroupRulePreviewRates(
         Array.isArray(rule.service_lines) && rule.service_lines.length ? rule.service_lines
         : rule.service_line ? [rule.service_line]
         : null;
-      if (slScope && !slScope.includes(g.sl)) continue;
+      // Family matching: AL-scoped rules also cover AL/MC groups; HC-scoped rules also cover HC/MC.
+      if (slScope) {
+        const gSlFamily: string[] = g.sl === 'AL/MC' ? ['AL', 'AL/MC'] : g.sl === 'HC/MC' ? ['HC', 'HC/MC'] : [g.sl];
+        if (!slScope.some(s => gSlFamily.includes(s))) continue;
+      }
 
       // ── Action filters ──
       // Compare against both the display room type (g.rt, which may be a branded
