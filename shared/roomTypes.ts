@@ -31,24 +31,25 @@ export function normalizeRoomType(rawRoomType: string | null | undefined): Stand
 
   const normalized = rawRoomType.toLowerCase().trim();
 
-  // Companion room mappings (shared/double occupancy)
+  // Explicitly-companion terms. These name the ROOM TYPE itself, so they win
+  // over everything else. Deliberately excludes bare occupancy-style words
+  // ("double", "shared", "private", "single"): source strings like
+  // "One BR Apt-Double" or "Studio Deluxe - Double" encode occupancy style as
+  // a suffix on a real room type, and collapsing them into Companion scrambles
+  // the category (rates land in the wrong bucket). Occupancy-style words are
+  // only consulted as a fallback when no room-type keyword matches at all.
   const companionKeywords = [
     'companion',
     'compan',
-    'double',
-    'shared',
     'mc companion',
     'memory care companion',
     'al companion',
     'semi-private',
     'semi private',
     'semiprivate',
-    'double occupancy',
-    'shared room',
     'roommate',
     'companion suite',
-    'companion room',
-    'double room'
+    'companion room'
   ];
 
   // Studio Deluxe mappings (premium/larger studios)
@@ -63,7 +64,6 @@ export function normalizeRoomType(rawRoomType: string | null | undefined): Stand
     'dlx studio',
     'studio - deluxe',
     'studio - premium',
-    'studio - private',
     'private deluxe',
     'private studio deluxe',
     'studio with kitchenette',
@@ -186,6 +186,13 @@ export function normalizeRoomType(rawRoomType: string | null | undefined): Stand
     if (normalized.includes(keyword)) {
       return STANDARD_ROOM_TYPES.STUDIO;
     }
+  }
+
+  // Occupancy-style fallback: no room-type keyword matched, so a bare
+  // shared-occupancy term ("Double", "Shared Room", "Double Occupancy")
+  // really does describe a companion arrangement.
+  if (normalized.includes('double') || normalized.includes('shared')) {
+    return STANDARD_ROOM_TYPES.COMPANION;
   }
 
   // Default to Studio if no match found

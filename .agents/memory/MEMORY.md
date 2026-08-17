@@ -58,4 +58,4 @@
 - [Census report tie-out](census-tie-out.md) — census capacity is reference-only vs occupancy history; read the division block, resolve columns from data, don't map "With Kingston" divisions.
 - [Scroll anchoring](scroll-anchoring.md) — Chrome already anchors these window-scrolled pages; manual scrollBy compensation double-applies. Real jumps come from imperative scrollTo calls.
 - [Street-rate aggregation](street-rate-aggregation.md) — Reference Data uses modal rate, other surfaces use AVG; junk sub-$1000 rent-roll rows make them disagree. Prefer mode().
-- [Normalized room_type unreliable](normalized-room-type-unreliable.md) — backfill keyed on occupancy style ("-Double"→Companion); trust source_room_type + room_type_groupings, never rr.room_type.
+- [room_type normalization fixed](normalized-room-type-unreliable.md) — room-type keywords now beat occupancy style; backfill re-derives from source_room_type (set-based); group_name is branded, never prefix-match it.

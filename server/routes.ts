@@ -19519,14 +19519,15 @@ Return ONLY valid JSON with no markdown fences:
       const eligRes = await pool.query(`
         SELECT rr.location, rr.service_line,
           ROUND(AVG(rr.street_rate) FILTER (WHERE
-            COALESCE(rtg.group_name, rr.room_type) ILIKE 'studio%'
+            -- rr.room_type is backfill-normalized ("Studio", "Studio Dlx", ...),
+            -- the SAME predicate the Competitive Position panel uses. Do NOT
+            -- route this through room_type_groupings.group_name: branded group
+            -- names like "Legacy Lane - Studio" break the 'studio%' prefix match.
+            rr.room_type ILIKE 'studio%'
             AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
           )::numeric, 0) AS our_rate
         FROM rent_roll_data rr
         LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
-        LEFT JOIN room_type_groupings rtg
-          ON rtg.client_id = rr.client_id AND rtg.location = rr.location
-         AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
         WHERE ${eligWhere}
         GROUP BY rr.location, rr.service_line
       `, eligParams);

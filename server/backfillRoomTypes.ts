@@ -17,31 +17,69 @@ export async function backfillRoomTypes() {
   try {
     // Start a transaction for safety
     await db.transaction(async (tx) => {
-      // Step 1: Backfill rent_roll_data table
+      // Step 1: Backfill rent_roll_data table.
+      //
+      // Re-derive room_type from source_room_type (the raw string captured at
+      // import) whenever it is present. Normalizing the already-normalized
+      // room_type is NOT enough: an earlier version of the normalizer keyed on
+      // occupancy style, so e.g. "One BR Apt-Double" was collapsed into
+      // "Companion" — information that only the source string can recover.
       console.log('Normalizing room types in rent_roll_data table...');
-      
-      // Get all unique room types currently in the database
+
+      const uniqueSourceTypes = await tx
+        .selectDistinct({ sourceRoomType: rentRollData.sourceRoomType })
+        .from(rentRollData);
+
+      console.log(`Found ${uniqueSourceTypes.length} unique source room types in rent_roll_data`);
+
+      // Build the full source -> normalized mapping in memory, then apply it in
+      // ONE set-based UPDATE. A per-type UPDATE loop sequential-scans the large
+      // table once per type (~500 scans) and took tens of minutes at startup.
+      const mappingPairs: [string, string][] = [];
+      for (const { sourceRoomType } of uniqueSourceTypes) {
+        if (!sourceRoomType) continue;
+        mappingPairs.push([sourceRoomType, normalizeRoomType(sourceRoomType)]);
+      }
+
+      if (mappingPairs.length > 0) {
+        // Drizzle cannot bind JS arrays as text[] params (it serializes them as
+        // a record), so ship the mapping as a single JSONB parameter instead.
+        const mappingJson = JSON.stringify(mappingPairs);
+        const result = await tx.execute(sql`
+          UPDATE rent_roll_data rr
+          SET room_type = m.target
+          FROM (
+            SELECT e->>0 AS source, e->>1 AS target
+            FROM jsonb_array_elements(${mappingJson}::jsonb) e
+          ) m
+          WHERE rr.source_room_type = m.source
+            AND rr.room_type IS DISTINCT FROM m.target
+        `);
+        const updatedRows = Number((result as any)?.rowCount ?? 0);
+        console.log(`  Source-derived normalization updated ${updatedRows} rows across ${mappingPairs.length} source types`);
+        if (updatedRows > 0) totalUpdated += updatedRows;
+      }
+
+      // Rows without a source_room_type (older imports) can only be re-normalized
+      // from the stored room_type — a no-op for already-standard values.
       const uniqueRoomTypes = await tx
         .selectDistinct({ roomType: rentRollData.roomType })
-        .from(rentRollData);
-      
-      console.log(`Found ${uniqueRoomTypes.length} unique room types in rent_roll_data`);
-      
-      // Process each unique room type
+        .from(rentRollData)
+        .where(sql`${rentRollData.sourceRoomType} IS NULL OR ${rentRollData.sourceRoomType} = ''`);
+
       for (const { roomType } of uniqueRoomTypes) {
         if (!roomType) continue;
-        
+
         const normalizedType = normalizeRoomType(roomType);
-        
-        // Only update if the normalized type is different
+
         if (normalizedType !== roomType) {
           try {
-            const result = await tx
+            await tx
               .update(rentRollData)
               .set({ roomType: normalizedType })
-              .where(sql`${rentRollData.roomType} = ${roomType}`);
-            
-            console.log(`  Updated "${roomType}" -> "${normalizedType}"`);
+              .where(sql`${rentRollData.roomType} = ${roomType} AND (${rentRollData.sourceRoomType} IS NULL OR ${rentRollData.sourceRoomType} = '')`);
+
+            console.log(`  Updated (no source) "${roomType}" -> "${normalizedType}"`);
             totalUpdated++;
           } catch (error) {
             console.error(`  Error updating room type "${roomType}":`, error);
