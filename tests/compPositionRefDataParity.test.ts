@@ -268,6 +268,185 @@ const EXPECTED: Record<string, number> = {
   [`${LOC_B}||VIL`]: 2900,
 };
 
+// ===========================================================================
+// SCENARIO 2 — room_type_groupings remapping
+//
+// Confirms that scatter and Reference Data still agree on the modal rate
+// when room_type_groupings rows remap source_room_type to a branded group_name.
+//
+// Layout:
+//   RTG Campus / AL:
+//     Studio:      5 units @ $4200  (source_room_type='Studio' → 'Legacy Lane - Studio')
+//     One Bedroom: 3 units @ $5500  (source_room_type='One Bedroom' → 'Legacy Lane - One Bedroom')
+//
+//   Expected our_all_rate = ROUND((4200*5 + 5500*3) / 8) = ROUND(4687.5) = 4688
+//
+// The scatter SQL (competitive-position) groups by rr.room_type directly.
+// The refData SQL (Reference Data) groups by COALESCE(rtg.group_name, rr.room_type).
+// Both should produce identical unit-weighted averages because the rows in each
+// group are the same physical units — only the display key differs.
+// ===========================================================================
+const CLIENT_RTG = 'ptest-cp-refdata-rtg';
+const LOC_RTG    = 'RTG Campus - 999';
+const EXPECTED_RTG_OUR_ALL = 4688; // round((4200*5 + 5500*3) / 8) = round(4687.5)
+
+async function cleanupRtg(): Promise<void> {
+  await pool.query(`DELETE FROM room_type_groupings WHERE client_id=$1`, [CLIENT_RTG]);
+  await pool.query(`DELETE FROM rent_roll_data     WHERE client_id=$1`, [CLIENT_RTG]);
+  await pool.query(`DELETE FROM locations          WHERE client_id=$1`, [CLIENT_RTG]);
+  await pool.query(`DELETE FROM clients            WHERE id=$1`,        [CLIENT_RTG]);
+}
+
+async function seedRtg(): Promise<void> {
+  await cleanupRtg();
+  await pool.query(
+    `INSERT INTO clients (id, name) VALUES ($1, 'RTG Parity Test') ON CONFLICT (id) DO NOTHING`,
+    [CLIENT_RTG],
+  );
+  const locRes = await pool.query(
+    `INSERT INTO locations (name, client_id) VALUES ($1, $2) RETURNING id`,
+    [LOC_RTG, CLIENT_RTG],
+  );
+  const locId = locRes.rows[0].id as string;
+
+  // AL — Studio: 5 units @ $4200, source_room_type = 'Studio'
+  for (let i = 1; i <= 5; i++) {
+    await pool.query(
+      `INSERT INTO rent_roll_data
+         (client_id, location_id, location, upload_month, service_line, room_type, source_room_type,
+          room_number, street_rate, occupied_yn, in_house_rate, date, size, days_vacant, payor_type)
+       VALUES ($1,$2,$3,$4,'AL','Studio','Studio',$5,4200,true,4000,$6,'Studio',0,'Private')`,
+      [CLIENT_RTG, locId, LOC_RTG, MONTH, `RS-${i}`, `${MONTH}-01`],
+    );
+  }
+
+  // AL — One Bedroom: 3 units @ $5500, source_room_type = 'One Bedroom'
+  for (let i = 1; i <= 3; i++) {
+    await pool.query(
+      `INSERT INTO rent_roll_data
+         (client_id, location_id, location, upload_month, service_line, room_type, source_room_type,
+          room_number, street_rate, occupied_yn, in_house_rate, date, size, days_vacant, payor_type)
+       VALUES ($1,$2,$3,$4,'AL','One Bedroom','One Bedroom',$5,5500,true,5200,$6,'One Bedroom',0,'Private')`,
+      [CLIENT_RTG, locId, LOC_RTG, MONTH, `RO-${i}`, `${MONTH}-01`],
+    );
+  }
+
+  // room_type_groupings: remap source_room_type → branded group_name
+  await pool.query(
+    `INSERT INTO room_type_groupings (client_id, location, service_line, source_room_type, group_name)
+     VALUES ($1,$2,'AL','Studio','Legacy Lane - Studio')`,
+    [CLIENT_RTG, LOC_RTG],
+  );
+  await pool.query(
+    `INSERT INTO room_type_groupings (client_id, location, service_line, source_room_type, group_name)
+     VALUES ($1,$2,'AL','One Bedroom','Legacy Lane - One Bedroom')`,
+    [CLIENT_RTG, LOC_RTG],
+  );
+}
+
+// Scatter SQL: groups by rr.room_type (no room_type_groupings join) — mirrors
+// competitive-position's rt_modes CTE exactly.
+async function runScatterSQLRtg(): Promise<number | null> {
+  const res = await pool.query<{ our_all_rate: string }>(`
+    WITH rt_modes AS (
+      SELECT rr.location,
+             rr.service_line,
+             rr.room_type,
+             mode() WITHIN GROUP (ORDER BY rr.street_rate) AS mode_rate,
+             COUNT(*) AS cnt
+      FROM rent_roll_data rr
+      JOIN locations loc ON loc.id = rr.location_id
+      WHERE loc.client_id = $1
+        AND rr.upload_month = $2
+        AND rr.street_rate > 0
+        AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL')
+                 AND rr.room_number ~* '/[B-Zb-z]$')
+      GROUP BY rr.location, rr.service_line, rr.room_type
+    )
+    SELECT location, service_line,
+      ROUND((SUM(mode_rate * cnt) / NULLIF(SUM(cnt), 0))::numeric, 0) AS our_all_rate
+    FROM rt_modes
+    GROUP BY location, service_line
+  `, [CLIENT_RTG, MONTH]);
+
+  if (!res.rows.length) return null;
+  return Number(res.rows[0].our_all_rate);
+}
+
+// Reference Data SQL: groups by COALESCE(rtg.group_name, rr.room_type) — mirrors
+// routes.ts reference-data aggregation CTE with the room_type_groupings join.
+// Unit-weights the per-group modal rates to produce a single our_all_rate per
+// (location, service_line), exactly as the client-side table does.
+async function runRefDataSQLRtg(): Promise<number | null> {
+  const res = await pool.query<{ display_rt: string; avg_street: string; total: string }>(`
+    SELECT
+      COALESCE(rtg.group_name, rr.room_type) AS display_rt,
+      rr.service_line,
+      mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (
+        WHERE rr.street_rate > 0
+          AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL')
+                   AND rr.room_number ~* '/[B-Zb-z]$')
+      ) AS avg_street,
+      COUNT(DISTINCT
+        CASE WHEN rr.service_line IN ('AL','AL/MC','SL','VIL')
+             THEN REGEXP_REPLACE(rr.room_number, '/[A-Za-z]+$', '')
+             ELSE rr.room_number END
+      ) AS total
+    FROM rent_roll_data rr
+    LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+    LEFT JOIN room_type_groupings rtg
+      ON rtg.client_id = rr.client_id
+     AND rtg.location  = rr.location
+     AND rtg.service_line = rr.service_line
+     AND rtg.source_room_type = rr.source_room_type
+    WHERE rr.client_id = $1 AND rr.upload_month = $2
+    GROUP BY COALESCE(rtg.group_name, rr.room_type), rr.service_line
+  `, [CLIENT_RTG, MONTH]);
+
+  // Unit-weight avg_street across all display groups for this single location+SL
+  let wSum = 0, totalN = 0;
+  for (const r of res.rows) {
+    if (r.avg_street == null || Number(r.avg_street) <= 0) continue;
+    const cnt = Number(r.total) || 0;
+    wSum   += Number(r.avg_street) * cnt;
+    totalN += cnt;
+  }
+  if (totalN === 0) return null;
+  return Math.round(wSum / totalN);
+}
+
+async function runRtgScenario(): Promise<void> {
+  await seedRtg();
+  try {
+    const [scatter, refData] = await Promise.all([
+      runScatterSQLRtg(),
+      runRefDataSQLRtg(),
+    ]);
+
+    // ── RTG-1. Scatter produces a result after remapping ──
+    assert('RTG: scatter SQL returns a result', scatter !== null, true);
+    // ── RTG-2. RefData produces a result after remapping ──
+    assert('RTG: refData SQL (with RTG join) returns a result', refData !== null, true);
+    // ── RTG-3. Scatter our_all_rate matches the known expected value ──
+    assert(
+      `RTG: scatter our_all_rate ≈ ${EXPECTED_RTG_OUR_ALL} (Studio×5@4200 + OneBed×3@5500)`,
+      scatter ?? -1, EXPECTED_RTG_OUR_ALL,
+    );
+    // ── RTG-4. RefData our_all_rate matches the known expected value ──
+    assert(
+      `RTG: refData our_all_rate ≈ ${EXPECTED_RTG_OUR_ALL} (branded group_name remapping)`,
+      refData ?? -1, EXPECTED_RTG_OUR_ALL,
+    );
+    // ── RTG-5. The core parity assertion: scatter === refData despite key rename ──
+    assert(
+      `RTG: scatter === refData after group_name remapping (scatter=${scatter}, refData=${refData})`,
+      scatter ?? -1, refData ?? -2,
+    );
+  } finally {
+    await cleanupRtg();
+  }
+}
+
 async function main() {
   await seed();
   try {
@@ -335,8 +514,12 @@ async function main() {
 
   } finally {
     await cleanup();
-    await pool.end();
   }
+
+  // ── Scenario 2: room_type_groupings remapping ──
+  await runRtgScenario();
+
+  await pool.end();
 
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
@@ -344,6 +527,6 @@ async function main() {
 
 main().catch(async (e) => {
   console.error(e);
-  try { await cleanup(); await pool.end(); } catch {}
+  try { await cleanup(); await cleanupRtg(); await pool.end(); } catch {}
   process.exit(1);
 });
