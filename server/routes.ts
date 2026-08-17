@@ -1008,6 +1008,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/admin/sync-to-production — copy upload tables from dev (DATABASE_URL) to prod (NEON_DATABASE_URL)
+  // Auth: x-seed-secret header OR logged-in admin session.
+  app.post('/api/admin/sync-to-production', async (req: any, res) => {
+    const seedSecret = req.headers['x-seed-secret'];
+    const session = req.session as any;
+    const hasSecret = seedSecret && seedSecret === process.env.SEED_SECRET;
+    let hasAdminSession = false;
+    if (!hasSecret && session?.userId) {
+      const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+      hasAdminSession = userRows.length > 0 && (userRows[0].username ?? '').endsWith('_admin');
+    }
+    if (!hasSecret && !hasAdminSession) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const prodUrl = process.env.NEON_DATABASE_URL;
+    const devUrl = process.env.DATABASE_URL;
+    if (!prodUrl) {
+      return res.status(500).json({ error: 'NEON_DATABASE_URL is not set — production database URL is required' });
+    }
+    if (prodUrl === devUrl) {
+      return res.status(400).json({ error: 'Dev and production database URLs are identical — sync aborted to prevent data loss' });
+    }
+
+    // Tables to sync, in FK-safe load order (parents before children).
+    // TRUNCATE uses CASCADE so dependent computed/cached tables are also cleared in prod.
+    const SYNC_TABLES = [
+      'locations',
+      'room_type_groupings',
+      'care_level_rates',
+      'adjustment_rules',
+      'rent_roll_data',
+      'rent_roll_history',
+      'competitive_survey_data',
+      'room_type_occupancy_history',
+      'move_in_out_events',
+      'guardrails',
+      'pricing_weights',
+      'targets_and_trends',
+      'assumptions',
+      'manual_rate_overrides',
+      'upload_history',
+    ];
+
+    const startTime = Date.now();
+    console.log(`[sync-to-production] Starting sync of ${SYNC_TABLES.length} tables`);
+
+    try {
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+
+      const env = { ...process.env, DEV_URL: devUrl, PROD_URL: prodUrl };
+
+      // Step 1: Truncate all sync tables on prod (CASCADE clears derived/computed dependents)
+      const truncateSQL = `TRUNCATE ${SYNC_TABLES.join(', ')} CASCADE;`;
+      console.log(`[sync-to-production] Truncating tables in prod…`);
+      await execAsync(`psql "$PROD_URL" -c "${truncateSQL}"`, { env, shell: '/bin/bash' });
+
+      // Step 2: Dump data from dev and stream into prod.
+      //         pg_dump with multiple -t flags emits tables in FK-dependency order.
+      const tableFlags = SYNC_TABLES.map(t => `-t ${t}`).join(' ');
+      console.log(`[sync-to-production] Copying data from dev to prod…`);
+      const { stderr } = await execAsync(
+        `pg_dump --data-only --no-acl --no-owner ${tableFlags} "$DEV_URL" | psql "$PROD_URL"`,
+        { env, shell: '/bin/bash', maxBuffer: 1024 * 1024 * 1024, timeout: 600_000 }
+      );
+      if (stderr && !stderr.includes('COPY') && !stderr.includes('SET')) {
+        console.warn(`[sync-to-production] pg_dump stderr:`, stderr.slice(0, 500));
+      }
+
+      // Step 3: Query row counts from prod to confirm the transfer.
+      const rowCounts: Record<string, number> = {};
+      for (const table of SYNC_TABLES) {
+        try {
+          const { stdout } = await execAsync(
+            `psql "$PROD_URL" -t -c "SELECT COUNT(*) FROM ${table};"`,
+            { env, shell: '/bin/bash' }
+          );
+          rowCounts[table] = parseInt(stdout.trim(), 10) || 0;
+        } catch {
+          rowCounts[table] = -1;
+        }
+      }
+
+      const durationSeconds = Math.round((Date.now() - startTime) / 1000);
+      const totalRows = Object.values(rowCounts).reduce((a, b) => a + Math.max(b, 0), 0);
+      console.log(`[sync-to-production] Done in ${durationSeconds}s — ${totalRows.toLocaleString()} rows across ${SYNC_TABLES.length} tables`);
+
+      res.json({ success: true, tables: rowCounts, durationSeconds, totalRows });
+    } catch (e: any) {
+      console.error('[sync-to-production] error:', e);
+      res.status(500).json({ error: e.message || 'Sync failed' });
+    }
+  });
+
   // POST /api/admin/geocode-missing-locations — geocode only locations that lack lat/lng
   // Protected by x-seed-secret header OR a logged-in admin session (username ending in _admin).
   app.post('/api/admin/geocode-missing-locations', async (req: any, res) => {

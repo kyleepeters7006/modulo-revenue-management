@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, RefreshCw, Clock, CalendarDays, ChevronRight, ChevronDown, ShieldAlert, Info } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, RefreshCw, Clock, CalendarDays, ChevronRight, ChevronDown, ShieldAlert, Info, ArrowUpCircle } from "lucide-react";
 import { useState, useRef } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
@@ -481,6 +481,21 @@ export default function DataManagement() {
   const { data: uploadSummary } = useQuery<UploadSummary>({
     queryKey: ['/api/upload-summary'],
     staleTime: 30_000,
+  });
+
+  // Sync to production
+  const [syncResult, setSyncResult] = useState<{ tables: Record<string, number>; durationSeconds: number; totalRows: number } | null>(null);
+  const syncToProductionMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/admin/sync-to-production', { method: 'POST' });
+      if (!response.ok) { const e = await response.json(); throw new Error(e.error || 'Sync failed'); }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setSyncResult(data);
+      toast({ title: 'Sync complete', description: `${data.totalRows?.toLocaleString()} rows pushed to production in ${data.durationSeconds}s` });
+    },
+    onError: (e: any) => toast({ title: 'Sync failed', description: e.message, variant: 'destructive' }),
   });
 
   // Safe JSON parser for error responses — server might return empty body or non-JSON on 5xx/multer errors
@@ -1956,6 +1971,65 @@ export default function DataManagement() {
                     </>
                   )}
                 </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Admin: Sync to Production */}
+          {isAdmin && (
+            <Card className="border-indigo-200 bg-indigo-50">
+              <CardHeader>
+                <CardTitle className="text-indigo-900 flex items-center gap-2">
+                  <ArrowUpCircle className="w-5 h-5" />
+                  Admin: Sync Data to Production
+                </CardTitle>
+                <CardDescription className="text-indigo-700">
+                  Push all uploaded data from this environment to the published app. Syncs rent roll, competitor surveys, occupancy history, move-in/out events, care rates, pricing rules, weights, guardrails, and other configuration. Computed tables (elasticity, rate card, campus maps) are cleared and must be rebuilt after sync.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <Button
+                    onClick={() => { setSyncResult(null); syncToProductionMutation.mutate(); }}
+                    disabled={syncToProductionMutation.isPending}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                    data-testid="button-sync-to-production"
+                  >
+                    {syncToProductionMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Syncing… this may take a minute
+                      </>
+                    ) : (
+                      <>
+                        <ArrowUpCircle className="w-4 h-4 mr-2" />
+                        Sync to Production
+                      </>
+                    )}
+                  </Button>
+                </div>
+                {syncToProductionMutation.isError && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{(syncToProductionMutation.error as any)?.message}</AlertDescription>
+                  </Alert>
+                )}
+                {syncResult && (
+                  <div className="rounded-lg border border-indigo-200 bg-white p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-indigo-800 font-medium">
+                      <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      Completed in {syncResult.durationSeconds}s — {syncResult.totalRows.toLocaleString()} rows synced
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-gray-600">
+                      {Object.entries(syncResult.tables).map(([table, rows]) => (
+                        <div key={table} className="flex justify-between">
+                          <span className="font-mono text-gray-500">{table}</span>
+                          <span className="font-medium tabular-nums">{rows >= 0 ? rows.toLocaleString() : '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
