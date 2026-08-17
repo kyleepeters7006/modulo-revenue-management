@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { storage } from './storage';
-import { db } from './db';
+import { db, pool } from './db';
 import { rentRollData, competitiveSurveyData, enquireData, roomTypeOccupancyHistory, locations } from '@shared/schema';
 import { eq, sql, and, or, inArray } from 'drizzle-orm';
 import { normalizeRoomType } from '@shared/roomTypes';
@@ -10,6 +10,7 @@ import type { PricingInputs } from './moduloPricingAlgorithm';
 import { getSentenceExplanation, generateOverallExplanation } from './sentenceExplanations';
 import { matchAndAdjustCompetitor } from './services/competitorLookup';
 import { invalidateRefDataCache } from './refDataCache';
+import { purgeCommentaryCacheForClient } from './commentaryCache';
 
 // Pre-computed pricing context to avoid per-unit async calls
 interface PricingContext {
@@ -809,10 +810,19 @@ class PricingJobManager {
       // Set final progress to 100% before marking complete
       this.updateProgress(jobId, totalUnits, totalUnits, totalBatches, totalBatches);
       
+      // Rates were rewritten — drop cached reference-data and commentary so
+      // Strategy Overview regenerates fresh content on the next request.
+      // Both purges must complete BEFORE job.status flips to 'completed' so
+      // an immediate GET /api/pricing-controls/commentary cannot race and serve
+      // the old narrative.
+      invalidateRefDataCache();
+      // purgeCommentaryCacheForClient propagates DB errors (not caught inside)
+      // so a failure here marks the job 'failed' via the outer catch, preventing
+      // the job from being reported as completed while stale commentary remains serveable.
+      await purgeCommentaryCacheForClient(jobClientId_, pool);
+
       job.status = 'completed';
       job.completedAt = new Date();
-      // Rates were rewritten — drop any cached reference-data responses
-      invalidateRefDataCache();
       job.result = {
         totalUnits,
         totalUpdated: allUpdates.length,

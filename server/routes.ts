@@ -150,21 +150,22 @@ import {
   calculateGapAnalysis, 
   getSameMonthLastYear 
 } from "./services/revenuePerformance";
+// Analytics cache for expensive computations (5 minute default TTL).
+// The Map instances and commentary-purge utility live in commentaryCache.ts so
+// pricingJobManager.ts can share the same in-memory cache without a circular import.
+import {
+  analyticsCache,
+  ANALYTICS_CACHE_TTL,
+  COMMENTARY_CACHE_TTL,
+  commentaryInflight,
+  commentaryGeneration,
+  commentaryLastPurgeTime,
+} from './commentaryCache';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Building maps storage
 let buildingMaps: any[] = [];
-
-// Analytics cache for expensive computations (5 minute default TTL)
-interface AnalyticsCacheEntry {
-  data: any;
-  timestamp: number;
-  ttl?: number; // per-entry override; defaults to ANALYTICS_CACHE_TTL
-}
-const analyticsCache = new Map<string, AnalyticsCacheEntry>();
-const ANALYTICS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes (default)
-const COMMENTARY_CACHE_TTL = 30 * 60 * 1000; // 30 minutes (AI commentary changes rarely)
 
 // A commentary payload is only worth showing — or caching — if it actually says something.
 // Syntactically valid but semantically empty AI output ({"summary":"","rules":[]}) is the
@@ -192,8 +193,8 @@ function setCachedAnalytics(key: string, data: any, ttl?: number): void {
   analyticsCache.set(key, { data, timestamp: Date.now(), ...(ttl !== undefined ? { ttl } : {}) });
 }
 
-// Deduplicates concurrent commentary regenerations per cache key
-const commentaryInflight = new Map<string, Promise<any>>();
+// commentaryInflight and commentaryGeneration are imported from ./commentaryCache
+// so pricingJobManager.ts can share the same instances and invalidate them on job completion.
 
 // Returns true when two string Sets contain the exact same elements.
 function setsEqual(a: Set<string>, b: Set<string>): boolean {
@@ -313,9 +314,20 @@ function purgeRuleCaches(clientId: string): Promise<void> {
   for (const key of Array.from(analyticsCache.keys())) {
     if (prefixes.some(p => key.startsWith(p))) analyticsCache.delete(key);
   }
+  const commentaryPrefix = `pc-commentary:${clientId}:`;
+  // Record last-purge timestamp so the commentary endpoint can reject DB rows
+  // written before this purge even if the DELETE below fails.
+  commentaryLastPurgeTime.set(clientId, Date.now());
+  // Advance the commentary generation counter so any in-flight AI generation
+  // that resolves after this purge retries rather than caching stale commentary.
+  commentaryGeneration.set(clientId, (commentaryGeneration.get(clientId) ?? 0) + 1);
+  // Clear in-flight commentary promises so new GETs start fresh regenerations.
+  for (const key of Array.from(commentaryInflight.keys())) {
+    if (key.startsWith(commentaryPrefix)) commentaryInflight.delete(key);
+  }
   // Also purge the persistent commentary cache so post-rule-change commentary regenerates
   invalidateRefDataCache();
-  return pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key LIKE $1`, [`pc-commentary:${clientId}:%`])
+  return pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key LIKE $1`, [`${commentaryPrefix}%`])
     .then(() => undefined)
     .catch((err: any) => console.error('[pc-commentary] cache purge error:', err));
 }
@@ -12065,6 +12077,10 @@ ${campusOccLines.join('\n')}
       // Perform bulk update in batches with adjustment rules
       console.log(`Starting bulk database update with Modulo rates and adjustment rules...`);
       await storage.bulkUpdateModuloRates(finalUpdates);
+
+      // Purge the AI commentary cache so Strategy Overview reflects the new rule
+      // rates immediately rather than serving the previous narrative for up to 10 min.
+      await purgeRuleCaches(clientId);
       
       console.log(`Modulo bulk update complete, regenerating rate card...`);
       
@@ -19947,8 +19963,25 @@ Return ONLY valid JSON, no markdown fences:
       const regenerate = (): Promise<any> => {
         const inflight = commentaryInflight.get(cacheKey);
         if (inflight) return inflight;
+        // Capture generation *before* the async AI call.  If a purge (rate
+        // recalculation) runs while we are generating, the counter advances.
+        // We check it in .then() and retry with a fresh generation instead of
+        // returning or caching the stale pre-recalculation result.
+        const capturedGen = commentaryGeneration.get(clientId) ?? 0;
         const p = generateCommentary()
           .then(async (result) => {
+            // If a pricing job / rule change purged commentary while we were
+            // generating, our result reflects pre-recalculation rates.
+            // Remove this stale promise from the inflight map (the identity
+            // check in .finally() below will then be a no-op, so p2 is safe),
+            // then start — or join — a fresh generation and return its result
+            // to the original caller.
+            const currentGen = commentaryGeneration.get(clientId) ?? 0;
+            if (currentGen !== capturedGen) {
+              console.log('[pc-commentary] stale generation detected; retrying for', cacheKey, `(gen ${capturedGen} → ${currentGen})`);
+              if (commentaryInflight.get(cacheKey) === p) commentaryInflight.delete(cacheKey);
+              return regenerate();
+            }
             // Never cache an empty overview. Doing so turned a transient AI failure into
             // 30 minutes of "No overview available", and stale-while-revalidate kept
             // re-serving the blank row. Degraded results get a short memory-only TTL so
@@ -19966,7 +19999,10 @@ Return ONLY valid JSON, no markdown fences:
             ).catch((err: any) => console.error('[pc-commentary] persist error:', err));
             return result;
           })
-          .finally(() => commentaryInflight.delete(cacheKey));
+          // Identity check: only remove THIS promise from the inflight map.
+          // If the generation-mismatch retry path replaced it with a fresh
+          // promise (p2), we must not evict p2 when p's finally() fires.
+          .finally(() => { if (commentaryInflight.get(cacheKey) === p) commentaryInflight.delete(cacheKey); });
         commentaryInflight.set(cacheKey, p);
         return p;
       };
@@ -19983,6 +20019,19 @@ Return ONLY valid JSON, no markdown fences:
         await pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key = $1`, [cacheKey])
           .catch((err: any) => console.error('[pc-commentary] cache delete error:', err));
         dbHit = undefined;
+      }
+      // Staleness gate: if a purge ran after this DB row was written (e.g. because
+      // the DELETE in purgeRuleCaches or purgeCommentaryCacheForClient failed), the
+      // row predates the most recent rate recalculation and must not be served.
+      // This ensures stale commentary cannot survive a failed DB DELETE via the
+      // stale-while-revalidate path.
+      if (dbHit) {
+        const lastPurge = commentaryLastPurgeTime.get(clientId) ?? 0;
+        const rowAge = new Date(dbHit.updated_at).getTime();
+        if (lastPurge > 0 && rowAge < lastPurge) {
+          console.log('[pc-commentary] discarding pre-purge DB row for', cacheKey, `(row: ${rowAge}, purge: ${lastPurge})`);
+          dbHit = undefined;
+        }
       }
       if (dbHit) {
         const fresh = Date.now() - new Date(dbHit.updated_at).getTime() < COMMENTARY_CACHE_TTL;
