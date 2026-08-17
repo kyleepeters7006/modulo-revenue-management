@@ -23115,6 +23115,9 @@ Return ONLY valid JSON, no markdown fences:
           proposedRule: effectiveProposed,
           hasManualOverride: manualRate !== null,
           manualOverrideNote: manualOverrideNote,
+          // The rule-calculated rate before any manual override; null when no rule applies.
+          // Used by the UI tooltip: "Manual override — rule rate was $X".
+          ruleRate: manualRate !== null ? (proposed ?? rulePreviewRate) : null,
           proposedVarDollar: (effectiveProposed !== null && streetSpot !== null) ? effectiveProposed - streetSpot : null,
           proposedVarPct: (effectiveProposed !== null && streetSpot !== null && streetSpot !== 0) ? (effectiveProposed - streetSpot) / streetSpot : null,
           // Revenue impact: (proposed − street) × T3 move-ins/mo; annual =

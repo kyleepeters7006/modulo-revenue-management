@@ -1750,10 +1750,38 @@ export default function ReferenceDataTable({
                     return (
                       <div className="flex items-center gap-0.5 justify-end group">
                         {row.hasManualOverride && (
-                          <span
-                            className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 flex-none"
-                            title={row.manualOverrideNote ? `Manual override active — Note: ${row.manualOverrideNote}` : "Manual override active"}
-                          />
+                          <TooltipProvider delayDuration={100}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex items-center gap-0.5 shrink-0">
+                                  <span className="rounded px-1 py-0 text-[9px] font-semibold leading-4 bg-amber-100 text-amber-700 border border-amber-300 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700">
+                                    Manual
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 hover:text-red-700 focus:outline-none focus:opacity-100"
+                                    title="Clear manual override"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      overrideClearMutation.mutate({ campus: row.campus, serviceLine: row.serviceLine, roomType: row.roomType });
+                                    }}
+                                  >
+                                    <X className="h-2.5 w-2.5" />
+                                  </button>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-[220px]">
+                                <p className="text-xs font-medium">Manual override</p>
+                                {row.ruleRate != null
+                                  ? <p className="text-xs text-muted-foreground">Rule rate was ${Math.round(Number(row.ruleRate)).toLocaleString()}</p>
+                                  : <p className="text-xs text-muted-foreground">No rule rate — override sets a floor</p>
+                                }
+                                {row.manualOverrideNote && (
+                                  <p className="text-xs text-muted-foreground mt-0.5 italic">"{row.manualOverrideNote}"</p>
+                                )}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         )}
                         <span className={colorCls}>{display || "—"}</span>
                         <Popover open={isOpen} onOpenChange={(open) => {
