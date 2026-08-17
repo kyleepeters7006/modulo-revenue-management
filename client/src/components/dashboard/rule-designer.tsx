@@ -411,9 +411,16 @@ function computeValidation(conditions: Condition[], action: RuleAction, tab: str
   if (tab === 'structured') {
     const filled = conditions.filter(c => c.value.trim());
     if (!filled.length) msgs.push('Add at least one condition value to complete this rule.');
-    // Scale mismatches must block the save, not just warn: the server re-parses
-    // the composed sentence, so a misread threshold is silently applied to prices.
     for (const c of filled) {
+      // Unsupported metrics (e.g. legacy "Revenue Growth Target", "Price Elasticity") are
+      // not in METRIC_MAP in structuredRuleBuilder.ts — the server rejects them with a 400.
+      // Catch them here so the save button is blocked before the request is even sent.
+      if (c.metric && !METRICS.includes(c.metric)) {
+        msgs.push(`"${c.metric}" is not supported by the pricing engine — select a different metric.`);
+        continue; // no point checking scale for an unsupported metric
+      }
+      // Scale mismatches must block the save, not just warn: a misread threshold
+      // is silently applied to prices if the wrong scale reaches the engine.
       const issue = conditionValueIssue(c.metric, c.value);
       if (issue) msgs.push(issue);
     }
@@ -1712,14 +1719,30 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
 
                           <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
                             <div className="grid grid-cols-2 gap-2">
-                              <Select value={cond.metric} onValueChange={v => updateCondition(cond.id, 'metric', v)}>
-                                <SelectTrigger className="h-8 text-xs">
-                                  <SelectValue placeholder="Metric" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {METRICS.map(m => <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
+                              {/* When editing a legacy rule whose condition used a metric the engine no
+                                  longer supports (e.g. "Revenue Growth Target", "Price Elasticity"), that
+                                  metric is NOT in METRICS. Inject it as a disabled item so the trigger
+                                  still shows its label, and add an amber ring so users notice the problem.
+                                  The validation message in computeValidation blocks saving until they
+                                  pick a supported replacement. */}
+                              {(() => {
+                                const metricSupported = !cond.metric || METRICS.includes(cond.metric);
+                                return (
+                                  <Select value={cond.metric} onValueChange={v => updateCondition(cond.id, 'metric', v)}>
+                                    <SelectTrigger className={`h-8 text-xs ${!metricSupported ? 'border-amber-400 ring-1 ring-amber-300 text-amber-700' : ''}`}>
+                                      <SelectValue placeholder="Metric" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {!metricSupported && (
+                                        <SelectItem key="__unsupported__" value={cond.metric} disabled className="text-xs text-amber-600 opacity-70">
+                                          {cond.metric}
+                                        </SelectItem>
+                                      )}
+                                      {METRICS.map(m => <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>)}
+                                    </SelectContent>
+                                  </Select>
+                                );
+                              })()}
 
                               <Select value={cond.timePeriod} onValueChange={v => updateCondition(cond.id, 'timePeriod', v)}>
                                 <SelectTrigger className="h-8 text-xs">
