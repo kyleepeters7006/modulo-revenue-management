@@ -11319,18 +11319,22 @@ ${campusOccLines.join('\n')}
       // Attach manual override rates so the rate card can display them
       try {
         const { rows: mroRows } = await pool.query(
-          `SELECT location_name, service_line, room_type, override_rate FROM manual_rate_overrides WHERE client_id = $1`,
+          `SELECT location_name, service_line, room_type, override_rate, notes FROM manual_rate_overrides WHERE client_id = $1`,
           [clientId]
         );
-        const rcOverrideMap = new Map<string, number>();
+        const rcOverrideMap = new Map<string, { rate: number; notes: string | null }>();
         for (const o of mroRows) {
-          rcOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, Number(o.override_rate));
+          rcOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, { rate: Number(o.override_rate), notes: o.notes ?? null });
         }
         if (rcOverrideMap.size > 0) {
-          unitLevelData = unitLevelData.map((unit: any) => ({
-            ...unit,
-            manualOverrideRate: rcOverrideMap.get(`${unit.location}||${unit.serviceLine}||${unit.roomType}`) ?? null,
-          }));
+          unitLevelData = unitLevelData.map((unit: any) => {
+            const ov = rcOverrideMap.get(`${unit.location}||${unit.serviceLine}||${unit.roomType}`);
+            return {
+              ...unit,
+              manualOverrideRate: ov?.rate ?? null,
+              manualOverrideNote: ov?.notes ?? null,
+            };
+          });
         }
       } catch (_e) { /* non-fatal — table may not exist on older environments */ }
       
@@ -22874,12 +22878,9 @@ Return ONLY valid JSON, no markdown fences:
         `SELECT location_name, service_line, room_type, override_rate, notes FROM manual_rate_overrides WHERE client_id = $1`,
         [clientId]
       );
-      const manualOverrideMap = new Map<string, number>();
-      const manualNotesMap   = new Map<string, string | null>();
+      const manualOverrideMap = new Map<string, { rate: number; notes: string | null }>();
       for (const o of manualOverridesRes.rows) {
-        const k = `${o.location_name}||${o.service_line}||${o.room_type}`;
-        manualOverrideMap.set(k, Number(o.override_rate));
-        manualNotesMap.set(k, o.notes ?? null);
+        manualOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, { rate: Number(o.override_rate), notes: o.notes ?? null });
       }
 
       const rows = Array.from(comboMap.values()).map(c => {
@@ -22919,12 +22920,11 @@ Return ONLY valid JSON, no markdown fences:
         // room_type_groupings renames it to a branded name (e.g. "Legacy Lane - Studio"), the
         // display key (c.roomType) won't match.  c.modeRoomType holds the canonical name computed
         // by mode() WITHIN GROUP (ORDER BY rr.room_type) in the aggRes SQL.
-        const manualRate = manualOverrideMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`)
+        const manualOverrideEntry = manualOverrideMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`)
           ?? manualOverrideMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`)
           ?? null;
-        const manualNote = manualNotesMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`)
-          ?? manualNotesMap.get(`${c.campus}||${c.serviceLine}||${c.modeRoomType}`)
-          ?? null;
+        const manualRate = manualOverrideEntry?.rate ?? null;
+        const manualOverrideNote = manualOverrideEntry?.notes ?? null;
         // Rule preview fallback: when no rate is stored in rent_roll_data (engine not
         // yet run), use the preview rate of the first matching active rule so the
         // Proposed Rates + Revenue Impact columns populate as soon as a rule matches.
@@ -23114,7 +23114,7 @@ Return ONLY valid JSON, no markdown fences:
           // Proposed rates — manual override takes precedence when present
           proposedRule: effectiveProposed,
           hasManualOverride: manualRate !== null,
-          overrideNote: manualNote,
+          manualOverrideNote: manualOverrideNote,
           proposedVarDollar: (effectiveProposed !== null && streetSpot !== null) ? effectiveProposed - streetSpot : null,
           proposedVarPct: (effectiveProposed !== null && streetSpot !== null && streetSpot !== 0) ? (effectiveProposed - streetSpot) / streetSpot : null,
           // Revenue impact: (proposed − street) × T3 move-ins/mo; annual =

@@ -242,7 +242,6 @@ const GROUPS: GroupDef[] = [
       { key: "proposedRule", label: "Final", type: "money", w: 80, tip: "Final proposed rate after all active rules (and any manual override) are applied. Blank when no adjustment rule applies to this combo." },
       { key: "proposedVarDollar", label: "Δ$ vs Current", type: "moneysigned", w: 90, tip: "Final rules-applied rate minus the current street (spot) rate, in dollars." },
       { key: "proposedVarPct", label: "Δ% vs Current", type: "pctfracsigned", w: 90, tip: "Final rules-applied rate vs the current street (spot) rate, as a percentage." },
-      { key: "overrideNote", label: "Note", type: "text", w: 160, tip: "Optional note saved alongside this manual rate override." },
     ],
   },
   {
@@ -1751,14 +1750,17 @@ export default function ReferenceDataTable({
                     return (
                       <div className="flex items-center gap-0.5 justify-end group">
                         {row.hasManualOverride && (
-                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 flex-none" title="Manual override active" />
+                          <span
+                            className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 flex-none"
+                            title={row.manualOverrideNote ? `Manual override active — Note: ${row.manualOverrideNote}` : "Manual override active"}
+                          />
                         )}
                         <span className={colorCls}>{display || "—"}</span>
                         <Popover open={isOpen} onOpenChange={(open) => {
                           if (open) {
                             setOverridePop({ key: popKey, campus: row.campus, serviceLine: row.serviceLine, roomType: row.roomType, locationId: row.locationId ?? null });
                             setOverrideInput(row.proposedRule ? String(Math.round(Number(row.proposedRule))) : '');
-                            setOverrideNote('');
+                            setOverrideNote(row.manualOverrideNote ?? '');
                           } else {
                             setOverridePop(null);
                           }
@@ -1911,7 +1913,7 @@ export default function ReferenceDataTable({
                   })() : c.key === "overrideNote" && groupLevel === "roomType" && row.proposedRule != null ? (() => {
                     const cellKey = `${row.campus}||${row.serviceLine}||${row.roomType}`;
                     const isEditing = noteEditKey === cellKey;
-                    const savedNote = row.overrideNote as string | null | undefined;
+                    const savedNote = row.manualOverrideNote as string | null | undefined;
                     if (isEditing) {
                       return (
                         <input

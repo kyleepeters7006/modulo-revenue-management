@@ -1177,7 +1177,10 @@ export default function RateCardTable({
                                 /* Manual override display */
                                 <>
                                   <div className="flex items-center gap-1">
-                                    <span className="inline-block w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Manual override active" />
+                                    <span
+                       className="inline-block w-2 h-2 rounded-full bg-amber-400 shrink-0"
+                       title={unit.manualOverrideNote ? `Manual override active — Note: ${unit.manualOverrideNote}` : "Manual override active"}
+                     />
                                     <span className="font-medium text-amber-700">
                                       {formatRateByServiceLine(Math.round(unit.manualOverrideRate), unit.serviceLine)}
                                     </span>
@@ -1294,6 +1297,7 @@ export default function RateCardTable({
                             if (open) {
                               setOverrideRC({ locationName: unit.location, serviceLine: unit.serviceLine, roomType: unit.roomType, locationId: unit.locationId ?? null });
                               setOverrideRCInput(unit.manualOverrideRate ? String(Math.round(unit.manualOverrideRate)) : unit.ruleAdjustedRate ? String(Math.round(unit.ruleAdjustedRate)) : '');
+                              setOverrideRCNote(unit.manualOverrideNote ?? '');
                             } else { setOverrideRC(null); }
                           }}
                         >
