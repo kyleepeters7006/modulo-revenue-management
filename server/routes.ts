@@ -22360,6 +22360,7 @@ Return ONLY valid JSON, no markdown fences:
       const cachedPayload = getRefDataCache(cacheKey);
       if (cachedPayload) {
         res.setHeader('X-Cache', 'HIT');
+        res.set('Cache-Control', 'no-store');
         return res.json(cachedPayload);
       }
       const computeStart = Date.now();
@@ -23281,6 +23282,7 @@ Return ONLY valid JSON, no markdown fences:
       const payload = { rows: activeRows, months, spotMonth, calculatedAt: new Date().toISOString(), rules: activeRules };
       setRefDataCache(cacheKey, payload, computeStart);
       res.setHeader('X-Cache', 'MISS');
+      res.set('Cache-Control', 'no-store');
       res.json(payload);
     } catch (error) {
       console.error("Error building reference data:", error);
@@ -23314,6 +23316,7 @@ Return ONLY valid JSON, no markdown fences:
       const cachedPayload = getRefDataCache(cacheKey);
       if (cachedPayload) {
         res.setHeader('X-Cache', 'HIT');
+        res.set('Cache-Control', 'no-store');
         return res.json(cachedPayload);
       }
       const computeStart = Date.now();
@@ -23712,6 +23715,7 @@ Return ONLY valid JSON, no markdown fences:
       const payload = { rows, spotMonth };
       setRefDataCache(cacheKey, payload, computeStart);
       res.setHeader('X-Cache', 'MISS');
+      res.set('Cache-Control', 'no-store');
       res.json(payload);
     } catch (error) {
       console.error("Error building unit detail reference data:", error);

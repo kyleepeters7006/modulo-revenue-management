@@ -812,7 +812,7 @@ export default function ReferenceDataTable({
       if (selectedRegions?.length) params.append("regions", selectedRegions.join(","));
       if (selectedDivisions?.length) params.append("divisions", selectedDivisions.join(","));
       if (selectedLocations?.length) params.append("locations", selectedLocations.join(","));
-      const res = await fetch(`/api/reference-data?${params.toString()}`);
+      const res = await fetch(`/api/reference-data?${params.toString()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error("Failed to load reference data");
       return res.json();
     },
@@ -833,7 +833,7 @@ export default function ReferenceDataTable({
       if (selectedRegions?.length) params.append("regions", selectedRegions.join(","));
       if (selectedDivisions?.length) params.append("divisions", selectedDivisions.join(","));
       if (selectedLocations?.length) params.append("locations", selectedLocations.join(","));
-      const res = await fetch(`/api/reference-data/units?${params.toString()}`);
+      const res = await fetch(`/api/reference-data/units?${params.toString()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error("Failed to load unit detail data");
       return res.json();
     },
@@ -1870,7 +1870,7 @@ export default function ReferenceDataTable({
                         : (row.proposedVarPct != null ? String(Math.round(Number(row.proposedVarPct) * 1000) / 10) : '');
                       setDeltaPop({ key: popKey, campus: row.campus, serviceLine: row.serviceLine, roomType: row.roomType, locationId: row.locationId ?? null, mode, streetSpot: street });
                       setDeltaInput(initVal);
-                      setOverrideNote('');
+                      setOverrideNote((row.manualOverrideNote as string | null | undefined) ?? '');
                     };
                     const saveRate = () => {
                       if (!deltaPop) return;
