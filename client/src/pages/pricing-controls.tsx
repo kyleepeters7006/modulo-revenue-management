@@ -2512,12 +2512,12 @@ function CareLevel2RatesPanel() {
                 </tr>
               </thead>
               <tbody>
-                {filteredLocations.map(loc => {
+                {filteredLocations.map((loc, rowIdx) => {
                   const activeSLsForLoc = locationServiceLines[loc.id] ?? [...ALL_SERVICE_LINES];
                   const colsToShow = filterableSLs.filter(sl => activeSLsForLoc.includes(sl));
                   if (colsToShow.length === 0) return null;
                   return (
-                    <tr key={loc.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <tr key={loc.id} className={`border-b border-gray-200 ${rowIdx % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'} hover:bg-blue-100/50`}>
                       <td className="py-2 pr-4 font-medium text-gray-800 truncate max-w-[220px]" title={loc.name}>
                         {loc.name}
                       </td>
@@ -2535,59 +2535,63 @@ function CareLevel2RatesPanel() {
 
                         return (
                           <td key={sl} className="py-2 px-3">
-                            <div className="flex flex-col gap-1">
-                              {/* Computed rate from rent roll */}
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] text-gray-400 uppercase tracking-wide font-medium w-14 shrink-0">From data</span>
+                            {/* Fixed two-column grid: 52px label | 72px value — keeps $ and numbers pixel-aligned */}
+                            <div className="grid gap-y-1" style={{ gridTemplateColumns: '52px 72px' }}>
+                              {/* Row 1 — computed value */}
+                              <span className="text-[10px] text-gray-400 uppercase tracking-wide font-medium self-center leading-none">From data</span>
+                              <div className="relative h-6 flex items-center">
                                 {computed != null ? (
-                                  <span className="text-xs font-mono text-gray-600">${computed.toLocaleString()}</span>
+                                  <>
+                                    <span className="absolute left-1.5 text-[11px] text-gray-400">$</span>
+                                    <span className="w-full text-right text-xs font-mono text-gray-600 pr-1">{computed.toLocaleString()}</span>
+                                  </>
                                 ) : (
-                                  <span className="text-xs text-gray-300">—</span>
+                                  <span className="w-full text-center text-xs text-gray-300">—</span>
                                 )}
                               </div>
-                              {/* Override toggle + input */}
-                              <div className="flex items-center gap-1.5">
-                                <label className="flex items-center gap-1 cursor-pointer select-none">
-                                  <input
-                                    type="checkbox"
-                                    checked={overrideOn}
-                                    onChange={e => {
-                                      setOverrideToggle(prev => ({ ...prev, [key]: e.target.checked }));
-                                      if (!e.target.checked) {
-                                        setPendingRates(prev => { const n = { ...prev }; delete n[key]; return n; });
-                                      }
-                                    }}
-                                    className="h-3 w-3 rounded border-gray-300 accent-teal-600 cursor-pointer"
-                                  />
-                                  <span className="text-[10px] text-gray-400 uppercase tracking-wide font-medium">Override</span>
-                                </label>
-                                {overrideOn && (
-                                  <div className="flex items-center gap-1 flex-1">
-                                    <div className="relative flex-1 min-w-[72px]">
-                                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                                      <Input
-                                        className="pl-5 pr-1 text-xs h-7 text-right"
-                                        value={displayVal}
-                                        onChange={e => handleChange(loc.id, sl, e.target.value)}
-                                        onKeyDown={e => { if (e.key === "Enter") handleSave(loc.id, loc.name, sl); }}
-                                        placeholder="—"
-                                        data-testid={`input-care-l2-${loc.id}-${sl}`}
-                                      />
-                                    </div>
-                                    {isDirty && (
-                                      <Button
-                                        size="sm"
-                                        className="h-7 px-2 text-xs"
-                                        onClick={() => handleSave(loc.id, loc.name, sl)}
-                                        disabled={isSaving}
-                                        data-testid={`button-save-care-l2-${loc.id}-${sl}`}
-                                      >
-                                        {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                                      </Button>
-                                    )}
+                              {/* Row 2 — override checkbox + input */}
+                              <label className="flex items-center gap-1 cursor-pointer select-none self-center">
+                                <input
+                                  type="checkbox"
+                                  checked={overrideOn}
+                                  onChange={e => {
+                                    setOverrideToggle(prev => ({ ...prev, [key]: e.target.checked }));
+                                    if (!e.target.checked) {
+                                      setPendingRates(prev => { const n = { ...prev }; delete n[key]; return n; });
+                                    }
+                                  }}
+                                  className="h-3 w-3 rounded border-gray-300 accent-teal-600 cursor-pointer"
+                                />
+                                {overrideOn && <span className="text-[10px] text-gray-400 uppercase tracking-wide font-medium">Override</span>}
+                              </label>
+                              {overrideOn ? (
+                                <div className="flex items-center gap-1">
+                                  <div className="relative w-[72px]">
+                                    <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-gray-400 text-[11px]">$</span>
+                                    <Input
+                                      className="pl-4 pr-1 text-xs h-6 text-right w-full"
+                                      value={displayVal}
+                                      onChange={e => handleChange(loc.id, sl, e.target.value)}
+                                      onKeyDown={e => { if (e.key === "Enter") handleSave(loc.id, loc.name, sl); }}
+                                      placeholder="—"
+                                      data-testid={`input-care-l2-${loc.id}-${sl}`}
+                                    />
                                   </div>
-                                )}
-                              </div>
+                                  {isDirty && (
+                                    <Button
+                                      size="sm"
+                                      className="h-6 px-1.5 text-xs"
+                                      onClick={() => handleSave(loc.id, loc.name, sl)}
+                                      disabled={isSaving}
+                                      data-testid={`button-save-care-l2-${loc.id}-${sl}`}
+                                    >
+                                      {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                                    </Button>
+                                  )}
+                                </div>
+                              ) : (
+                                <div />
+                              )}
                             </div>
                           </td>
                         );
