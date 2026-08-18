@@ -445,8 +445,8 @@ export default function PricingControls() {
               </div>
             </div>
 
-            <div>
-              <h3 className="text-sm font-medium text-gray-900 mb-2">Service Line:</h3>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h3 className="text-sm font-medium text-gray-900 shrink-0">Service Line:</h3>
               <div className="flex flex-wrap gap-2">
                 {serviceLines.map((serviceLine) => (
                   <Button
