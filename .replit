@@ -30,6 +30,10 @@ args = "Start application"
 task = "workflow.run"
 args = "comp-position-refdata-parity"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "al-mc-family-matching"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -46,6 +50,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npx tsx tests/compPositionRefDataParity.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "al-mc-family-matching"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx tsx tests/alMcFamilyMatching.test.ts"
 
 [workflows.workflow.metadata]
 isValidation = true
