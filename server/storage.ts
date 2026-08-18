@@ -1461,19 +1461,23 @@ export class DatabaseStorage implements IStorage {
       workingData = finalData;
     }
 
-    // Filter to only the most recent survey month per keyStatsLocation
-    const latestMonthByLocation = new Map<string, string>();
+    // Filter to only the most recent survey month per competitor+location+type.
+    // Using per-location granularity would silently drop any competitor that was
+    // not resurveyed in the latest batch month (e.g. a weighted competitor whose
+    // last survey is 2026-03 while the location's newest month is 2026-07).
+    // Keying by competitor+type lets each row keep its own freshest data.
+    const latestMonthByCompetitor = new Map<string, string>();
     for (const record of workingData) {
-      const loc = record.keyStatsLocation || '';
+      const key = `${record.keyStatsLocation}|${record.competitorName}|${record.competitorType}`;
       const month = record.surveyMonth || '';
-      const current = latestMonthByLocation.get(loc);
+      const current = latestMonthByCompetitor.get(key);
       if (!current || month > current) {
-        latestMonthByLocation.set(loc, month);
+        latestMonthByCompetitor.set(key, month);
       }
     }
     workingData = workingData.filter(record => {
-      const loc = record.keyStatsLocation || '';
-      const latest = latestMonthByLocation.get(loc);
+      const key = `${record.keyStatsLocation}|${record.competitorName}|${record.competitorType}`;
+      const latest = latestMonthByCompetitor.get(key);
       return !latest || !record.surveyMonth || record.surveyMonth === latest;
     });
 
