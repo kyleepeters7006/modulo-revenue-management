@@ -513,7 +513,7 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
                       tip: "Rule name and the rate adjustment it applies (+% increase or −% concession). Click to sort alphabetically.",
                     },
                     {
-                      key: "serviceLine", label: "Service Line", cls: "px-3 py-3 w-[9%] text-left",
+                      key: "serviceLine", label: "SL", cls: "px-3 py-3 w-[9%] text-left",
                       tip: "The care type this rule is scoped to (AL, HC, HC/MC, SL, VIL). Rules showing 'All' apply across every service line.",
                     },
                     {
@@ -845,7 +845,7 @@ export function HistoryReportModal({ open, onClose, locationId, locationName, se
                   <thead>
                     <tr className="bg-slate-50 text-left">
                       <th className="px-5 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500 w-[30%]">Campus</th>
-                      <th className="px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500 w-[10%]">Service Line</th>
+                      <th className="px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500 w-[10%]">SL</th>
                       <th className="px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500 w-[12%]">Adjustment</th>
                       <th className="px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500">Room Types</th>
                     </tr>

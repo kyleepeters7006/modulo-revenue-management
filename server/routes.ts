@@ -18546,6 +18546,7 @@ Respond in JSON format:
         WHERE client_id = $1
           AND upload_month IN ($2, $3)
           AND street_rate > 0
+          AND (service_line IN ('HC','HC/MC') OR street_rate >= 1000)
           AND NOT (service_line IN ('AL','AL/MC','SL','VIL') AND room_number ~* '/[B-Zb-z]$')
           ${locFilter}
         GROUP BY service_line
