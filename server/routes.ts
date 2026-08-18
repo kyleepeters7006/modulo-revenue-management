@@ -4566,6 +4566,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 COUNT(*) FILTER (WHERE ${slWeightSqlPredicate('rr.')}) AS units,
                 COUNT(*) FILTER (WHERE rr.occupied_yn AND ${slWeightSqlPredicate('rr.')}) AS occupied,
                 ROUND(AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0
+                  AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
                   AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
                 )) AS avg_street_rate
               FROM rent_roll_data rr
@@ -4677,9 +4678,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               pool.query(`
                 SELECT rr.location, rr.service_line, rr.room_type,
                   SUM(rr.street_rate) FILTER (WHERE rr.street_rate > 0
+                    AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
                     AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
                   ) AS sum_street_rate,
                   COUNT(*) FILTER (WHERE rr.street_rate > 0
+                    AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
                     AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
                   ) AS n_street_rate
                 FROM rent_roll_data rr
@@ -6079,6 +6082,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 COUNT(*)                 AS units,
                 AVG(CASE WHEN occupied_yn THEN 1.0 ELSE 0.0 END) * 100 AS avg_occ,
                 AVG(street_rate) FILTER (WHERE street_rate > 0
+                  AND (service_line IN ('HC','HC/MC') OR street_rate >= 1000)
                   AND NOT (service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND room_number ~* '/[B-Zb-z]$')
                 ) AS avg_rate
          FROM rent_roll_data
@@ -6146,6 +6150,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           `SELECT COUNT(DISTINCT location) AS locations, COUNT(*) AS units,
                   AVG(CASE WHEN occupied_yn THEN 1.0 ELSE 0.0 END) * 100 AS avg_occ,
                   AVG(street_rate) FILTER (WHERE street_rate > 0
+                    AND (service_line IN ('HC','HC/MC') OR street_rate >= 1000)
                     AND NOT (service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND room_number ~* '/[B-Zb-z]$')
                   ) AS avg_rate
            FROM rent_roll_data
@@ -14473,6 +14478,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
          LEFT JOIN attribute_ratings ar_am ON ar_am.attribute_type = 'amenity'    AND ar_am.rating_level = rr.amenity_rating
          WHERE rr.client_id = $1
            AND rr.street_rate > 0
+           AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
            AND rr.service_line IS NOT NULL
            AND rr.room_type IS NOT NULL
          GROUP BY rr.service_line, rr.room_type`,
@@ -14509,6 +14515,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
            LEFT JOIN attribute_ratings ar_am ON ar_am.attribute_type = 'amenity'    AND ar_am.rating_level = rr.amenity_rating
            WHERE rr.client_id = $1
              AND rr.street_rate > 0
+             AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
              AND rr.service_line IS NOT NULL AND rr.room_type IS NOT NULL
            GROUP BY rr.service_line, rr.room_type
          ),
@@ -17146,6 +17153,7 @@ Respond in JSON format:
                  COUNT(*) FILTER (WHERE rr.occupied_yn) AS occupied,
                  mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (
                    WHERE rr.street_rate > 0
+                     AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
                      AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL') AND rr.room_number ~* '/[B-Zb-z]$')
                  ) AS avg_street
           FROM rent_roll_data rr
@@ -19065,6 +19073,7 @@ Return ONLY valid JSON with no markdown fences:
             COUNT(*) FILTER (WHERE ${slWeightSqlPredicate('rrd.')}) AS weight_cnt,
             COUNT(*) FILTER (WHERE rrd.occupied_yn AND ${slWeightSqlPredicate('rrd.')}) AS weight_occ_cnt,
             ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0
+              AND (rrd.service_line IN ('HC','HC/MC') OR rrd.street_rate >= 1000)
               AND NOT (rrd.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rrd.room_number ~* '/[B-Zb-z]$')
             )) AS avg_street_rate,
             ROUND(AVG(COALESCE(mro.override_rate, rrd.rule_adjusted_rate)) FILTER (WHERE COALESCE(mro.override_rate, rrd.rule_adjusted_rate) > 0)) AS avg_rule_rate,
@@ -19086,6 +19095,7 @@ Return ONLY valid JSON with no markdown fences:
         pool.query(`
           SELECT rrd.upload_month, rrd.service_line,
             ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0
+              AND (rrd.service_line IN ('HC','HC/MC') OR rrd.street_rate >= 1000)
               AND NOT (rrd.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rrd.room_number ~* '/[B-Zb-z]$')
             )) AS avg_street_rate,
             ROUND(AVG(COALESCE(mro.override_rate, rrd.rule_adjusted_rate)) FILTER (WHERE COALESCE(mro.override_rate, rrd.rule_adjusted_rate) > 0)) AS avg_rule_rate
@@ -19539,6 +19549,7 @@ Return ONLY valid JSON with no markdown fences:
             -- route this through room_type_groupings.group_name: branded group
             -- names like "Legacy Lane - Studio" break the 'studio%' prefix match.
             rr.room_type ILIKE 'studio%'
+            AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
             AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
           )::numeric, 0) AS our_rate
         FROM rent_roll_data rr
@@ -19612,6 +19623,7 @@ Return ONLY valid JSON with no markdown fences:
         const rrdRateGroupQuery = (groupExpr: string) => pool.query(`
           SELECT ${groupExpr} AS grp, rrd.upload_month,
             ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0
+              AND (rrd.service_line IN ('HC','HC/MC') OR rrd.street_rate >= 1000)
               AND NOT (rrd.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rrd.room_number ~* '/[B-Zb-z]$')
             )) AS avg_street_rate,
             COUNT(*) AS units
@@ -20769,6 +20781,7 @@ Return ONLY valid JSON, no markdown fences:
            AND occupied_yn = true
            AND in_house_rate > 0
            AND street_rate > 0
+           AND (service_line IN ('HC','HC/MC') OR street_rate >= 1000)
            AND (
              (service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND room_number !~* '/[B-Zb-z]$')
              OR
@@ -21004,10 +21017,13 @@ Return ONLY valid JSON, no markdown fences:
         if (vacDays.length) metrics.push({ sl, rt, name: 'avg_days_vacant', val: avgArr(vacDays) });
 
         const SH_SLS_SNAP = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
+        const HC_SLS_SNAP = new Set(['HC', 'HC/MC']);
         // Apply consistent B-bed exclusion to both sides of the competitor variance
         // so the street rate and competitor rate averages compare identical populations.
+        // Also exclude prorated move-in street rates (< $1,000) for non-HC service lines.
         const compUnits = group
           .filter(u => (u.competitor_final_rate || 0) > 100 && (u.street_rate || 0) > 100)
+          .filter(u => HC_SLS_SNAP.has(u.service_line) || (u.street_rate || 0) >= 1000)
           .filter(u => !(SH_SLS_SNAP.has(u.service_line) && /\/[B-Zb-z]$/.test(u.room_number || '')));
         if (compUnits.length) {
           const avgSt = avgArr(compUnits.map(u => u.street_rate));
@@ -22344,6 +22360,7 @@ Return ONLY valid JSON, no markdown fences:
             -- second-occupant entries and data-entry anomalies (e.g. a stray $159 on a Studio
             -- Deluxe) do not drag the representative street rate below the true single-occupant rate.
             mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (WHERE rr.street_rate > 0
+              AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
               AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
             ) AS avg_street,
             AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0)   AS avg_ih,
@@ -23326,6 +23343,10 @@ Return ONLY valid JSON, no markdown fences:
         for (const r of unitsRes.rows as any[]) {
           const st = Number(r.street_rate) || 0;
           if (st <= 0) continue;
+          // Exclude prorated move-in rates (< $1,000) for non-HC service lines, matching
+          // the plausibility floor applied in the grouped reference-data SQL endpoint.
+          const isHc = r.service_line === 'HC' || r.service_line === 'HC/MC';
+          if (!isHc && st < 1000) continue;
           // Exclude B-bed companion rows for senior housing SLs so the mode
           // reflects only the primary (single-occupant) unit rate.
           if (SH_SLS_MODE.has(r.service_line) && /\/[B-Zb-z]$/.test(r.room_number || '')) continue;
