@@ -1057,7 +1057,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
 
       {/* ══ MASTHEAD ══ */}
       <div className="px-6 pt-3 pb-2 border-b border-slate-100">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start justify-between gap-4 relative">
           <div className="flex-1 min-w-0">
             {/* rubric label */}
             <div className="flex items-center gap-2 mb-2">
@@ -1088,6 +1088,32 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               </h2>
             ) : null)}
           </div>
+          {/* Competitive position — absolutely centred in the header row when strip is collapsed */}
+          {!strategyOpen && compPositionData.length > 0 && (
+            <div className="hidden md:flex absolute inset-0 items-center justify-center pointer-events-none">
+              <button
+                type="button"
+                onClick={() => { setStrategyOpen(true); setScatterOpen(true); }}
+                className="pointer-events-auto flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-1.5 group hover:border-teal-300 hover:bg-teal-50/40 transition-colors"
+                title="Open the full Competitive Position chart"
+                aria-expanded={strategyOpen}
+                aria-label={`Competitive position: ${aboveMarket} above market, ${belowMarket} below market${atMarket > 0 ? `, ${atMarket} at market` : ''}. Open the full chart.`}
+                data-testid="button-mini-competitive-position"
+              >
+                <div className="text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 group-hover:text-teal-600 transition-colors whitespace-nowrap mb-0.5">
+                    Competitive Position
+                  </p>
+                  <p className="text-[12px] font-semibold text-slate-600 tabular-nums whitespace-nowrap">
+                    {aboveMarket} above · {belowMarket} below{atMarket > 0 ? ` · ${atMarket} at` : ''} market
+                  </p>
+                </div>
+                <div className="h-[50px] w-[175px] shrink-0">
+                  {renderMiniScatter()}
+                </div>
+              </button>
+            </div>
+          )}
 
           <div className="flex justify-end items-start">
 
@@ -1533,32 +1559,6 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
             <RefreshCw className={`h-3 w-3 ${isFetching ? 'animate-spin' : ''}`} />
           </button>
         </div>
-        {/* Competitive position — centered banner, visible when strip is collapsed */}
-        {!strategyOpen && compPositionData.length > 0 && (
-          <div className="flex justify-center mt-3 pt-3 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => { setStrategyOpen(true); setScatterOpen(true); }}
-              className="flex items-center gap-5 rounded-xl border border-slate-200 bg-slate-50/60 px-6 py-3 group hover:border-teal-300 hover:bg-teal-50/40 transition-colors"
-              title="Open the full Competitive Position chart"
-              aria-expanded={strategyOpen}
-              aria-label={`Competitive position: ${aboveMarket} above market, ${belowMarket} below market${atMarket > 0 ? `, ${atMarket} at market` : ''}. Open the full chart.`}
-              data-testid="button-mini-competitive-position"
-            >
-              <div className="text-center">
-                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400 group-hover:text-teal-600 transition-colors whitespace-nowrap mb-0.5">
-                  Competitive Position
-                </p>
-                <p className="text-sm font-semibold text-slate-600 tabular-nums whitespace-nowrap">
-                  {aboveMarket} above · {belowMarket} below{atMarket > 0 ? ` · ${atMarket} at` : ''} market
-                </p>
-              </div>
-              <div className="h-[64px] w-[220px] shrink-0">
-                {renderMiniScatter()}
-              </div>
-            </button>
-          </div>
-        )}
 
         {/* mobile KPI strip */}
         {strategyOpen && activeRules.length > 0 && !isLoading && (
@@ -2368,18 +2368,27 @@ function CareLevel2RatesPanel() {
 
   const getKey = (locationId: string, sl: string) => `${locationId}|${sl}`;
 
-  // Whether override input is shown for this key:
-  // explicit toggle wins; otherwise on if a saved rate exists
+  // Override is active only when a saved rate exists AND it differs from the
+  // computed (from-data) value. If the saved rate matches what the data already
+  // provides, there's nothing to override — the default is already correct.
   const isOverrideOn = (key: string) => {
     if (overrideToggle[key] !== undefined) return overrideToggle[key];
-    return existingMap.has(key);
+    const saved = existingMap.get(key);
+    if (saved == null) return false;
+    const computed = computedMap.get(key);
+    // Same as data → not really an override
+    if (computed != null && saved === computed) return false;
+    return true;
   };
 
   const getDisplayValue = (locationId: string, sl: string): string => {
     const key = getKey(locationId, sl);
     if (pendingRates[key] !== undefined) return pendingRates[key];
     const existing = existingMap.get(key);
-    return existing != null ? String(existing) : "";
+    if (existing != null) return String(existing);
+    // Pre-populate from computed so the user has a sensible starting point
+    const computed = computedMap.get(key);
+    return computed != null ? String(computed) : "";
   };
 
   const handleChange = (locationId: string, sl: string, value: string) => {
@@ -2390,6 +2399,16 @@ function CareLevel2RatesPanel() {
   const saveMutation = useMutation({
     mutationFn: async ({ locationId, serviceLine, level2Rate }: { locationId: string; serviceLine: string; level2Rate: number }) => {
       const res = await apiRequest("/api/care-level-rates", "POST", { locationId, serviceLine, level2Rate });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/care-level-rates"] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async ({ locationId, serviceLine }: { locationId: string; serviceLine: string }) => {
+      const res = await apiRequest("/api/care-level-rates", "DELETE", { locationId, serviceLine });
       return res.json();
     },
     onSuccess: () => {
@@ -2559,6 +2578,10 @@ function CareLevel2RatesPanel() {
                                     setOverrideToggle(prev => ({ ...prev, [key]: e.target.checked }));
                                     if (!e.target.checked) {
                                       setPendingRates(prev => { const n = { ...prev }; delete n[key]; return n; });
+                                      // Clear the saved override from the server so the data value takes over
+                                      if (existingMap.has(key)) {
+                                        deleteMutation.mutate({ locationId: loc.id, serviceLine: sl });
+                                      }
                                     }
                                   }}
                                   className="h-3 w-3 rounded border-gray-300 accent-teal-600 cursor-pointer"

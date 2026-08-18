@@ -287,6 +287,7 @@ export interface IStorage {
   // Care Level 2 Rates
   getCareLevel2Rates(clientId: string): Promise<CareLevelRate[]>;
   upsertCareLevel2Rate(locationId: string, serviceLine: string, level2Rate: number, clientId: string): Promise<CareLevelRate>;
+  deleteCareLevel2Rate(locationId: string, serviceLine: string, clientId: string): Promise<void>;
   backfillCareLevelRatesFromHistory(clientId: string): Promise<{ upserted: number; skipped: number }>;
 }
 
@@ -2672,6 +2673,18 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return result;
+  }
+
+  async deleteCareLevel2Rate(locationId: string, serviceLine: string, clientId: string): Promise<void> {
+    await db
+      .delete(careLevelRates)
+      .where(
+        and(
+          eq(careLevelRates.locationId, locationId),
+          eq(careLevelRates.serviceLine, serviceLine),
+          eq(careLevelRates.clientId, clientId)
+        )
+      );
   }
 
   /**

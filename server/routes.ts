@@ -5555,6 +5555,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/care-level-rates", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { locationId, serviceLine } = req.body;
+      if (!locationId || !serviceLine) {
+        return res.status(400).json({ error: "locationId and serviceLine are required" });
+      }
+      const allLocations = await storage.getLocations(clientId);
+      const ownsLocation = allLocations.some(l => l.id === locationId);
+      if (!ownsLocation) {
+        return res.status(403).json({ error: "Location does not belong to this client" });
+      }
+      await storage.deleteCareLevel2Rate(locationId, serviceLine, clientId);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error('Error deleting care level rate:', error);
+      res.status(500).json({ error: "Failed to delete care level rate" });
+    }
+  });
+
   // Pricing recommendations
   app.get("/api/recommendations", async (req: any, res) => {
     try {
