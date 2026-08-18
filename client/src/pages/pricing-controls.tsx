@@ -1090,7 +1090,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
           </div>
           {/* Competitive position — absolutely centred in the header row when strip is collapsed */}
           {!strategyOpen && compPositionData.length > 0 && (
-            <div className="hidden md:flex absolute inset-0 items-center justify-center pointer-events-none">
+            <div className="hidden md:flex absolute inset-0 items-center justify-end pr-10 pointer-events-none">
               <button
                 type="button"
                 onClick={() => { setStrategyOpen(true); setScatterOpen(true); }}
@@ -1100,7 +1100,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                 aria-label={`Competitive position: ${aboveMarket} above market, ${belowMarket} below market${atMarket > 0 ? `, ${atMarket} at market` : ''}. Open the full chart.`}
                 data-testid="button-mini-competitive-position"
               >
-                <div className="text-center">
+                <div className="text-center shrink-0">
                   <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 group-hover:text-teal-600 transition-colors whitespace-nowrap mb-0.5">
                     Competitive Position
                   </p>
@@ -1108,7 +1108,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                     {aboveMarket} above · {belowMarket} below{atMarket > 0 ? ` · ${atMarket} at` : ''} market
                   </p>
                 </div>
-                <div className="h-[50px] w-[175px] shrink-0">
+                <div className="h-[52px] w-[240px] shrink-0">
                   {renderMiniScatter()}
                 </div>
               </button>
