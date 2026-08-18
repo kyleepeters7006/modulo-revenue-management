@@ -17149,7 +17149,8 @@ Respond in JSON format:
           }),
         !monthsUsable ? Promise.resolve(emptyRes) : pool.query(`
           SELECT rr.service_line, rr.upload_month AS month,
-                 AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0) AS avg_ih,
+                 AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0
+                   AND (rr.service_line IN ('HC','HC/MC') OR rr.in_house_rate >= 1000)) AS avg_ih,
                  COUNT(*) FILTER (WHERE rr.occupied_yn) AS occupied,
                  mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (
                    WHERE rr.street_rate > 0
@@ -22363,7 +22364,8 @@ Return ONLY valid JSON, no markdown fences:
               AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
               AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
             ) AS avg_street,
-            AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0)   AS avg_ih,
+            AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0
+              AND (rr.service_line IN ('HC','HC/MC') OR rr.in_house_rate >= 1000))          AS avg_ih,
             AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate > 0)        AS avg_comp_base,
             AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
             -- Underlying normalised room type (most common among units in this group).
