@@ -16505,8 +16505,20 @@ Respond in JSON format:
         });
       }
 
-      // Impact using the shared latest-month model
-      const impact = await computeRuleImpact({ action }, clientId);
+      // Impact using the authoritative qualified-rule engine (same as the rules list)
+      const fromFiltersImpactCtx = await buildRuleImpactContext(clientId);
+      const fromFiltersRuleObj = {
+        action,
+        trigger,
+        serviceLine: serviceLines.length === 1 ? serviceLines[0] : null,
+        serviceLines: serviceLines.length > 1 ? serviceLines : null,
+        locationId: null,
+        isActive: true,
+        isHistorical: false,
+      };
+      const impact = fromFiltersImpactCtx
+        ? computeQualifiedRuleImpact(fromFiltersImpactCtx, fromFiltersRuleObj)
+        : { affectedUnits: 0, affectedCampuses: 0, monthlyImpact: 0, annualImpact: 0 };
 
       const rule = await storage.createAdjustmentRule({
         locationId: null,
@@ -16523,7 +16535,7 @@ Respond in JSON format:
         notes: typeof notes === 'string' && notes.trim() ? notes.trim() : null,
         monthlyImpact: Math.round(impact.monthlyImpact),
         annualImpact: Math.round(impact.annualImpact),
-        volumeAdjustedAnnualImpact: Math.round(impact.volumeAdjustedAnnualImpact),
+        volumeAdjustedAnnualImpact: Math.round(impact.annualImpact * 1.05),
       } as any);
 
       onRulesChanged(clientId);
@@ -16611,6 +16623,9 @@ Respond in JSON format:
         if (rt && rt !== 'All' && rt !== '—') g.rts.add(rt);
       }
 
+      // Build impact context once for all rules in this import batch
+      const importBatchImpactCtx = await buildRuleImpactContext(clientId);
+
       for (const g of Array.from(groups.values())) {
         const parsedRule = parseNaturalLanguageRule(g.desc);
         if (!parsedRule) {
@@ -16652,9 +16667,21 @@ Respond in JSON format:
         };
         parsedRule.name = generateRuleName(parsedRule.trigger, parsedRule.action);
 
-        const impact = await computeRuleImpact({ action: parsedRule.action }, clientId);
+        const importLocationId = campuses.length === 1 ? (locByName.get(campuses[0].toLowerCase()) ?? null) : null;
+        const importRuleObj = {
+          action: parsedRule.action,
+          trigger: parsedRule.trigger,
+          serviceLine: sls.length === 1 ? sls[0] : null,
+          serviceLines: sls.length > 1 ? sls : null,
+          locationId: importLocationId,
+          isActive: true,
+          isHistorical: false,
+        };
+        const impact = importBatchImpactCtx
+          ? computeQualifiedRuleImpact(importBatchImpactCtx, importRuleObj)
+          : { affectedUnits: 0, affectedCampuses: 0, monthlyImpact: 0, annualImpact: 0 };
         const rule = await storage.createAdjustmentRule({
-          locationId: campuses.length === 1 ? (locByName.get(campuses[0].toLowerCase()) ?? null) : null,
+          locationId: importLocationId,
           serviceLine: sls.length === 1 ? sls[0] : null,
           serviceLines: sls.length > 1 ? sls : null,
           name: parsedRule.name,
@@ -16667,7 +16694,7 @@ Respond in JSON format:
           createdBy: 'excel-import',
           monthlyImpact: Math.round(impact.monthlyImpact),
           annualImpact: Math.round(impact.annualImpact),
-          volumeAdjustedAnnualImpact: Math.round(impact.volumeAdjustedAnnualImpact),
+          volumeAdjustedAnnualImpact: Math.round(impact.annualImpact * 1.05),
         } as any);
         rulesCreated.push({ name: rule.name, rowCount: g.rowCount, annualImpact: Math.round(impact.annualImpact) });
       }
