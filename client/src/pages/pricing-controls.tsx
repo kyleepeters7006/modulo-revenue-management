@@ -260,8 +260,8 @@ export default function PricingControls() {
           </button>
 
           {filtersOpen && <div className="px-6 pb-6 space-y-4 border-t border-gray-100 pt-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
+            <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+              <div className="min-w-[150px] flex-1">
                 <h3 className="text-sm font-medium text-gray-900 mb-2">Regions:</h3>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -322,7 +322,7 @@ export default function PricingControls() {
                 </Popover>
               </div>
 
-              <div>
+              <div className="min-w-[150px] flex-1">
                 <h3 className="text-sm font-medium text-gray-900 mb-2">Divisions:</h3>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -383,7 +383,7 @@ export default function PricingControls() {
                 </Popover>
               </div>
 
-              <div>
+              <div className="min-w-[150px] flex-1">
                 <h3 className="text-sm font-medium text-gray-900 mb-2">Locations:</h3>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -443,25 +443,25 @@ export default function PricingControls() {
                   </PopoverContent>
                 </Popover>
               </div>
-            </div>
-
-            <div className="flex items-center gap-3 flex-wrap">
-              <h3 className="text-sm font-medium text-gray-900 shrink-0">Service Line:</h3>
-              <div className="flex flex-wrap gap-2">
-                {serviceLines.map((serviceLine) => (
-                  <Button
-                    key={serviceLine}
-                    variant={selectedServiceLine === serviceLine ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setSelectedServiceLine(serviceLine)}
-                    data-testid={`button-serviceline-${serviceLine.toLowerCase()}`}
-                    className="text-xs"
-                  >
-                    {serviceLine === "All" ? "All Service Lines" : serviceLine}
-                  </Button>
-                ))}
+\              <div className="shrink-0 self-end">
+                <h3 className="text-sm font-medium text-gray-900 mb-1.5">Service Line:</h3>
+                <div className="flex flex-wrap gap-1.5">
+                  {serviceLines.map((serviceLine) => (
+                    <Button
+                      key={serviceLine}
+                      variant={selectedServiceLine === serviceLine ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedServiceLine(serviceLine)}
+                      data-testid={`button-serviceline-${serviceLine.toLowerCase()}`}
+                      className="text-xs"
+                    >
+                      {serviceLine === "All" ? "All Service Lines" : serviceLine}
+                    </Button>
+                  ))}
+                </div>
               </div>
             </div>
+
 
             {/* Scope Indicator */}
             <div className="mt-4 pt-4 border-t border-gray-200">
@@ -1089,33 +1089,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
             ) : null)}
           </div>
 
-          {/* Collapsed-state preview. On first load the strip is shut, leaving this whole
-              right side empty — the thumbnail puts competitive position on screen without
-              the user expanding anything. It is deliberately absent once the strip is open,
-              since the full-size chart below would then duplicate it. */}
-          {!strategyOpen && compPositionData.length > 0 && (
-            <button
-              type="button"
-              onClick={() => { setStrategyOpen(true); setScatterOpen(true); }}
-              className="hidden md:flex shrink-0 items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-1.5 -my-0.5 group hover:border-teal-300 hover:bg-teal-50/40 transition-colors"
-              title="Open the full Competitive Position chart"
-              aria-expanded={strategyOpen}
-              aria-label={`Competitive position: ${aboveMarket} above market, ${belowMarket} below market${atMarket > 0 ? `, ${atMarket} at market` : ''}. Open the full chart.`}
-              data-testid="button-mini-competitive-position"
-            >
-              <div className="text-right">
-                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 group-hover:text-teal-600 transition-colors whitespace-nowrap">
-                  Competitive Position
-                </p>
-                <p className="text-[11px] font-semibold text-slate-500 tabular-nums whitespace-nowrap">
-                  {aboveMarket} above · {belowMarket} below{atMarket > 0 ? ` · ${atMarket} at` : ''} market
-                </p>
-              </div>
-              <div className="h-[46px] w-[132px] shrink-0">
-                {renderMiniScatter()}
-              </div>
-            </button>
-          )}
+          <div className="flex justify-end items-start">
 
           {/* KPI column — right-aligned on desktop */}
           {strategyOpen && activeRules.length > 0 && !isLoading && (
@@ -1459,6 +1433,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               </div>
             </DialogContent>
           </Dialog>
+          </div>
 
           {/* ── Campus coverage drill-down modal ── */}
           <Dialog open={!!coverageRuleId} onOpenChange={(o) => { if (!o) setCoverageRuleId(null); }}>
@@ -1558,6 +1533,32 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
             <RefreshCw className={`h-3 w-3 ${isFetching ? 'animate-spin' : ''}`} />
           </button>
         </div>
+        {/* Competitive position — centered banner, visible when strip is collapsed */}
+        {!strategyOpen && compPositionData.length > 0 && (
+          <div className="flex justify-center mt-3 pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => { setStrategyOpen(true); setScatterOpen(true); }}
+              className="flex items-center gap-5 rounded-xl border border-slate-200 bg-slate-50/60 px-6 py-3 group hover:border-teal-300 hover:bg-teal-50/40 transition-colors"
+              title="Open the full Competitive Position chart"
+              aria-expanded={strategyOpen}
+              aria-label={`Competitive position: ${aboveMarket} above market, ${belowMarket} below market${atMarket > 0 ? `, ${atMarket} at market` : ''}. Open the full chart.`}
+              data-testid="button-mini-competitive-position"
+            >
+              <div className="text-center">
+                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400 group-hover:text-teal-600 transition-colors whitespace-nowrap mb-0.5">
+                  Competitive Position
+                </p>
+                <p className="text-sm font-semibold text-slate-600 tabular-nums whitespace-nowrap">
+                  {aboveMarket} above · {belowMarket} below{atMarket > 0 ? ` · ${atMarket} at` : ''} market
+                </p>
+              </div>
+              <div className="h-[64px] w-[220px] shrink-0">
+                {renderMiniScatter()}
+              </div>
+            </button>
+          </div>
+        )}
 
         {/* mobile KPI strip */}
         {strategyOpen && activeRules.length > 0 && !isLoading && (
