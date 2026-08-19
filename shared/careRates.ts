@@ -75,6 +75,43 @@ export function resolveCareLevel2(
 }
 
 /**
+ * Basis and plausibility bounds for a competitor care rate on an HC line.
+ *
+ * Our own HC Level-2 care is $33/day (~$1,004/mo), so the plausible *daily*
+ * band is narrow and the monthly band starts far below the $500 that a street
+ * rate would need to look monthly. The HC care column mixes both bases —
+ * a single survey month carries values of 2, 8, 31, 33, 100, 200 and 1050 —
+ * so the cutoff has to be calibrated against our own care rate, not reused
+ * from the street-rate logic.
+ *
+ * At $150/day a competitor would be charging 4.5x our care rate and roughly as
+ * much for care alone as their entire daily street rate; every observed value
+ * at or above this reads correctly as monthly (200 -> $6.57, 1050 -> $34.50,
+ * 1196 -> $39.29). The previous $500 cutoff passed 100 and 200 straight
+ * through as daily, inflating the adjustment on those rows ~30x.
+ */
+const HC_MONTHLY_CARE_THRESHOLD = 150;
+
+/**
+ * Plausible band for an HC Level-2 care rate once expressed per day.
+ *
+ * Our own HC care is $33/day at every campus, so this brackets it at roughly
+ * 1/6x to 2.5x. The band is applied *after* the basis decision above and exists
+ * to reject values that cannot be a care schedule on either reading:
+ *
+ *   $100 -> as daily it is 3x our rate and a quarter of a whole daily street
+ *           rate; as monthly it is $3.29/day. Neither is credible, so the row
+ *           reports no adjustment instead of a fabricated +$67/day.
+ *   $2/$4 -> import noise on any basis.
+ *
+ * A competitor whose genuine care is above ~$2,400/mo is also dropped here.
+ * That trade is deliberate: for a benchmark that feeds pricing, omitting an
+ * adjustment is far safer than publishing one that is wrong by ~30x.
+ */
+const MIN_PLAUSIBLE_DAILY_CARE = 5;
+const MAX_PLAUSIBLE_DAILY_CARE = 80;
+
+/**
  * Convert a competitor Level-2 care rate into the service line's native basis.
  *
  * Survey imports record care rates monthly regardless of service line (an HC
@@ -82,13 +119,43 @@ export function resolveCareLevel2(
  * Differencing them without this conversion overstates an HC care adjustment by
  * roughly 30x. Values already small enough to be daily are passed through so
  * re-normalising an already-converted figure is a no-op.
+ *
+ * Returns null when the value cannot be read as a credible care rate on either
+ * basis, so callers fall through to "no adjustment" instead of publishing a
+ * number derived from junk.
  */
 export function normalizeCompetitorCareRate(rate: number | null | undefined, serviceLine: string): number | null {
   if (rate == null || !Number.isFinite(rate) || rate <= 0) return null;
-  if (isDailyServiceLine(serviceLine) && rate >= 500) {
-    return rate / DAYS_PER_MONTH;
+  if (isDailyServiceLine(serviceLine)) {
+    const daily = rate >= HC_MONTHLY_CARE_THRESHOLD ? rate / DAYS_PER_MONTH : rate;
+    if (daily < MIN_PLAUSIBLE_DAILY_CARE || daily > MAX_PLAUSIBLE_DAILY_CARE) return null;
+    return daily;
   }
   return rate;
+}
+
+/**
+ * The same care rate expressed per month, for the paths that do their
+ * arithmetic in monthly dollars (the bulk rate job, the recalculation writer,
+ * the rate-comparison endpoint and the benchmark aggregator).
+ *
+ * Those paths must not re-implement the basis test: doing so is what allowed a
+ * monthly $200 to be read as daily on one surface and multiplied to $6,088/mo
+ * on another for the very same survey row. Deciding the basis once here and
+ * scaling afterwards keeps every surface on one answer, including the
+ * rejection of values that are not credible on either basis.
+ *
+ * `serviceLine` selects the basis only — HC and HC/MC are the daily lines. For
+ * a survey type without its own service line (SMC rows are daily), pass the
+ * line it maps to.
+ */
+export function normalizeCompetitorCareRateMonthly(
+  rate: number | null | undefined,
+  serviceLine: string,
+): number | null {
+  const native = normalizeCompetitorCareRate(rate, serviceLine);
+  if (native == null) return null;
+  return isDailyServiceLine(serviceLine) ? native * DAYS_PER_MONTH : native;
 }
 
 /**

@@ -166,7 +166,7 @@ export default function Analysis() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-[var(--trilogy-grey)]">Average Daily Rate</CardTitle>
+            <CardTitle className="text-sm font-medium text-[var(--trilogy-grey)]">Avg Monthly Rate</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-baseline justify-between">
@@ -252,7 +252,7 @@ export default function Analysis() {
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip formatter={(value: any) => formatCurrency(value)} />
                 <Legend />
-                <Area type="monotone" dataKey="adr" stackId="1" stroke="var(--trilogy-turquoise)" fill="var(--trilogy-turquoise)" fillOpacity={0.6} name="ADR" />
+                <Area type="monotone" dataKey="adr" stackId="1" stroke="var(--trilogy-turquoise)" fill="var(--trilogy-turquoise)" fillOpacity={0.6} name="Avg Monthly Rate" />
                 <Area type="monotone" dataKey="variance" stackId="2" stroke="var(--trilogy-warning)" fill="var(--trilogy-warning)" fillOpacity={0.4} name="Variance" />
               </AreaChart>
             </ResponsiveContainer>

@@ -196,9 +196,9 @@ export default function OverviewTiles() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       {/* Main Overview Tiles */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {tiles.map((tile) => {
           const Icon = tile.icon;
           return (
@@ -209,9 +209,9 @@ export default function OverviewTiles() {
               onMouseEnter={() => prefetchTileDetails(tile.tileType)}
               data-testid={`tile-clickable-${tile.tileType}`}
             >
-              <CardContent className="p-6">
+              <CardContent className="p-4">
                 <div className="flex items-center justify-between">
-                  <div className="space-y-2">
+                  <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-light text-[var(--dashboard-muted)] tracking-wide uppercase">
                         {tile.title}
@@ -240,7 +240,7 @@ export default function OverviewTiles() {
 
       {/* Occupancy by Service Line Breakdown */}
       <Card className="dashboard-card">
-        <CardHeader>
+        <CardHeader className="pb-3 pt-4">
           <CardTitle className="text-xl font-semibold text-[var(--dashboard-text)]">
             Occupancy by Service Line
           </CardTitle>
@@ -311,7 +311,7 @@ export default function OverviewTiles() {
       
       {/* Occupancy by Room Type Breakdown */}
       <Card className="dashboard-card">
-        <CardHeader>
+        <CardHeader className="pb-3 pt-4">
           <CardTitle className="text-xl font-semibold text-[var(--dashboard-text)]">
             Occupancy by Room Type
           </CardTitle>

@@ -18,6 +18,7 @@ import type { CompetitiveSurveyData, RentRollData } from "@shared/schema";
 import { eq, and, sql, desc, asc } from "drizzle-orm";
 import { isDailyRateServiceLine, normalizeToMonthlyRate, convertToStoredRate } from "./rateNormalization";
 import { buildCompetitorRateUpdate } from "./competitorRateSanitizer";
+import { normalizeCompetitorCareRateMonthly } from "@shared/careRates";
 // Shared matching policy — MUST stay identical across all writers of the
 // stored competitor columns (this path and competitorRateJobService).
 import { SURVEY_TYPE_CHAIN, roomTypeFallbackChain, isDailySurveyType, normalizeUnitRoomType, computeCompetitorAdjustments, formatAdjustmentExplanation, CARE_LEVEL_2_APPLIES } from "./competitorMatchPolicy";
@@ -214,14 +215,24 @@ export async function getBestCompetitorRate(
     let careLevel2Rate = bestRecord.careLevel2Rate;
     let medicationManagementFee = bestRecord.medicationManagementFee;
     
+    // Care basis is resolved independently of the street-rate basis. The two
+    // columns disagree row by row, so gating the care conversion on the base
+    // rate (as this did) let an HC row with a monthly base skip conversion
+    // entirely. The shared helper also keeps this monthly-oriented writer and
+    // the native-basis read path in /api/competitors on one answer: a bare
+    // `< 500 -> scale up` test was the mirror image of the read path's old bug,
+    // inflating a genuinely monthly $200 into $6,088/mo. Values that are not
+    // credible on either basis come back null and surface as no care
+    // adjustment rather than a 30x-inflated one.
+    if (isHCOrSMC) {
+      careLevel2Rate = normalizeCompetitorCareRateMonthly(careLevel2Rate, 'HC');
+    }
+
     // If HC or SMC and rates look like daily rates (< $1000), convert to monthly
     if (isHCOrSMC && baseRate > 0 && baseRate < 1000) {
       const originalRate = baseRate;
       baseRate = baseRate * DAYS_PER_MONTH;
-      
-      if (careLevel2Rate && careLevel2Rate < 500) {
-        careLevel2Rate = careLevel2Rate * DAYS_PER_MONTH;
-      }
+
       if (medicationManagementFee && medicationManagementFee < 100) {
         medicationManagementFee = medicationManagementFee * DAYS_PER_MONTH;
       }

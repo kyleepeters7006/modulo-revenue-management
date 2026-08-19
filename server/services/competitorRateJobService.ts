@@ -2,6 +2,7 @@ import { db, pool } from '../db';
 import { competitorRateJobs, rentRollData, competitiveSurveyData, careLevelRates, locations } from '@shared/schema';
 import { eq, and, isNull, gt, desc, sql, or } from 'drizzle-orm';
 import { buildCompetitorRateUpdate } from './competitorRateSanitizer';
+import { normalizeCompetitorCareRateMonthly } from '@shared/careRates';
 import { invalidateRefDataCache } from '../refDataCache';
 
 const BATCH_SIZE = 500;
@@ -260,12 +261,22 @@ async function processBatch(
         let competitorCareLevel2Monthly = matchedCompetitor.careLevel2Rate || 0;
         let competitorMedMgmtMonthly = matchedCompetitor.medicationManagementFee || 0;
         
+        // Care basis is resolved independently of the street-rate basis, via the
+        // same shared helper the recalculation writer and /api/competitors use.
+        // The HC care column mixes bases row by row, so the old
+        // `< 500 -> scale up` test (and gating it on the base rate) turned a
+        // genuinely monthly $200 into $6,088/mo here — the principal stored-rate
+        // writer — while other surfaces read the same row differently. Values
+        // that are not credible on either basis come back null and yield no care
+        // adjustment instead of an inflated one.
+        if (isHCOrSMC) {
+          competitorCareLevel2Monthly =
+            normalizeCompetitorCareRateMonthly(competitorCareLevel2Monthly, 'HC') ?? 0;
+        }
+
         // Convert HC/SMC survey rates from daily to monthly for calculations
         if (isHCOrSMC && baseRateMonthly > 0 && baseRateMonthly < 1000) {
           baseRateMonthly = baseRateMonthly * DAYS_PER_MONTH;
-          if (competitorCareLevel2Monthly > 0 && competitorCareLevel2Monthly < 500) {
-            competitorCareLevel2Monthly = competitorCareLevel2Monthly * DAYS_PER_MONTH;
-          }
           if (competitorMedMgmtMonthly > 0 && competitorMedMgmtMonthly < 100) {
             competitorMedMgmtMonthly = competitorMedMgmtMonthly * DAYS_PER_MONTH;
           }

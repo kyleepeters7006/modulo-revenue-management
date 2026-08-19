@@ -23,6 +23,7 @@
  */
 
 import type { Pool } from "pg";
+import { normalizeCompetitorCareRate } from "@shared/careRates";
 
 // Service line → survey competitor types, in fallback order.
 // HC/MC falls back to the legacy SMC type for older survey imports.
@@ -111,12 +112,19 @@ export function normalizeBaseRate(compType: string, value: number | string | nul
   return v;
 }
 
-/** Normalize a survey care-L2 rate; null when implausible/unusable. */
+/**
+ * Normalize a survey care-L2 rate; null when implausible/unusable.
+ *
+ * The daily lines defer to the shared helper rather than keeping a local
+ * cutoff. This previously used `> 200 ? v / 30.0 : v`, which disagreed with
+ * every other surface on both the threshold and the days-per-month constant,
+ * so the same survey row produced a different benchmark than the rate table.
+ */
 export function normalizeCareL2(compType: string, value: number | string | null): number | null {
   const v = num(value);
   if (v === null || v <= 0) return null;
   if (DAILY_COMP_TYPES.has(compType)) {
-    return v > 200 ? v / 30.0 : v;
+    return normalizeCompetitorCareRate(v, 'HC');
   }
   return v >= 1 && v <= 5000 ? v : null;
 }

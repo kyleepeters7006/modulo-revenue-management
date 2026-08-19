@@ -85,7 +85,7 @@ import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizz
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import { clampRateWithGuardrails } from "./guardrailsUtil";
 import { splitCombinedSl, slWeightSqlPredicate, isSlWeightUnit, type SlWeight } from "./services/slSplit";
-import { resolveCareLevel2, normalizeCompetitorCareRate, normalizeCompetitorStreetRate, isDailyServiceLine, CARE_ELIGIBLE_SERVICE_LINES } from "@shared/careRates";
+import { resolveCareLevel2, normalizeCompetitorCareRate, normalizeCompetitorCareRateMonthly, normalizeCompetitorStreetRate, isDailyServiceLine, CARE_ELIGIBLE_SERVICE_LINES, DAYS_PER_MONTH as SHARED_DAYS_PER_MONTH } from "@shared/careRates";
 import { z } from "zod";
 import multer from "multer";
 import Papa from "papaparse";
@@ -13756,9 +13756,16 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         
         // Convert HC/SMC/HC/MC daily rates to monthly if they appear to be daily (< $1000)
         const isHCType = record.competitorType === 'HC' || record.competitorType === 'SMC' || record.competitorType === 'HC/MC';
+
+        // Care basis is resolved independently of the street-rate basis, through
+        // the same shared helper every other surface uses, so one survey row
+        // cannot read as daily here and monthly elsewhere.
+        if (isHCType) {
+          careLevel2 = normalizeCompetitorCareRateMonthly(careLevel2, 'HC') ?? 0;
+        }
+
         if (isHCType && baseRate > 0 && baseRate < 1000) {
           baseRate = baseRate * DAYS_PER_MONTH;
-          if (careLevel2 > 0 && careLevel2 < 500) careLevel2 = careLevel2 * DAYS_PER_MONTH;
           if (medMgmt > 0 && medMgmt < 100) medMgmt = medMgmt * DAYS_PER_MONTH;
         }
         
@@ -13768,7 +13775,14 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         if (CARE_LEVEL_2_APPLIES[serviceLine]) {
           const trilogyCareL2 = trilogyCareRateMap[serviceLine];
           if (trilogyCareL2 !== undefined) {
-            careAdj = careLevel2 - trilogyCareL2;
+            // Both sides must be monthly here: careLevel2 is normalized to
+            // monthly above, while care_level_rates stores the HC lines per day.
+            // Differencing a monthly competitor figure against our daily one
+            // understated the adjustment by ~30x on every HC row.
+            const trilogyCareL2Monthly = isDailyServiceLine(serviceLine ?? '')
+              ? trilogyCareL2 * DAYS_PER_MONTH
+              : trilogyCareL2;
+            careAdj = careLevel2 - trilogyCareL2Monthly;
           }
           // else: no care_level_rates entry for this service line — no adjustment applied
         }
@@ -14773,9 +14787,25 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         data.totalRooms++;
         if (unit.occupiedYN) {
           data.occupiedRooms++;
-          data.totalRevenue += (unit.rentAndCareRate || unit.streetRate || 0);
-          data.totalBaseRent += (unit.streetRate || 0);
-          data.totalCareRate += (unit.careRate || 0);
+          // HC/HC-MC rates are stored per DAY; senior housing lines per MONTH.
+          // Blending them raw produced a meaningless average (a $375/day HC room
+          // dragging down $6,000/month AL rooms), so normalise to a monthly
+          // equivalent first using the one shared constant.
+          const toMonthly = (rate: number) =>
+            isDailyServiceLine(unit.serviceLine || '') ? rate * SHARED_DAYS_PER_MONTH : rate;
+
+          // In-house revenue lives in `in_house_rate`. The legacy
+          // `rent_and_care_rate` column is all zeros/nulls in production, and
+          // `0 || streetRate` silently fell through to the street rate — which
+          // made RevPOR an exact duplicate of ADR. Read the populated column and
+          // only fall back when it genuinely has no value, matching how
+          // Reference Data sources its in-house figure.
+          const inHouse = Number(unit.inHouseRate) || Number(unit.rentAndCareRate) || 0;
+          const street = Number(unit.streetRate) || 0;
+
+          data.totalRevenue += toMonthly(inHouse || street);
+          data.totalBaseRent += toMonthly(street);
+          data.totalCareRate += toMonthly(Number(unit.careRate) || 0);
         }
       });
       

@@ -51,7 +51,7 @@
 - [Leaflet popup constraints](leaflet-popup-constraints.md) — size popups against the map card not the viewport; bindPopup defaults to maxWidth 300 and will clip wide content.
 - [MC care-rate inheritance](care-level2-mc-inheritance.md) — AL/MC→AL and HC/MC→HC when no care row exists; flag as inherited, never insert client care data.
 - [Competitor care ADJ column](comp-care-adj-column.md) — ADJ is theirs−ours (uniform per room type by construction); the editable cell inverse-writes the survey's raw care rate.
-- [Care rate daily vs monthly](care-rate-daily-vs-monthly.md) — our HC care is per-day, competitor care is per-month; normalize to the line's native basis or HC adjustments inflate ~30x.
+- [Care rate daily vs monthly](care-rate-daily-vs-monthly.md) — HC care column mixes bases; one shared normalizer or surfaces disagree ~30x. HC comp care is ~98% absent — check data before math.
 - [Competitor payload aggregation traps](competitor-payload-traps.md) — map-reduce create/append branches must carry identical fields; never default a missing rate to a plausible number.
 - [Rule table display vs priority order](rule-table-priority-vs-display.md) — sort a copy; badges come from canonical order. Status tiers never invert. serviceLine has a legacy string form.
 - [AI suggest page scope](ai-suggest-page-scope.md) — campus/region/division filters must reach the datasets, the shown impacts, AND the rule Accept persists, or scope leaks portfolio-wide.
@@ -62,3 +62,5 @@
 - [room_type normalization fixed](normalized-room-type-unreliable.md) — room-type keywords now beat occupancy style; backfill re-derives from source_room_type (set-based); group_name is branded, never prefix-match it.
 - [Comp rate writer lineage](comp-rate-writer-lineage.md) — all writers share one matching policy (normalization, fallback chains, no-match clearing); .2/.8 adjustments = stale $55/day fallback data, re-run the job.
 - [Comp-rate reprocessing ops](comp-rate-reprocessing-ops.md) — a normalizer fix doesn't touch stored rows (backfill is fire-and-forget at boot); a correct re-run legitimately lowers coverage.
+- [Dead vs live rate columns](dead-rate-columns.md) — in_house_rate is live, rent_and_care_rate is dead; 0-vs-NULL makes `||`/COALESCE silently serve street rate, and demo data hides it.
+- [RefData cross-surface basis](refdata-cross-surface-basis.md) — census already agrees everywhere; real gaps are daily/monthly blending, payer scope, and no single days-per-month constant.
