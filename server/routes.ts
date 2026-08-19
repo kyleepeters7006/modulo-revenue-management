@@ -86,6 +86,7 @@ import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import { clampRateWithGuardrails } from "./guardrailsUtil";
 import { splitCombinedSl, slWeightSqlPredicate, isSlWeightUnit, type SlWeight } from "./services/slSplit";
 import { resolveCareLevel2, normalizeCompetitorCareRate, normalizeCompetitorCareRateMonthly, normalizeCompetitorStreetRate, isDailyServiceLine, CARE_ELIGIBLE_SERVICE_LINES, DAYS_PER_MONTH as SHARED_DAYS_PER_MONTH } from "@shared/careRates";
+import { buildRateBaselineCte, RATE_BASELINE_JOIN, STREET_RATE_GATE, IN_HOUSE_RATE_GATE } from "./services/rateBaselineSql";
 import { z } from "zod";
 import multer from "multer";
 import Papa from "papaparse";
@@ -4853,7 +4854,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 // For HC/HC-MC the base rate is expressed in daily dollars,
                 // so the override must be divided by 30.44 before adding.
                 const adjustment = careAdjOverride != null
-                  ? (daily ? careAdjOverride / 30.44 : careAdjOverride)
+                  ? (daily ? careAdjOverride / SHARED_DAYS_PER_MONTH : careAdjOverride)
                   : (theirCare != null && ourCareResolved != null)
                     ? theirCare - ourCareResolved.rate
                     : null;
@@ -6926,7 +6927,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const serviceLine = unit.serviceLine || '';
           const isDaily = serviceLine === 'HC' || serviceLine === 'HC/MC';
           const rate = unit.inHouseRate || unit.streetRate || 0;
-          const monthlyRate = isDaily ? rate * 30.44 : rate;
+          const monthlyRate = isDaily ? rate * SHARED_DAYS_PER_MONTH : rate;
           
           if (monthlyRate > 0) {
             totalRate += monthlyRate;
@@ -6973,7 +6974,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           serviceLine: sl,
           currentRate,
           isDaily,
-          rateDisplay: currentRate ? (isDaily ? `$${Math.round(currentRate / 30.44)}/day` : `$${currentRate.toLocaleString()}/mo`) : 'N/A',
+          rateDisplay: currentRate ? (isDaily ? `$${Math.round(currentRate / SHARED_DAYS_PER_MONTH)}/day` : `$${currentRate.toLocaleString()}/mo`) : 'N/A',
           unitCount: currentUnits.length,
           occupiedCount: currentUnits.filter(u => u.occupiedYN === true || u.occupiedYN === 'Y').length,
           momChange: calcChange(currentRate, prevRate),
@@ -7012,7 +7013,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             roomType: rt,
             currentRate,
             isDaily,
-            rateDisplay: currentRate ? (isDaily ? `$${Math.round(currentRate / 30.44)}/day` : `$${currentRate.toLocaleString()}/mo`) : 'N/A',
+            rateDisplay: currentRate ? (isDaily ? `$${Math.round(currentRate / SHARED_DAYS_PER_MONTH)}/day` : `$${currentRate.toLocaleString()}/mo`) : 'N/A',
             unitCount: currentUnits.length,
             occupiedCount: currentUnits.filter(u => u.occupiedYN === true || u.occupiedYN === 'Y').length,
             momChange: calcChange(currentRate, prevRate),
@@ -9254,7 +9255,7 @@ ${campusOccLines.join('\n')}
       // (×30.44) so the averaged figure is a true monthly equivalent on all cards.
       const HC_DAILY_SL = new Set(['HC', 'HC/MC']);
       const toMonthly = (rate: number, serviceLine: string) =>
-        HC_DAILY_SL.has(serviceLine) ? rate * 30.44 : rate;
+        HC_DAILY_SL.has(serviceLine) ? rate * SHARED_DAYS_PER_MONTH : rate;
 
       const occupancyByRoomType = Object.entries(roomTypeStats).map(([roomType, stats]: [string, any]) => {
         const roomTypeUnits = rentRollDataFiltered.filter(u => u.roomType === roomType);
@@ -9426,7 +9427,7 @@ ${campusOccLines.join('\n')}
               let rate = u.competitorFinalRate || 0;
               // Convert HC daily rates to monthly (HC rates below $1000 are daily)
               if ((serviceLine === 'HC' || serviceLine === 'HC/MC') && rate > 0 && rate < 1000) {
-                rate = rate * 30.44; // Convert daily to monthly
+                rate = rate * SHARED_DAYS_PER_MONTH; // Convert daily to monthly
               }
               return rate;
             });
@@ -9538,7 +9539,7 @@ ${campusOccLines.join('\n')}
             let rate = u.competitorFinalRate || 0;
             // Convert HC daily rates to monthly
             if (rate > 0 && rate < 1000) {
-              rate = rate * 30.44;
+              rate = rate * SHARED_DAYS_PER_MONTH;
             }
             return sum + rate;
           }, 0) / hcUnitsWithCompetitor.length
@@ -10413,7 +10414,7 @@ ${campusOccLines.join('\n')}
             totalRate: sql<number>`SUM(
               CASE 
                 WHEN ${rentRollData.serviceLine} IN ('HC', 'HC/MC', 'SMC') THEN
-                  COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * 30
+                  COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0) * ${SHARED_DAYS_PER_MONTH}
                 ELSE 
                   COALESCE(NULLIF(${rentRollData.inHouseRate}, 0), ${rentRollData.streetRate}, 0)
               END
@@ -13741,7 +13742,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
       };
       
       // Convert daily rates to monthly for HC/SMC
-      const DAYS_PER_MONTH = 30.44;
+      const DAYS_PER_MONTH = SHARED_DAYS_PER_MONTH;
       
       // Service lines where care level 2 adjustment applies
       const CARE_LEVEL_2_APPLIES: Record<string, boolean> = {
@@ -20817,7 +20818,7 @@ Return ONLY valid JSON, no markdown fences:
       if (!locationId) return res.status(400).json({ error: "locationId is required" });
 
       const HC_DAILY_SL = new Set(['HC', 'HC/MC']);
-      const DAYS_PER_MONTH = 30.44;
+      const DAYS_PER_MONTH = SHARED_DAYS_PER_MONTH;
 
       // Fetch all occupied single-occupant units for the campus
       const units = await pool.query<{
@@ -21471,7 +21472,7 @@ Return ONLY valid JSON, no markdown fences:
                SUM(CASE WHEN rr.occupied_yn
                         AND (rr.service_line NOT IN ('HC','HC/MC')
                              OR rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%')
-                        THEN CASE WHEN rr.service_line IN ('HC','HC/MC') THEN rr.in_house_rate * 30.4 ELSE rr.in_house_rate END
+                        THEN CASE WHEN rr.service_line IN ('HC','HC/MC') THEN rr.in_house_rate * ${SHARED_DAYS_PER_MONTH} ELSE rr.in_house_rate END
                         ELSE 0 END) AS revenue,
                COUNT(*) FILTER (WHERE rr.occupied_yn
                         AND (rr.service_line NOT IN ('HC','HC/MC')
@@ -21650,7 +21651,7 @@ Return ONLY valid JSON, no markdown fences:
         // Using in_house_rate (=0 for vacant units) would inflate the delta to the
         // full rate rather than just the rule's adjustment.
         const isDaily = ['HC', 'HC/MC'].includes(u.service_line);
-        const rateMultiplier = isDaily ? 30.4 : 1;
+        const rateMultiplier = isDaily ? SHARED_DAYS_PER_MONTH : 1;
         const streetRate = Number(u.street_rate) || 0;
         const ruleRate = Number(u.rule_adjusted_rate) || 0;
         const projRateDelta = (ruleRate - streetRate) * rateMultiplier;
@@ -21835,14 +21836,14 @@ Return ONLY valid JSON, no markdown fences:
             const rawRate = latest
               ? (Number(latest.in_house_rate) || Number(latest.street_rate) || 0)
               : 0;
-            const baseMonthlyRate = rawRate * (isDaily ? 30.4 : 1);
+            const baseMonthlyRate = rawRate * (isDaily ? SHARED_DAYS_PER_MONTH : 1);
             // Support both action formats: new {adjustmentType,adjustmentValue} and old {type,value}
             const adjType: string = hr.action?.adjustmentType || hr.action?.type || 'percentage';
             const adjValue = Number(hr.action?.adjustmentValue ?? hr.action?.value ?? 0);
             const histProjRate = adjType === 'percentage'
               ? baseMonthlyRate * (adjValue / 100)
               : adjType === 'absolute'
-                ? (isDaily ? adjValue * 30.4 : adjValue)
+                ? (isDaily ? adjValue * SHARED_DAYS_PER_MONTH : adjValue)
                 : 0;
             const histDaysVacant = latest?.days_vacant != null ? Number(latest.days_vacant) : null;
 
@@ -22220,7 +22221,7 @@ Return ONLY valid JSON, no markdown fences:
           .map((r: any) => ({
             roomNumber: r.room_number,
             roomType: r.room_type,
-            monthlyRate: Math.round(isHc ? Number(r.in_house_rate) * 30.4 : Number(r.in_house_rate)),
+            monthlyRate: Math.round(isHc ? Number(r.in_house_rate) * SHARED_DAYS_PER_MONTH : Number(r.in_house_rate)),
           }));
         const excluded = isHc
           ? rowsRes.rows.filter((r: any) => r.upload_month === m && r.occupied_yn && !isPrivate(r.payor_type)).length
@@ -22369,7 +22370,16 @@ Return ONLY valid JSON, no markdown fences:
       // 2) Build all filter params synchronously before launching parallel queries
       const params: any[] = [clientId, months];
       let where = `rr.client_id = $1 AND rr.upload_month = ANY($2)`;
-      if (serviceLine) { params.push(serviceLine); where += ` AND rr.service_line = $${params.length}`; }
+      // Scope for the level-2 (portfolio) rate baseline. It tracks `where` for
+      // tenant, month and service line but deliberately STOPS before the
+      // location/region/division filters: narrowing the page to one campus
+      // must not narrow the yardstick that campus is measured against.
+      let portfolioWhere = where;
+      if (serviceLine) {
+        params.push(serviceLine);
+        where += ` AND rr.service_line = $${params.length}`;
+        portfolioWhere += ` AND rr.service_line = $${params.length}`;
+      }
       if (locations.length)  { params.push(locations);  where += ` AND rr.location = ANY($${params.length})`; }
       if (regions.length)    { params.push(regions);    where += ` AND loc.region = ANY($${params.length})`; }
       if (divisions.length)  { params.push(divisions);  where += ` AND loc.division = ANY($${params.length})`; }
@@ -22395,6 +22405,13 @@ Return ONLY valid JSON, no markdown fences:
       const [aggRes, inqRes, moveRes] = await Promise.all([
         // 3) Per-month per-combo aggregation
         pool.query(`
+          ${buildRateBaselineCte({
+            where,
+            portfolioWhere,
+            joins: `
+            LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location`,
+            includeInHouse: true,
+          })}
           SELECT
             loc.id                                           AS location_id,
             rr.location                                      AS campus,
@@ -22406,16 +22423,22 @@ Return ONLY valid JSON, no markdown fences:
             COUNT(DISTINCT CASE WHEN rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') THEN REGEXP_REPLACE(rr.room_number, '/[A-Za-z]+$', '') ELSE rr.room_number END) AS total,
             COUNT(DISTINCT CASE WHEN rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.occupied_yn THEN REGEXP_REPLACE(rr.room_number, '/[A-Za-z]+$', '') WHEN rr.service_line NOT IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.occupied_yn THEN rr.room_number ELSE NULL END) AS occupied,
             AVG(rr.days_vacant) FILTER (WHERE NOT rr.occupied_yn AND rr.days_vacant > 0) AS avg_days_vacant,
-            -- Street rate is the published SINGLE-OCCUPANT asking rate, which should be uniform
-            -- per room type. Use the mode (most common value) rather than AVG so that
-            -- second-occupant entries and data-entry anomalies (e.g. a stray $159 on a Studio
-            -- Deluxe) do not drag the representative street rate below the true single-occupant rate.
-            mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (WHERE rr.street_rate > 0
-              AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
+            -- Street rate is the published SINGLE-OCCUPANT asking rate. We report a true
+            -- AVERAGE (not a mode) so that every unit in the group contributes and real rate
+            -- dispersion is visible. Anomalies are removed by the relative outlier gate below
+            -- instead of by letting the single most-common value win.
+            --
+            -- Outlier gate: a rate below RATE_OUTLIER_FLOOR_RATIO of its OWN
+            -- location + service-line median is treated as bad data (a stray $159 on a Studio,
+            -- a prorated move-in month). This replaces a fixed "$1,000 unless HC" floor, which
+            -- dropped genuinely low-priced VIL/SL inventory and needed an HC carve-out purely
+            -- because HC is priced per day.
+            AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0
+              AND ${STREET_RATE_GATE}
               AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
             ) AS avg_street,
             AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0
-              AND (rr.service_line IN ('HC','HC/MC') OR rr.in_house_rate >= 1000))          AS avg_ih,
+              AND ${IN_HOUSE_RATE_GATE})          AS avg_ih,
             AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate > 0)        AS avg_comp_base,
             AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
             -- Underlying normalised room type (most common among units in this group).
@@ -22433,6 +22456,7 @@ Return ONLY valid JSON, no markdown fences:
           LEFT JOIN room_type_groupings rtg
             ON rtg.client_id = rr.client_id AND rtg.location = rr.location
            AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
+          ${RATE_BASELINE_JOIN}
           WHERE ${where}
           GROUP BY loc.id, rr.location, loc.division, loc.region, rr.service_line, COALESCE(rtg.group_name, rr.room_type), rr.upload_month
         `, params),
@@ -22609,9 +22633,10 @@ Return ONLY valid JSON, no markdown fences:
       }
 
       // Build one GroupRateInput per (campus, SL, RT) from spot-month aggRes rows.
-      // avg_street is uniform per room type in aggRes (the SQL uses mode()), so it equals
-      // the mode rate — same base as the units endpoint's groupModeStreet.
-      const _ruleGroups: { campus: string; sl: string; rt: string; sourceRt?: string; locationId: string|null; modeStreetRate: number; avgIhRate: number; total: number; occ: number }[] = [];
+      // avg_street is the outlier-gated AVERAGE street rate from the aggRes SQL — the
+      // same basis as the units endpoint's groupStreetRateMap, so rule previews price
+      // a unit identically on the grouped and detail views.
+      const _ruleGroups: { campus: string; sl: string; rt: string; sourceRt?: string; locationId: string|null; groupStreetRate: number; avgIhRate: number; total: number; occ: number }[] = [];
       {
         const _gAgg = new Map<string, { campus: string; sl: string; rt: string; sourceRt?: string; locationId: string|null; avgStreet: number; avgIh: number; total: number; occ: number }>();
         for (const r of aggRes.rows as any[]) {
@@ -22629,7 +22654,7 @@ Return ONLY valid JSON, no markdown fences:
           _gAgg.set(key, g);
         }
         for (const g of Array.from(_gAgg.values())) {
-          _ruleGroups.push({ campus: g.campus, sl: g.sl, rt: g.rt, sourceRt: g.sourceRt, locationId: g.locationId, modeStreetRate: g.avgStreet, avgIhRate: g.avgIh, total: g.total, occ: g.occ });
+          _ruleGroups.push({ campus: g.campus, sl: g.sl, rt: g.rt, sourceRt: g.sourceRt, locationId: g.locationId, groupStreetRate: g.avgStreet, avgIhRate: g.avgIh, total: g.total, occ: g.occ });
         }
       }
 
@@ -22674,12 +22699,12 @@ Return ONLY valid JSON, no markdown fences:
         // Accumulate SL-level weighted averages for the campus||sl fallback key.
         const slAcc = new Map<string, { wSum: number; wN: number }>();
         for (const g of _ruleGroups) {
-          if (!g.modeStreetRate || !g.campus || !g.sl || !g.rt) continue;
+          if (!g.groupStreetRate || !g.campus || !g.sl || !g.rt) continue;
           // Use RT-specific benchmark; fall back to SL-level for trigger evaluation only.
           const bench = refCompBench.benchmarkForRT(g.campus, g.sl, g.rt)
                      ?? refCompBench.benchmarkFor(g.campus, g.sl);
           if (!bench || bench.adjusted <= 0) continue;
-          const pct = (g.modeStreetRate - bench.adjusted) / bench.adjusted * 100;
+          const pct = (g.groupStreetRate - bench.adjusted) / bench.adjusted * 100;
           refCompVarMap.set(`${g.campus}||${g.sl}||${g.rt}`, pct);
           // Accumulate unit-weighted SL-level variance for the fallback key.
           const slKey = `${g.campus}||${g.sl}`;
@@ -23383,42 +23408,26 @@ Return ONLY valid JSON, no markdown fences:
         }
       }
 
-      // Mode street rate per group — matches the grouped endpoint's
-      //   mode() WITHIN GROUP (ORDER BY street_rate) FILTER (WHERE street_rate > 0)
-      // Tie-breaking: ascending sort → smallest value wins (PostgreSQL behaviour).
-      // Computed here (before rulePreviewMap) so the rule-preview base rate uses
-      // the same mode as the grouped endpoint, not a simple average.
-      const groupModeStreet = new Map<string, number>();
-      {
-        const SH_SLS_MODE = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
-        const freq = new Map<string, Map<number, number>>();
-        for (const r of unitsRes.rows as any[]) {
-          const st = Number(r.street_rate) || 0;
-          if (st <= 0) continue;
-          // Exclude prorated move-in rates (< $1,000) for non-HC service lines, matching
-          // the plausibility floor applied in the grouped reference-data SQL endpoint.
-          const isHc = r.service_line === 'HC' || r.service_line === 'HC/MC';
-          if (!isHc && st < 1000) continue;
-          // Exclude B-bed companion rows for senior housing SLs so the mode
-          // reflects only the primary (single-occupant) unit rate.
-          if (SH_SLS_MODE.has(r.service_line) && /\/[B-Zb-z]$/.test(r.room_number || '')) continue;
-          const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
-          if (!freq.has(key)) freq.set(key, new Map());
-          const m = freq.get(key)!;
-          m.set(st, (m.get(st) || 0) + 1);
-        }
-        for (const [key, m] of Array.from(freq.entries())) {
-          // mode() WITHIN GROUP (ORDER BY street_rate ASC): most frequent;
-          // ties → smallest value (first in ascending sort order).
-          let maxCount = 0, modeRate = Infinity;
-          for (const [rate, count] of Array.from(m.entries())) {
-            if (count > maxCount || (count === maxCount && rate < modeRate)) {
-              maxCount = count; modeRate = rate;
-            }
-          }
-          if (isFinite(modeRate)) groupModeStreet.set(key, modeRate);
-        }
-      }
+      // Average street rate per group — the JS twin of the grouped
+      // reference-data endpoint's
+      //   AVG(rr.street_rate) FILTER (... relative outlier gate ...)
+      // The two MUST stay on the same basis: this map is the rule-preview base
+      // rate for the units detail view, and the grouped view shows the SQL
+      // figure. Any divergence makes the same unit price differently on two
+      // screens.
+      //
+      // Bad rows are removed by comparing each rate against the median of its
+      // own campus + service line (see shared/rateOutliers.ts), not against a
+      // fixed $1,000 floor — the floor discarded genuinely low-priced VIL/SL
+      // inventory and needed an HC carve-out because HC is priced per day.
+      // Computed before rulePreviewMap so rule previews use this same base.
+      const { computeGroupStreetRateMap } = await import('./services/groupStreetRateJs');
+      const groupStreetRateMap = await computeGroupStreetRateMap(
+        (sql, params) => pool.query(sql, params),
+        clientId,
+        spotMonth,
+        unitsRes.rows as any[],
+      );
 
       // Rule-preview fallback per group (campus||sl||rt) — uses the shared
       // buildGroupRulePreviewRates pipeline so trigger semantics stay in sync
@@ -23496,7 +23505,7 @@ Return ONLY valid JSON, no markdown fences:
           // base rate matches the grouped endpoint's mode() WITHIN GROUP SQL value.
           const groupInputs = Array.from(gAgg.values()).map(g => ({
             campus: g.campus, sl: g.sl, rt: g.rt, sourceRt: g.sourceRt, locationId: g.locationId,
-            modeStreetRate: groupModeStreet.get(`${g.campus}||${g.sl}||${g.rt}`) ?? 0,
+            groupStreetRate: groupStreetRateMap.get(`${g.campus}||${g.sl}||${g.rt}`) ?? 0,
             avgIhRate: g.ihN ? g.ihSum / g.ihN : 0,
             total: g.total, occ: g.occ,
           }));
@@ -23509,12 +23518,12 @@ Return ONLY valid JSON, no markdown fences:
             const refCompBench2 = await _loadCB2(pool, clientId);
             const slAcc2 = new Map<string, { wSum: number; wN: number }>();
             for (const g of groupInputs) {
-              if (!g.modeStreetRate || !g.campus || !g.sl || !g.rt) continue;
+              if (!g.groupStreetRate || !g.campus || !g.sl || !g.rt) continue;
               // RT-specific benchmark; fall back to SL-level for trigger evaluation only.
               const bench = refCompBench2.benchmarkForRT(g.campus, g.sl, g.rt)
                          ?? refCompBench2.benchmarkFor(g.campus, g.sl);
               if (!bench || bench.adjusted <= 0) continue;
-              const pct = (g.modeStreetRate - bench.adjusted) / bench.adjusted * 100;
+              const pct = (g.groupStreetRate - bench.adjusted) / bench.adjusted * 100;
               compVarMap2.set(`${g.campus}||${g.sl}||${g.rt}`, pct);
               const slKey = `${g.campus}||${g.sl}`;
               const acc = slAcc2.get(slKey) || { wSum: 0, wN: 0 };
@@ -23530,8 +23539,8 @@ Return ONLY valid JSON, no markdown fences:
       }
 
       // ── Group-level revenue impact for parity with grouped /api/reference-data ──
-      // groupModeStreet was already computed above (before rulePreviewMap) so the
-      // rule-preview base rate uses the same mode as the grouped endpoint.
+      // groupStreetRateMap was already computed above (before rulePreviewMap) so the
+      // rule-preview base rate uses the same averaged basis as the grouped endpoint.
 
       // Group effective proposed — mirrors the grouped endpoint's precedence:
       //   manual override ?? AVG(rule_adjusted_rate) for units with a stored rate ?? rule preview.
@@ -23566,7 +23575,7 @@ Return ONLY valid JSON, no markdown fences:
       // Distributing this evenly to each unit row guarantees exact summation parity.
       const groupMonthlyImpactMap = new Map<string, number | null>();
       for (const key of Array.from(groupUnitCount.keys())) {
-        const groupStreet   = groupModeStreet.get(key) ?? null;
+        const groupStreet   = groupStreetRateMap.get(key) ?? null;
         const groupProposed = groupEffectiveProposedMap.get(key) ?? null;
         const groupT3       = t3Map.get(key) ?? null;
         const gMonthly = (groupProposed !== null && groupStreet !== null && groupT3 !== null)
@@ -23598,7 +23607,7 @@ Return ONLY valid JSON, no markdown fences:
           const parts = key.split('||');
           const campus = parts[0], sl = parts[1], rt = parts[2];
           const groupProposed = groupEffectiveProposedMap.get(key) ?? null;
-          const groupStreet   = groupModeStreet.get(key) ?? null;
+          const groupStreet   = groupStreetRateMap.get(key) ?? null;
 
           const elas = elasticityMap.get(`${campus}||${sl}||${rt}`) ?? null;
           const elasticity      = elas?.elasticity ?? null;

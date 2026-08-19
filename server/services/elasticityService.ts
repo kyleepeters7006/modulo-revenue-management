@@ -1,4 +1,5 @@
 import { pool } from "../db";
+import { DAYS_PER_MONTH } from "@shared/careRates";
 
 // ---------------------------------------------------------------------------
 // Price Elasticity Service
@@ -28,7 +29,6 @@ import { pool } from "../db";
 // ---------------------------------------------------------------------------
 
 const DAILY_SERVICE_LINES = new Set(["HC", "HC/MC", "SMC"]);
-const DAYS_PER_MONTH = 30.44;
 
 // Minimum |%Δrate| required for a meaningful elasticity (avoids divide-by-near-zero).
 const MIN_RATE_CHANGE_PCT = 0.005; // 0.5%

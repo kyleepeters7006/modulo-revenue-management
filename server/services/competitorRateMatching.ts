@@ -18,7 +18,7 @@ import type { CompetitiveSurveyData, RentRollData } from "@shared/schema";
 import { eq, and, sql, desc, asc } from "drizzle-orm";
 import { isDailyRateServiceLine, normalizeToMonthlyRate, convertToStoredRate } from "./rateNormalization";
 import { buildCompetitorRateUpdate } from "./competitorRateSanitizer";
-import { normalizeCompetitorCareRateMonthly } from "@shared/careRates";
+import { normalizeCompetitorCareRateMonthly, DAYS_PER_MONTH } from "@shared/careRates";
 // Shared matching policy — MUST stay identical across all writers of the
 // stored competitor columns (this path and competitorRateJobService).
 import { SURVEY_TYPE_CHAIN, roomTypeFallbackChain, isDailySurveyType, normalizeUnitRoomType, computeCompetitorAdjustments, formatAdjustmentExplanation, CARE_LEVEL_2_APPLIES } from "./competitorMatchPolicy";
@@ -208,7 +208,6 @@ export async function getBestCompetitorRate(
     // Convert rates from daily to monthly for HC/HC-MC/SMC competitor types.
     // The basis comes from the ACTUALLY MATCHED record's type — an HC/MC unit
     // can match a legacy daily SMC row via the shared survey-type chain.
-    const DAYS_PER_MONTH = 30.44;
     const isHCOrSMC = isDailySurveyType(matchedSurveyType ?? bestRecord.competitorType ?? '');
     
     let baseRate = bestRecord.monthlyRateAvg || 0;

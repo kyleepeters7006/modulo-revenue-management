@@ -437,7 +437,7 @@ import('../server/services/ruleImpactService').then(async ({ ruleSpecificityScor
     sl: 'VIL',
     rt: 'Studio',
     locationId: 'campus-a',
-    modeStreetRate: 4000,
+    groupStreetRate: 4000,
     avgIhRate: 3800,
     total: 20,
     occ: 14,

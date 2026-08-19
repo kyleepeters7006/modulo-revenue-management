@@ -541,7 +541,7 @@ const previewGroup: GroupRateInput = {
   sl: "AL",
   rt: "One Bedroom",
   locationId: "loc1",
-  modeStreetRate: 4000,
+  groupStreetRate: 4000,
   avgIhRate: 3500,
   total: 20,
   occ: 12,

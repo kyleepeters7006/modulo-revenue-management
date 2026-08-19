@@ -22,6 +22,7 @@
  * market benchmark put AL at parity).
  */
 
+import { DAYS_PER_MONTH } from "@shared/careRates";
 import type { Pool } from "pg";
 import { normalizeCompetitorCareRate } from "@shared/careRates";
 
@@ -104,7 +105,7 @@ export function normalizeBaseRate(compType: string, value: number | string | nul
   const v = num(value);
   if (v === null || v <= 0) return null;
   if (DAILY_COMP_TYPES.has(compType)) {
-    if (v > 800) return v / 30.0; // monthly entered by mistake
+    if (v > 800) return v / DAYS_PER_MONTH; // monthly entered by mistake
     if (v < 50) return null;
     return v;
   }
@@ -134,7 +135,7 @@ export function normalizeMedMgmt(compType: string, value: number | string | null
   const v = num(value);
   if (v === null || v <= 0) return null;
   if (DAILY_COMP_TYPES.has(compType)) {
-    return v > 200 ? v / 30.0 : v;
+    return v > 200 ? v / DAYS_PER_MONTH : v;
   }
   return v >= 1 && v <= 2000 ? v : null;
 }

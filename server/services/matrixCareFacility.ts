@@ -43,7 +43,7 @@ export function billingFrequencyFor(serviceLine: string): BillingFrequency {
 }
 
 /** Days per month used to convert between monthly and per-diem rates. */
-export const DAYS_PER_MONTH = 30.5;
+export { DAYS_PER_MONTH } from "@shared/careRates";
 
 /** Minimal shape needed from a locations row. */
 export interface FacilityLocation {

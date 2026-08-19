@@ -20,6 +20,8 @@
  * ============================================================================
  */
 
+import { DAYS_PER_MONTH } from "@shared/careRates";
+
 // ─── Configuration ────────────────────────────────────────────────────────────
 
 export interface StrategyLayerConfig {
@@ -237,12 +239,12 @@ export function calculateUrgencyScore(
  */
 export function toMonthlyRate(rate: number, serviceLine: string): number {
   const dailyLines = new Set(['HC', 'HC/MC']);
-  return dailyLines.has(serviceLine) ? rate * 30.44 : rate;
+  return dailyLines.has(serviceLine) ? rate * DAYS_PER_MONTH : rate;
 }
 
 export function fromMonthlyRate(monthlyRate: number, serviceLine: string): number {
   const dailyLines = new Set(['HC', 'HC/MC']);
-  return dailyLines.has(serviceLine) ? monthlyRate / 30.44 : monthlyRate;
+  return dailyLines.has(serviceLine) ? monthlyRate / DAYS_PER_MONTH : monthlyRate;
 }
 
 // ─── Step 2: Sales Velocity ────────────────────────────────────────────────────

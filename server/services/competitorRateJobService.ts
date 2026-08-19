@@ -2,7 +2,7 @@ import { db, pool } from '../db';
 import { competitorRateJobs, rentRollData, competitiveSurveyData, careLevelRates, locations } from '@shared/schema';
 import { eq, and, isNull, gt, desc, sql, or } from 'drizzle-orm';
 import { buildCompetitorRateUpdate } from './competitorRateSanitizer';
-import { normalizeCompetitorCareRateMonthly } from '@shared/careRates';
+import { normalizeCompetitorCareRateMonthly, DAYS_PER_MONTH } from '@shared/careRates';
 import { invalidateRefDataCache } from '../refDataCache';
 
 const BATCH_SIZE = 500;
@@ -52,7 +52,6 @@ function isDailyRateServiceLine(serviceLine: string | null): boolean {
 }
 
 // Convert monthly rate to daily for HC service lines
-const DAYS_PER_MONTH = 30.44;
 function convertToStoredRate(monthlyRate: number, serviceLine: string | null): number {
   if (isDailyRateServiceLine(serviceLine)) {
     return Math.round((monthlyRate / DAYS_PER_MONTH) * 100) / 100; // Daily rate with 2 decimal places

@@ -22,13 +22,16 @@
  * What these tests verify
  * -----------------------
  *  1. The predicate itself: correct rows pass, junk rows are excluded.
- *  2. compPositionOwnRates uses mode() without a hard floor — we confirm that
- *     the mode of a realistic HC dataset equals the true daily rate even when a
- *     few prorated outliers are mixed in.
+ *  2. compPositionOwnRates uses the RELATIVE outlier gate, not a hard floor —
+ *     we confirm a realistic HC dataset survives it intact. This is the real
+ *     regression risk: HC rates are per DAY, so any absolute dollar floor
+ *     blanks the entire service line.
  *  3. All non-HC service lines with sub-$1000 values are excluded.
  *
  * Run with: npx tsx tests/hcDailyRatePlausibilityGuard.test.ts
  */
+
+import { RATE_OUTLIER_FLOOR_RATIO } from '../shared/rateOutliers';
 
 const PASS = '\x1b[32m✓\x1b[0m';
 const FAIL = '\x1b[31m✗\x1b[0m';
@@ -170,69 +173,98 @@ assert('Portfolio AL avg equals $4000 (prorated AL row excluded)', Math.round(al
 assertGt('Portfolio HC avg > 0 (daily rates present)', hcOnlyAvg!, 0);
 
 // ---------------------------------------------------------------------------
-// Section 3 — compPositionOwnRates mode() semantics
+// Section 3 — compPositionOwnRates relative-outlier-gate semantics
 //
-// compPositionOwnRates.ts uses `street_rate > 0` (no hard floor) and relies on
-// mode() WITHIN GROUP to suppress outliers.  For HC, mode() returns the most
-// frequent street_rate, which is the correct daily rate when the majority of
-// units are at a stable price.  This section confirms that assumption holds
-// for a typical HC campus.
+// compPositionOwnRates.ts reports a true AVERAGE street rate and suppresses
+// junk rows with the two-level relative gate from rateBaselineSql.ts, NOT with
+// mode() and NOT with any absolute dollar floor.  HC is the service line that
+// makes this necessary: its rates are per DAY, so a $1,000 floor would blank
+// every HC campus.  A relative gate needs no such carve-out.
 // ---------------------------------------------------------------------------
-console.log('\n=== 3. mode() semantics for compPositionOwnRates (HC exemption) ===\n');
+console.log('\n=== 3. relative outlier gate for compPositionOwnRates (HC exemption) ===\n');
 
-// Simulate mode(): return the most frequent value in an array.
-function mode(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const freq = new Map<number, number>();
-  for (const v of values) freq.set(v, (freq.get(v) ?? 0) + 1);
-  let modeVal = values[0];
-  let modeCount = 0;
-  for (const [v, c] of freq) {
-    if (c > modeCount) { modeCount = c; modeVal = v; }
-  }
-  return modeVal;
+// percentile_cont(0.5) — interpolates across an even count, as Postgres does.
+function median(values: number[]): number {
+  const a = [...values].sort((x, y) => x - y);
+  const mid = a.length >> 1;
+  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
 }
 
-// 10 HC units: 8 at $220, 2 at $169 (prorated move-in month).
-// mode() = $220 — the majority rate wins.
+/**
+ * JS mirror of buildRateBaselineCte + STREET_RATE_GATE.
+ * Level 1 judges each rate against its own group's median; level 2 substitutes
+ * the service-line median when the group's own median is itself implausible
+ * (a group made entirely of junk would otherwise pass its own test).
+ */
+function gatedAverage(rates: number[], serviceLineMedian?: number): number | null {
+  if (rates.length === 0) return null;
+  const own = median(rates);
+  const baseline =
+    serviceLineMedian != null && own < RATE_OUTLIER_FLOOR_RATIO * serviceLineMedian
+      ? serviceLineMedian
+      : own;
+  const kept = rates.filter((r) => r >= RATE_OUTLIER_FLOOR_RATIO * baseline);
+  if (kept.length === 0) return null;
+  return kept.reduce((s, v) => s + v, 0) / kept.length;
+}
+
+// 10 HC units: 8 at $220/day, 2 at $169 (prorated move-in month).
+// $169 is only 23% below the median, well inside the gate — a prorated day
+// rate is still a real rate, so it is averaged in rather than discarded.
 const hcRates = [...Array(8).fill(220), 169, 169];
-assert('HC mode() = $220 (8 correct daily rates beat 2 prorated outliers)',
-  mode(hcRates), 220);
+assert('HC gate keeps all 10 daily rates (none is a relative outlier)',
+  gatedAverage(hcRates), (8 * 220 + 2 * 169) / 10);
+// The regression this file exists to catch: every one of these is under $1,000.
+assert('HC rates are all sub-$1000 yet none is dropped (no absolute floor)',
+  hcRates.every((r) => r < 1000) && gatedAverage(hcRates) !== null, true);
 
-// Extreme case: if prorated rows outnumbered correct rates (degenerate campus),
-// confirm the test at least still produces a number (not null).
+// Degenerate campus where prorated rows outnumber correct ones: still returns
+// a number.  The gate never blanks a group just because it is cheap.
 const hcRatesEdge = [...Array(3).fill(220), 169, 169, 169, 169];
-assert('HC mode() with prorated majority still returns a number (not null)',
-  mode(hcRatesEdge) !== null, true);
+assertGt('HC gate with prorated majority still returns a rate', gatedAverage(hcRatesEdge)!, 0);
 
-// AL: mode() over valid monthly rates.
-const alRates = [...Array(7).fill(3800), 3800, 169, 250];
-// compPositionOwnRates has no floor, but mode() still picks $3800.
-assert('AL mode() = $3800 (valid monthly rates dominate over prorated outliers)',
-  mode(alRates), 3800);
+// AL: monthly rates with two junk rows an order of magnitude below the median.
+// Median $3,800 → cutoff $1,330 → $169 and $250 are excluded, unlike under
+// mode(), which merely out-voted them and left them in the unit count.
+const alRates = [...Array(8).fill(3800), 169, 250];
+assert('AL gate drops the $169/$250 junk rows and averages the rest',
+  gatedAverage(alRates), 3800);
+
+// Level 2 — a campus whose ENTIRE service line was imported at a fraction of
+// the portfolio rate cannot police itself: its own median is junk, so every
+// row passes level 1.  Judged against the service line, all rows fall away and
+// the group reports nothing rather than an invented ~$155 assisted-living rate.
+assert('Level 2 blanks a campus whose whole service line is implausible',
+  gatedAverage([155, 154, 156, 155, 155], 5825), null);
+// ...but a campus that is merely cheaper than the portfolio keeps its rates.
+assert('Level 2 does NOT punish a legitimately lower-priced campus',
+  gatedAverage([3000, 3000, 3000], 5825), 3000);
+// ...and level 2 cannot blank HC, whose per-day median is small by nature.
+assert('Level 2 leaves HC intact when compared to the HC service-line median',
+  gatedAverage([220, 220, 220], 240), 220);
 
 // ---------------------------------------------------------------------------
-// Section 4 — Consistency: compPositionOwnRates guard vs routes.ts guard
+// Section 4 — Consistency: compPositionOwnRates gate vs routes.ts guard
 //
-// routes.ts uses the explicit plausibility floor; compPositionOwnRates uses
-// mode() without the floor.  For HC the two approaches are equivalent: the
-// guard lets all HC rows through, and mode() naturally picks the correct daily
-// rate.  For non-HC the guard is stricter.  Neither approach should blank HC.
+// Some routes.ts surfaces still carry the older explicit plausibility floor
+// with its HC carve-out, while compPositionOwnRates uses the relative gate.
+// The two disagree on non-HC junk (the relative gate is stricter), but they
+// must agree on the one thing that matters here: neither may blank HC.
 // ---------------------------------------------------------------------------
 console.log('\n=== 4. HC exemption consistency across both approaches ===\n');
 
-// Approach A: explicit floor (routes.ts)
+// Approach A: explicit floor with an HC carve-out (routes.ts)
 const hcPassesFloor = passesPlausibilityGuard('HC', 220);
 assert('Approach A (explicit floor): HC $220 passes', hcPassesFloor, true);
 
-// Approach B: mode() on HC-only rows (compPositionOwnRates)
-const hcModeResult = mode([220, 220, 220, 220, 220]);
-assert('Approach B (mode): HC campus mode is $220', hcModeResult, 220);
-assert('Approach B (mode): HC campus mode > 0 (not filtered)', (hcModeResult ?? 0) > 0, true);
+// Approach B: relative gate, which needs no carve-out (compPositionOwnRates)
+const hcGateResult = gatedAverage([220, 220, 220, 220, 220]);
+assert('Approach B (relative gate): HC campus averages $220', hcGateResult, 220);
+assert('Approach B (relative gate): HC campus is not blanked', (hcGateResult ?? 0) > 0, true);
 
 // Confirm neither approach returns null / 0 for a healthy HC campus.
 assert('HC avg (approach A) is non-null', avgStreetRate(Array(5).fill({ service_line: 'HC', street_rate: 220 })) !== null, true);
-assert('HC mode (approach B) is non-null', mode(Array(5).fill(220)) !== null, true);
+assert('HC gated average (approach B) is non-null', gatedAverage(Array(5).fill(220)) !== null, true);
 
 // ---------------------------------------------------------------------------
 // Summary

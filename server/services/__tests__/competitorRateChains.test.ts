@@ -12,6 +12,7 @@
  */
 
 import { roomTypeFallbackChain, isDailySurveyType } from "../competitorRateJobService.js";
+import { DAYS_PER_MONTH } from "@shared/careRates";
 
 let passed = 0;
 let failed = 0;
@@ -78,13 +79,12 @@ test("HC/MC unit matched to a legacy SMC row converts daily → monthly", () => 
   // Simulates the processBatch conversion for a fallback match: the basis must
   // come from the matched record's type (SMC → daily), not the unit's primary
   // candidate type.
-  const DAYS_PER_MONTH = 30.44;
   const matched = { competitorType: "SMC", monthlyRateAvg: 250 }; // $250/day
   let base = matched.monthlyRateAvg;
   if (isDailySurveyType(matched.competitorType) && base > 0 && base < 1000) {
     base = base * DAYS_PER_MONTH;
   }
-  assertEqual(base, 7610, "SMC daily $250 should become $7,610/mo");
+  assertEqual(Math.round(base * 100) / 100, 7604.17, "SMC daily $250 should become $7,604.17/mo");
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

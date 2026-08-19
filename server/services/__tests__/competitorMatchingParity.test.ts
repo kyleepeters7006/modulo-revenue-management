@@ -17,6 +17,7 @@ import { db } from "../../db.js";
 import { competitiveSurveyData } from "../../../shared/schema.js";
 import { eq } from "drizzle-orm";
 import { getBestCompetitorRate } from "../competitorRateMatching.js";
+import { DAYS_PER_MONTH } from "@shared/careRates";
 
 const LOC = "ZZTEST Parity Campus";
 const MONTH = "2026-07";
@@ -101,7 +102,7 @@ async function main() {
     const r = await getBestCompetitorRate(LOC, "HC/MC", "Studio", "zztest-match");
     assert(!!r, "expected a match");
     assert(r!.competitorName === "Bravo HCMC", `expected Bravo HCMC, got ${r!.competitorName}`);
-    assert(Math.abs(r!.baseRate - 300 * 30.44) < 0.01, `expected 9132, got ${r!.baseRate}`);
+    assert(Math.abs(r!.baseRate - 300 * DAYS_PER_MONTH) < 0.01, `expected ${300 * DAYS_PER_MONTH}, got ${r!.baseRate}`);
   });
 
   await test("HC/MC unit falls back to legacy SMC row with correct DAILY conversion", async () => {
@@ -110,7 +111,7 @@ async function main() {
     const r = await getBestCompetitorRate(LOC, "HC/MC", "Companion", "zztest-match");
     assert(!!r, "expected a match via legacy SMC fallback");
     assert(r!.competitorName === "Charlie SMC", `expected Charlie SMC, got ${r!.competitorName}`);
-    assert(Math.abs(r!.baseRate - 250 * 30.44) < 0.01, `expected 7610, got ${r!.baseRate}`);
+    assert(Math.abs(r!.baseRate - 250 * DAYS_PER_MONTH) < 0.01, `expected ${250 * DAYS_PER_MONTH}, got ${r!.baseRate}`);
   });
 
   await test("Studio Dlx falls back to Studio within the same survey type", async () => {

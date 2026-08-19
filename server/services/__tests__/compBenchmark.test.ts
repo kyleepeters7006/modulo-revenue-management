@@ -15,6 +15,7 @@
  *   npx tsx server/services/__tests__/compBenchmark.test.ts
  */
 
+import { DAYS_PER_MONTH } from "@shared/careRates";
 import {
   CompBenchmark,
   aggregateSurveyRows,
@@ -69,8 +70,8 @@ const row = (loc: string, type: string, base: number | null, care: number | null
 (async () => {
   console.log("\ncompBenchmark — normalization\n");
 
-  await test("HC base >800 treated as monthly mistake → /30", () => {
-    assertClose(normalizeBaseRate("HC", 9000)!, 300, 0.01, "9000/30");
+  await test("HC base >800 treated as monthly mistake → daily", () => {
+    assertClose(normalizeBaseRate("HC", 9000)!, 9000 / DAYS_PER_MONTH, 0.01, "9000 / DAYS_PER_MONTH");
   });
   await test("HC base 465 (plausible daily) kept as-is", () => {
     assertEq(normalizeBaseRate("HC", 465), 465, "daily 465");
@@ -83,16 +84,16 @@ const row = (loc: string, type: string, base: number | null, care: number | null
     assertNull(normalizeBaseRate("AL", 26000), "AL 26000");
     assertEq(normalizeBaseRate("AL", 5100), 5100, "AL 5100");
   });
-  await test("HC care L2 >200 normalized to daily (/30)", () => {
-    assertClose(normalizeCareL2("HC", 1500)!, 50, 0.01, "1500/30");
+  await test("HC care L2 >200 normalized to daily (shared days-per-month)", () => {
+    assertClose(normalizeCareL2("HC", 1500)!, 1500 / DAYS_PER_MONTH, 0.01, "1500 / DAYS_PER_MONTH");
     assertEq(normalizeCareL2("HC", 55), 55, "daily 55 kept");
   });
   await test("Monthly care L2 gated 1..5000", () => {
     assertEq(normalizeCareL2("AL", 1150), 1150, "AL 1150");
     assertNull(normalizeCareL2("AL", 6000), "AL 6000");
   });
-  await test("HC med mgmt >200 normalized to daily (/30)", () => {
-    assertClose(normalizeMedMgmt("HC/MC", 300)!, 10, 0.01, "300/30");
+  await test("HC med mgmt >200 normalized to daily (shared days-per-month)", () => {
+    assertClose(normalizeMedMgmt("HC/MC", 300)!, 300 / DAYS_PER_MONTH, 0.01, "300 / DAYS_PER_MONTH");
     assertEq(normalizeMedMgmt("HC/MC", 12), 12, "daily 12 kept");
   });
   await test("Monthly med mgmt gated 1..2000", () => {
@@ -125,8 +126,8 @@ const row = (loc: string, type: string, base: number | null, care: number | null
   });
   await test("HC mixed daily/monthly-mistake rows normalized before averaging", () => {
     const map = aggregateSurveyRows([
-      row("Campus A", "HC", 450),   // daily
-      row("Campus A", "HC", 13500), // monthly mistake → 450
+      row("Campus A", "HC", 450),                  // daily
+      row("Campus A", "HC", 450 * DAYS_PER_MONTH), // monthly mistake → 450
     ]);
     assertEq(map.get("Campus A|||HC")!.baseRate, 450, "both normalize to 450");
   });

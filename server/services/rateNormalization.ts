@@ -6,7 +6,9 @@
  * AL, AL/MC, SL, VIL rates are stored as MONTHLY rates.
  */
 
-const DAYS_IN_MONTH = 30.44; // Average days per month (365.25 / 12)
+// Single source of truth (365 / 12). Do NOT redefine locally — divergent copies
+// made daily↔monthly round-trips lossy across services.
+import { DAYS_PER_MONTH as DAYS_IN_MONTH } from "@shared/careRates";
 
 // Service lines that use daily rates
 const DAILY_RATE_SERVICE_LINES = ['HC', 'HC/MC'];

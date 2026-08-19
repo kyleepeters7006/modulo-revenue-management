@@ -19,6 +19,8 @@
  * ───────────────────────────────────────────────────────────────────────────────────
  */
 
+import { buildRateBaselineCte, RATE_BASELINE_JOIN, STREET_RATE_GATE } from "./rateBaselineSql";
+
 export interface OwnRateRow {
   location: string;
   location_name: string;
@@ -35,8 +37,10 @@ export interface OwnRateFilters {
 }
 
 /**
- * Query the own (street) rate per location + service line using mode() WITHIN GROUP
- * per room type, then unit-weight the per-RT modal rates to a single all-room figure.
+ * Query the own (street) rate per location + service line as the AVERAGE street rate
+ * per room type, then unit-weight the per-RT averages to a single all-room figure.
+ * This matches the Reference Data aggregation exactly — both surfaces average, and
+ * both drop implausible rows using the same relative outlier gate.
  *
  * @param queryFn  - A function matching `pool.query(sql, params)` — accepts either
  *                   a `pg.Pool` or any compatible query wrapper.
@@ -53,19 +57,38 @@ export async function queryCompPositionOwnRates(
   const { locations = [], regions = [], divisions = [], serviceLine } = filters;
 
   let whereClause = `loc.client_id=$1 AND rr.upload_month=$2 AND rr.street_rate>0`;
+  // Scope for the level-2 (portfolio) rate baseline — tenant, month and
+  // service line only. Location/region/division filters are deliberately
+  // omitted: scoping the scatter to one campus must not shrink the yardstick
+  // that campus is judged against, or a wholly-implausible campus would once
+  // again become its own reference point.
+  let portfolioWhere = whereClause;
   const params: any[] = [clientId, month];
   let p = 3;
 
   if (locations.length) { whereClause += ` AND rr.location = ANY($${p++})`; params.push(locations); }
   if (regions.length)   { whereClause += ` AND loc.region = ANY($${p++})`; params.push(regions); }
   if (divisions.length) { whereClause += ` AND loc.division = ANY($${p++})`; params.push(divisions); }
-  if (serviceLine && serviceLine !== 'All') { whereClause += ` AND rr.service_line=$${p++}`; params.push(serviceLine); }
+  if (serviceLine && serviceLine !== 'All') {
+    whereClause += ` AND rr.service_line=$${p}`;
+    portfolioWhere += ` AND rr.service_line=$${p}`;
+    p++;
+    params.push(serviceLine);
+  }
 
   const res = await queryFn(`
     -- Own-rate aggregation for competitive-position scatter.
-    -- mode() WITHIN GROUP suppresses junk rent-roll rows (e.g. $159 on a Studio);
-    -- per-RT modes are then unit-weighted so the all-rooms figure reflects room mix.
-    WITH rt_modes AS (
+    -- Reports a true AVERAGE street rate per room type (identical basis to Reference
+    -- Data), then unit-weights the per-RT averages so the all-rooms figure reflects
+    -- room mix. Junk rent-roll rows (e.g. a $159 Studio) are removed by the relative
+    -- outlier gate below instead of by mode(), which hid real rate dispersion.
+    ${buildRateBaselineCte({
+      where: whereClause,
+      portfolioWhere,
+      joins: `
+      LEFT JOIN locations loc ON loc.id = rr.location_id`,
+    })},
+    rt_rates AS (
       SELECT rr.location,
         -- Canonical KeyStats location name for benchmarkFor() lookups.
         -- Falls back to rr.location when location_id FK is not populated.
@@ -76,10 +99,22 @@ export async function queryCompPositionOwnRates(
         -- "Legacy Lane - Studio" would break the ILIKE 'studio%' filter below,
         -- silently NULLing our_studio_rate for every branded campus.
         rr.room_type,
-        mode() WITHIN GROUP (ORDER BY rr.street_rate) AS mode_rate,
-        COUNT(*) AS cnt
+        -- The outlier gate applies to the RATE only, never to the unit count.
+        -- A junk rent-roll rate does not make the room stop existing: excluding
+        -- it from cnt too would silently re-weight the room mix and pull the
+        -- all-rooms figure away from Reference Data, which counts every
+        -- distinct physical room.
+        AVG(rr.street_rate) FILTER (WHERE ${STREET_RATE_GATE}) AS rt_rate,
+        -- Distinct PHYSICAL rooms, collapsing companion suffixes, so this
+        -- weight matches the Reference Data total column exactly.
+        COUNT(DISTINCT
+          CASE WHEN rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL')
+               THEN REGEXP_REPLACE(rr.room_number, '/[A-Za-z]+$', '')
+               ELSE rr.room_number END
+        ) AS cnt
       FROM rent_roll_data rr
       LEFT JOIN locations loc ON loc.id = rr.location_id
+      ${RATE_BASELINE_JOIN}
       WHERE ${whereClause}
         AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
       GROUP BY rr.location, loc.name, rr.service_line, rr.room_type
@@ -87,11 +122,14 @@ export async function queryCompPositionOwnRates(
     SELECT location, location_name, service_line,
       -- Studio-only rate: ILIKE 'studio%' matches "Studio", "Studio Dlx", etc.
       -- against rr.room_type (normalized) — NOT against a branded group_name.
-      ROUND((SUM(mode_rate * cnt) FILTER (WHERE room_type ILIKE 'studio%')
-        / NULLIF(SUM(cnt) FILTER (WHERE room_type ILIKE 'studio%'), 0))::numeric, 0) AS our_studio_rate,
+      -- Room types whose every row was gated out contribute no rate, so they are
+      -- dropped from both the numerator and the denominator.
+      ROUND((SUM(rt_rate * cnt) FILTER (WHERE rt_rate IS NOT NULL AND room_type ILIKE 'studio%')
+        / NULLIF(SUM(cnt) FILTER (WHERE rt_rate IS NOT NULL AND room_type ILIKE 'studio%'), 0))::numeric, 0) AS our_studio_rate,
       -- All-rooms weighted rate (used as the fallback when no studio units exist).
-      ROUND((SUM(mode_rate * cnt) / NULLIF(SUM(cnt), 0))::numeric, 0) AS our_all_rate
-    FROM rt_modes
+      ROUND((SUM(rt_rate * cnt) FILTER (WHERE rt_rate IS NOT NULL)
+        / NULLIF(SUM(cnt) FILTER (WHERE rt_rate IS NOT NULL), 0))::numeric, 0) AS our_all_rate
+    FROM rt_rates
     GROUP BY location, location_name, service_line
   `, params);
 

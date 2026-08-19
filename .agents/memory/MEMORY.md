@@ -57,10 +57,12 @@
 - [AI suggest page scope](ai-suggest-page-scope.md) — campus/region/division filters must reach the datasets, the shown impacts, AND the rule Accept persists, or scope leaks portfolio-wide.
 - [Census report tie-out](census-tie-out.md) — census capacity is reference-only vs occupancy history; read the division block, resolve columns from data, don't map "With Kingston" divisions.
 - [Scroll anchoring](scroll-anchoring.md) — Chrome already anchors these window-scrolled pages; manual scrollBy compensation double-applies. Real jumps come from imperative scrollTo calls.
-- [Street-rate aggregation](street-rate-aggregation.md) — Reference Data uses modal rate, other surfaces use AVG; junk sub-$1000 rent-roll rows make them disagree. Prefer mode().
+- [Street-rate aggregation](street-rate-aggregation.md) — AVG everywhere now, not mode(); mode() masked rows-vs-distinct-rooms weighting bugs that AVG exposes.
+- [Rate outlier gate](rate-outlier-gate.md) — relative + TWO-level (own median, then portfolio median); level 2 must ignore display filters or drilling in disables it.
+- [Parity test design](parity-test-design.md) — a test embedding hand-copied production SQL guards nothing; call the exported function and test the filtered paths.
 - [Street-rate quality rules](street-rate-quality.md) — prorated move-in months overwrite street_rate (expected); 2ND OCCUPANT is in payor_type; HC rates are daily; plausibility checks must be relative per location+SL.
 - [room_type normalization fixed](normalized-room-type-unreliable.md) — room-type keywords now beat occupancy style; backfill re-derives from source_room_type (set-based); group_name is branded, never prefix-match it.
 - [Comp rate writer lineage](comp-rate-writer-lineage.md) — all writers share one matching policy (normalization, fallback chains, no-match clearing); .2/.8 adjustments = stale $55/day fallback data, re-run the job.
 - [Comp-rate reprocessing ops](comp-rate-reprocessing-ops.md) — a normalizer fix doesn't touch stored rows (backfill is fire-and-forget at boot); a correct re-run legitimately lowers coverage.
 - [Dead vs live rate columns](dead-rate-columns.md) — in_house_rate is live, rent_and_care_rate is dead; 0-vs-NULL makes `||`/COALESCE silently serve street rate, and demo data hides it.
-- [RefData cross-surface basis](refdata-cross-surface-basis.md) — census already agrees everywhere; real gaps are daily/monthly blending, payer scope, and no single days-per-month constant.
+- [RefData cross-surface basis](refdata-cross-surface-basis.md) — census agrees everywhere; remaining gaps are payer scope and unconverted mode()/dollar-floor sites.

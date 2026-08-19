@@ -6,6 +6,7 @@ import { buildGuardrailResolver, clampRateWithGuardrails } from "../guardrailsUt
 import { isBBedRow } from "@shared/bBed";
 import { loadCompBenchmark } from "./compBenchmark";
 import { normalizeRoomType } from "@shared/roomTypes";
+import { DAYS_PER_MONTH } from "@shared/careRates";
 
 // ---------------------------------------------------------------------------
 // In-memory cache for IH-to-Street variance metric
@@ -187,7 +188,7 @@ export async function recalculateAndPreloadCampusMetrics(
       });
 
       if (ihUnits.length) {
-        const mult = (u: any) => HC_DAILY.has(u.service_line || '') ? 30.44 : 1;
+        const mult = (u: any) => HC_DAILY.has(u.service_line || '') ? DAYS_PER_MONTH : 1;
         const avgSt = avgArr(ihUnits.map(u => (u.street_rate || 0) * mult(u)));
         const avgIH = avgArr(ihUnits.map(u => ((u as any).in_house_rate || 0) * mult(u)));
         if (avgSt > 0) {

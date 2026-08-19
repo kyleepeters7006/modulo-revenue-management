@@ -34,7 +34,15 @@ export const CARE_ELIGIBLE_SERVICE_LINES = new Set(['AL', 'AL/MC', 'HC', 'HC/MC'
  */
 export const isDailyServiceLine = (sl: string): boolean => sl === 'HC' || sl === 'HC/MC';
 
-export const DAYS_PER_MONTH = 30.44;
+/**
+ * Canonical days-per-month conversion factor: exactly 365 / 12 = 30.4166…
+ *
+ * Every daily <-> monthly conversion in the app MUST use this constant so that
+ * the same underlying rate reads identically on every surface. Do not redefine
+ * it locally — divergent local copies (30, 30.4, 30.44, 30.5) previously made
+ * the same HC room differ by ~$170/month between screens.
+ */
+export const DAYS_PER_MONTH = 365 / 12;
 
 export interface ResolvedCareRate {
   /** The Level-2 rate in the service line's native basis (daily for HC lines). */

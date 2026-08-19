@@ -20,6 +20,7 @@
 
 import { buildCompetitorRateUpdate, MAX_PLAUSIBLE_MONTHLY_RATE } from "../competitorRateSanitizer.js";
 import { convertToStoredRate, isDailyRateServiceLine } from "../rateNormalization.js";
+import { DAYS_PER_MONTH } from "@shared/careRates";
 
 // ── Minimal test harness ─────────────────────────────────────────────────────
 
@@ -53,8 +54,6 @@ function assertClose(actual: number, expected: number, tol: number, label: strin
 }
 
 // ── Shared test fields ───────────────────────────────────────────────────────
-
-const DAYS_PER_MONTH = 30.44;
 
 function makeFields(finalRate: number | null) {
   return {
@@ -197,13 +196,13 @@ function makeFields(finalRate: number | null) {
     assertEq(convertToStoredRate(6_600, "AL"), 6_600, "AL stored rate");
   });
 
-  await test("HC: monthly $14 154.60 stored as daily $465.00", () => {
-    const stored = convertToStoredRate(14_154.60, "HC");
+  await test("HC: monthly equivalent of $465/day stored back as daily $465.00", () => {
+    const stored = convertToStoredRate(465 * DAYS_PER_MONTH, "HC");
     assertClose(stored, 465.00, 0.02, "HC stored daily");
   });
 
-  await test("HC/MC: monthly $13 696 stored as daily ~$450.00", () => {
-    const stored = convertToStoredRate(13_696, "HC/MC");
+  await test("HC/MC: monthly equivalent of $450/day stored back as daily $450.00", () => {
+    const stored = convertToStoredRate(450 * DAYS_PER_MONTH, "HC/MC");
     assertClose(stored, 450.00, 0.10, "HC/MC stored daily");
   });
 

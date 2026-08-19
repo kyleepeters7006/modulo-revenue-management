@@ -31,7 +31,7 @@ const LOC_ALMC_INHERIT = "ZZTEST ALMC Inherit";    // AL/MC inherits AL care row
 const LOC_HCMC = "ZZTEST HCMC Daily";              // HC/MC via legacy SMC, daily basis
 const ALL_LOCS = [LOC, LOC_NOMATCH, LOC_AL_DIRECT, LOC_AL_FALLBACK, LOC_ALMC_INHERIT, LOC_HCMC];
 const MONTH = "2026-07";
-const DPM = 30.44;
+import { DAYS_PER_MONTH as DPM } from "@shared/careRates";
 const near = (a: any, b: number, tol = 0.05) => typeof a === "number" && Math.abs(a - b) <= tol;
 
 let passed = 0;
@@ -203,16 +203,16 @@ async function main() {
     check(!!d && near(d.competitorCareLevel2Adjustment, 580), `${label}: AL direct care adjustment +580 (got ${d?.competitorCareLevel2Adjustment})`);
     check(!!d && near(d.competitorFinalRate, 4373 + 580 + 100), `${label}: AL direct final 5053 (got ${d?.competitorFinalRate})`);
 
-    // AL missing care: fallback $55/day → 1200 − 1674.20 = −474.20
+    // AL missing care: fallback $55/day → 1200 − (55 × days-per-month)
     const f = snap[LOC_AL_FALLBACK];
-    check(!!f && near(f.competitorCareLevel2Adjustment, 1200 - 55 * DPM), `${label}: AL missing-care unit used $55/day fallback (−474.20) (got ${f?.competitorCareLevel2Adjustment})`);
+    check(!!f && near(f.competitorCareLevel2Adjustment, 1200 - 55 * DPM), `${label}: AL missing-care unit used $55/day fallback (${(1200 - 55 * DPM).toFixed(2)}) (got ${f?.competitorCareLevel2Adjustment})`);
 
     // AL/MC inherits the AL care row: 1200 − 620 = +580, via legacy AL survey row
     const i = snap[LOC_ALMC_INHERIT];
     check(!!i && i.competitorName === "Golf Legacy AL", `${label}: AL/MC unit fell back to legacy AL survey row (got ${i?.competitorName})`);
     check(!!i && near(i.competitorCareLevel2Adjustment, 580), `${label}: AL/MC inherited AL care → +580 (got ${i?.competitorCareLevel2Adjustment})`);
 
-    // HC/MC via legacy SMC, daily basis: comp care 40×30.44 − our HC 30×30.44 = 304.40/mo
+    // HC/MC via legacy SMC, daily basis: comp care 40×DPM − our HC 30×DPM = 10/day
     // stored daily: base 250, care 10, final 260
     const h = snap[LOC_HCMC];
     check(!!h && h.competitorName === "Hotel SMC", `${label}: HC/MC unit matched legacy SMC row (got ${h?.competitorName})`);

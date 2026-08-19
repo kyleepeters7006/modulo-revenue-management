@@ -1,27 +1,39 @@
 ---
-name: Street-rate aggregation — mode vs average
-description: Reference Data uses modal street rate, other surfaces use AVG; junk sub-$1000 rows in the rent roll make the two disagree.
+name: Street-rate aggregation — average everywhere
+description: Street rate is the AVERAGE on every surface, with junk rows removed by the shared relative outlier gate. Replaced the old mode()-vs-AVG split.
 ---
 
-# Street-rate aggregation: mode vs average
+# Street-rate aggregation: average everywhere
 
-Reference Data computes the spot street rate with `mode() WITHIN GROUP (ORDER BY rr.street_rate)` —
-the most common rate for the group. Other surfaces (notably the Competitive Position scatter)
-use plain `AVG(rr.street_rate)`. When the rent roll contains a junk rate, the two disagree and
-the average is the wrong one.
+**Current rule:** every surface reports the street rate as `AVG(street_rate)`
+with junk rows removed by the shared relative outlier gate (see
+[rate-outlier-gate.md](rate-outlier-gate.md)). This replaced an older split in
+which Reference Data used `mode() WITHIN GROUP` while other surfaces averaged.
 
-**Why:** the rent roll carries a meaningful number of nonsense street rates — rows with a
-positive but absurdly low value (e.g. a $159 studio, a $1,269 one-bedroom). These are data
-entry / feed artifacts, not real pricing. A modal rate ignores them; an average does not.
-Scale when last measured: a few hundred rows above $0 but under $1,000 spread across the
-majority of senior-housing campuses in a single month. Assume it is always non-zero.
+**Why the change:** mode() suppressed outliers only as a side effect of throwing
+away all rate dispersion — it reports the most common rate, not the rate level —
+so two surfaces on different bases disagreed on a large minority of groups. The
+user's decision was average everywhere, with outliers handled explicitly.
+
+## The trap mode() was hiding
+
+mode() **masks weighting-basis differences that AVG exposes.** A per-room-type
+value that is unit-weighted up to an all-rooms figure can be weighted either by
+count of contributing rows or by count of distinct physical rooms. Under mode()
+these give the same answer, because a junk row still votes and still counts.
+Under AVG they diverge the moment a row is excluded from the rate but not from
+the count. Two surfaces looked identical for as long as both used mode() and
+disagreed immediately on switching to AVG.
 
 **How to apply:**
-- Any new surface reporting "our rate" for a room type should use the modal rate, matching
-  Reference Data. Do not invent a separate outlier threshold — inconsistent thresholds are how
-  these surfaces drifted apart in the first place.
-- When two surfaces disagree on our own rate for the same units, check for a junk row before
-  suspecting the room-type filter or the B-bed predicate.
-- B-bed exclusion incidentally hides some junk rows (bad values often land on the `/B` bed), so
-  a surface that excludes B beds can look correct while the underlying data is still dirty.
-  Do not read that as evidence the aggregate is safe.
+- When two surfaces disagree on "our rate" for the same units, check the
+  *weighting basis* before suspecting the room-type filter or the B-bed
+  predicate. Rows-vs-rooms is the likelier culprit.
+- Do not invent a separate outlier threshold for a new surface. Inconsistent
+  thresholds are how these surfaces drifted apart originally.
+- B-bed exclusion incidentally hides some junk rows (bad values often land on
+  the companion bed), so a surface that excludes B beds can look correct while
+  the underlying data is still dirty. Do not read that as evidence the aggregate
+  is safe.
+- Some surfaces still carry the retired fixed dollar floor and/or mode(). Treat
+  any such site as unconverted, not as a second opinion.

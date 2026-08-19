@@ -24,6 +24,19 @@ import { pool } from "../db";
 /** A campus median moving by at least this factor month-over-month is flagged. */
 export const MEDIAN_SHIFT_FACTOR = 8;
 
+/**
+ * A rate below this fraction of its OWN location + service-line median is
+ * treated as an outlier (data-entry slip, prorated move-in month) and excluded
+ * from representative rate aggregates.
+ *
+ * This replaces an older fixed "$1,000 minimum for non-HC lines" rule. A fixed
+ * floor cannot tell a genuinely low-priced line (VIL/SL) from a bad row, so it
+ * silently dropped real inventory — and it needed an explicit HC carve-out
+ * because HC rates are daily. A relative test needs no carve-out: every line is
+ * judged against its own price level.
+ */
+export { RATE_OUTLIER_FLOOR_RATIO } from "@shared/rateOutliers";
+
 /** Payor tags that mark second-occupant (companion surcharge) rows. */
 export const SECOND_OCCUPANT_RE = /2ND\s*OCCUPANT/i;
 

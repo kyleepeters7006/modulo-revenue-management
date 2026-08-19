@@ -2,21 +2,28 @@
  * Own-rate parity: Competitive Position scatter SQL vs Reference Data SQL
  *
  * Both GET /api/pricing-controls/competitive-position and GET /api/reference-data
- * derive the representative own (street) rate using mode() WITHIN GROUP per room
- * type, but the two SQL blocks live separately in server/routes.ts and can drift
- * when either is edited.
+ * derive the representative own (street) rate as the AVERAGE street rate per room
+ * type, but the two aggregations live in separate code paths and can drift when
+ * either is edited.
+ *
+ * Bad rent-roll rows are excluded by a RELATIVE outlier gate — a rate below
+ * RATE_OUTLIER_FLOOR_RATIO of its own location + service-line median (see
+ * shared/rateOutliers.ts). This replaced mode() plus a fixed $1,000 floor:
+ * mode() suppressed outliers only as a side effect of discarding all rate
+ * dispersion, and the fixed floor could not tell a genuinely low-priced VIL/SL
+ * unit from a data-entry error, so it needed an HC carve-out.
  *
  * This test seeds a throwaway client with:
  *   - Two campuses, two service lines each, multiple room types
- *   - One "junk" rent-roll row ($159 street rate on a Studio) that should be
- *     suppressed by mode() so neither endpoint reports an artificially low rate
+ *   - One "junk" rent-roll row ($159 street rate on a Studio) that the outlier
+ *     gate must drop so neither endpoint reports an artificially low rate
  *
- * It then runs BOTH SQL patterns directly against the database (mirroring the
- * server-side queries) and asserts:
+ * It then runs both aggregations against the database — the scatter side by
+ * calling the very function the route uses — and asserts:
  *   1. The scatter's unit-weighted own-rate (our_all_rate) matches the Reference
  *      Data's unit-weighted avg_street for every campus+SL pair, within ±1 (rounding).
- *   2. The junk $159 row does NOT suppress the true $4000 Studio modal rate in
- *      either endpoint's SQL — mode() wins over avg().
+ *   2. The junk $159 row does NOT drag down the true $4000 Studio rate in either
+ *      path — the relative gate excludes it before the average is taken.
  *
  * Seeded campuses also cover the "latest uploaded month" requirement: the test
  * creates a single upload_month and checks both endpoints scope to it correctly.
@@ -27,6 +34,8 @@ import pg from 'pg';
 import { queryCompPositionOwnRates } from '../server/services/compPositionOwnRates.js';
 const { Pool } = pg;
 import { buildRuleImpactContext, computeQualifiedRuleImpact } from '../server/services/ruleImpactService';
+import { computeGroupStreetRateMap } from '../server/services/groupStreetRateJs';
+import { buildRateBaselineCte, RATE_BASELINE_JOIN, STREET_RATE_GATE } from '../server/services/rateBaselineSql';
 
 const CLIENT   = 'ptest-cp-refdata-parity';
 const LOC_A    = 'Alpha Campus - 101';
@@ -34,6 +43,31 @@ const LOC_B    = 'Beta Campus - 202';
 const MONTH    = '2026-06';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// ---------------------------------------------------------------------------
+// Shared SQL fragments mirroring the Reference Data aggregation in routes.ts.
+//
+// Production reports a true AVERAGE street rate and suppresses bad rows with a
+// RELATIVE gate — a rate below RATE_OUTLIER_FLOOR_RATIO of its own
+// location + service-line median — rather than with mode() plus a fixed $1,000
+// floor. These mirrors must move in lockstep with routes.ts, otherwise the
+// parity assertions below silently stop testing production behaviour.
+// ---------------------------------------------------------------------------
+// Built from the SAME module the production queries use, so a change to the
+// gate cannot land on one side only.
+const RATE_BASELINE_CTE = buildRateBaselineCte({
+  where: 'rr.client_id = $1 AND rr.upload_month = $2',
+});
+
+const STREET_AVG_SQL = `
+      AVG(rr.street_rate) FILTER (
+        WHERE rr.street_rate > 0
+          AND ${STREET_RATE_GATE}
+          AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL')
+                   AND rr.room_number ~* '/[B-Zb-z]$')
+      ) AS avg_street`;
+
+const BASELINE_JOIN = RATE_BASELINE_JOIN;
 
 const PASS = '\x1b[32m✓\x1b[0m';
 const FAIL = '\x1b[31m✗\x1b[0m';
@@ -55,20 +89,26 @@ function assert(desc: string, actual: unknown, expected: unknown, tol = 1) {
 // Seed layout
 // ---------------------------------------------------------------------------
 // Alpha / AL:
-//   Studio:      5 units @ $4000  +  1 junk @ $159   → mode = $4000, cnt = 6
-//   One Bedroom: 3 units @ $5000                      → mode = $5000, cnt = 3
+//   Studio:      5 units @ $4000  +  1 junk @ $159   → avg = $4000, cnt = 6
+//   One Bedroom: 3 units @ $5000                      → avg = $5000, cnt = 3
 //   Expected our_all_rate = round((4000*6 + 5000*3) / 9) = round(4333.3) = 4333
 //
+//   NOTE the junk row is excluded from the AVERAGE but still counted in cnt:
+//   a bad rate does not make the room stop existing, and Reference Data weights
+//   by distinct physical rooms. Weighting the average by surviving rows instead
+//   would give (4000*5 + 5000*3)/8 = 4375 and break parity — a bug mode() hid,
+//   because under mode() the junk row never left the count in the first place.
+//
 // Alpha / HC:
-//   Semi-Private:4 units @ $3200                      → mode = $3200, cnt = 4
+//   Semi-Private:4 units @ $3200                      → avg = $3200, cnt = 4
 //   Expected our_all_rate = 3200
 //
 // Beta / AL:
-//   Studio:      4 units @ $3800                      → mode = $3800, cnt = 4
+//   Studio:      4 units @ $3800                      → avg = $3800, cnt = 4
 //   Expected our_all_rate = 3800
 //
 // Beta / VIL:
-//   Studio:      3 units @ $2900                      → mode = $2900, cnt = 3
+//   Studio:      3 units @ $2900                      → avg = $2900, cnt = 3
 //   Expected our_all_rate = 2900
 
 interface RRRow {
@@ -156,35 +196,22 @@ async function seed(): Promise<{ locAId: string; locBId: string }> {
 }
 
 // ---------------------------------------------------------------------------
-// Scatter SQL: mirrors competitive-position's rt_modes → rates CTE exactly.
-// Produces one row per (location, service_line) with our_all_rate.
+// Scatter own-rates: calls the SAME exported function the live
+// competitive-position route uses, rather than a hand-copied SQL block. A copy
+// could stay green while the production query regressed — which is precisely
+// the drift this test exists to catch.
 // ---------------------------------------------------------------------------
 async function runScatterSQL(): Promise<Map<string, number>> {
-  const res = await pool.query(`
-    WITH rt_modes AS (
-      SELECT rr.location,
-             rr.service_line,
-             rr.room_type,
-             mode() WITHIN GROUP (ORDER BY rr.street_rate) AS mode_rate,
-             COUNT(*) AS cnt
-      FROM rent_roll_data rr
-      JOIN locations loc ON loc.id = rr.location_id
-      WHERE loc.client_id = $1
-        AND rr.upload_month = $2
-        AND rr.street_rate > 0
-        AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL')
-                 AND rr.room_number ~* '/[B-Zb-z]$')
-      GROUP BY rr.location, rr.service_line, rr.room_type
-    )
-    SELECT location, service_line,
-      ROUND((SUM(mode_rate * cnt) / NULLIF(SUM(cnt), 0))::numeric, 0) AS our_all_rate
-    FROM rt_modes
-    GROUP BY location, service_line
-  `, [CLIENT, MONTH]);
+  const rows = await queryCompPositionOwnRates(
+    (sql, params) => pool.query(sql, params),
+    CLIENT,
+    MONTH,
+  );
 
   const map = new Map<string, number>();
-  for (const r of res.rows) {
-    map.set(`${r.location}||${r.service_line}`, Number(r.our_all_rate));
+  for (const r of rows) {
+    if (r.our_all_rate == null) continue;
+    map.set(`${r.location}||${r.service_line}`, r.our_all_rate);
   }
   return map;
 }
@@ -197,15 +224,12 @@ async function runScatterSQL(): Promise<Map<string, number>> {
 // ---------------------------------------------------------------------------
 async function runRefDataSQL(): Promise<Map<string, number>> {
   const res = await pool.query(`
+    ${RATE_BASELINE_CTE}
     SELECT
       rr.location,
       rr.service_line,
       rr.room_type,
-      mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (
-        WHERE rr.street_rate > 0
-          AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL')
-                   AND rr.room_number ~* '/[B-Zb-z]$')
-      ) AS avg_street,
+      ${STREET_AVG_SQL},
       COUNT(DISTINCT
         CASE WHEN rr.service_line IN ('AL','AL/MC','SL','VIL')
              THEN REGEXP_REPLACE(rr.room_number, '/[A-Za-z]+$', '')
@@ -213,6 +237,7 @@ async function runRefDataSQL(): Promise<Map<string, number>> {
       ) AS total
     FROM rent_roll_data rr
     LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+    ${BASELINE_JOIN}
     WHERE rr.client_id = $1 AND rr.upload_month = $2
     GROUP BY rr.location, rr.service_line, rr.room_type
   `, [CLIENT, MONTH]);
@@ -242,13 +267,11 @@ async function runRefDataSQL(): Promise<Map<string, number>> {
 // ---------------------------------------------------------------------------
 async function runRefDataPerRT(): Promise<Map<string, number>> {
   const res = await pool.query(`
+    ${RATE_BASELINE_CTE}
     SELECT rr.location, rr.service_line, rr.room_type,
-      mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (
-        WHERE rr.street_rate > 0
-          AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL')
-                   AND rr.room_number ~* '/[B-Zb-z]$')
-      ) AS avg_street
+      ${STREET_AVG_SQL}
     FROM rent_roll_data rr
+    ${BASELINE_JOIN}
     WHERE rr.client_id = $1 AND rr.upload_month = $2
     GROUP BY rr.location, rr.service_line, rr.room_type
   `, [CLIENT, MONTH]);
@@ -273,7 +296,7 @@ const EXPECTED: Record<string, number> = {
 // ---------------------------------------------------------------------------
 // SCENARIO 2 — room_type_groupings remapping
 //
-// Confirms that scatter and Reference Data still agree on the modal rate
+// Confirms that scatter and Reference Data still agree on the average rate
 // when room_type_groupings rows remap source_room_type to a branded group_name.
 //
 // Layout:
@@ -347,14 +370,11 @@ async function seedRtg(): Promise<void> {
 }
 async function runRefDataSQLRtg(): Promise<number | null> {
   const res = await pool.query<{ display_rt: string; avg_street: string; total: string }>(`
+    ${RATE_BASELINE_CTE}
     SELECT
       COALESCE(rtg.group_name, rr.room_type) AS display_rt,
       rr.service_line,
-      mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (
-        WHERE rr.street_rate > 0
-          AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL')
-                   AND rr.room_number ~* '/[B-Zb-z]$')
-      ) AS avg_street,
+      ${STREET_AVG_SQL},
       COUNT(DISTINCT
         CASE WHEN rr.service_line IN ('AL','AL/MC','SL','VIL')
              THEN REGEXP_REPLACE(rr.room_number, '/[A-Za-z]+$', '')
@@ -367,6 +387,7 @@ async function runRefDataSQLRtg(): Promise<number | null> {
      AND rtg.location  = rr.location
      AND rtg.service_line = rr.service_line
      AND rtg.source_room_type = rr.source_room_type
+    ${BASELINE_JOIN}
     WHERE rr.client_id = $1 AND rr.upload_month = $2
     GROUP BY COALESCE(rtg.group_name, rr.room_type), rr.service_line
   `, [CLIENT_RTG, MONTH]);
@@ -904,19 +925,17 @@ async function seedMo(): Promise<string> {
 // canonical mode_room_type for each group.
 async function runMoAggRes(): Promise<{ roomType: string; modeRoomType: string; avgStreet: number } | null> {
   const res = await pool.query<{ room_type: string; mode_room_type: string; avg_street: string }>(`
+    ${RATE_BASELINE_CTE}
     SELECT
       COALESCE(rtg.group_name, rr.room_type) AS room_type,
       mode() WITHIN GROUP (ORDER BY rr.room_type) FILTER (WHERE rr.room_type IS NOT NULL) AS mode_room_type,
-      mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (
-        WHERE rr.street_rate > 0
-          AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL')
-                   AND rr.room_number ~* '/[B-Zb-z]$')
-      ) AS avg_street
+      ${STREET_AVG_SQL}
     FROM rent_roll_data rr
     LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
     LEFT JOIN room_type_groupings rtg
       ON rtg.client_id = rr.client_id AND rtg.location = rr.location
      AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
+    ${BASELINE_JOIN}
     WHERE rr.client_id = $1 AND rr.upload_month = $2
     GROUP BY COALESCE(rtg.group_name, rr.room_type)
   `, [CLIENT_MO, MONTH_MO]);
@@ -1073,10 +1092,10 @@ async function main() {
       (scatterAlAL ?? 0) > 1000, true,
     );
 
-    // ── 6. HC service line: mode() operates correctly (single rate, clean) ──
+    // ── 6. HC service line: averages correctly (single rate, clean) ──
     const hcKey = `${LOC_A}||HC||Semi-Private`;
     const hcRate = perRTMap.get(hcKey);
-    assert('refData: HC Semi-Private modal rate = $3200', hcRate ?? 0, 3200);
+    assert('refData: HC Semi-Private average rate = $3200', hcRate ?? 0, 3200);
 
     // ── 7. Latest-month scoping: no earlier months slip through ──
     // We only seeded MONTH='2026-06'; scatterMap/refDataMap should be non-empty
@@ -1096,14 +1115,134 @@ async function main() {
   // ── Scenario 4: manual rate override + RTG → revMonthlyImpact stays populated ──
   await runMoScenario();
 
+  // ── Scenario 5: level-2 portfolio baseline ignores display filters ──
+  await runL2ScopeScenario();
+
   await pool.end();
 
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 }
 
+// ---------------------------------------------------------------------------
+// SCENARIO 5 — the level-2 (portfolio) baseline must ignore display filters
+//
+// The outlier gate is two-level. Level 1 judges a rate against its own
+// location + service-line median; level 2 judges that median against the
+// SERVICE LINE ACROSS THE PORTFOLIO, because a location whose rows are ALL
+// junk defines its own baseline and would otherwise pass its own test.
+//
+// The trap this scenario exists to catch: if the level-2 population is built
+// from the caller's location/region/division filters, then drilling into a
+// single campus collapses the portfolio yardstick onto that same campus and
+// silently disables level 2 — exactly when a user is looking closely at it.
+// The junk campus would then publish a ~$155 assisted-living rate as real.
+//
+// Layout (both AL, so they share one service-line baseline):
+//   Good campus: 6 units @ $5800  → portfolio AL median = $5800
+//   Junk campus: 5 units @ $155   → own median $155 < 0.35 * $5800, so level 2
+//                                   substitutes $5800 and every row is dropped
+// ---------------------------------------------------------------------------
+const CLIENT_L2 = 'ptest-cp-refdata-l2';
+const LOC_L2_GOOD = 'L2 Good Campus - 801';
+const LOC_L2_JUNK = 'L2 Junk Campus - 802';
+
+async function cleanupL2() {
+  await pool.query(`DELETE FROM rent_roll_data WHERE client_id=$1`, [CLIENT_L2]);
+  await pool.query(`DELETE FROM locations WHERE client_id=$1`, [CLIENT_L2]);
+  await pool.query(`DELETE FROM clients WHERE id=$1`, [CLIENT_L2]);
+}
+
+async function runL2ScopeScenario() {
+  await cleanupL2();
+  try {
+    await pool.query(
+      `INSERT INTO clients (id, name) VALUES ($1, 'CP-RefData L2 Scope Test') ON CONFLICT (id) DO NOTHING`,
+      [CLIENT_L2],
+    );
+    const seedCampus = async (name: string, rate: number, count: number) => {
+      const locRes = await pool.query(
+        `INSERT INTO locations (name, client_id) VALUES ($1, $2) RETURNING id`, [name, CLIENT_L2],
+      );
+      const locId = locRes.rows[0].id as string;
+      for (let i = 1; i <= count; i++) {
+        await pool.query(
+          `INSERT INTO rent_roll_data
+             (client_id, location_id, location, upload_month, service_line, room_type, source_room_type,
+              room_number, street_rate, occupied_yn, in_house_rate, date, size, days_vacant, payor_type)
+           VALUES ($1,$2,$3,$4,'AL','Studio','Studio',$5,$6,true,$6,$7,'Studio',0,'Private')`,
+          [CLIENT_L2, locId, name, MONTH, `${name}-${i}`, rate, `${MONTH}-01`],
+        );
+      }
+    };
+    await seedCampus(LOC_L2_GOOD, 5800, 6);
+    await seedCampus(LOC_L2_JUNK, 155, 5);
+
+    const rateFor = async (loc: string, filters: Record<string, unknown> = {}) => {
+      const rows = await queryCompPositionOwnRates(
+        (sql, params) => pool.query(sql, params), CLIENT_L2, MONTH, filters as any,
+      );
+      const hit = rows.find(r => r.location === loc);
+      return hit?.our_all_rate ?? null;
+    };
+
+    // Unfiltered — the baseline plainly spans both campuses.
+    assert('L2 unfiltered: good campus reports $5800',
+      await rateFor(LOC_L2_GOOD), 5800);
+    assert('L2 unfiltered: wholly-junk campus is blanked, not reported as $155',
+      await rateFor(LOC_L2_JUNK), null);
+
+    // Filtered to ONLY the junk campus — the regression guard. If level 2 were
+    // built from the filtered population, the junk campus would become its own
+    // yardstick and report $155.
+    assert('L2 filtered to junk campus alone: still blanked (portfolio baseline survives the filter)',
+      await rateFor(LOC_L2_JUNK, { locations: [LOC_L2_JUNK] }), null);
+
+    // ...and level 2 must not misfire in the other direction.
+    assert('L2 filtered to good campus alone: still reports $5800',
+      await rateFor(LOC_L2_GOOD, { locations: [LOC_L2_GOOD] }), 5800);
+
+    // ── The Room Detail (units) view runs a JS twin of the same gate ──
+    // It averages rows already in memory, so its level-2 baseline has the same
+    // collapse hazard: the rows it receives are ALREADY filtered. Exercised
+    // through the real exported implementation, not a re-derivation of it.
+    const jsRowsFor = (loc: string, rate: number, count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        campus: loc, service_line: 'AL', room_type: 'Studio',
+        room_number: `${loc}-${i + 1}`, street_rate: rate,
+      }));
+    const jsQuery = (sql: string, params: any[]) => pool.query(sql, params);
+
+    // Unfiltered — the view received every campus.
+    const jsAll = await computeGroupStreetRateMap(jsQuery, CLIENT_L2, MONTH, [
+      ...jsRowsFor(LOC_L2_GOOD, 5800, 6),
+      ...jsRowsFor(LOC_L2_JUNK, 155, 5),
+    ]);
+    assert('L2 units twin, unfiltered: good campus averages $5800',
+      jsAll.get(`${LOC_L2_GOOD}||AL||Studio`) ?? null, 5800);
+    assert('L2 units twin, unfiltered: junk campus absent from the map',
+      jsAll.has(`${LOC_L2_JUNK}||AL||Studio`), false);
+
+    // Filtered to ONLY the junk campus — the regression guard for the twin.
+    const jsJunkOnly = await computeGroupStreetRateMap(
+      jsQuery, CLIENT_L2, MONTH, jsRowsFor(LOC_L2_JUNK, 155, 5),
+    );
+    assert('L2 units twin filtered to junk campus alone: still absent, not $155',
+      jsJunkOnly.has(`${LOC_L2_JUNK}||AL||Studio`), false);
+
+    // ...and the twin must not blank a campus that is merely being viewed alone.
+    const jsGoodOnly = await computeGroupStreetRateMap(
+      jsQuery, CLIENT_L2, MONTH, jsRowsFor(LOC_L2_GOOD, 5800, 6),
+    );
+    assert('L2 units twin filtered to good campus alone: still $5800',
+      jsGoodOnly.get(`${LOC_L2_GOOD}||AL||Studio`) ?? null, 5800);
+  } finally {
+    await cleanupL2();
+  }
+}
+
 main().catch(async (e) => {
   console.error(e);
-  try { await cleanup(); await cleanupRtg(); await cleanupRi(); await cleanupMo(); await pool.end(); } catch {}
+  try { await cleanup(); await cleanupRtg(); await cleanupRi(); await cleanupMo(); await cleanupL2(); await pool.end(); } catch {}
   process.exit(1);
 });

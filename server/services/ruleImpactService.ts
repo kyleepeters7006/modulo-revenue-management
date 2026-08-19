@@ -2,6 +2,7 @@ import { pool } from "../db";
 import { isBBedRow } from "@shared/bBed";
 import { loadCompBenchmark, type CompBenchmark } from "./compBenchmark";
 import { normalizeRoomType } from "@shared/roomTypes";
+import { DAYS_PER_MONTH } from "@shared/careRates";
 
 // ---------------------------------------------------------------------------
 // Qualified rule impact — the single source of truth for "how many units does
@@ -18,7 +19,6 @@ import { normalizeRoomType } from "@shared/roomTypes";
 // ---------------------------------------------------------------------------
 
 const DAILY_SLS = new Set(["HC", "HC/MC"]);
-const DAYS_PER_MONTH = 30.4;
 
 export interface UnitRow {
   id: string;
@@ -1223,7 +1223,7 @@ export interface GroupRateInput {
    * Mode street rate for the group — mirrors mode() WITHIN GROUP from the
    * grouped endpoint's SQL so both endpoints use the same base for preview rates.
    */
-  modeStreetRate: number;
+  groupStreetRate: number;
   /** Average in-house rate across the group (used when rule targets care_rate). */
   avgIhRate: number;
   total: number;
@@ -1398,7 +1398,7 @@ export function buildGroupRulePreviewRates(
       if (action.target === 'in_house_rate') continue;
       const filters      = action.filters || {};
       const usesCareRate = action.target === 'care_rate';
-      const baseRate     = usesCareRate ? g.avgIhRate : g.modeStreetRate;
+      const baseRate     = usesCareRate ? g.avgIhRate : g.groupStreetRate;
       if (!baseRate) continue;
 
       // ── Scope: top-level location/SL ──
