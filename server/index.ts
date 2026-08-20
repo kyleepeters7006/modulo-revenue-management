@@ -487,6 +487,36 @@ app.use((req, res, next) => {
     log(`[migration] rate_baseline_v view creation FAILED: ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: derived_rate_formulas, the user-editable rules that
+  // turn the base (single-occupant) rate into second-occupant, semi-private,
+  // respite, rehab/TCU, bed-hold and couple rates. Best-effort like the other
+  // table migrations — an absent table degrades to the built-in defaults
+  // rather than breaking the Data Management page.
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS derived_rate_formulas (
+        id               varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id        varchar NOT NULL,
+        rate_type        text    NOT NULL,
+        service_line     text,
+        percent_of_base  real    NOT NULL DEFAULT 100,
+        dollar_offset    real    NOT NULL DEFAULT 0,
+        enabled          boolean NOT NULL DEFAULT true,
+        updated_by       text,
+        created_at       timestamp DEFAULT now(),
+        updated_at       timestamp DEFAULT now()
+      )`));
+    // One formula per client + rate type + scope. NULLS NOT DISTINCT so the
+    // portfolio-wide row (service_line IS NULL) collides with itself and
+    // upserts cleanly instead of accumulating duplicates.
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS derived_rate_formulas_scope_idx
+        ON derived_rate_formulas (client_id, rate_type, service_line) NULLS NOT DISTINCT`));
+    log("[migration] derived_rate_formulas table ensured");
+  } catch (migErr) {
+    log(`[migration] derived_rate_formulas migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // One-time repair: fix stale action.filters.serviceLine on adjustment rules

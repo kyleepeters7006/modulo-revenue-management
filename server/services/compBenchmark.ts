@@ -105,7 +105,15 @@ export function normalizeBaseRate(compType: string, value: number | string | nul
   const v = num(value);
   if (v === null || v <= 0) return null;
   if (DAILY_COMP_TYPES.has(compType)) {
-    if (v > 800) return v / DAYS_PER_MONTH; // monthly entered by mistake
+    if (v > 800) {
+      // Looks like a monthly figure entered in a daily-rate field by mistake.
+      // Divide back to a daily rate, then apply the same floor check.
+      // Without the second check, a $1,200/month entry becomes $39/day and
+      // survives as the "top competitor" against a $389/day own rate, producing
+      // a +897% position that is clearly bad survey data.
+      const daily = v / DAYS_PER_MONTH;
+      return daily >= 50 ? daily : null;
+    }
     if (v < 50) return null;
     return v;
   }

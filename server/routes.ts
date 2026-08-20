@@ -89,6 +89,7 @@ import { splitCombinedSl, slWeightSqlPredicate, isSlWeightUnit, type SlWeight } 
 import { resolveCareLevel2, normalizeCompetitorCareRate, normalizeCompetitorCareRateMonthly, normalizeCompetitorStreetRate, isDailyServiceLine, CARE_ELIGIBLE_SERVICE_LINES, DAYS_PER_MONTH as SHARED_DAYS_PER_MONTH } from "@shared/careRates";
 import { buildRateBaselineJoin, streetRateGate, inHouseRateGate, fetchStreetBaselineMap, passesStreetGate } from "./services/rateBaselineView";
 import { bBedExclusionSql } from "@shared/bBed";
+import { baseRateExclusionSql } from "@shared/baseRate";
 import { RATE_OUTLIER_FLOOR_RATIO } from "@shared/rateOutliers";
 import { z } from "zod";
 import multer from "multer";
@@ -5902,6 +5903,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // ---------------------------------------------------------------------
+  // Derived rate formulas — how the base (single-occupant) rate becomes the
+  // second-occupant, semi-private, respite, rehab/TCU, bed-hold and couple
+  // rates. Lives beside the MatrixCare exports because that is where the
+  // derived rates are consumed.
+  // ---------------------------------------------------------------------
+  app.get("/api/derived-rate-formulas", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const { getDerivedRateFormulas } = await import('./services/derivedRateFormulasService');
+      const formulas = await getDerivedRateFormulas((s, p) => pool.query(s, p), clientId);
+      // Settings the user just saved must never be served from a cache.
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ formulas });
+    } catch (err) {
+      console.error('[derived-rate-formulas] load failed:', err);
+      res.status(500).json({ error: 'Failed to load derived rate formulas' });
+    }
+  });
+
+  /**
+   * Mutations here change pricing policy, so unlike the read path they cannot
+   * fall back to the demo tenant. An unauthenticated request has no client of
+   * its own; letting it through would mean anyone who can reach the server can
+   * rewrite the demo tenant's formulas. The tenant is taken from the session
+   * and never from the request body.
+   */
+  const requireSessionClient = (req: any, res: any): string | null => {
+    const session = req.session as any;
+    if (!session?.userId || !session?.clientId) {
+      res.status(401).json({ error: 'You must be signed in to change pricing formulas.' });
+      return null;
+    }
+    return session.clientId as string;
+  };
+
+  app.put("/api/derived-rate-formulas", async (req: any, res) => {
+    try {
+      const clientId = requireSessionClient(req, res);
+      if (!clientId) return;
+
+      const input = Array.isArray(req.body?.formulas) ? req.body.formulas : null;
+      if (!input) return res.status(400).json({ error: 'Expected a "formulas" array.' });
+
+      const { saveDerivedRateFormulas } = await import('./services/derivedRateFormulasService');
+      const formulas = await saveDerivedRateFormulas(
+        pool as any,
+        clientId,
+        input,
+        (req.session as any)?.username ?? null,
+      );
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ formulas });
+    } catch (err: any) {
+      const status = err?.statusCode === 400 ? 400 : 500;
+      if (status === 500) console.error('[derived-rate-formulas] save failed:', err);
+      res.status(status).json({ error: err?.message || 'Failed to save derived rate formulas' });
+    }
+  });
+
+  app.post("/api/derived-rate-formulas/reset", async (req: any, res) => {
+    try {
+      const clientId = requireSessionClient(req, res);
+      if (!clientId) return;
+
+      const { resetDerivedRateFormulas } = await import('./services/derivedRateFormulasService');
+      const formulas = await resetDerivedRateFormulas((s, p) => pool.query(s, p), clientId);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ formulas });
+    } catch (err) {
+      console.error('[derived-rate-formulas] reset failed:', err);
+      res.status(500).json({ error: 'Failed to reset derived rate formulas' });
+    }
+  });
+
   // MatrixCare Special Rates Export (for current residents)
   app.get("/api/export/special-rates", async (req: any, res) => {
     try {
@@ -22479,10 +22555,20 @@ Return ONLY valid JSON, no markdown fences:
             -- because HC is priced per day.
             AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0
               AND ${streetRateGate('rr.')}
-              AND ${bBedExclusionSql('rr.')}
+              AND ${baseRateExclusionSql('rr.')}
             ) AS avg_street,
+            -- In-house rate is a BILLED rate, so unlike street rate it is
+            -- payer-specific. For HC/HC-MC the payer mix is dominated by
+            -- Medicaid and Medicare, whose rates are set by programme and
+            -- move independently of anything we price; blending them in makes
+            -- the in-house figure a census statistic rather than a rate.
+            -- Senior housing is effectively all private pay, so it is
+            -- unfiltered and its numbers are unchanged.
             AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0
-              AND ${inHouseRateGate('rr.')})      AS avg_ih,
+              AND ${inHouseRateGate('rr.')}
+              AND ${baseRateExclusionSql('rr.')}
+              AND (rr.service_line NOT IN ('HC', 'HC/MC') OR ${privatePaySql('rr.payor_type')})
+            )      AS avg_ih,
             AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate > 0)        AS avg_comp_base,
             AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
             -- Underlying normalised room type (most common among units in this group).
@@ -23404,6 +23490,13 @@ Return ONLY valid JSON, no markdown fences:
           rr.service_line,
           COALESCE(rtg.group_name, rr.room_type) AS room_type,
           rr.room_type AS source_room_type,
+          -- The genuine source_room_type column, under a distinct alias because
+          -- the source_room_type label above is already taken by the NORMALISED
+          -- room type (the branded group_name occupies room_type). The
+          -- base-rate predicate inspects both, so the JS twin needs the real
+          -- column or it silently disagrees with the grouped SQL on rows like
+          -- "TCU - Private", which normalises to plain "Studio".
+          rr.source_room_type AS raw_source_room_type,
           rr.room_number,
           rr.occupied_yn,
           rr.days_vacant,

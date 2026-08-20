@@ -595,8 +595,28 @@ export const competitiveSurveyData = pgTable("competitive_survey_data", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Derived rate formulas — how non-base rates are computed from the base
+// (single-occupant, standard-stay) rate. See shared/derivedRates.ts for the
+// formula semantics and shared/baseRate.ts for what "base" means.
+//
+// serviceLine NULL = portfolio-wide. The column exists so a per-service-line
+// override can be added later without a migration.
+export const derivedRateFormulas = pgTable("derived_rate_formulas", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull(),
+  rateType: text("rate_type").notNull(), // DerivedRateType
+  serviceLine: text("service_line"),     // NULL = all service lines
+  percentOfBase: real("percent_of_base").notNull().default(100),
+  dollarOffset: real("dollar_offset").notNull().default(0),
+  enabled: boolean("enabled").notNull().default(true),
+  updatedBy: text("updated_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const insertStreetRatesSchema = createInsertSchema(streetRates);
 export const insertSpecialRatesSchema = createInsertSchema(specialRates);
+export const insertDerivedRateFormulasSchema = createInsertSchema(derivedRateFormulas);
 export const insertCompetitiveSurveyDataSchema = createInsertSchema(competitiveSurveyData);
 
 // Historical Rent Roll Data (time series for all 11 months)

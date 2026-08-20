@@ -20,7 +20,7 @@
  */
 
 import { buildRateBaselineJoin, streetRateGate } from "./rateBaselineView";
-import { bBedExclusionSql } from "@shared/bBed";
+import { baseRateExclusionSql } from "@shared/baseRate";
 
 export interface OwnRateRow {
   location: string;
@@ -107,7 +107,7 @@ export async function queryCompPositionOwnRates(
       LEFT JOIN locations loc ON loc.id = rr.location_id
       ${buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1', monthSql: '$2' })}
       WHERE ${whereClause}
-        AND ${bBedExclusionSql('rr.')}
+        AND ${baseRateExclusionSql('rr.')}
       GROUP BY rr.location, loc.name, rr.service_line, rr.room_type
     )
     SELECT location, location_name, service_line,

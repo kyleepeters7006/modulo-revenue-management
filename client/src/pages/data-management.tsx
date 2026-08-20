@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import PricingStrategyDocumentation from "@/components/pricing-strategy-documentation";
+import DerivedRateFormulas from "@/components/dashboard/derived-rate-formulas";
 import { useUploads } from "@/contexts/upload-context";
 import { useAuth } from "@/hooks/useAuth";
 import { DataImportsContent } from "@/pages/data-imports";
@@ -1906,6 +1907,10 @@ export default function DataManagement() {
               </Alert>
             </CardContent>
           </Card>
+
+          {/* Derived rate formulas — sits beside the MatrixCare export because
+              the derived rates are what that export emits for non-base beds. */}
+          <DerivedRateFormulas />
 
 
           {/* Admin: Backfill Level 2 Care Rates — visible to authenticated admins only */}

@@ -124,6 +124,11 @@ function rows(...specs: Array<[string, string, string, number, number]>): Street
         campus,
         service_line: sl,
         room_type: rt,
+        // The canonical room type the base-rate predicate inspects. These
+        // fixtures use private/studio room types, so no row is excluded as a
+        // companion or short-stay bed and the gate is measured in isolation.
+        source_room_type: rt,
+        raw_source_room_type: rt,
         room_number: String(n++),
         street_rate: rate,
       });

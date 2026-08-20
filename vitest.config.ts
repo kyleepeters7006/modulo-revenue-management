@@ -21,6 +21,10 @@ export default defineConfig({
     // reported as "No test suite found" / "process.exit unexpectedly called".
     // Twelve passing suites looked like twelve failures, so `npm test` always
     // exited non-zero and stopped being run at all.
-    include: ['server/**/*.vitest.ts'],
+    // `tests/` and `shared/` are included as well so suites covering shared/
+    // modules are not silently skipped. The glob stays pinned to *.vitest.ts,
+    // which is the part that matters: tests/ is full of script-style
+    // *.test.ts files that must keep going to the tsx runner.
+    include: ['server/**/*.vitest.ts', 'shared/**/*.vitest.ts', 'tests/**/*.vitest.ts'],
   },
 });

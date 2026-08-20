@@ -991,19 +991,20 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
         .then(r => r.ok ? r.json() : null)
         .then(list => { if (list) setRules(list); })
         .catch(() => {});
+      // After saving, keep the form populated and transition into edit mode.
+      // Blanking the form here forces the user to re-enter everything from
+      // scratch if they want to tweak the rule they just saved, and it looks
+      // like the save didn't work. Only the AI text input and stale impact
+      // preview are cleared; everything the user typed stays visible.
       setAiInput('');
-      setConditions([defaultCondition()]);
-      setRuleAction(defaultAction());
       setImpactData(null);
-      setEditingRuleId(null);
-      setEditingRuleName('');
-      setEditingRuleSLs([]);
-      setNewRuleSLs([]);
-      setNewRuleRoomTypes([]);
-      setEffectiveDate('');
-      setSaveAsHistorical(false);
-      setStackRule(true);
       if (saveAsHistorical) fetchHistory();
+      if (!isEditing && data.rule?.id) {
+        // First save: record the new rule's ID so the next save is an update,
+        // and update the name in case the server auto-generated one.
+        setEditingRuleId(data.rule.id);
+        if (data.rule.name) setEditingRuleName(data.rule.name);
+      }
       toast({
         title: isEditing ? 'Rule updated' : applyNow ? 'Rule applied' : 'Rule saved',
         description: `"${data.rule?.name}" affects ${data.affectedUnits || 0} units`,

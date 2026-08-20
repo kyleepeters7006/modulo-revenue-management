@@ -21,7 +21,7 @@
  *
  * See rateBaselineView.ts for why the gate is relative and two-level.
  */
-import { isBBedRow } from "@shared/bBed";
+import { isBaseRateRow } from "@shared/baseRate";
 import {
   fetchStreetBaselineMap,
   passesStreetGate,
@@ -34,7 +34,22 @@ export type RateQueryFn = BaselineQueryFn;
 export interface StreetRateGateRow {
   campus: string;
   service_line: string | null;
+  /** Display room type: the branded RTG group_name when one exists. */
   room_type: string | null;
+  /**
+   * The NORMALISED room type (`rent_roll_data.room_type`). Confusingly named
+   * because `room_type` above is already the branded display value; the units
+   * query aliases the canonical column here. This is what the grouped SQL's
+   * base-rate predicate tests, so the twin must test the same thing.
+   */
+  source_room_type: string | null;
+  /**
+   * The genuine `rent_roll_data.source_room_type` column. Required, not
+   * optional: making it optional would let a caller omit it and silently drop
+   * the half of the base-rate predicate that catches "TCU - Private" and
+   * "Private Rehab", which both normalise to plain "Studio".
+   */
+  raw_source_room_type: string | null;
   room_number: string | null;
   street_rate: number | string | null;
 }
@@ -58,7 +73,10 @@ export async function computeGroupStreetRateMap(
   for (const r of rows) {
     const st = Number(r.street_rate) || 0;
     if (st <= 0) continue;
-    if (isBBedRow(r.service_line, r.room_number)) continue;
+    // Base rate only: single occupant, standard stay. Mirrors
+    // baseRateExclusionSql in the grouped reference-data query. Note the
+    // canonical room type is carried in `source_room_type`, not `room_type`.
+    if (!isBaseRateRow(r.service_line, r.room_number, r.source_room_type, r.raw_source_room_type)) continue;
 
     // The view keys service_line exactly as stored, including NULL; the output
     // key keeps the display-facing "Other" placeholder. These are deliberately

@@ -71,3 +71,5 @@
 - [Revenue payer basis](revenue-payer-basis.md) — always report total AND private-pay revenue, labelled; private pay is ~43% of total, so an unlabelled figure is meaningless.
 - [Test runner conventions](test-runner-conventions.md) — *.vitest.ts = vitest, *.test.ts = standalone tsx scripts; mixing them made npm test always fail.
 - [Display fallback ≠ identity](display-fallback-not-identity.md) — null→"Other" must stay in the display layer; as a group/React key it merges distinct partitions and undercounts.
+- [Base-rate basis](base-rate-basis.md) — rates = single occupant, standard stay; HC/HC-MC needs a room-type arm beyond B-beds; COALESCE every column or the JS/SQL twins diverge on NULLs.
+- [Derived rate formulas](derived-rate-formulas.md) — six non-base products derived from the base rate; outputs only, round once, whole-set saves on a pinned connection, session-scoped mutations.

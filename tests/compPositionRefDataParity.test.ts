@@ -36,7 +36,7 @@ const { Pool } = pg;
 import { buildRuleImpactContext, computeQualifiedRuleImpact } from '../server/services/ruleImpactService';
 import { computeGroupStreetRateMap } from '../server/services/groupStreetRateJs';
 import { buildRateBaselineJoin, streetRateGate } from '../server/services/rateBaselineView';
-import { bBedExclusionSql } from '../shared/bBed';
+import { baseRateExclusionSql } from '../shared/baseRate';
 
 const CLIENT   = 'ptest-cp-refdata-parity';
 const LOC_A    = 'Alpha Campus - 101';
@@ -62,7 +62,7 @@ const STREET_AVG_SQL = `
       AVG(rr.street_rate) FILTER (
         WHERE rr.street_rate > 0
           AND ${streetRateGate('rr.')}
-          AND ${bBedExclusionSql('rr.')}
+          AND ${baseRateExclusionSql('rr.')}
       ) AS avg_street`;
 
 const BASELINE_JOIN = buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1', monthSql: '$2' });
@@ -98,8 +98,16 @@ function assert(desc: string, actual: unknown, expected: unknown, tol = 1) {
 //   because under mode() the junk row never left the count in the first place.
 //
 // Alpha / HC:
-//   Semi-Private:4 units @ $3200                      → avg = $3200, cnt = 4
-//   Expected our_all_rate = 3200
+//   Private:      4 units @ $4000   ← the BASE product, the only one that counts
+//   Semi-Private: 4 units @ $3200   ← derived, excluded from the base rate
+//   TCU (source_room_type='TCU - Private'):
+//                 2 units @ $5400   ← short-stay, excluded; normalises to
+//                                     "Private", so only the raw column betrays it
+//   Expected our_all_rate = 4000
+//
+//   The two excluded products bracket the base rate — one cheaper, one dearer —
+//   so a predicate that stops excluding them moves the answer in a direction
+//   the assertion notices, rather than coincidentally landing on $4000.
 //
 // Beta / AL:
 //   Studio:      4 units @ $3800                      → avg = $3800, cnt = 4
@@ -113,6 +121,9 @@ interface RRRow {
   location: string;
   serviceLine: string;
   roomType: string;
+  /** Raw import value. Defaults to roomType; set it explicitly to model a row
+   *  whose normalised type hides what the product actually is. */
+  sourceRoomType?: string;
   roomNumber: string;
   streetRate: number;
   occupiedYn: boolean;
@@ -136,10 +147,28 @@ function buildRows(): RRRow[] {
       roomNumber: `A-1${i}`, streetRate: 5000, occupiedYn: true, inHouseRate: 4900 });
   }
 
-  // Alpha — HC — Semi-Private
+  // Alpha — HC — Private (the BASE product: one resident, one room)
+  for (let i = 1; i <= 4; i++) {
+    rows.push({ location: LOC_A, serviceLine: 'HC', roomType: 'Private',
+      roomNumber: `AH-P${i}`, streetRate: 4000, occupiedYn: i <= 3, inHouseRate: i <= 3 ? 3900 : 0 });
+  }
+
+  // Alpha — HC — Semi-Private (a DERIVED product, priced off the base).
+  // Deliberately cheaper than Private and deliberately numerous: if the
+  // base-rate predicate ever stops excluding these, the HC rate collapses from
+  // $4000 toward the $3200 blend and the assertions below catch it.
   for (let i = 1; i <= 4; i++) {
     rows.push({ location: LOC_A, serviceLine: 'HC', roomType: 'Semi-Private',
       roomNumber: `AH-${i}`, streetRate: 3200, occupiedYn: i <= 3, inHouseRate: i <= 3 ? 3100 : 0 });
+  }
+
+  // Alpha — HC — a short-stay product whose NORMALISED room type is "Private"
+  // but whose source room type gives it away. This is the case that only the
+  // source_room_type half of the predicate can catch.
+  for (let i = 1; i <= 2; i++) {
+    rows.push({ location: LOC_A, serviceLine: 'HC', roomType: 'Private',
+      sourceRoomType: 'TCU - Private',
+      roomNumber: `AH-T${i}`, streetRate: 5400, occupiedYn: true, inHouseRate: 5300 });
   }
 
   // Beta — AL — Studio
@@ -184,9 +213,10 @@ async function seed(): Promise<{ locAId: string; locBId: string }> {
       `INSERT INTO rent_roll_data
          (client_id, location_id, location, upload_month, service_line, room_type, source_room_type,
           room_number, street_rate, occupied_yn, in_house_rate, date, size, days_vacant, payor_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$6,$7,$8,$9,$10,$11,$6,0,'Private')`,
+       VALUES ($1,$2,$3,$4,$5,$6,$12,$7,$8,$9,$10,$11,$6,0,'Private')`,
       [CLIENT, locId, r.location, MONTH, r.serviceLine, r.roomType,
-       r.roomNumber, r.streetRate, r.occupiedYn, r.inHouseRate, `${MONTH}-01`],
+       r.roomNumber, r.streetRate, r.occupiedYn, r.inHouseRate, `${MONTH}-01`,
+       r.sourceRoomType ?? r.roomType],
     );
   }
 
@@ -284,7 +314,9 @@ async function runRefDataPerRT(): Promise<Map<string, number>> {
 // ---------------------------------------------------------------------------
 const EXPECTED: Record<string, number> = {
   [`${LOC_A}||AL`]:  4333,  // (4000*6 + 5000*3) / 9 = 4333.3 → rounds to 4333
-  [`${LOC_A}||HC`]:  3200,
+  // Private only. The $3200 semi-private and $5400 TCU rows are derived
+  // products and must not reach the base rate.
+  [`${LOC_A}||HC`]:  4000,
   [`${LOC_B}||AL`]:  3800,
   [`${LOC_B}||VIL`]: 2900,
 };
@@ -1086,10 +1118,36 @@ async function main() {
       (scatterAlAL ?? 0) > 1000, true,
     );
 
-    // ── 6. HC service line: averages correctly (single rate, clean) ──
-    const hcKey = `${LOC_A}||HC||Semi-Private`;
-    const hcRate = perRTMap.get(hcKey);
-    assert('refData: HC Semi-Private average rate = $3200', hcRate ?? 0, 3200);
+    // ── 6. HC base-rate basis: single occupant, standard stay only ──
+    // HC has no letter-suffixed companion room numbers, so the old B-bed rule
+    // never touched it and its rate was a blend of separately-priced products.
+    // These assertions pin the corrected basis.
+    const hcPrivateRate = perRTMap.get(`${LOC_A}||HC||Private`);
+    assert('refData: HC Private (base product) rate = $4000', hcPrivateRate ?? 0, 4000);
+
+    // Semi-private is a derived product. The group may still exist as a row —
+    // the exclusion lives inside the FILTER, so the beds are still counted —
+    // but it must contribute no rate.
+    const hcSemiRate = perRTMap.get(`${LOC_A}||HC||Semi-Private`);
+    assert(
+      'refData: HC Semi-Private contributes NO rate (derived, not observed)',
+      hcSemiRate == null || hcSemiRate === 0, true,
+    );
+
+    // The campus-level HC rate must equal the base product exactly. Blending
+    // the $3200 semi-private and $5400 TCU rows back in would give
+    // (4000*4 + 3200*4 + 5400*2) / 10 = $3960 — close enough to look plausible
+    // on a dashboard, which is exactly why it needs an assertion.
+    const scatterAlHC = scatterMap.get(`${LOC_A}||HC`);
+    assert('scatter: HC own-rate = $4000 (base only, not the $3960 blend)', scatterAlHC ?? 0, 4000);
+
+    // The TCU rows normalise to room_type "Private" and are only
+    // distinguishable by source_room_type. If the predicate ever drops that
+    // half, they rejoin the Private group and drag it from $4000 to $4467.
+    assert(
+      'refData: TCU rows excluded via source_room_type (Private stays $4000, not $4467)',
+      hcPrivateRate ?? 0, 4000,
+    );
 
     // ── 7. Latest-month scoping: no earlier months slip through ──
     // We only seeded MONTH='2026-06'; scatterMap/refDataMap should be non-empty

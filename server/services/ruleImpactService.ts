@@ -1,6 +1,7 @@
 import { pool } from "../db";
 import { isPrivatePayer, privatePaySql } from "@shared/payerScope";
 import { isBBedRow } from "@shared/bBed";
+import { isBaseRateRow } from "@shared/baseRate";
 import { loadCompBenchmark, type CompBenchmark } from "./compBenchmark";
 import { normalizeRoomType } from "@shared/roomTypes";
 import { DAYS_PER_MONTH } from "@shared/careRates";
@@ -27,6 +28,9 @@ export interface UnitRow {
   location: string | null;
   service_line: string | null;
   room_type: string | null;
+  /** Raw source_room_type — needed by the base-rate predicate, since
+   *  "TCU - Private" and "Private Rehab" both normalise to "Studio". */
+  source_room_type: string | null;
   room_number: string | null;
   street_rate: number;
   care_rate: number;
@@ -303,7 +307,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
   if (!latestMonth) return null;
 
   const { rows } = await pool.query(
-    `SELECT id, location_id, location, service_line, room_type, room_number,
+    `SELECT id, location_id, location, service_line, room_type, source_room_type, room_number,
             street_rate::float AS street_rate, care_rate::float AS care_rate,
             in_house_rate::float AS in_house_rate,
             occupied_yn, days_vacant, competitor_final_rate::float AS competitor_final_rate,
@@ -1061,10 +1065,17 @@ export function computeQualifiedRuleImpact(
     // and the impact is direct (occupied units × Δrate), not move-in based.
     const impactUnits = useInHouseRate ? qualified.filter(u => u.occupied_yn) : qualified;
     if (useInHouseRate && !impactUnits.length) continue;
-    // Exclude B-bed companion rows for SH SLs when computing the street-rate
-    // baseline so the average reflects primary (single-occupant) units only.
+    // The rate a rule is designed against must be the BASE rate: one resident,
+    // one room, standard stay. That means senior-housing companion rows and
+    // HC/HC-MC companion, semi-private, respite and rehab/TCU beds all stay
+    // out of the baseline average — a rule written as "+3% on street rate"
+    // would otherwise be reasoning about a blend of separately-priced products.
+    //
+    // Note this narrows the RATE BASIS only, not which units the rule claims:
+    // `impactUnits` is untouched, so a companion bed is still repriced by the
+    // rule, off a base rate that no longer includes its own discounted value.
     const rateBaseUnits = (!useCareRate && !useInHouseRate)
-      ? impactUnits.filter(u => !isBBedRow(sl, u.room_number))
+      ? impactUnits.filter(u => isBaseRateRow(sl, u.room_number, u.room_type, u.source_room_type))
       : impactUnits;
     const rates = rateBaseUnits
       .map(u => toMonthlyRate(Number(
