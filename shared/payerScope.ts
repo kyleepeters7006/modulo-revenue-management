@@ -43,6 +43,14 @@
  * test and gets classified deliberately, instead of silently landing in
  * whichever bucket happens to catch it.
  *
+ * BILLING STATES THAT ARE NOT PAYER PROGRAMMES — PRODUCT DECISION, SIGNED OFF
+ * `BEDHOLDS`, `2ND OCCUPANT`, `CONVERSIONS` and `CLINICAL QUICK ADMIT` describe
+ * an occupancy or billing state rather than who pays. They fall through as
+ * private under the exclusion rule, and that is confirmed as intended: these
+ * are privately billed. Recorded here so it reads as a decision rather than an
+ * accident of the keyword list. Companion rows are additionally removed from
+ * senior-housing rate aggregates by the separate B-bed exclusion.
+ *
  * Keep `isPrivatePayer` and `privatePaySql` behaviourally identical. They are
  * twins on purpose: some surfaces aggregate in SQL and some in JS, and a drift
  * between them reintroduces exactly the inconsistency this file removes.

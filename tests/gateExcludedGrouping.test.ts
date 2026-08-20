@@ -85,6 +85,17 @@ console.log("Section 1: display-key collision");
 
   const blank = groups.filter((g) => g.roomType === "Other");
   check("all three display as Other", blank.length, 3);
+
+  // Because all three render identically, the UI cannot key its list on the
+  // displayed text — that would give sibling elements duplicate React keys and
+  // break reconciliation. Each group carries a stable partition id instead.
+  const keys = new Set(groups.map((g) => g.key));
+  check("every group has a unique key", keys.size, groups.length);
+  check("no key is empty", [...keys].every((k) => typeof k === "string" && k.length > 0), true);
+
+  // The display-derived key that must NOT be used, proving the collision is real.
+  const displayKeys = new Set(groups.map((g) => `${g.location}-${g.serviceLine}-${g.roomType}`));
+  check("display-derived keys DO collide (why g.key exists)", displayKeys.size, 1);
 }
 
 // ---------------------------------------------------------------------------

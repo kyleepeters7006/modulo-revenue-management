@@ -46,6 +46,9 @@ HOSPICE) are safe as substrings.
   the unit is the point of the metric. That reasoning does NOT transfer to
   move-in events, where a blank payer is a real admission.
 - Buckets that are billing/occupancy STATES rather than payer programmes
-  (held beds, companion occupants, conversions) default to private under the
-  exclusion rule. That is a product decision, not payer truth — get it signed
-  off rather than inferred, because it moves payer-mix and rule-trigger metrics.
+  (held beds, companion occupants, conversions, unassigned quick admits) count
+  as private. Confirmed as a deliberate product decision, not payer truth.
+- Beware the word "private" as a ROOM TYPE. Health-care private rooms make
+  hundreds of rules and filters match a naive `%private%` search on rule
+  payloads, none of which have anything to do with payer scope. Audit rule
+  triggers by their parsed field name, not by substring-searching the JSON.

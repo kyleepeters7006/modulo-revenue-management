@@ -40,7 +40,13 @@ function check(desc: string, actual: unknown, expected: unknown) {
 // Section 1 — every payer value observed in production, classified.
 // ---------------------------------------------------------------------------
 
-/** Residents whose rate we set. Street pricing moves this revenue. */
+/**
+ * Residents whose rate we set. Street pricing moves this revenue.
+ *
+ * The occupancy/billing states near the end of this list (BEDHOLDS,
+ * 2ND OCCUPANT, CONVERSIONS, CLINICAL QUICK ADMIT) are private by explicit
+ * product decision, not merely because the keyword list happens to miss them.
+ */
 const PRIVATE_VALUES = [
   "PRIVATE PAY",
   "PRIVATE AL",

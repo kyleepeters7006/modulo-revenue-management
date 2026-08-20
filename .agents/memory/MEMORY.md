@@ -70,3 +70,4 @@
 - [Payer scope](payer-scope.md) — "private pay" is exclusion-based in shared/payerScope.ts; ILIKE '%private%' silently drops LEGACY - PVT PAY and BEDHOLDS.
 - [Revenue payer basis](revenue-payer-basis.md) — always report total AND private-pay revenue, labelled; private pay is ~43% of total, so an unlabelled figure is meaningless.
 - [Test runner conventions](test-runner-conventions.md) — *.vitest.ts = vitest, *.test.ts = standalone tsx scripts; mixing them made npm test always fail.
+- [Display fallback ≠ identity](display-fallback-not-identity.md) — null→"Other" must stay in the display layer; as a group/React key it merges distinct partitions and undercounts.

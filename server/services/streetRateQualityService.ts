@@ -94,6 +94,13 @@ export interface GateExcludedRow {
 
 /** Excluded rows collected per campus + service line + room type. */
 export interface GateExcludedGroup {
+  /**
+   * Stable identifier for the underlying SQL partition, distinct even when two
+   * groups render identically. NULL, '' and a room type literally named
+   * "Other" all DISPLAY as "Other", so a display-derived React key would
+   * collide across siblings. Use this as the list key, never the display text.
+   */
+  key: string;
   location: string;
   serviceLine: string;
   roomType: string;
@@ -187,6 +194,7 @@ export async function getGateExcludedRows(
     let g = groups.get(key);
     if (!g) {
       g = {
+        key,
         location: r.location,
         serviceLine: r.service_line || "",
         roomType,

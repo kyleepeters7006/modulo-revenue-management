@@ -31,6 +31,12 @@ interface ExcludedRow {
 }
 
 interface ExcludedGroup {
+  /**
+   * Stable partition id from the server. NULL, blank and a room type literally
+   * named "Other" all display as "Other", so keying the list on the displayed
+   * text would produce duplicate sibling keys for genuinely distinct groups.
+   */
+  key: string;
   location: string;
   serviceLine: string;
   roomType: string;
@@ -163,7 +169,7 @@ export default function StreetRateQuality() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {excluded.groups.map((g) => (
-                  <div key={`${g.location}-${g.serviceLine}-${g.roomType}`} className="border rounded-md p-3">
+                  <div key={g.key} className="border rounded-md p-3">
                     <div className="flex items-center gap-2 flex-wrap text-sm font-medium">
                       <span>{g.location}</span>
                       <span className="text-muted-foreground">/ {g.serviceLine} / {g.roomType}</span>
