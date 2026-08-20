@@ -35,7 +35,8 @@ import { queryCompPositionOwnRates } from '../server/services/compPositionOwnRat
 const { Pool } = pg;
 import { buildRuleImpactContext, computeQualifiedRuleImpact } from '../server/services/ruleImpactService';
 import { computeGroupStreetRateMap } from '../server/services/groupStreetRateJs';
-import { buildRateBaselineCte, RATE_BASELINE_JOIN, STREET_RATE_GATE } from '../server/services/rateBaselineSql';
+import { buildRateBaselineJoin, streetRateGate } from '../server/services/rateBaselineView';
+import { bBedExclusionSql } from '../shared/bBed';
 
 const CLIENT   = 'ptest-cp-refdata-parity';
 const LOC_A    = 'Alpha Campus - 101';
@@ -48,26 +49,23 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 // Shared SQL fragments mirroring the Reference Data aggregation in routes.ts.
 //
 // Production reports a true AVERAGE street rate and suppresses bad rows with a
-// RELATIVE gate — a rate below RATE_OUTLIER_FLOOR_RATIO of its own
-// location + service-line median — rather than with mode() plus a fixed $1,000
-// floor. These mirrors must move in lockstep with routes.ts, otherwise the
-// parity assertions below silently stop testing production behaviour.
+// RELATIVE, two-level gate — a rate below RATE_OUTLIER_FLOOR_RATIO of the
+// baseline published by the rate_baseline_v view — rather than with mode()
+// plus a fixed $1,000 floor.
+//
+// Every fragment below is built from the SAME exported helpers the production
+// queries use, so a change to the gate cannot land on one side only. A mirror
+// that transcribed the predicate by hand would let production regress while
+// these assertions stayed green.
 // ---------------------------------------------------------------------------
-// Built from the SAME module the production queries use, so a change to the
-// gate cannot land on one side only.
-const RATE_BASELINE_CTE = buildRateBaselineCte({
-  where: 'rr.client_id = $1 AND rr.upload_month = $2',
-});
-
 const STREET_AVG_SQL = `
       AVG(rr.street_rate) FILTER (
         WHERE rr.street_rate > 0
-          AND ${STREET_RATE_GATE}
-          AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL')
-                   AND rr.room_number ~* '/[B-Zb-z]$')
+          AND ${streetRateGate('rr.')}
+          AND ${bBedExclusionSql('rr.')}
       ) AS avg_street`;
 
-const BASELINE_JOIN = RATE_BASELINE_JOIN;
+const BASELINE_JOIN = buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1', monthSql: '$2' });
 
 const PASS = '\x1b[32m✓\x1b[0m';
 const FAIL = '\x1b[31m✗\x1b[0m';
@@ -224,7 +222,6 @@ async function runScatterSQL(): Promise<Map<string, number>> {
 // ---------------------------------------------------------------------------
 async function runRefDataSQL(): Promise<Map<string, number>> {
   const res = await pool.query(`
-    ${RATE_BASELINE_CTE}
     SELECT
       rr.location,
       rr.service_line,
@@ -267,7 +264,6 @@ async function runRefDataSQL(): Promise<Map<string, number>> {
 // ---------------------------------------------------------------------------
 async function runRefDataPerRT(): Promise<Map<string, number>> {
   const res = await pool.query(`
-    ${RATE_BASELINE_CTE}
     SELECT rr.location, rr.service_line, rr.room_type,
       ${STREET_AVG_SQL}
     FROM rent_roll_data rr
@@ -370,7 +366,6 @@ async function seedRtg(): Promise<void> {
 }
 async function runRefDataSQLRtg(): Promise<number | null> {
   const res = await pool.query<{ display_rt: string; avg_street: string; total: string }>(`
-    ${RATE_BASELINE_CTE}
     SELECT
       COALESCE(rtg.group_name, rr.room_type) AS display_rt,
       rr.service_line,
@@ -925,7 +920,6 @@ async function seedMo(): Promise<string> {
 // canonical mode_room_type for each group.
 async function runMoAggRes(): Promise<{ roomType: string; modeRoomType: string; avgStreet: number } | null> {
   const res = await pool.query<{ room_type: string; mode_room_type: string; avg_street: string }>(`
-    ${RATE_BASELINE_CTE}
     SELECT
       COALESCE(rtg.group_name, rr.room_type) AS room_type,
       mode() WITHIN GROUP (ORDER BY rr.room_type) FILTER (WHERE rr.room_type IS NOT NULL) AS mode_room_type,

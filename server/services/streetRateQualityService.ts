@@ -20,6 +20,8 @@
  *   behavior, reported for visibility but flagged as expected, not corrupt.
  */
 import { pool } from "../db";
+import { buildRateBaselineJoin, streetRateGate } from "./rateBaselineView";
+import { bBedExclusionSql } from "@shared/bBed";
 
 /** A campus median moving by at least this factor month-over-month is flagged. */
 export const MEDIAN_SHIFT_FACTOR = 8;
@@ -77,12 +79,157 @@ export interface CampusMedianShift {
   ratio: number;
 }
 
+/** A row the outlier gate removed from every rate aggregate. */
+export interface GateExcludedRow {
+  location: string;
+  serviceLine: string;
+  roomType: string | null;
+  roomNumber: string;
+  streetRate: number;
+  /** The baseline it was judged against (from rate_baseline_v). */
+  baseline: number;
+  /** streetRate as a percentage of that baseline — how far below it fell. */
+  pctOfBaseline: number;
+}
+
+/** Excluded rows collected per campus + service line + room type. */
+export interface GateExcludedGroup {
+  location: string;
+  serviceLine: string;
+  roomType: string;
+  droppedCount: number;
+  totalCount: number;
+  /**
+   * Every row in the group was excluded, so this group now reports NO street
+   * rate anywhere in the product. These are the highest-priority fixes: a
+   * blank is correct given the data, but it is still a hole in the numbers.
+   */
+  blanked: boolean;
+  rows: GateExcludedRow[];
+}
+
 export interface StreetRateQualityReport {
   month: string;
   previousMonth: string;
   campuses: CampusSuspectGroup[];
   medianShifts: CampusMedianShift[];
+  /**
+   * Rows silently dropped from rate averages by the outlier gate. Surfaced so
+   * bad source data gets corrected at the source rather than quietly reducing
+   * the population behind every rate on the platform.
+   */
+  excludedFromAggregates: {
+    groups: GateExcludedGroup[];
+    totals: { rows: number; groups: number; blankedGroups: number; campuses: number };
+  };
   totals: { suspect: number; proratedMoveIn: number; campusesAffected: number };
+}
+
+/**
+ * Rows the shared rate outlier gate removes from street-rate aggregates for a
+ * month, with the baseline each was judged against.
+ *
+ * This uses the SAME view join and the SAME predicate the aggregates use, so
+ * the report cannot drift from what the product actually did. Reproducing the
+ * gate here with hand-written SQL would let the report claim one thing while
+ * the averages did another.
+ */
+export async function getGateExcludedRows(
+  clientId: string,
+  month: string,
+  // Injectable so the grouping and totals logic can be tested without a
+  // database; production callers use the real pool.
+  queryFn: (sql: string, params: any[]) => Promise<{ rows: any[] }> = (sql, params) =>
+    pool.query(sql, params),
+): Promise<StreetRateQualityReport["excludedFromAggregates"]> {
+  const join = buildRateBaselineJoin({ rr: "rr.", clientSql: "$1", monthSql: "$2" });
+  const res = await queryFn(
+    `WITH marked AS (
+       SELECT rr.location, rr.service_line, rr.room_type, rr.room_number,
+              rr.street_rate, rb.baseline_street,
+              ${streetRateGate("rr.")} AS kept
+       FROM rent_roll_data rr
+       ${join}
+       WHERE rr.client_id = $1 AND rr.upload_month = $2 AND rr.street_rate > 0
+         AND ${bBedExclusionSql("rr.")}
+     ),
+     windowed AS (
+       SELECT m.*,
+              COUNT(*) OVER w AS group_total,
+              COUNT(*) FILTER (WHERE NOT m.kept) OVER w AS group_dropped
+       FROM marked m
+       WINDOW w AS (PARTITION BY m.location, m.service_line, m.room_type)
+     )
+     SELECT * FROM windowed
+     WHERE NOT kept
+     ORDER BY location, service_line, room_type, street_rate`,
+    [clientId, month],
+  );
+
+  // A single bad import can gate an entire large campus, so the detail rows are
+  // bounded. The COUNTS stay exact (they come from window functions over the
+  // full set) — only the per-group examples are truncated, and an admin needs a
+  // handful of examples to identify the defect, not hundreds.
+  const MAX_ROWS_PER_GROUP = 25;
+  const MAX_GROUPS = 200;
+
+  const groups = new Map<string, GateExcludedGroup>();
+  for (const r of res.rows) {
+    // The Map key must mirror the SQL PARTITION exactly, on the RAW values.
+    // Keying on the display fallback (`room_type || "Other"`) would merge three
+    // distinct SQL partitions — NULL, '' and a literal room type named "Other" —
+    // into one entry, and since each carries its own group_dropped, the totals
+    // would silently undercount. A separator that cannot occur in the data plus
+    // an explicit NULL sentinel keeps the key collision-free.
+    const raw = (v: string | null) => (v === null || v === undefined ? "\u0000NULL" : v);
+    const key = `${raw(r.location)}\u0001${raw(r.service_line)}\u0001${raw(r.room_type)}`;
+    const roomType = r.room_type || "Other";
+    let g = groups.get(key);
+    if (!g) {
+      g = {
+        location: r.location,
+        serviceLine: r.service_line || "",
+        roomType,
+        droppedCount: Number(r.group_dropped),
+        totalCount: Number(r.group_total),
+        blanked: Number(r.group_dropped) === Number(r.group_total),
+        rows: [],
+      };
+      groups.set(key, g);
+    }
+    if (g.rows.length >= MAX_ROWS_PER_GROUP) continue;
+    const rate = Number(r.street_rate);
+    const baseline = Number(r.baseline_street);
+    g.rows.push({
+      location: r.location,
+      serviceLine: r.service_line || "",
+      roomType: r.room_type,
+      roomNumber: r.room_number,
+      streetRate: rate,
+      baseline: Math.round(baseline),
+      pctOfBaseline: baseline > 0 ? Math.round((rate / baseline) * 100) : 0,
+    });
+  }
+
+  // Wholly blanked groups first — they are holes in the numbers, not just a
+  // thinner average — then by how much of the group was lost.
+  const all = Array.from(groups.values()).sort(
+    (a, b) =>
+      Number(b.blanked) - Number(a.blanked) ||
+      b.droppedCount / b.totalCount - a.droppedCount / a.totalCount ||
+      b.droppedCount - a.droppedCount,
+  );
+
+  // Totals are computed over EVERY group, before the display cap, so a
+  // truncated list never understates how much data was dropped.
+  const totals = {
+    rows: all.reduce((s, g) => s + g.droppedCount, 0),
+    groups: all.length,
+    blankedGroups: all.filter((g) => g.blanked).length,
+    campuses: new Set(all.map((g) => g.location)).size,
+  };
+
+  return { groups: all.slice(0, MAX_GROUPS), totals };
 }
 
 function previousMonthOf(month: string): string {
@@ -176,7 +323,10 @@ export async function getStreetRateQualityReport(clientId: string, month: string
     if (isProrated) g.proratedCount++; else g.suspectCount++;
   }
 
-  const medianShifts = await computeCampusMedianShiftsFromDb(clientId, month, prevMonth);
+  const [medianShifts, excludedFromAggregates] = await Promise.all([
+    computeCampusMedianShiftsFromDb(clientId, month, prevMonth),
+    getGateExcludedRows(clientId, month),
+  ]);
 
   const campuses = Array.from(byCampus.values()).sort(
     (a, b) => b.suspectCount - a.suspectCount || b.proratedCount - a.proratedCount,
@@ -187,6 +337,7 @@ export async function getStreetRateQualityReport(clientId: string, month: string
     previousMonth: prevMonth,
     campuses,
     medianShifts,
+    excludedFromAggregates,
     totals: {
       suspect,
       proratedMoveIn: prorated,

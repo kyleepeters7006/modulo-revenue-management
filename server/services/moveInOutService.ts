@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import { isPrivatePayer, privatePaySql } from "@shared/payerScope";
 import { pool } from "../db";
 import { normalizeRoomType } from "@shared/roomTypes";
 
@@ -308,7 +309,7 @@ export async function getMonthlyMoveInSeriesFromEvents(
   const payerFilter = opts.allPayers
     ? ""
     : `AND (CASE WHEN service_line IN ('HC','HC/MC')
-           THEN (payer ILIKE '%private%' OR payer ILIKE '%pvt%') ELSE TRUE END)`;
+           THEN ${privatePaySql("payer")} ELSE TRUE END)`;
   const res = await pool.query(`
     SELECT location, service_line, room_type, SUBSTRING(event_date, 1, 7) AS mm, COUNT(*)::int AS n
     FROM move_in_out_events
@@ -364,7 +365,7 @@ export async function getT3MoveInsMapFromEvents(
   const where: string[] = [
     "client_id = $1", "event_type = 'move_in'", "counted = true",
     "SUBSTRING(event_date, 1, 7) = ANY($2)",
-    "(CASE WHEN service_line IN ('HC','HC/MC') THEN (payer ILIKE '%private%' OR payer ILIKE '%pvt%') ELSE TRUE END)",
+    `(CASE WHEN service_line IN ('HC','HC/MC') THEN ${privatePaySql("payer")} ELSE TRUE END)`,
   ];
   const params: any[] = [clientId, t3Months];
   let idx = 3;

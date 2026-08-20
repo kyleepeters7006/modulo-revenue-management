@@ -470,6 +470,23 @@ app.use((req, res, next) => {
     log(`[migration] care_rate_fallback_campuses column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: the rate_baseline_v view, which every street- and
+  // in-house-rate aggregation joins to decide which rates are plausible.
+  // CREATE OR REPLACE so a change to the outlier ratio or the companion-bed
+  // rule ships with the code rather than needing a manual DB step.
+  //
+  // This one is NOT best-effort in the same sense as the others: if the view
+  // is missing, rate queries fail loudly rather than silently reverting to
+  // ungated averages. That is the intended behaviour — a wrong published rate
+  // is worse than an error.
+  try {
+    const { ensureRateBaselineView } = await import("./services/rateBaselineView");
+    await ensureRateBaselineView((s) => db.execute(sql.raw(s)));
+    log("[migration] rate_baseline_v view ensured");
+  } catch (migErr) {
+    log(`[migration] rate_baseline_v view creation FAILED: ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // One-time repair: fix stale action.filters.serviceLine on adjustment rules

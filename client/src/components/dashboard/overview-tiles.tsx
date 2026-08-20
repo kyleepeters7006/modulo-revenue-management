@@ -41,6 +41,15 @@ interface OverviewData {
   }[];
   currentAnnualRevenue: number;
   potentialAnnualRevenue: number;
+  /**
+   * Both payer bases, reported separately and never blended:
+   * private pay = residents whose rate we set; total = every resident,
+   * including externally-priced Medicaid/Medicare/Managed/Hospice.
+   */
+  currentAnnualRevenuePrivatePay?: number;
+  currentAnnualRevenueTotal?: number;
+  potentialAnnualRevenuePrivatePay?: number;
+  potentialAnnualRevenueTotal?: number;
   totalUnits: number;  // Total portfolio units
   unitsWithData: number;  // Units with rent roll data
   totalLocations: number;  // Total campuses in portfolio
@@ -103,6 +112,20 @@ export default function OverviewTiles() {
     );
   }
 
+  const formatMoney = (v: number) =>
+    v >= 1_000_000_000
+      ? `$${(v / 1_000_000_000).toFixed(2)}B`
+      : `$${formatNumber(Math.round(v / 1_000_000))}M`;
+
+  // Fall back to the legacy fields when the API predates the explicit split, so
+  // an older cached response still renders the (private-pay) headline number.
+  const currentPrivatePay =
+    overviewData.currentAnnualRevenuePrivatePay ?? overviewData.currentAnnualRevenue;
+  const potentialPrivatePay =
+    overviewData.potentialAnnualRevenuePrivatePay ?? overviewData.potentialAnnualRevenue;
+  const currentTotal = overviewData.currentAnnualRevenueTotal;
+  const potentialTotal = overviewData.potentialAnnualRevenueTotal;
+
   const tiles = [
     {
       title: "Total Units",
@@ -123,11 +146,13 @@ export default function OverviewTiles() {
       tileType: 'occupancy' as const
     },
     {
-      title: "Current Annual Revenue", 
-      value: overviewData.currentAnnualRevenue >= 1000000000 
-        ? `$${(overviewData.currentAnnualRevenue / 1000000000).toFixed(2)}B`
-        : `$${formatNumber(Math.round(overviewData.currentAnnualRevenue / 1000000))}M`,
+      title: "Current Annual Revenue",
+      value: formatMoney(currentPrivatePay),
+      // The tile leads with private pay because that is the only revenue street
+      // pricing can move; total is shown beneath so the figure can still be tied
+      // back to the operator's books.
       subtitle: "Private pay · based on current occupancy",
+      secondary: currentTotal != null ? `${formatMoney(currentTotal)} all payers` : undefined,
       icon: DollarSign,
       color: "amber",
       testId: "metric-current-revenue",
@@ -135,10 +160,9 @@ export default function OverviewTiles() {
     },
     {
       title: "Potential Annual Revenue",
-      value: overviewData.potentialAnnualRevenue >= 1000000000 
-        ? `$${(overviewData.potentialAnnualRevenue / 1000000000).toFixed(2)}B`
-        : `$${formatNumber(Math.round(overviewData.potentialAnnualRevenue / 1000000))}M`, 
-      subtitle: "At full occupancy",
+      value: formatMoney(potentialPrivatePay),
+      subtitle: "Private pay · at full occupancy",
+      secondary: potentialTotal != null ? `${formatMoney(potentialTotal)} all payers` : undefined,
       icon: TrendingUp,
       color: "blue",
       testId: "metric-potential-revenue",
@@ -227,6 +251,11 @@ export default function OverviewTiles() {
                     <p className="text-xs text-[var(--dashboard-muted)]">
                       {tile.subtitle}
                     </p>
+                    {'secondary' in tile && tile.secondary && (
+                      <p className="text-xs text-[var(--dashboard-muted)] opacity-70">
+                        {tile.secondary}
+                      </p>
+                    )}
                   </div>
                   <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${getColorClasses(tile.color)}`}>
                     <Icon className="w-6 h-6" />

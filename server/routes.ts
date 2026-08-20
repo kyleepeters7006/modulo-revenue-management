@@ -76,6 +76,7 @@
  */
 
 import type { Express } from "express";
+import { isPrivatePayer, privatePaySql } from "@shared/payerScope";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
@@ -86,7 +87,9 @@ import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import { clampRateWithGuardrails } from "./guardrailsUtil";
 import { splitCombinedSl, slWeightSqlPredicate, isSlWeightUnit, type SlWeight } from "./services/slSplit";
 import { resolveCareLevel2, normalizeCompetitorCareRate, normalizeCompetitorCareRateMonthly, normalizeCompetitorStreetRate, isDailyServiceLine, CARE_ELIGIBLE_SERVICE_LINES, DAYS_PER_MONTH as SHARED_DAYS_PER_MONTH } from "@shared/careRates";
-import { buildRateBaselineCte, RATE_BASELINE_JOIN, STREET_RATE_GATE, IN_HOUSE_RATE_GATE } from "./services/rateBaselineSql";
+import { buildRateBaselineJoin, streetRateGate, inHouseRateGate, fetchStreetBaselineMap, passesStreetGate } from "./services/rateBaselineView";
+import { bBedExclusionSql } from "@shared/bBed";
+import { RATE_OUTLIER_FLOOR_RATIO } from "@shared/rateOutliers";
 import { z } from "zod";
 import multer from "multer";
 import Papa from "papaparse";
@@ -4567,10 +4570,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 COUNT(*) FILTER (WHERE ${slWeightSqlPredicate('rr.')}) AS units,
                 COUNT(*) FILTER (WHERE rr.occupied_yn AND ${slWeightSqlPredicate('rr.')}) AS occupied,
                 ROUND(AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0
-                  AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
-                  AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+                  AND ${streetRateGate('rr.')}
+                  AND ${bBedExclusionSql('rr.')}
                 )) AS avg_street_rate
               FROM rent_roll_data rr
+              ${buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1', monthSql: '(SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)' })}
               WHERE rr.client_id = $1
                 AND (rr.location_id = $2 OR rr.location = $3)
                 AND rr.upload_month = (SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)
@@ -4679,14 +4683,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
               pool.query(`
                 SELECT rr.location, rr.service_line, rr.room_type,
                   SUM(rr.street_rate) FILTER (WHERE rr.street_rate > 0
-                    AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
-                    AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+                    AND ${streetRateGate('rr.')}
+                    AND ${bBedExclusionSql('rr.')}
                   ) AS sum_street_rate,
                   COUNT(*) FILTER (WHERE rr.street_rate > 0
-                    AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
-                    AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+                    AND ${streetRateGate('rr.')}
+                    AND ${bBedExclusionSql('rr.')}
                   ) AS n_street_rate
                 FROM rent_roll_data rr
+                ${buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1', monthSql: '(SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)' })}
                 WHERE rr.client_id = $1
                   AND rr.location = ANY($2::text[])
                   AND rr.upload_month = (SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)
@@ -6103,10 +6108,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 COUNT(*)                 AS units,
                 AVG(CASE WHEN occupied_yn THEN 1.0 ELSE 0.0 END) * 100 AS avg_occ,
                 AVG(street_rate) FILTER (WHERE street_rate > 0
-                  AND (service_line IN ('HC','HC/MC') OR street_rate >= 1000)
-                  AND NOT (service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND room_number ~* '/[B-Zb-z]$')
+                  AND ${streetRateGate('rent_roll_data.')}
+                  AND ${bBedExclusionSql('rent_roll_data.')}
                 ) AS avg_rate
          FROM rent_roll_data
+         ${buildRateBaselineJoin({ rr: 'rent_roll_data.', clientSql: '$1', monthSql: '(SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)' })}
          WHERE client_id = $1 AND upload_month = (
            SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1
          )`,
@@ -6171,10 +6177,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           `SELECT COUNT(DISTINCT location) AS locations, COUNT(*) AS units,
                   AVG(CASE WHEN occupied_yn THEN 1.0 ELSE 0.0 END) * 100 AS avg_occ,
                   AVG(street_rate) FILTER (WHERE street_rate > 0
-                    AND (service_line IN ('HC','HC/MC') OR street_rate >= 1000)
-                    AND NOT (service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND room_number ~* '/[B-Zb-z]$')
+                    AND ${streetRateGate('rent_roll_data.')}
+                    AND ${bBedExclusionSql('rent_roll_data.')}
                   ) AS avg_rate
            FROM rent_roll_data
+           ${buildRateBaselineJoin({ rr: 'rent_roll_data.', clientSql: '$1', monthSql: '(SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)' })}
            WHERE client_id = $1 AND upload_month = (
              SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1
            )`,
@@ -6338,9 +6345,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // The raw competitor/survey fetches that used to live here fed the old
       // max-rate position calculation; loadStudioCompBenchmark (below) now supplies
       // competitor rates, so they are no longer read.
-      const [campusRentRoll, campusData] = await Promise.all([
+      const [campusRentRoll, campusData, streetBaselines] = await Promise.all([
         storage.getRentRollDataByMonth(currentMonth, clientId),  // Only get current month data
         storage.getAllCampuses(clientId),
+        // Outlier baselines from the shared view, so the price-position maths
+        // below judges rates exactly as the SQL rate surfaces do.
+        fetchStreetBaselineMap((s, p) => pool.query(s, p), clientId, currentMonth),
       ]);
 
       console.log(`Analytics: Processing ${campusRentRoll.length} units for ${currentMonth}`);
@@ -6542,13 +6552,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             locationIdToName.get(metrics.units[0]?.locationId) ||
             campusDataMap.get(campusId)?.name ||
             campusId;
-          // Per room type, use the MODAL street rate (mirrors Reference Data's
-          // mode() WITHIN GROUP and the Competitive Position scatter). Street
-          // rates are uniform per room type, so a stray junk row (e.g. a $159
-          // Studio) must not drag the campus figure — AVG here used to understate
-          // market position at every campus with a bad rent-roll rate. Per-RT
-          // modes are then unit-weighted so mix still matters.
-          type RtAcc = { freq: Map<number, number>; n: number };
+          // Per room type, AVERAGE the plausible street rates — the same basis
+          // Reference Data and the Competitive Position scatter report, so this
+          // KPI cannot disagree with them. Junk rows (a stray $159 Studio) are
+          // removed by the shared outlier gate; taking a mode instead, as this
+          // once did, threw away genuine rate dispersion along with the noise
+          // and reported one common rate as though it were the whole segment.
+          // Per-RT averages are then unit-weighted so mix still matters.
+          type RtAcc = { sum: number; n: number };
           const bySl = new Map<string, Map<string, RtAcc>>();
 
           metrics.units.forEach((unit: any) => {
@@ -6558,26 +6569,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (isBBedRow(sl, unit.roomNumber)) return;
             const rate = unit.streetRate || unit.inHouseRate || 0;
             if (!(rate > 0)) return;
+            if (!passesStreetGate(rate, streetBaselines.get(`${unit.location}||${sl}`))) return;
             let byRt = bySl.get(sl);
             if (!byRt) { byRt = new Map(); bySl.set(sl, byRt); }
             const rt = unit.roomType || '';
             let acc = byRt.get(rt);
-            if (!acc) { acc = { freq: new Map(), n: 0 }; byRt.set(rt, acc); }
-            acc.freq.set(rate, (acc.freq.get(rate) || 0) + 1);
+            if (!acc) { acc = { sum: 0, n: 0 }; byRt.set(rt, acc); }
+            acc.sum += rate;
             acc.n++;
           });
-
-          // Modal rate: highest count wins; ties break to the smaller rate,
-          // matching Postgres mode() ordered ascending.
-          const modalRate = (freq: Map<number, number>): number => {
-            let best = 0, bestCount = 0;
-            for (const [rate, count] of Array.from(freq.entries())) {
-              if (count > bestCount || (count === bestCount && rate < best)) {
-                best = rate; bestCount = count;
-              }
-            }
-            return best;
-          };
 
           let weightedPos = 0;
           let weightTotal = 0;
@@ -6587,7 +6587,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (!bench || !(bench.topAdjusted > 0)) continue;
             let studioSum = 0, studioN = 0, allSum = 0, allN = 0;
             for (const [rt, acc] of Array.from(byRt.entries())) {
-              const m = modalRate(acc.freq);
+              const m = acc.n > 0 ? acc.sum / acc.n : 0;
               allSum += m * acc.n;
               allN += acc.n;
               // room_type is backfill-normalized ("Studio", "Studio Dlx"), so a prefix
@@ -9111,8 +9111,12 @@ ${campusOccLines.join('\n')}
    * Response includes:
    * - occupancyByRoomType: Array of room types with occupied/total counts
    * - occupancyByServiceLine: Same breakdown grouped by service line
-   * - currentAnnualRevenue: Actual revenue from occupied units (annualized)
-   * - potentialAnnualRevenue: Revenue if 100% occupied (annualized)
+   * - currentAnnualRevenue: Actual revenue from occupied units (annualized),
+   *   PRIVATE PAY only — kept for existing consumers
+   * - potentialAnnualRevenue: Revenue if 100% occupied (annualized), private pay only
+   * - currentAnnualRevenue{PrivatePay,Total} / potentialAnnualRevenue{PrivatePay,Total}:
+   *   the same figures on both payer bases, explicitly named. New code should
+   *   read these so the basis is never ambiguous.
    * - avgHcRate: Average daily rate for skilled nursing beds
    * - avgSeniorHousingRate: Average monthly rate for AL/IL/SL units
    */
@@ -9513,14 +9517,36 @@ ${campusOccLines.join('\n')}
       // IMPORTANT: Use allRentRollData for revenue calculations to include B-bed revenue
       // B-beds are excluded from occupancy counts but their revenue should be counted
       // HC rates are stored as DAILY rates and need conversion to monthly
-      const currentAnnualRevenue = allRentRollData.reduce((sum, u) => {
-        return sum + calculateUnitAnnualRevenue(u, true); // occupied revenue
+      //
+      // PAYER BASIS: both are reported, separately and explicitly labelled.
+      //   private pay = residents whose rate we actually set (see
+      //                 @shared/payerScope). This is the basis pricing work
+      //                 can move, so it is what the pricing tiles lead with.
+      //   total       = every resident including Medicaid/Medicare/Managed/
+      //                 Hospice, whose rates are set externally. This is the
+      //                 basis that ties to the operator's books.
+      // Reporting only one of them was the ambiguity that made revenue figures
+      // disagree between surfaces; never collapse these back into one number.
+      const currentAnnualRevenuePrivatePay = allRentRollData.reduce((sum, u) => {
+        return sum + calculateUnitAnnualRevenue(u, true, true);
       }, 0);
-      
+      const currentAnnualRevenueTotal = allRentRollData.reduce((sum, u) => {
+        return sum + calculateUnitAnnualRevenue(u, true, false);
+      }, 0);
+
       // Potential revenue also includes ALL units including B-beds
-      const potentialAnnualRevenue = allRentRollData.reduce((sum, u) => {
-        return sum + calculateUnitAnnualRevenue(u, false); // potential revenue at 100% occupancy
+      const potentialAnnualRevenuePrivatePay = allRentRollData.reduce((sum, u) => {
+        return sum + calculateUnitAnnualRevenue(u, false, true);
       }, 0);
+      const potentialAnnualRevenueTotal = allRentRollData.reduce((sum, u) => {
+        return sum + calculateUnitAnnualRevenue(u, false, false);
+      }, 0);
+
+      // Existing field names keep their established private-pay meaning so no
+      // consumer silently changes basis; the explicit *PrivatePay/*Total names
+      // above are what new code should read.
+      const currentAnnualRevenue = currentAnnualRevenuePrivatePay;
+      const potentialAnnualRevenue = potentialAnnualRevenuePrivatePay;
 
       // Calculate split rates for HC and Senior Housing
       const hcServiceLines = ['HC', 'HC/MC', 'SMC'];
@@ -9568,6 +9594,11 @@ ${campusOccLines.join('\n')}
         occupancyByServiceLine,
         currentAnnualRevenue,
         potentialAnnualRevenue,
+        // Explicit payer bases — prefer these over the two fields above.
+        currentAnnualRevenuePrivatePay,
+        currentAnnualRevenueTotal,
+        potentialAnnualRevenuePrivatePay,
+        potentialAnnualRevenueTotal,
         totalUnits: portfolioTotalUnits,  // Total across entire portfolio
         unitsWithData,  // Units that have rent roll data
         totalLocations: portfolioTotalLocations,  // Total campuses in portfolio
@@ -14506,6 +14537,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
              ) / 100.0) FILTER (WHERE NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')), 0) AS base_rate,
            COUNT(*) AS unit_count
          FROM rent_roll_data rr
+         ${buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1' })}
          LEFT JOIN attribute_ratings ar_sz ON ar_sz.attribute_type = 'size'       AND ar_sz.rating_level = rr.size_rating
          LEFT JOIN attribute_ratings ar_vw ON ar_vw.attribute_type = 'view'       AND ar_vw.rating_level = rr.view_rating
          LEFT JOIN attribute_ratings ar_rv ON ar_rv.attribute_type = 'renovation' AND ar_rv.rating_level = rr.renovation_rating
@@ -14513,7 +14545,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
          LEFT JOIN attribute_ratings ar_am ON ar_am.attribute_type = 'amenity'    AND ar_am.rating_level = rr.amenity_rating
          WHERE rr.client_id = $1
            AND rr.street_rate > 0
-           AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
+           AND ${streetRateGate('rr.')}
            AND rr.service_line IS NOT NULL
            AND rr.room_type IS NOT NULL
          GROUP BY rr.service_line, rr.room_type`,
@@ -14543,6 +14575,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
                  COALESCE(ar_am.adjustment_percent, 0)
                ) / 100.0) FILTER (WHERE NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')), 0) AS base_rate
            FROM rent_roll_data rr
+           ${buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1' })}
            LEFT JOIN attribute_ratings ar_sz ON ar_sz.attribute_type = 'size'       AND ar_sz.rating_level = rr.size_rating
            LEFT JOIN attribute_ratings ar_vw ON ar_vw.attribute_type = 'view'       AND ar_vw.rating_level = rr.view_rating
            LEFT JOIN attribute_ratings ar_rv ON ar_rv.attribute_type = 'renovation' AND ar_rv.rating_level = rr.renovation_rating
@@ -14550,7 +14583,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
            LEFT JOIN attribute_ratings ar_am ON ar_am.attribute_type = 'amenity'    AND ar_am.rating_level = rr.amenity_rating
            WHERE rr.client_id = $1
              AND rr.street_rate > 0
-             AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
+             AND ${streetRateGate('rr.')}
              AND rr.service_line IS NOT NULL AND rr.room_type IS NOT NULL
            GROUP BY rr.service_line, rr.room_type
          ),
@@ -17201,14 +17234,18 @@ Respond in JSON format:
         !monthsUsable ? Promise.resolve(emptyRes) : pool.query(`
           SELECT rr.service_line, rr.upload_month AS month,
                  AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0
-                   AND (rr.service_line IN ('HC','HC/MC') OR rr.in_house_rate >= 1000)) AS avg_ih,
+                   AND ${inHouseRateGate('rr.')}) AS avg_ih,
                  COUNT(*) FILTER (WHERE rr.occupied_yn) AS occupied,
-                 mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (
+                 -- AVG, not mode(): the column is consumed as an average
+                 -- everywhere else, and a mode silently reported the single
+                 -- most common rate as though it were the group's level.
+                 AVG(rr.street_rate) FILTER (
                    WHERE rr.street_rate > 0
-                     AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
-                     AND NOT (rr.service_line IN ('AL','AL/MC','SL','VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+                     AND ${streetRateGate('rr.')}
+                     AND ${bBedExclusionSql('rr.')}
                  ) AS avg_street
           FROM rent_roll_data rr
+          ${buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1' })}
           WHERE rr.client_id = $1 AND rr.upload_month LIKE $${pYearLike}${suggestScopeSql}
           GROUP BY rr.service_line, rr.upload_month
         `, ytdParams),
@@ -18603,11 +18640,12 @@ Respond in JSON format:
                AVG(street_rate) FILTER (WHERE upload_month = $3) AS prior_rate,
                COUNT(*)         FILTER (WHERE upload_month = $2) AS cur_units
         FROM rent_roll_data
+        ${buildRateBaselineJoin({ rr: 'rent_roll_data.', clientSql: '$1', monthSql: 'ARRAY[$2, $3]', monthIsArray: true })}
         WHERE client_id = $1
           AND upload_month IN ($2, $3)
           AND street_rate > 0
-          AND (service_line IN ('HC','HC/MC') OR street_rate >= 1000)
-          AND NOT (service_line IN ('AL','AL/MC','SL','VIL') AND room_number ~* '/[B-Zb-z]$')
+          AND ${streetRateGate('rent_roll_data.')}
+          AND ${bBedExclusionSql('rent_roll_data.')}
           ${locFilter}
         GROUP BY service_line
         ORDER BY service_line`, params);
@@ -19125,12 +19163,13 @@ Return ONLY valid JSON with no markdown fences:
             COUNT(*) FILTER (WHERE ${slWeightSqlPredicate('rrd.')}) AS weight_cnt,
             COUNT(*) FILTER (WHERE rrd.occupied_yn AND ${slWeightSqlPredicate('rrd.')}) AS weight_occ_cnt,
             ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0
-              AND (rrd.service_line IN ('HC','HC/MC') OR rrd.street_rate >= 1000)
-              AND NOT (rrd.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rrd.room_number ~* '/[B-Zb-z]$')
+              AND ${streetRateGate('rrd.')}
+              AND ${bBedExclusionSql('rrd.')}
             )) AS avg_street_rate,
             ROUND(AVG(COALESCE(mro.override_rate, rrd.rule_adjusted_rate)) FILTER (WHERE COALESCE(mro.override_rate, rrd.rule_adjusted_rate) > 0)) AS avg_rule_rate,
             ROUND(AVG(rrd.days_vacant) FILTER (WHERE NOT rrd.occupied_yn AND rrd.days_vacant > 0 AND rrd.days_vacant < 730)) AS avg_days_vacant
           FROM rent_roll_data rrd
+          ${buildRateBaselineJoin({ rr: 'rrd.', clientSql: '$1', monthSql: maxMonthSubquery })}
           LEFT JOIN locations l ON l.name = rrd.location AND l.client_id = $1
           LEFT JOIN manual_rate_overrides mro ON mro.client_id = $1
             AND mro.location_name = rrd.location
@@ -19147,11 +19186,12 @@ Return ONLY valid JSON with no markdown fences:
         pool.query(`
           SELECT rrd.upload_month, rrd.service_line,
             ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0
-              AND (rrd.service_line IN ('HC','HC/MC') OR rrd.street_rate >= 1000)
-              AND NOT (rrd.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rrd.room_number ~* '/[B-Zb-z]$')
+              AND ${streetRateGate('rrd.')}
+              AND ${bBedExclusionSql('rrd.')}
             )) AS avg_street_rate,
             ROUND(AVG(COALESCE(mro.override_rate, rrd.rule_adjusted_rate)) FILTER (WHERE COALESCE(mro.override_rate, rrd.rule_adjusted_rate) > 0)) AS avg_rule_rate
           FROM rent_roll_data rrd
+          ${buildRateBaselineJoin({ rr: 'rrd.', clientSql: '$1' })}
           LEFT JOIN locations l ON l.name = rrd.location AND l.client_id = $1
           LEFT JOIN manual_rate_overrides mro ON mro.client_id = $1
             AND mro.location_name = rrd.location
@@ -19601,10 +19641,11 @@ Return ONLY valid JSON with no markdown fences:
             -- route this through room_type_groupings.group_name: branded group
             -- names like "Legacy Lane - Studio" break the 'studio%' prefix match.
             rr.room_type ILIKE 'studio%'
-            AND (rr.service_line IN ('HC','HC/MC') OR rr.street_rate >= 1000)
-            AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+            AND ${streetRateGate('rr.')}
+            AND ${bBedExclusionSql('rr.')}
           )::numeric, 0) AS our_rate
         FROM rent_roll_data rr
+        ${buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1', monthSql: maxMonthSubquery })}
         LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
         WHERE ${eligWhere}
         GROUP BY rr.location, rr.service_line
@@ -19675,11 +19716,12 @@ Return ONLY valid JSON with no markdown fences:
         const rrdRateGroupQuery = (groupExpr: string) => pool.query(`
           SELECT ${groupExpr} AS grp, rrd.upload_month,
             ROUND(AVG(rrd.street_rate) FILTER (WHERE rrd.street_rate > 0
-              AND (rrd.service_line IN ('HC','HC/MC') OR rrd.street_rate >= 1000)
-              AND NOT (rrd.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rrd.room_number ~* '/[B-Zb-z]$')
+              AND ${streetRateGate('rrd.')}
+              AND ${bBedExclusionSql('rrd.')}
             )) AS avg_street_rate,
             COUNT(*) AS units
           FROM rent_roll_data rrd
+          ${buildRateBaselineJoin({ rr: 'rrd.', clientSql: '$1' })}
           LEFT JOIN locations l ON l.name = rrd.location AND l.client_id = $1
           WHERE rrd.client_id = $1
             AND rrd.upload_month >= to_char(NOW() - INTERVAL '6 months', 'YYYY-MM')
@@ -20826,14 +20868,15 @@ Return ONLY valid JSON, no markdown fences:
         in_house_rate: number;
         street_rate: number;
       }>(
-        `SELECT service_line, in_house_rate, street_rate
+        `SELECT rent_roll_data.service_line, in_house_rate, street_rate
          FROM rent_roll_data
+         ${buildRateBaselineJoin({ rr: 'rent_roll_data.', clientSql: '$2' })}
          WHERE location_id = $1
            AND client_id = $2
            AND occupied_yn = true
            AND in_house_rate > 0
            AND street_rate > 0
-           AND (service_line IN ('HC','HC/MC') OR street_rate >= 1000)
+           AND ${streetRateGate('rent_roll_data.')}
            AND (
              (service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND room_number !~* '/[B-Zb-z]$')
              OR
@@ -21036,10 +21079,15 @@ Return ONLY valid JSON, no markdown fences:
       const unitsRes = await pool.query<{
         service_line: string; room_type: string; room_number: string; occupied_yn: boolean;
         days_vacant: number; street_rate: number; competitor_final_rate: number; payor_type: string;
+        baseline_street: string | null;
       }>(
-        `SELECT service_line, room_type, room_number, occupied_yn, days_vacant,
-                street_rate, competitor_final_rate, payor_type
-         FROM rent_roll_data WHERE location_id=$1 AND client_id=$2 AND upload_month=$3`,
+        // baseline_street rides along from the shared view so the JS filtering
+        // below judges rates by exactly the same standard as the SQL surfaces.
+        `SELECT rent_roll_data.service_line, room_type, room_number, occupied_yn, days_vacant,
+                street_rate, competitor_final_rate, payor_type, rb.baseline_street
+         FROM rent_roll_data
+         ${buildRateBaselineJoin({ rr: 'rent_roll_data.', clientSql: '$2', monthSql: '$3' })}
+         WHERE location_id=$1 AND client_id=$2 AND upload_month=$3`,
         [locationId, clientId, latestMonth]
       );
       const units = unitsRes.rows;
@@ -21069,13 +21117,15 @@ Return ONLY valid JSON, no markdown fences:
         if (vacDays.length) metrics.push({ sl, rt, name: 'avg_days_vacant', val: avgArr(vacDays) });
 
         const SH_SLS_SNAP = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
-        const HC_SLS_SNAP = new Set(['HC', 'HC/MC']);
         // Apply consistent B-bed exclusion to both sides of the competitor variance
         // so the street rate and competitor rate averages compare identical populations.
-        // Also exclude prorated move-in street rates (< $1,000) for non-HC service lines.
+        // Implausible street rates (a prorated move-in month, a stray $159) are
+        // dropped by the shared relative gate rather than a fixed dollar floor,
+        // which needed an HC carve-out purely because HC is priced per day.
         const compUnits = group
           .filter(u => (u.competitor_final_rate || 0) > 100 && (u.street_rate || 0) > 100)
-          .filter(u => HC_SLS_SNAP.has(u.service_line) || (u.street_rate || 0) >= 1000)
+          .filter(u => u.baseline_street == null
+            || (u.street_rate || 0) >= RATE_OUTLIER_FLOOR_RATIO * Number(u.baseline_street))
           .filter(u => !(SH_SLS_SNAP.has(u.service_line) && /\/[B-Zb-z]$/.test(u.room_number || '')));
         if (compUnits.length) {
           const avgSt = avgArr(compUnits.map(u => u.street_rate));
@@ -21093,7 +21143,7 @@ Return ONLY valid JSON, no markdown fences:
           const n = occ.length;
           if (n > 0) {
             const up = (s: string) => (s || '').toUpperCase();
-            metrics.push({ sl, rt, name: 'private_pay_pct', val: pctOf(occ.filter(u => up(u.payor_type).includes('PRIVATE')).length,  n) });
+            metrics.push({ sl, rt, name: 'private_pay_pct', val: pctOf(occ.filter(u => isPrivatePayer(u.payor_type)).length,  n) });
             metrics.push({ sl, rt, name: 'medicaid_pct',    val: pctOf(occ.filter(u => up(u.payor_type).includes('MEDICAID')).length, n) });
             metrics.push({ sl, rt, name: 'medicare_pct',    val: pctOf(occ.filter(u => up(u.payor_type).includes('MEDICARE')).length, n) });
           }
@@ -21200,7 +21250,7 @@ Return ONLY valid JSON, no markdown fences:
           WHERE movein_dt IS NOT NULL
             AND CASE
               WHEN service_line IN ('HC','HC/MC')
-                THEN payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%'
+                THEN ${privatePaySql("payor_type")}
               ELSE TRUE
             END
         ),
@@ -21471,12 +21521,12 @@ Return ONLY valid JSON, no markdown fences:
         SELECT rr.upload_month, rr.location, rr.service_line, rr.room_type,
                SUM(CASE WHEN rr.occupied_yn
                         AND (rr.service_line NOT IN ('HC','HC/MC')
-                             OR rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%')
+                             OR ${privatePaySql("rr.payor_type")})
                         THEN CASE WHEN rr.service_line IN ('HC','HC/MC') THEN rr.in_house_rate * ${SHARED_DAYS_PER_MONTH} ELSE rr.in_house_rate END
                         ELSE 0 END) AS revenue,
                COUNT(*) FILTER (WHERE rr.occupied_yn
                         AND (rr.service_line NOT IN ('HC','HC/MC')
-                             OR rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%')) AS occ_count,
+                             OR ${privatePaySql("rr.payor_type")})) AS occ_count,
                COUNT(*) FILTER (WHERE rr.occupied_yn) AS occ_all,
                COUNT(*) AS total_count
         FROM rent_roll_data rr
@@ -21631,7 +21681,10 @@ Return ONLY valid JSON, no markdown fences:
       // HC / HC/MC pricing only affects Private Pay residents — Medicare, Medicaid,
       // and Insurance payers are reimbursed at fixed rates set outside our control.
       const isHcSl = (sl: string | null) => sl === 'HC' || sl === 'HC/MC';
-      const isPrivatePay = (p: string | null | undefined) => !!p && /private|pvt/i.test(p);
+      // Canonical payer scope — a local /private|pvt/ test disagreed with it on
+      // blanks, BEDHOLDS and LEGACY - PVT PAY, which made rule-performance
+      // reporting inconsistent with every other revenue surface.
+      const isPrivatePay = (p: string | null | undefined) => isPrivatePayer(p);
 
       // Stacking weights: when rules stack on a unit ("A + B"), each rule gets a
       // 1/n proportional share of that unit. Group T3 impact is then distributed
@@ -22370,15 +22423,13 @@ Return ONLY valid JSON, no markdown fences:
       // 2) Build all filter params synchronously before launching parallel queries
       const params: any[] = [clientId, months];
       let where = `rr.client_id = $1 AND rr.upload_month = ANY($2)`;
-      // Scope for the level-2 (portfolio) rate baseline. It tracks `where` for
-      // tenant, month and service line but deliberately STOPS before the
-      // location/region/division filters: narrowing the page to one campus
-      // must not narrow the yardstick that campus is measured against.
-      let portfolioWhere = where;
+      // These filters choose which rows to REPORT. They have no effect on the
+      // outlier baselines, which rate_baseline_v defines over the whole
+      // portfolio — narrowing the page to one campus must not narrow the
+      // yardstick that campus is measured against.
       if (serviceLine) {
         params.push(serviceLine);
         where += ` AND rr.service_line = $${params.length}`;
-        portfolioWhere += ` AND rr.service_line = $${params.length}`;
       }
       if (locations.length)  { params.push(locations);  where += ` AND rr.location = ANY($${params.length})`; }
       if (regions.length)    { params.push(regions);    where += ` AND loc.region = ANY($${params.length})`; }
@@ -22405,13 +22456,6 @@ Return ONLY valid JSON, no markdown fences:
       const [aggRes, inqRes, moveRes] = await Promise.all([
         // 3) Per-month per-combo aggregation
         pool.query(`
-          ${buildRateBaselineCte({
-            where,
-            portfolioWhere,
-            joins: `
-            LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location`,
-            includeInHouse: true,
-          })}
           SELECT
             loc.id                                           AS location_id,
             rr.location                                      AS campus,
@@ -22434,11 +22478,11 @@ Return ONLY valid JSON, no markdown fences:
             -- dropped genuinely low-priced VIL/SL inventory and needed an HC carve-out purely
             -- because HC is priced per day.
             AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0
-              AND ${STREET_RATE_GATE}
-              AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+              AND ${streetRateGate('rr.')}
+              AND ${bBedExclusionSql('rr.')}
             ) AS avg_street,
             AVG(rr.in_house_rate) FILTER (WHERE rr.occupied_yn AND rr.in_house_rate > 0
-              AND ${IN_HOUSE_RATE_GATE})          AS avg_ih,
+              AND ${inHouseRateGate('rr.')})      AS avg_ih,
             AVG(rr.competitor_base_rate) FILTER (WHERE rr.competitor_base_rate > 0)        AS avg_comp_base,
             AVG(rr.competitor_final_rate) FILTER (WHERE rr.competitor_final_rate > 100)    AS avg_comp_adj,
             -- Underlying normalised room type (most common among units in this group).
@@ -22450,13 +22494,13 @@ Return ONLY valid JSON, no markdown fences:
             -- No Modulo fallback — when no rule applies the proposed rate is NULL.
             AVG(rr.rule_adjusted_rate) FILTER (WHERE rr.rule_adjusted_rate > 0) AS avg_proposed,
             -- HC private-pay census: occupied units with a private/PVT payor type
-            COUNT(*) FILTER (WHERE rr.occupied_yn AND (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%')) AS hc_private_pay
+            COUNT(*) FILTER (WHERE rr.occupied_yn AND ${privatePaySql("rr.payor_type")}) AS hc_private_pay
           FROM rent_roll_data rr
           LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
           LEFT JOIN room_type_groupings rtg
             ON rtg.client_id = rr.client_id AND rtg.location = rr.location
            AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
-          ${RATE_BASELINE_JOIN}
+          ${buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1', monthSql: '$2', monthIsArray: true })}
           WHERE ${where}
           GROUP BY loc.id, rr.location, loc.division, loc.region, rr.service_line, COALESCE(rtg.group_name, rr.room_type), rr.upload_month
         `, params),
@@ -22484,13 +22528,13 @@ Return ONLY valid JSON, no markdown fences:
              AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
             WHERE ${moveWhere} AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
             ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
-                     (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
+                     ${privatePaySql("rr.payor_type")} DESC, rr.payor_type
           ),
           valid AS (
             SELECT location, service_line, room_type, TO_CHAR(dt,'YYYY-MM') AS mm
             FROM ev
             WHERE dt IS NOT NULL
-              AND (CASE WHEN service_line IN ('HC','HC/MC') THEN (payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%') ELSE TRUE END)
+              AND (CASE WHEN service_line IN ('HC','HC/MC') THEN ${privatePaySql("payor_type")} ELSE TRUE END)
           )
           SELECT location, service_line, room_type, mm, COUNT(*)::int AS n
           FROM valid WHERE mm = ANY($2)

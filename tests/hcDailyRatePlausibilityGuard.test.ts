@@ -1,37 +1,40 @@
 /**
- * Regression tests: HC/HC-MC daily street rates must NOT be filtered by the
- * prorated-move-in plausibility guard.
+ * Regression tests: HC / HC-MC daily street rates must survive the street-rate
+ * outlier gate.
  *
  * Background
  * ----------
  * The rent-roll export overwrites street_rate with the prorated first-month
- * charge during a move-in or move-out month.  For senior-housing service lines
- * (AL, AL/MC, SL, VIL) this typically produces values like $169 — well below a
- * real monthly street rate — so every analytics aggregate applies the guard:
+ * charge during a move-in or move-out month. For senior-housing service lines
+ * (AL, AL/MC, SL, VIL) that produces values like $169 — far below a real
+ * monthly rate — so every rate aggregate screens rows before averaging.
  *
- *   street_rate > 0
- *   AND (service_line IN ('HC','HC/MC') OR street_rate >= 1000)
+ * That screen used to be an absolute floor, `street_rate >= 1000`, with an
+ * explicit `service_line IN ('HC','HC/MC')` carve-out bolted on. HC and HC/MC
+ * rates are DAILY ($150–$350/day is normal), so without the carve-out the
+ * floor blanked the entire service line. The floor is gone: the gate is now
+ * relative and two-level, defined once in the rate_baseline_v view and
+ * mirrored in JS by `passesStreetGate`. A relative gate needs no carve-out at
+ * all, because it compares each rate to its own peers rather than to a dollar
+ * amount.
  *
- * HC and HC/MC rates are DAILY ($150–$350/day is normal), so they are always
- * below $1 000 even when correct.  The exemption `service_line IN ('HC','HC/MC')`
- * must keep them visible.
+ * The regression this file exists to catch is any reintroduction of an
+ * absolute dollar threshold anywhere in that path. Every HC assertion below
+ * uses rates under $1,000 on purpose.
  *
- * A regression — accidentally dropping the exemption — would blank every HC
- * avg_street_rate tile in analytics, showing NULL instead of the daily rate.
- *
- * What these tests verify
- * -----------------------
- *  1. The predicate itself: correct rows pass, junk rows are excluded.
- *  2. compPositionOwnRates uses the RELATIVE outlier gate, not a hard floor —
- *     we confirm a realistic HC dataset survives it intact. This is the real
- *     regression risk: HC rates are per DAY, so any absolute dollar floor
- *     blanks the entire service line.
- *  3. All non-HC service lines with sub-$1000 values are excluded.
+ * These tests call the PRODUCTION gate and the PRODUCTION grouping function.
+ * Earlier versions of this file re-implemented both in local helpers, which
+ * meant they passed no matter what the real code did.
  *
  * Run with: npx tsx tests/hcDailyRatePlausibilityGuard.test.ts
  */
 
 import { RATE_OUTLIER_FLOOR_RATIO } from '../shared/rateOutliers';
+import { passesStreetGate } from '../server/services/rateBaselineView';
+import {
+  computeGroupStreetRateMap,
+  type StreetRateGateRow,
+} from '../server/services/groupStreetRateJs';
 
 const PASS = '\x1b[32m✓\x1b[0m';
 const FAIL = '\x1b[31m✗\x1b[0m';
@@ -50,221 +53,185 @@ function assert(description: string, actual: unknown, expected: unknown) {
   }
 }
 
-function assertGt(description: string, actual: number, min: number) {
-  if (actual > min) {
+function assertClose(description: string, actual: number | undefined, expected: number) {
+  if (actual != null && Math.abs(actual - expected) < 0.01) {
     console.log(`${PASS} ${description}`);
     passed++;
   } else {
     console.log(`${FAIL} ${description}`);
-    console.log(`    Expected > ${min}, Got: ${actual}`);
+    console.log(`    Expected: ~${expected}, Got: ${JSON.stringify(actual)}`);
     failed++;
   }
 }
 
-// ---------------------------------------------------------------------------
-// The plausibility predicate — mirrors the SQL guard used in every analytics
-// aggregate in routes.ts (lines ~4569, 4681, 6085, 6153, 19076, 19098, 19552,
-// 19626, 22363, etc.):
-//
-//   street_rate > 0
-//   AND (service_line IN ('HC','HC/MC') OR street_rate >= 1000)
-//
-// Returns true when the row should be INCLUDED in the aggregate.
-// ---------------------------------------------------------------------------
-const HC_DAILY_SLS = new Set(['HC', 'HC/MC']);
-
-function passesPlausibilityGuard(serviceLine: string, streetRate: number): boolean {
-  if (streetRate <= 0) return false;
-  if (HC_DAILY_SLS.has(serviceLine)) return true;   // HC/HC-MC exempted — daily rate
-  return streetRate >= 1000;                          // non-HC must be a plausible monthly rate
-}
-
-// ---------------------------------------------------------------------------
-// Section 1 — Core predicate behaviour
-// ---------------------------------------------------------------------------
-console.log('\n=== 1. Plausibility guard predicate ===\n');
-
-// HC daily rates — must PASS (be included)
-assert('HC  $220/day is included (daily rate, typical HC)', passesPlausibilityGuard('HC', 220), true);
-assert('HC  $300/day is included (daily rate, mid-range HC)', passesPlausibilityGuard('HC', 300), true);
-assert('HC  $350/day is included (daily rate, high HC)', passesPlausibilityGuard('HC', 350), true);
-assert('HC  $150/day is included (daily rate, low HC)', passesPlausibilityGuard('HC', 150), true);
-
-// HC/MC daily rates — must also PASS
-assert('HC/MC $220/day is included (daily rate)', passesPlausibilityGuard('HC/MC', 220), true);
-assert('HC/MC $275/day is included (daily rate)', passesPlausibilityGuard('HC/MC', 275), true);
-
-// Non-HC valid monthly rates — must PASS
-assert('AL  $4000/mo is included (valid monthly)', passesPlausibilityGuard('AL', 4000), true);
-assert('AL/MC $3500/mo is included (valid monthly)', passesPlausibilityGuard('AL/MC', 3500), true);
-assert('SL  $2800/mo is included (valid monthly)', passesPlausibilityGuard('SL', 2800), true);
-assert('VIL $2200/mo is included (valid monthly)', passesPlausibilityGuard('VIL', 2200), true);
-assert('AL  $1000/mo is included (exact threshold)', passesPlausibilityGuard('AL', 1000), true);
-
-// Non-HC prorated move-in rates — must be EXCLUDED
-assert('AL  $169/mo is excluded (prorated move-in)', passesPlausibilityGuard('AL', 169), false);
-assert('AL/MC $250/mo is excluded (prorated move-in)', passesPlausibilityGuard('AL/MC', 250), false);
-assert('SL  $500/mo is excluded (sub-$1000, likely prorated)', passesPlausibilityGuard('SL', 500), false);
-assert('VIL $800/mo is excluded (sub-$1000, likely prorated)', passesPlausibilityGuard('VIL', 800), false);
-assert('AL  $999/mo is excluded (just below threshold)', passesPlausibilityGuard('AL', 999), false);
-
-// Zero / negative always excluded
-assert('HC  $0 is excluded', passesPlausibilityGuard('HC', 0), false);
-assert('AL  $0 is excluded', passesPlausibilityGuard('AL', 0), false);
-assert('HC -$1 is excluded', passesPlausibilityGuard('HC', -1), false);
-
-// ---------------------------------------------------------------------------
-// Section 2 — Aggregate over a realistic dataset
-//
-// Simulate what AVG(street_rate) FILTER (WHERE ...) would compute over a
-// mixed HC rent roll that includes some prorated move-in rows ($169) among
-// a majority of correct daily rates ($220).
-// ---------------------------------------------------------------------------
-console.log('\n=== 2. AVG aggregate over realistic HC dataset ===\n');
-
-type RentRollRow = { service_line: string; street_rate: number };
-
-function avgStreetRate(rows: RentRollRow[]): number | null {
-  const valid = rows.filter(r => passesPlausibilityGuard(r.service_line, r.street_rate));
-  if (valid.length === 0) return null;
-  return valid.reduce((sum, r) => sum + r.street_rate, 0) / valid.length;
-}
-
-// 8 HC units at $220/day + 2 prorated at $169 (move-in month)
-const hcDataset: RentRollRow[] = [
-  ...Array(8).fill({ service_line: 'HC', street_rate: 220 }),
-  { service_line: 'HC', street_rate: 169 },  // prorated — still a HC row
-  { service_line: 'HC', street_rate: 169 },  // prorated — still a HC row
-];
-
-const hcAvg = avgStreetRate(hcDataset);
-// HC is EXEMPTED entirely — all 10 rows (including prorated) count.
-// avg = (8*220 + 2*169) / 10 = (1760 + 338) / 10 = 209.8
-assert('HC dataset: avg includes ALL HC rows (exempted from floor)', hcAvg !== null, true);
-// Both prorated HC rows are included because HC is exempt from the $1000 floor.
-// So avg = 209.8, not 220.
-assert('HC dataset: 10 rows included (all HC rows pass)', hcDataset.filter(r => passesPlausibilityGuard(r.service_line, r.street_rate)).length, 10);
-
-// AL dataset: 8 valid monthly rates + 2 prorated
-const alDataset: RentRollRow[] = [
-  ...Array(8).fill({ service_line: 'AL', street_rate: 3800 }),
-  { service_line: 'AL', street_rate: 169 },   // prorated — must be excluded
-  { service_line: 'AL', street_rate: 250 },   // prorated — must be excluded
-];
-
-const alAvg = avgStreetRate(alDataset);
-assert('AL dataset: avg is non-null (valid rows exist)', alAvg !== null, true);
-assert('AL dataset: 8 rows included (prorated excluded)', alDataset.filter(r => passesPlausibilityGuard(r.service_line, r.street_rate)).length, 8);
-assert('AL dataset: avg equals $3800 (no contamination from prorated rows)',
-  Math.round(alAvg!), 3800);
-
-// Mixed portfolio (HC + AL + prorated rows): confirm HC avg is not lost
-const portfolio: RentRollRow[] = [
-  ...Array(5).fill({ service_line: 'HC', street_rate: 220 }),
-  ...Array(5).fill({ service_line: 'AL', street_rate: 4000 }),
-  { service_line: 'AL', street_rate: 169 },   // prorated — excluded from AL avg
-  { service_line: 'HC', street_rate: 169 },   // prorated HC — included in HC avg (exempt)
-];
-
-const hcOnlyAvg = avgStreetRate(portfolio.filter(r => r.service_line === 'HC'));
-const alOnlyAvg = avgStreetRate(portfolio.filter(r => r.service_line === 'AL'));
-assert('Portfolio HC avg is non-null (daily rates preserved)', hcOnlyAvg !== null, true);
-assert('Portfolio AL avg equals $4000 (prorated AL row excluded)', Math.round(alOnlyAvg!), 4000);
-assertGt('Portfolio HC avg > 0 (daily rates present)', hcOnlyAvg!, 0);
-
-// ---------------------------------------------------------------------------
-// Section 3 — compPositionOwnRates relative-outlier-gate semantics
-//
-// compPositionOwnRates.ts reports a true AVERAGE street rate and suppresses
-// junk rows with the two-level relative gate from rateBaselineSql.ts, NOT with
-// mode() and NOT with any absolute dollar floor.  HC is the service line that
-// makes this necessary: its rates are per DAY, so a $1,000 floor would blank
-// every HC campus.  A relative gate needs no such carve-out.
-// ---------------------------------------------------------------------------
-console.log('\n=== 3. relative outlier gate for compPositionOwnRates (HC exemption) ===\n');
-
-// percentile_cont(0.5) — interpolates across an even count, as Postgres does.
-function median(values: number[]): number {
-  const a = [...values].sort((x, y) => x - y);
-  const mid = a.length >> 1;
-  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
-}
-
 /**
- * JS mirror of buildRateBaselineCte + STREET_RATE_GATE.
- * Level 1 judges each rate against its own group's median; level 2 substitutes
- * the service-line median when the group's own median is itself implausible
- * (a group made entirely of junk would otherwise pass its own test).
+ * Stands in for the rate_baseline_v lookup so a test can state a baseline
+ * outright instead of seeding rows and letting the view derive one. The gate
+ * and the averaging under test are the real implementations; only the
+ * baseline source is substituted.
  */
-function gatedAverage(rates: number[], serviceLineMedian?: number): number | null {
-  if (rates.length === 0) return null;
-  const own = median(rates);
-  const baseline =
-    serviceLineMedian != null && own < RATE_OUTLIER_FLOOR_RATIO * serviceLineMedian
-      ? serviceLineMedian
-      : own;
-  const kept = rates.filter((r) => r >= RATE_OUTLIER_FLOOR_RATIO * baseline);
-  if (kept.length === 0) return null;
-  return kept.reduce((s, v) => s + v, 0) / kept.length;
+function baselineQuery(baselines: Record<string, number | null>) {
+  return async () => ({
+    rows: Object.entries(baselines).map(([key, baseline_street]) => {
+      const [location, service_line] = key.split('||');
+      return { location, service_line, baseline_street };
+    }),
+  });
 }
 
-// 10 HC units: 8 at $220/day, 2 at $169 (prorated move-in month).
-// $169 is only 23% below the median, well inside the gate — a prorated day
-// rate is still a real rate, so it is averaged in rather than discarded.
-const hcRates = [...Array(8).fill(220), 169, 169];
-assert('HC gate keeps all 10 daily rates (none is a relative outlier)',
-  gatedAverage(hcRates), (8 * 220 + 2 * 169) / 10);
-// The regression this file exists to catch: every one of these is under $1,000.
-assert('HC rates are all sub-$1000 yet none is dropped (no absolute floor)',
-  hcRates.every((r) => r < 1000) && gatedAverage(hcRates) !== null, true);
+// ---------------------------------------------------------------------------
+// Section 1 — the production predicate, `passesStreetGate`
+// ---------------------------------------------------------------------------
+console.log('\n=== 1. passesStreetGate — relative, with no dollar threshold ===\n');
 
-// Degenerate campus where prorated rows outnumber correct ones: still returns
-// a number.  The gate never blanks a group just because it is cheap.
-const hcRatesEdge = [...Array(3).fill(220), 169, 169, 169, 169];
-assertGt('HC gate with prorated majority still returns a rate', gatedAverage(hcRatesEdge)!, 0);
+// The whole point: an HC campus's baseline is a daily rate, so HC rates clear
+// it comfortably despite every value being under $1,000.
+assert('HC $220/day passes against a $220 HC baseline', passesStreetGate(220, 220), true);
+assert('HC $150/day passes against a $220 HC baseline', passesStreetGate(150, 220), true);
+assert('HC $350/day passes against a $220 HC baseline', passesStreetGate(350, 220), true);
 
-// AL: monthly rates with two junk rows an order of magnitude below the median.
-// Median $3,800 → cutoff $1,330 → $169 and $250 are excluded, unlike under
-// mode(), which merely out-voted them and left them in the unit count.
-const alRates = [...Array(8).fill(3800), 169, 250];
-assert('AL gate drops the $169/$250 junk rows and averages the rest',
-  gatedAverage(alRates), 3800);
+// A monthly service line judged against a monthly baseline drops the prorated
+// rows the old floor was built to drop.
+assert('AL $169 fails against a $3800 AL baseline', passesStreetGate(169, 3800), false);
+assert('AL $250 fails against a $3800 AL baseline', passesStreetGate(250, 3800), false);
+assert('AL $3800 passes against a $3800 AL baseline', passesStreetGate(3800, 3800), true);
 
-// Level 2 — a campus whose ENTIRE service line was imported at a fraction of
-// the portfolio rate cannot police itself: its own median is junk, so every
-// row passes level 1.  Judged against the service line, all rows fall away and
-// the group reports nothing rather than an invented ~$155 assisted-living rate.
-assert('Level 2 blanks a campus whose whole service line is implausible',
-  gatedAverage([155, 154, 156, 155, 155], 5825), null);
-// ...but a campus that is merely cheaper than the portfolio keeps its rates.
-assert('Level 2 does NOT punish a legitimately lower-priced campus',
-  gatedAverage([3000, 3000, 3000], 5825), 3000);
-// ...and level 2 cannot blank HC, whose per-day median is small by nature.
-assert('Level 2 leaves HC intact when compared to the HC service-line median',
-  gatedAverage([220, 220, 220], 240), 220);
+// The cutoff tracks the constant rather than any dollar figure, in both bases.
+const alCutoff = RATE_OUTLIER_FLOOR_RATIO * 3800;
+assert('AL rate exactly at the cutoff passes', passesStreetGate(alCutoff, 3800), true);
+assert('AL rate just under the cutoff fails', passesStreetGate(alCutoff - 0.01, 3800), false);
+const hcCutoff = RATE_OUTLIER_FLOOR_RATIO * 220;
+assert('HC rate exactly at the cutoff passes', passesStreetGate(hcCutoff, 220), true);
+assert('HC rate just under the cutoff fails', passesStreetGate(hcCutoff - 0.01, 220), false);
+
+// A rate that cannot be judged is reported, not suppressed. Blanking on a
+// missing baseline would silently erase whole campuses.
+assert('unknown baseline is permissive (null)', passesStreetGate(220, null), true);
+assert('unknown baseline is permissive (undefined)', passesStreetGate(220, undefined), true);
+assert('zero baseline is permissive', passesStreetGate(220, 0), true);
 
 // ---------------------------------------------------------------------------
-// Section 4 — Consistency: compPositionOwnRates gate vs routes.ts guard
+// Section 2 — the production grouping function over a realistic rent roll
+// ---------------------------------------------------------------------------
+console.log('\n=== 2. computeGroupStreetRateMap over HC and AL data ===\n');
+
+function rows(...specs: Array<[string, string, string, number, number]>): StreetRateGateRow[] {
+  const out: StreetRateGateRow[] = [];
+  let n = 100;
+  for (const [campus, sl, rt, rate, count] of specs) {
+    for (let i = 0; i < count; i++) {
+      out.push({
+        campus,
+        service_line: sl,
+        room_type: rt,
+        room_number: String(n++),
+        street_rate: rate,
+      });
+    }
+  }
+  return out;
+}
+
+// 8 HC beds at $220/day plus 2 prorated at $169. $169 is only 23% below the
+// baseline — well inside the gate — so a prorated day rate is averaged in
+// rather than discarded. It is a real charge, not a corrupt value.
+const hcMap = await computeGroupStreetRateMap(
+  baselineQuery({ 'Campus HC||HC': 220 }),
+  'test',
+  '2026-08',
+  rows(['Campus HC', 'HC', 'Semi-Private', 220, 8], ['Campus HC', 'HC', 'Semi-Private', 169, 2]),
+);
+assertClose('HC group averages all 10 daily rates', hcMap.get('Campus HC||HC||Semi-Private'), (8 * 220 + 2 * 169) / 10);
+assert('HC group is present despite every rate being sub-$1000', hcMap.has('Campus HC||HC||Semi-Private'), true);
+
+// A degenerate campus where prorated rows outnumber correct ones still reports
+// a number. The gate never blanks a group merely for being cheap.
+const hcEdge = await computeGroupStreetRateMap(
+  baselineQuery({ 'Campus HC||HC': 169 }),
+  'test',
+  '2026-08',
+  rows(['Campus HC', 'HC', 'Private', 220, 3], ['Campus HC', 'HC', 'Private', 169, 4]),
+);
+assert('HC group with a prorated majority still reports a rate', (hcEdge.get('Campus HC||HC||Private') ?? 0) > 0, true);
+
+// AL: the junk rows the old floor targeted are still removed, now because they
+// are an order of magnitude below their peers rather than below $1,000.
+const alMap = await computeGroupStreetRateMap(
+  baselineQuery({ 'Campus AL||AL': 3800 }),
+  'test',
+  '2026-08',
+  rows(
+    ['Campus AL', 'AL', 'Studio', 3800, 8],
+    ['Campus AL', 'AL', 'Studio', 169, 1],
+    ['Campus AL', 'AL', 'Studio', 250, 1],
+  ),
+);
+assertClose('AL group drops the $169/$250 rows and averages the rest', alMap.get('Campus AL||AL||Studio'), 3800);
+
+// Mixed portfolio: an AL baseline must never be applied to HC rows. If the two
+// service lines shared a baseline, HC would vanish entirely.
+const mixed = await computeGroupStreetRateMap(
+  baselineQuery({ 'Campus Mixed||HC': 220, 'Campus Mixed||AL': 4000 }),
+  'test',
+  '2026-08',
+  rows(
+    ['Campus Mixed', 'HC', 'Private', 220, 5],
+    ['Campus Mixed', 'AL', 'Studio', 4000, 5],
+    ['Campus Mixed', 'AL', 'Studio', 169, 1],
+  ),
+);
+assertClose('mixed portfolio: HC keeps its daily average', mixed.get('Campus Mixed||HC||Private'), 220);
+assertClose('mixed portfolio: AL drops its prorated row', mixed.get('Campus Mixed||AL||Studio'), 4000);
+
+// ---------------------------------------------------------------------------
+// Section 3 — level 2, supplied by the view
 //
-// Some routes.ts surfaces still carry the older explicit plausibility floor
-// with its HC carve-out, while compPositionOwnRates uses the relative gate.
-// The two disagree on non-HC junk (the relative gate is stricter), but they
-// must agree on the one thing that matters here: neither may blank HC.
+// A campus whose ENTIRE service line was imported at a fraction of the
+// portfolio rate cannot police itself: its own median is junk, so every row
+// clears level 1. The view substitutes the service-line median, which is why
+// the gate's baseline is read from the view rather than derived from the rows
+// in hand.
 // ---------------------------------------------------------------------------
-console.log('\n=== 4. HC exemption consistency across both approaches ===\n');
+console.log('\n=== 3. level-2 substitution reaches the JS path ===\n');
 
-// Approach A: explicit floor with an HC carve-out (routes.ts)
-const hcPassesFloor = passesPlausibilityGuard('HC', 220);
-assert('Approach A (explicit floor): HC $220 passes', hcPassesFloor, true);
+const junkCampus = await computeGroupStreetRateMap(
+  // The view already resolved level 2: this campus's own median was implausible
+  // against the AL service line, so baseline_street is the SL median.
+  baselineQuery({ 'Campus Junk||AL': 5825 }),
+  'test',
+  '2026-08',
+  rows(['Campus Junk', 'AL', 'Studio', 155, 5]),
+);
+assert('a wholly implausible AL campus is blanked, not reported at ~$155', junkCampus.has('Campus Junk||AL||Studio'), false);
 
-// Approach B: relative gate, which needs no carve-out (compPositionOwnRates)
-const hcGateResult = gatedAverage([220, 220, 220, 220, 220]);
-assert('Approach B (relative gate): HC campus averages $220', hcGateResult, 220);
-assert('Approach B (relative gate): HC campus is not blanked', (hcGateResult ?? 0) > 0, true);
+const cheapCampus = await computeGroupStreetRateMap(
+  baselineQuery({ 'Campus Cheap||AL': 3000 }),
+  'test',
+  '2026-08',
+  rows(['Campus Cheap', 'AL', 'Studio', 3000, 3]),
+);
+assertClose('a legitimately lower-priced AL campus keeps its rates', cheapCampus.get('Campus Cheap||AL||Studio'), 3000);
 
-// Confirm neither approach returns null / 0 for a healthy HC campus.
-assert('HC avg (approach A) is non-null', avgStreetRate(Array(5).fill({ service_line: 'HC', street_rate: 220 })) !== null, true);
-assert('HC gated average (approach B) is non-null', gatedAverage(Array(5).fill(220)) !== null, true);
+// Level 2 for HC is an HC-wide median, itself a daily figure, so it cannot
+// blank HC either. This is the assertion that fails if anyone reintroduces a
+// portfolio-wide baseline that mixes daily and monthly service lines.
+const hcLevel2 = await computeGroupStreetRateMap(
+  baselineQuery({ 'Campus HC2||HC': 240 }),
+  'test',
+  '2026-08',
+  rows(['Campus HC2', 'HC', 'Private', 220, 3]),
+);
+assertClose('level 2 leaves HC intact against the HC service-line median', hcLevel2.get('Campus HC2||HC||Private'), 220);
+
+// A campus with no baseline row at all reports its rates rather than
+// disappearing — the same permissiveness Section 1 asserts on the predicate.
+const noBaseline = await computeGroupStreetRateMap(
+  baselineQuery({}),
+  'test',
+  '2026-08',
+  rows(['Campus Unknown', 'HC', 'Private', 220, 3]),
+);
+assertClose('a campus with no baseline still reports', noBaseline.get('Campus Unknown||HC||Private'), 220);
 
 // ---------------------------------------------------------------------------
 // Summary

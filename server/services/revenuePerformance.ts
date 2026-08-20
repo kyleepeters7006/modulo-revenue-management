@@ -6,7 +6,22 @@
  * Used to compare against target revenue growth percentages.
  */
 
-import { normalizeUnitRates, calculateUnitAnnualRevenue } from './rateNormalization';
+import { normalizeUnitRates, calculateUnitAnnualRevenue, isPrivatePay } from './rateNormalization';
+
+/**
+ * Which residents a revenue figure counts.
+ *
+ * 'total'       — every occupied resident, including Medicaid/Medicare/Managed
+ *                 Care/Hospice, whose rates are set externally. Ties to the
+ *                 operator's books.
+ * 'private_pay' — only residents whose rate we set. The basis pricing work can
+ *                 actually move.
+ *
+ * These must always be reported as separate, labelled figures. Blending them,
+ * or leaving the basis unstated, is what made revenue disagree between
+ * surfaces. See @shared/payerScope for the payer definition itself.
+ */
+export type PayerBasis = 'total' | 'private_pay';
 
 export interface RevenuePerformance {
   currentMonthRevenue: number;
@@ -14,6 +29,14 @@ export interface RevenuePerformance {
   sameMonthLastYearRevenue: number;
   momGrowth: number;  // % change from last month
   yoyGrowth: number;  // % change from same month last year
+  /** The same five figures counting private-pay residents only. */
+  privatePay: {
+    currentMonthRevenue: number;
+    previousMonthRevenue: number;
+    sameMonthLastYearRevenue: number;
+    momGrowth: number;
+    yoyGrowth: number;
+  };
 }
 
 export interface RevenuePerformanceByScope {
@@ -45,11 +68,15 @@ function isOccupied(unit: any): boolean {
  * Properly handles daily vs monthly rates based on service line
  * Only counts occupied units (occupiedYN === true or 'Y')
  */
-export function calculateMonthlyRevenue(units: any[]): number {
+export function calculateMonthlyRevenue(
+  units: any[],
+  basis: PayerBasis = 'total',
+): number {
   let totalMonthlyRevenue = 0;
   
   for (const unit of units) {
     if (!isOccupied(unit)) continue;
+    if (basis === 'private_pay' && !isPrivatePay(unit)) continue;
     
     const { baseRateMonthly, careRateMonthly } = normalizeUnitRates(unit);
     totalMonthlyRevenue += baseRateMonthly + careRateMonthly;
@@ -63,12 +90,14 @@ export function calculateMonthlyRevenue(units: any[]): number {
  * Only counts occupied units (occupiedYN === true or 'Y')
  */
 export function calculateRevenueByScope(
-  units: any[]
+  units: any[],
+  basis: PayerBasis = 'total',
 ): Map<string, number> {
   const revenueByScope = new Map<string, number>();
   
   for (const unit of units) {
     if (!isOccupied(unit)) continue;
+    if (basis === 'private_pay' && !isPrivatePay(unit)) continue;
     
     const location = unit.location || 'Unknown';
     const serviceLine = unit.serviceLine || 'Unknown';
@@ -120,20 +149,20 @@ export function calculateRevenuePerformance(
   previousMonthUnits: any[],
   sameMonthLastYearUnits: any[]
 ): RevenuePerformance {
-  const currentMonthRevenue = calculateMonthlyRevenue(currentMonthUnits);
-  const previousMonthRevenue = calculateMonthlyRevenue(previousMonthUnits);
-  const sameMonthLastYearRevenue = calculateMonthlyRevenue(sameMonthLastYearUnits);
-  
-  const momGrowth = calculateGrowthPercent(currentMonthRevenue, previousMonthRevenue);
-  const yoyGrowth = calculateGrowthPercent(currentMonthRevenue, sameMonthLastYearRevenue);
-  
-  return {
-    currentMonthRevenue,
-    previousMonthRevenue,
-    sameMonthLastYearRevenue,
-    momGrowth: Math.round(momGrowth * 100) / 100,
-    yoyGrowth: Math.round(yoyGrowth * 100) / 100
+  const forBasis = (basis: PayerBasis) => {
+    const current = calculateMonthlyRevenue(currentMonthUnits, basis);
+    const previous = calculateMonthlyRevenue(previousMonthUnits, basis);
+    const lastYear = calculateMonthlyRevenue(sameMonthLastYearUnits, basis);
+    return {
+      currentMonthRevenue: current,
+      previousMonthRevenue: previous,
+      sameMonthLastYearRevenue: lastYear,
+      momGrowth: Math.round(calculateGrowthPercent(current, previous) * 100) / 100,
+      yoyGrowth: Math.round(calculateGrowthPercent(current, lastYear) * 100) / 100,
+    };
   };
+
+  return { ...forBasis('total'), privatePay: forBasis('private_pay') };
 }
 
 /**

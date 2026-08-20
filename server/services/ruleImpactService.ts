@@ -1,4 +1,5 @@
 import { pool } from "../db";
+import { isPrivatePayer, privatePaySql } from "@shared/payerScope";
 import { isBBedRow } from "@shared/bBed";
 import { loadCompBenchmark, type CompBenchmark } from "./compBenchmark";
 import { normalizeRoomType } from "@shared/roomTypes";
@@ -149,13 +150,13 @@ export async function getT3MoveInsMap(
       FROM rent_roll_data rr
       WHERE ${where.join(" AND ")} AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
       ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
-               (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
+               ${privatePaySql("rr.payor_type")} DESC, rr.payor_type
     ),
     valid AS (
       SELECT location, service_line, room_type, TO_CHAR(dt,'YYYY-MM') AS mm
       FROM ev
       WHERE dt IS NOT NULL
-        AND (CASE WHEN service_line IN ('HC','HC/MC') THEN (payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%') ELSE TRUE END)
+        AND (CASE WHEN service_line IN ('HC','HC/MC') THEN ${privatePaySql("payor_type")} ELSE TRUE END)
     )
     SELECT location, service_line, room_type, COUNT(*)::float / 3.0 AS t3_moveins
     FROM valid WHERE mm = ANY($${monthsIdx})
@@ -271,13 +272,13 @@ export async function getGroupedT3MoveInsMap(
        AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
       WHERE ${where.join(' AND ')} AND rr.move_in_date IS NOT NULL AND rr.move_in_date != ''
       ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
-               (rr.payor_type ILIKE '%private%' OR rr.payor_type ILIKE '%pvt%') DESC, rr.payor_type
+               ${privatePaySql("rr.payor_type")} DESC, rr.payor_type
     ),
     valid AS (
       SELECT location, service_line, room_type, TO_CHAR(dt,'YYYY-MM') AS mm
       FROM ev
       WHERE dt IS NOT NULL
-        AND (CASE WHEN service_line IN ('HC','HC/MC') THEN (payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%') ELSE TRUE END)
+        AND (CASE WHEN service_line IN ('HC','HC/MC') THEN ${privatePaySql("payor_type")} ELSE TRUE END)
     )
     SELECT location, service_line, room_type,
            COUNT(*)::float / GREATEST(CARDINALITY($${idx}::text[]), 1) AS t3_moveins
@@ -336,7 +337,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
     const isDaily = DAILY_SLS.has(sl);
     const rateOk = isDaily ? (st > 0 && ih > 0) : (st > 100 && ih > 100);
     const singleOcc = isDaily
-      ? ((u.payor_type || "").toUpperCase().includes("PRIVATE"))
+      ? isPrivatePayer(u.payor_type)
       : !isBBedUnit;
     if (u.occupied_yn && rateOk && singleOcc) {
       const mult = isDaily ? DAYS_PER_MONTH : 1;
@@ -401,7 +402,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
         WHERE client_id = $1 AND event_type = 'move_in' AND counted = true
           AND SUBSTRING(event_date, 1, 7) = ANY($2)
           AND (CASE WHEN service_line IN ('HC','HC/MC')
-               THEN (payer ILIKE '%private%' OR payer ILIKE '%pvt%') ELSE TRUE END)
+               THEN ${privatePaySql("payer")} ELSE TRUE END)
         GROUP BY service_line
       `, [clientId, t3Months])
     : await pool.query(`
@@ -423,7 +424,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
     SELECT service_line, COUNT(*)::float / 3.0 AS per_month
     FROM ev
     WHERE dt IS NOT NULL AND TO_CHAR(dt,'YYYY-MM') IN (SELECT upload_month FROM t3)
-      AND (CASE WHEN service_line IN ('HC','HC/MC') THEN (payor_type ILIKE '%private%' OR payor_type ILIKE '%pvt%') ELSE TRUE END)
+      AND (CASE WHEN service_line IN ('HC','HC/MC') THEN ${privatePaySql("payor_type")} ELSE TRUE END)
     GROUP BY service_line
   `, [clientId]);
 
@@ -1220,8 +1221,9 @@ export interface GroupRateInput {
   sourceRt?: string;
   locationId: string | null;
   /**
-   * Mode street rate for the group — mirrors mode() WITHIN GROUP from the
-   * grouped endpoint's SQL so both endpoints use the same base for preview rates.
+   * Average street rate for the group, outliers already removed by the shared
+   * rate_baseline_v gate — the same figure the grouped endpoint's SQL produces,
+   * so both endpoints use the same base for preview rates.
    */
   groupStreetRate: number;
   /** Average in-house rate across the group (used when rule targets care_rate). */

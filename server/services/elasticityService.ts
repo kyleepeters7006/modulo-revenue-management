@@ -1,5 +1,7 @@
 import { pool } from "../db";
 import { DAYS_PER_MONTH } from "@shared/careRates";
+import { buildRateBaselineJoin, streetRateGate } from "./rateBaselineView";
+import { bBedExclusionSql } from "@shared/bBed";
 
 // ---------------------------------------------------------------------------
 // Price Elasticity Service
@@ -206,12 +208,18 @@ export async function computeAndStoreElasticity(clientId: string): Promise<{ upd
         rr.service_line                                                 AS service_line,
         rr.room_type                                                    AS room_type,
         rr.upload_month                                                 AS month,
-        mode() WITHIN GROUP (ORDER BY rr.street_rate) FILTER (WHERE rr.street_rate > 0
-          AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+        -- A true AVERAGE, matching Reference Data and every other rate surface.
+        -- mode() reported the single most common rate as the segment's level,
+        -- which hid the very rate dispersion elasticity is meant to measure:
+        -- a segment could move its rates and show no change at all.
+        AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0
+          AND ${streetRateGate('rr.')}
+          AND ${bBedExclusionSql('rr.')}
         ) AS avg_street,
         AVG(LEAST(rr.days_vacant, $3)) FILTER (WHERE NOT rr.occupied_yn AND rr.days_vacant > 0)    AS avg_days_to_sell
      FROM rent_roll_data rr
      LEFT JOIN locations loc ON loc.client_id = rr.client_id AND loc.name = rr.location
+     ${buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1', monthSql: '$2', monthIsArray: true })}
      WHERE rr.client_id = $1 AND rr.upload_month = ANY($2)
      GROUP BY loc.id, rr.location, rr.service_line, rr.room_type, rr.upload_month`,
     [clientId, months, MAX_DAYS_VACANT]

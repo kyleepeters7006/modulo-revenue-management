@@ -27,3 +27,17 @@ export const B_BED_ROOM_RE = /\/[B-Zb-z]$/;
 export function isBBedRow(serviceLine: string | null | undefined, roomNumber: string | null | undefined): boolean {
   return SENIOR_HOUSING_SLS.has(serviceLine || '') && B_BED_ROOM_RE.test(roomNumber || '');
 }
+
+/**
+ * The SQL form of `isBBedRow`, negated for use as a keep-this-row predicate.
+ *
+ * Lives beside the JS version so the two cannot drift: a change to the
+ * companion-bed convention has to be made once, here, rather than in every
+ * query that aggregates rates.
+ *
+ * @param prefix column qualifier including the dot — `"rr."`, `"rrd."`, or
+ *               `""` when the query has no table alias.
+ */
+export function bBedExclusionSql(prefix: string = 'rr.'): string {
+  return `NOT (${prefix}service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND ${prefix}room_number ~* '/[B-Zb-z]$')`;
+}

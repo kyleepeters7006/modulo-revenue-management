@@ -19,7 +19,8 @@
  * ───────────────────────────────────────────────────────────────────────────────────
  */
 
-import { buildRateBaselineCte, RATE_BASELINE_JOIN, STREET_RATE_GATE } from "./rateBaselineSql";
+import { buildRateBaselineJoin, streetRateGate } from "./rateBaselineView";
+import { bBedExclusionSql } from "@shared/bBed";
 
 export interface OwnRateRow {
   location: string;
@@ -57,22 +58,18 @@ export async function queryCompPositionOwnRates(
   const { locations = [], regions = [], divisions = [], serviceLine } = filters;
 
   let whereClause = `loc.client_id=$1 AND rr.upload_month=$2 AND rr.street_rate>0`;
-  // Scope for the level-2 (portfolio) rate baseline — tenant, month and
-  // service line only. Location/region/division filters are deliberately
-  // omitted: scoping the scatter to one campus must not shrink the yardstick
-  // that campus is judged against, or a wholly-implausible campus would once
-  // again become its own reference point.
-  let portfolioWhere = whereClause;
   const params: any[] = [clientId, month];
   let p = 3;
 
+  // These filters choose which rows to REPORT. They deliberately have no
+  // effect on the outlier baselines, which the rate_baseline_v view defines
+  // over the whole portfolio — scoping the scatter to one campus must not
+  // shrink the yardstick that campus is judged against.
   if (locations.length) { whereClause += ` AND rr.location = ANY($${p++})`; params.push(locations); }
   if (regions.length)   { whereClause += ` AND loc.region = ANY($${p++})`; params.push(regions); }
   if (divisions.length) { whereClause += ` AND loc.division = ANY($${p++})`; params.push(divisions); }
   if (serviceLine && serviceLine !== 'All') {
-    whereClause += ` AND rr.service_line=$${p}`;
-    portfolioWhere += ` AND rr.service_line=$${p}`;
-    p++;
+    whereClause += ` AND rr.service_line=$${p++}`;
     params.push(serviceLine);
   }
 
@@ -82,13 +79,7 @@ export async function queryCompPositionOwnRates(
     -- Data), then unit-weights the per-RT averages so the all-rooms figure reflects
     -- room mix. Junk rent-roll rows (e.g. a $159 Studio) are removed by the relative
     -- outlier gate below instead of by mode(), which hid real rate dispersion.
-    ${buildRateBaselineCte({
-      where: whereClause,
-      portfolioWhere,
-      joins: `
-      LEFT JOIN locations loc ON loc.id = rr.location_id`,
-    })},
-    rt_rates AS (
+    WITH rt_rates AS (
       SELECT rr.location,
         -- Canonical KeyStats location name for benchmarkFor() lookups.
         -- Falls back to rr.location when location_id FK is not populated.
@@ -104,7 +95,7 @@ export async function queryCompPositionOwnRates(
         -- it from cnt too would silently re-weight the room mix and pull the
         -- all-rooms figure away from Reference Data, which counts every
         -- distinct physical room.
-        AVG(rr.street_rate) FILTER (WHERE ${STREET_RATE_GATE}) AS rt_rate,
+        AVG(rr.street_rate) FILTER (WHERE ${streetRateGate('rr.')}) AS rt_rate,
         -- Distinct PHYSICAL rooms, collapsing companion suffixes, so this
         -- weight matches the Reference Data total column exactly.
         COUNT(DISTINCT
@@ -114,9 +105,9 @@ export async function queryCompPositionOwnRates(
         ) AS cnt
       FROM rent_roll_data rr
       LEFT JOIN locations loc ON loc.id = rr.location_id
-      ${RATE_BASELINE_JOIN}
+      ${buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1', monthSql: '$2' })}
       WHERE ${whereClause}
-        AND NOT (rr.service_line IN ('AL', 'AL/MC', 'SL', 'VIL') AND rr.room_number ~* '/[B-Zb-z]$')
+        AND ${bBedExclusionSql('rr.')}
       GROUP BY rr.location, loc.name, rr.service_line, rr.room_type
     )
     SELECT location, location_name, service_line,

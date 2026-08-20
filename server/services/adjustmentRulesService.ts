@@ -4,6 +4,7 @@ import type { AdjustmentRules } from "@shared/schema";
 import { isRuleExclusive, applyRuleAdjustmentStep } from "@shared/ruleStacking";
 import { buildGuardrailResolver, clampRateWithGuardrails } from "../guardrailsUtil";
 import { isBBedRow } from "@shared/bBed";
+import { isPrivatePayer } from "@shared/payerScope";
 import { loadCompBenchmark } from "./compBenchmark";
 import { normalizeRoomType } from "@shared/roomTypes";
 import { DAYS_PER_MONTH } from "@shared/careRates";
@@ -182,7 +183,7 @@ export async function recalculateAndPreloadCampusMetrics(
         const daily = HC_DAILY.has(u.service_line || '');
         const st = u.street_rate || 0, ih = (u as any).in_house_rate || 0;
         if (daily) {
-          return st > 0 && ih > 0 && (u.payor_type || '').toUpperCase().includes('PRIVATE');
+          return st > 0 && ih > 0 && isPrivatePayer(u.payor_type);
         }
         return st > 100 && ih > 100;
       });
@@ -244,7 +245,12 @@ export async function recalculateAndPreloadCampusMetrics(
         const n = occ.length;
         if (n > 0) {
           const up = (s: string) => (s || '').toUpperCase();
-          metrics.push({ sl, rt, name: 'private_pay_pct', val: pctOf(occ.filter(u => up(u.payor_type).includes('PRIVATE')).length,  n) });
+          // private_pay_pct is the canonical payer scope (everything not on an
+          // externally-set programme), NOT a substring match on "PRIVATE" —
+          // that spelling misses LEGACY - PVT PAY and BEDHOLDS entirely.
+          // medicaid_pct / medicare_pct below stay as targeted substring tests
+          // because they ask about those specific programmes.
+          metrics.push({ sl, rt, name: 'private_pay_pct', val: pctOf(occ.filter(u => isPrivatePayer(u.payor_type)).length,  n) });
           metrics.push({ sl, rt, name: 'medicaid_pct',    val: pctOf(occ.filter(u => up(u.payor_type).includes('MEDICAID')).length, n) });
           metrics.push({ sl, rt, name: 'medicare_pct',    val: pctOf(occ.filter(u => up(u.payor_type).includes('MEDICARE')).length, n) });
         }

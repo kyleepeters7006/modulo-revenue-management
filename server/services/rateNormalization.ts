@@ -9,6 +9,8 @@
 // Single source of truth (365 / 12). Do NOT redefine locally — divergent copies
 // made daily↔monthly round-trips lossy across services.
 import { DAYS_PER_MONTH as DAYS_IN_MONTH } from "@shared/careRates";
+// Single source of truth for payer scope. Do NOT inline a payer test here.
+import { isPrivatePayer } from "@shared/payerScope";
 
 // Service lines that use daily rates
 const DAILY_RATE_SERVICE_LINES = ['HC', 'HC/MC'];
@@ -100,25 +102,15 @@ export function normalizeUnitRates(unit: any): {
 }
 
 /**
- * Check if a unit is private pay (eligible for revenue calculations)
- * Private Pay = any DisplayPayer that is NOT one of the government/insurance payors.
- * Non-private payors: HOSPICE, LEGACY - MEDICAID, MANAGED, MEDICAID, MEDICARE, MEDICARE ADVANTAGE
+ * Check if a unit is private pay (eligible for revenue calculations).
+ *
+ * Thin adapter over the canonical definition in @shared/payerScope — this
+ * takes a whole unit and reads the camelCase `payorType` field, which is the
+ * shape most callers here already hold. Do not reimplement the rule; see that
+ * file for why it is exclusion-based.
  */
 export function isPrivatePay(unit: any): boolean {
-  const payorType = (unit.payorType || '').toUpperCase().trim();
-  
-  // Empty/null payor type is treated as private pay
-  if (!payorType || payorType === '') return true;
-  
-  // Check for NON-private pay (government/insurance) payors
-  // If it matches any of these, it's NOT private pay
-  if (payorType.includes('HOSPICE')) return false;
-  if (payorType.includes('MEDICAID')) return false;  // Includes "LEGACY - MEDICAID"
-  if (payorType.includes('MEDICARE')) return false;  // Includes "MEDICARE ADVANTAGE"
-  if (payorType.includes('MANAGED')) return false;   // MANAGED CARE
-  
-  // Everything else (PRIVATE PAY, BEDHOLDS, LEGACY - PVT PAY, etc.) is private pay
-  return true;
+  return isPrivatePayer(unit?.payorType);
 }
 
 /**
@@ -145,12 +137,19 @@ export function calculateUnitAnnualRevenue(unit: any, occupied: boolean = true, 
     // Potential revenue: private pay occupied + vacant at street rate
     // Apply private pay proportion based on actual payor mix data:
     // HC: 21% private pay, HC/MC: 31% private pay
+    //
+    // This haircut only belongs on the PRIVATE-PAY basis. A vacant HC bed will
+    // in reality be filled by the usual payer mix, so on a TOTAL-revenue basis
+    // the full street rate is the right expectation and discounting it to 21%
+    // would understate total potential by nearly 5x.
     const serviceLine = unit.serviceLine || '';
     let privatePayFactor = 1.0;
-    if (serviceLine === 'HC') {
-      privatePayFactor = 0.21;
-    } else if (serviceLine === 'HC/MC') {
-      privatePayFactor = 0.31;
+    if (privatePayOnly) {
+      if (serviceLine === 'HC') {
+        privatePayFactor = 0.21;
+      } else if (serviceLine === 'HC/MC') {
+        privatePayFactor = 0.31;
+      }
     }
     
     if (unit.occupiedYN) {

@@ -20,11 +20,35 @@ interface SuspectRow {
   classification: "prorated_move_in" | "suspect";
 }
 
+interface ExcludedRow {
+  location: string;
+  serviceLine: string;
+  roomType: string | null;
+  roomNumber: string;
+  streetRate: number;
+  baseline: number;
+  pctOfBaseline: number;
+}
+
+interface ExcludedGroup {
+  location: string;
+  serviceLine: string;
+  roomType: string;
+  droppedCount: number;
+  totalCount: number;
+  blanked: boolean;
+  rows: ExcludedRow[];
+}
+
 interface QualityReport {
   month: string;
   previousMonth: string;
   campuses: { location: string; suspectCount: number; proratedCount: number; rows: SuspectRow[] }[];
   medianShifts: { location: string; serviceLine: string; currentMedian: number; previousMedian: number; ratio: number }[];
+  excludedFromAggregates: {
+    groups: ExcludedGroup[];
+    totals: { rows: number; groups: number; blankedGroups: number; campuses: number };
+  };
   totals: { suspect: number; proratedMoveIn: number; campusesAffected: number };
 }
 
@@ -41,6 +65,11 @@ export default function StreetRateQuality() {
     queryKey: [`/api/street-rate-quality?month=${month}`],
     enabled: /^20\d{2}-\d{2}$/.test(month),
   });
+
+  const excluded = report?.excludedFromAggregates ?? {
+    groups: [],
+    totals: { rows: 0, groups: 0, blankedGroups: 0, campuses: 0 },
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
@@ -66,7 +95,7 @@ export default function StreetRateQuality() {
 
       {report && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Suspect rows</CardTitle></CardHeader>
               <CardContent><span className="text-2xl font-bold" data-testid="text-suspect-count">{report.totals.suspect}</span></CardContent>
@@ -78,6 +107,15 @@ export default function StreetRateQuality() {
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Campuses with suspect rows</CardTitle></CardHeader>
               <CardContent><span className="text-2xl font-bold">{report.totals.campusesAffected}</span></CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Rows excluded from rates</CardTitle></CardHeader>
+              <CardContent>
+                <span className="text-2xl font-bold" data-testid="text-excluded-count">{excluded.totals.rows}</span>
+                {excluded.totals.blankedGroups > 0 && (
+                  <p className="text-xs text-red-600 mt-1">{excluded.totals.blankedGroups} group{excluded.totals.blankedGroups === 1 ? "" : "s"} left with no rate</p>
+                )}
+              </CardContent>
             </Card>
           </div>
 
@@ -97,6 +135,73 @@ export default function StreetRateQuality() {
                 </ul>
               </AlertDescription>
             </Alert>
+          )}
+
+          {excluded.groups.length > 0 && (
+            <Card data-testid="card-excluded-rows">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  Excluded from rate averages
+                  <Badge variant="destructive">{excluded.totals.rows} rows</Badge>
+                  {excluded.totals.blankedGroups > 0 && (
+                    <Badge variant="destructive">{excluded.totals.blankedGroups} blanked</Badge>
+                  )}
+                </CardTitle>
+                <CardDescription>
+                  These rows are too far below the going rate for their own campus and service line to be
+                  believable, so every rate on the platform leaves them out. That is the right call for the
+                  numbers, but each one is a defect in the source file worth correcting. A{" "}
+                  <Badge variant="destructive" className="mx-1">blanked</Badge> group lost every one of its rows and
+                  now shows no rate at all.
+                  {excluded.groups.length < excluded.totals.groups && (
+                    <span className="block mt-1">
+                      Showing the {excluded.groups.length} worst-affected groups of{" "}
+                      {excluded.totals.groups}. The counts above cover all of them.
+                    </span>
+                  )}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {excluded.groups.map((g) => (
+                  <div key={`${g.location}-${g.serviceLine}-${g.roomType}`} className="border rounded-md p-3">
+                    <div className="flex items-center gap-2 flex-wrap text-sm font-medium">
+                      <span>{g.location}</span>
+                      <span className="text-muted-foreground">/ {g.serviceLine} / {g.roomType}</span>
+                      {g.blanked
+                        ? <Badge variant="destructive">Blanked — no rate reported</Badge>
+                        : <Badge variant="secondary">{g.droppedCount} of {g.totalCount} rows dropped</Badge>}
+                    </div>
+                    <div className="overflow-x-auto mt-2">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-muted-foreground border-b">
+                            <th className="py-1 pr-3">Room</th>
+                            <th className="py-1 pr-3 text-right">Street rate</th>
+                            <th className="py-1 pr-3 text-right">Expected (baseline)</th>
+                            <th className="py-1 text-right">% of baseline</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {g.rows.map((r) => (
+                            <tr key={`${r.location}-${r.roomNumber}`} className="border-b last:border-0">
+                              <td className="py-1 pr-3 font-mono">{r.roomNumber}</td>
+                              <td className="py-1 pr-3 text-right font-mono">${r.streetRate.toLocaleString()}</td>
+                              <td className="py-1 pr-3 text-right font-mono text-muted-foreground">${r.baseline.toLocaleString()}</td>
+                              <td className="py-1 text-right font-mono">{r.pctOfBaseline}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {g.rows.length < g.droppedCount && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Showing {g.rows.length} of {g.droppedCount} excluded rows.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
           )}
 
           <Alert>

@@ -66,3 +66,7 @@
 - [Comp-rate reprocessing ops](comp-rate-reprocessing-ops.md) — a normalizer fix doesn't touch stored rows (backfill is fire-and-forget at boot); a correct re-run legitimately lowers coverage.
 - [Dead vs live rate columns](dead-rate-columns.md) — in_house_rate is live, rent_and_care_rate is dead; 0-vs-NULL makes `||`/COALESCE silently serve street rate, and demo data hides it.
 - [RefData cross-surface basis](refdata-cross-surface-basis.md) — census agrees everywhere; remaining gaps are payer scope and unconverted mode()/dollar-floor sites.
+- [Rate baseline view](rate-baseline-view.md) — the outlier gate is a DB view so no caller can narrow the baseline; JS twins read from it, never recompute.
+- [Payer scope](payer-scope.md) — "private pay" is exclusion-based in shared/payerScope.ts; ILIKE '%private%' silently drops LEGACY - PVT PAY and BEDHOLDS.
+- [Revenue payer basis](revenue-payer-basis.md) — always report total AND private-pay revenue, labelled; private pay is ~43% of total, so an unlabelled figure is meaningless.
+- [Test runner conventions](test-runner-conventions.md) — *.vitest.ts = vitest, *.test.ts = standalone tsx scripts; mixing them made npm test always fail.
