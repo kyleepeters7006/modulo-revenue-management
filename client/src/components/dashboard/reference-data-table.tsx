@@ -1404,7 +1404,10 @@ export default function ReferenceDataTable({
     idx % 2 === 0 ? "bg-muted/40" : "bg-muted/20";
 
   const renderHeaders = () => (
-    <thead className="sticky top-0 z-30">
+    // sticky/top-0 must NOT be on <thead> — on iOS Safari it locks the header
+    // horizontally so it won't scroll right with the table body. Each <th>
+    // carries its own sticky + top value instead.
+    <thead className="z-30">
       {/* Group header row */}
       <tr ref={groupHeaderRowRef}>
         {dynGroups.map((g, gi) => {

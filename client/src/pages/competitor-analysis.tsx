@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import Navigation from "@/components/navigation";
 import { CompetitorMap } from "@/components/dashboard/competitor-map";
 import CompetitorForm from "@/components/dashboard/competitor-form";
+import { CompetitorDetailDialog, type CompetitorRateRow } from "@/components/dashboard/competitor-detail-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -65,6 +66,21 @@ export default function CompetitorAnalysis() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   // Inline-editing state: which cell is currently being edited
   const [editCell, setEditCell] = useState<{ id: string; field: string; value: string } | null>(null);
+  const [detailRow, setDetailRow] = useState<CompetitorRateRow | null>(null);
+
+  // Shared by the table's rate cell and the detail dialog so both land on the
+  // same filtered Rate Card view.
+  const openRateCardFor = (row: CompetitorRateRow) => {
+    localStorage.setItem('appFilters', JSON.stringify({
+      locations: [selectedLocations[0]],
+      serviceLine: row.serviceLine,
+      serviceLines: [row.serviceLine],
+      roomType: row.roomType,
+      regions: selectedRegions,
+      divisions: selectedDivisions,
+    }));
+    window.location.href = '/rate-card';
+  };
   // Save filters to localStorage whenever they change
   useEffect(() => {
     const filters = {
@@ -676,7 +692,7 @@ export default function CompetitorAnalysis() {
                 const isEditing = editCell?.id === String(row.id) && editCell.field === field;
                 if (isEditing) {
                   return (
-                    <TableCell className="text-right p-1.5">
+                    <TableCell className="text-right p-1.5" onClick={e => e.stopPropagation()}>
                       <input
                         autoFocus
                         type="number"
@@ -695,7 +711,7 @@ export default function CompetitorAnalysis() {
                 return (
                   <TableCell
                     className="text-right cursor-pointer group"
-                    onClick={() => startEdit(String(row.id), field, value)}
+                    onClick={e => { e.stopPropagation(); startEdit(String(row.id), field, value); }}
                     title="Click to edit"
                   >
                     <span className="inline-flex items-center justify-end gap-1">
@@ -715,7 +731,7 @@ export default function CompetitorAnalysis() {
                     </p>
                   )}
                   <p className="text-xs text-gray-400 mb-2">
-                    Click any <Pencil className="h-3 w-3 inline" /> cell to edit. Press Enter to save, Escape to cancel.
+                    Click a row for full rate detail. Click any <Pencil className="h-3 w-3 inline" /> cell to edit — Enter to save, Escape to cancel.
                   </p>
                   <Table>
                     <TableHeader>
@@ -745,7 +761,13 @@ export default function CompetitorAnalysis() {
                           ? Minus
                           : TrendingDown;
                         return (
-                          <TableRow key={row.id} data-testid={`row-competitor-${row.id}`}>
+                          <TableRow
+                            key={row.id}
+                            data-testid={`row-competitor-${row.id}`}
+                            className="cursor-pointer"
+                            onClick={() => setDetailRow(row)}
+                            title="Click for full rate detail"
+                          >
                             <TableCell className="font-medium">{row.competitorName}</TableCell>
                             <TableCell><Badge variant="outline">{row.serviceLine}</Badge></TableCell>
                             <TableCell>{row.roomType || 'N/A'}</TableCell>
@@ -761,17 +783,7 @@ export default function CompetitorAnalysis() {
                             <TableCell className="text-right font-semibold">
                               <button
                                 className="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1 ml-auto"
-                                onClick={() => {
-                                  localStorage.setItem('appFilters', JSON.stringify({
-                                    locations: [selectedLocations[0]],
-                                    serviceLine: row.serviceLine,
-                                    serviceLines: [row.serviceLine],
-                                    roomType: row.roomType,
-                                    regions: selectedRegions,
-                                    divisions: selectedDivisions,
-                                  }));
-                                  window.location.href = '/rate-card';
-                                }}
+                                onClick={e => { e.stopPropagation(); openRateCardFor(row); }}
                                 title="Open in Rate Card filtered to this service line & room type"
                               >
                                 ${row.trilogyRate?.toLocaleString() ?? 0}
@@ -789,6 +801,13 @@ export default function CompetitorAnalysis() {
                       })}
                     </TableBody>
                   </Table>
+                  <CompetitorDetailDialog
+                    row={detailRow}
+                    open={detailRow !== null}
+                    onOpenChange={open => { if (!open) setDetailRow(null); }}
+                    clientShortName={clientShortName}
+                    onOpenRateCard={openRateCardFor}
+                  />
                 </div>
               );
             })()}

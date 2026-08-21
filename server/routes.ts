@@ -2557,6 +2557,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       purgeCompPositionCaches(clientId);
       console.log(`[reimport-competitive-survey] comp-position-studio cache cleared for client ${clientId}`);
 
+      // Backfill missing care_level_rates from rent roll before matching starts,
+      // so the care-adjustment formula has current values for every campus.
+      storage.backfillCareLevelRatesFromHistory(clientId)
+        .then(r => console.log(`[reimport-competitive-survey] care_level_rates backfill — upserted: ${r.upserted}, skipped: ${r.skipped}`))
+        .catch(err => console.warn('[reimport-competitive-survey] care_level_rates backfill error (non-fatal):', err));
+
       // Fire competitor rate matching asynchronously so the HTTP response returns
       // immediately — matching 7 000+ units can take several minutes and would
       // otherwise time out the connection.
@@ -13861,6 +13867,11 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         let baseRate = record.monthlyRateAvg || 0;
         let careLevel2 = record.careLevel2Rate || 0;
         let medMgmt = record.medicationManagementFee || 0;
+        // Roughly half of all survey rows carry no care rate at all. The `|| 0`
+        // above erases the difference between "charges nothing" (a real signal)
+        // and "never surveyed", so track it separately for display. The
+        // adjustment math below intentionally keeps its existing behaviour.
+        let careLevel2Known = record.careLevel2Rate != null;
         
         // Convert HC/SMC/HC/MC daily rates to monthly if they appear to be daily (< $1000)
         const isHCType = record.competitorType === 'HC' || record.competitorType === 'SMC' || record.competitorType === 'HC/MC';
@@ -13869,7 +13880,10 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         // the same shared helper every other surface uses, so one survey row
         // cannot read as daily here and monthly elsewhere.
         if (isHCType) {
-          careLevel2 = normalizeCompetitorCareRateMonthly(careLevel2, 'HC') ?? 0;
+          const normalizedCare = normalizeCompetitorCareRateMonthly(careLevel2, 'HC');
+          // A non-null rate the normalizer rejects is unusable, not zero.
+          if (normalizedCare == null) careLevel2Known = false;
+          careLevel2 = normalizedCare ?? 0;
         }
 
         if (isHCType && baseRate > 0 && baseRate < 1000) {
@@ -13880,7 +13894,14 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         // Compute care adjustment as differential: competitor care L2 − Trilogy care L2
         // If no entry exists in care_level_rates for this location/service line, apply no care adjustment
         let careAdj = 0;
-        if (CARE_LEVEL_2_APPLIES[serviceLine]) {
+        // Both sides of the differential are surfaced separately so the detail
+        // view can show WHY the adjustment is what it is. A bare delta cannot
+        // distinguish "they charge the same as us" from "neither side has data".
+        let theirCareLevel2: number | null = null;
+        let ourCareLevel2: number | null = null;
+        const careApplies = !!CARE_LEVEL_2_APPLIES[serviceLine];
+        if (careApplies) {
+          theirCareLevel2 = careLevel2Known ? careLevel2 : null;
           const trilogyCareL2 = trilogyCareRateMap[serviceLine];
           if (trilogyCareL2 !== undefined) {
             // Both sides must be monthly here: careLevel2 is normalized to
@@ -13890,6 +13911,7 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
             const trilogyCareL2Monthly = isDailyServiceLine(serviceLine ?? '')
               ? trilogyCareL2 * DAYS_PER_MONTH
               : trilogyCareL2;
+            ourCareLevel2 = trilogyCareL2Monthly;
             careAdj = careLevel2 - trilogyCareL2Monthly;
           }
           // else: no care_level_rates entry for this service line — no adjustment applied
@@ -13918,7 +13940,12 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
           adjustedRate: Math.round(adjustedRate),
           trilogyRate: Math.round(trilogyRate),
           marketPosition,
-          occupancyRate: record.occupancyRate
+          occupancyRate: record.occupancyRate,
+          // Care-rate components behind careLevel2Adjustment, for the detail view.
+          // null means "no data on that side", which is different from 0.
+          careApplies,
+          theirCareLevel2: theirCareLevel2 != null ? Math.round(theirCareLevel2) : null,
+          ourCareLevel2: ourCareLevel2 != null ? Math.round(ourCareLevel2) : null,
         };
       });
       
@@ -24710,6 +24737,11 @@ Return ONLY valid JSON, no markdown fences:
           console.log(`[import/rent-roll] campus_metrics refresh complete for client ${importClientId}`);
         }).catch(err => console.warn('[import/rent-roll] campus_metrics refresh error:', err));
 
+        // Backfill missing care_level_rates from the newly-imported rent roll.
+        storage.backfillCareLevelRatesFromHistory(importClientId)
+          .then(r => console.log(`[import/rent-roll] care_level_rates backfill — upserted: ${r.upserted}, skipped: ${r.skipped}`))
+          .catch(err => console.warn('[import/rent-roll] care_level_rates backfill error (non-fatal):', err));
+
         return res.json({
           ...importStats,
           syncedToCurrent: true,
@@ -24723,6 +24755,12 @@ Return ONLY valid JSON, no markdown fences:
       invalidateRefDataCache();
       warmRefDataCacheForClient(importClientId);
       console.log(`[import/rent-roll] ref-data cache invalidated and re-warmed for client ${importClientId} after import`);
+
+      // Backfill any missing care_level_rates from the freshly-imported rent roll history.
+      // Only fills rows with no existing entry — manually-entered overrides are preserved.
+      storage.backfillCareLevelRatesFromHistory(importClientId)
+        .then(r => console.log(`[import/rent-roll] care_level_rates backfill — upserted: ${r.upserted}, skipped: ${r.skipped}`))
+        .catch(err => console.warn('[import/rent-roll] care_level_rates backfill error (non-fatal):', err));
 
       res.json({
         ...importStats,
@@ -24908,6 +24946,14 @@ Return ONLY valid JSON, no markdown fences:
       // rates for up to 10 minutes while the DB already has the new survey values.
       purgeCompPositionCaches(clientId);
       console.log(`[import-competitive-survey] comp-position-studio cache cleared for client ${clientId}`);
+
+      // Automatically backfill any missing care_level_rates entries from the rent roll
+      // so the care-adjustment formula has current "our care" values before (and during)
+      // competitor rate matching. Only fills rows with no existing entry — manually-entered
+      // overrides are never touched. Fire async; a failure here is non-fatal.
+      storage.backfillCareLevelRatesFromHistory(clientId)
+        .then(r => console.log(`[import-competitive-survey] care_level_rates backfill — upserted: ${r.upserted}, skipped: ${r.skipped}`))
+        .catch(err => console.warn('[import-competitive-survey] care_level_rates backfill error (non-fatal):', err));
 
       // Auto-trigger competitor rate matching in the background so the HTTP
       // response returns immediately — matching thousands of units can take minutes.
