@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -763,6 +763,22 @@ export default function ReferenceDataTable({
   const isSyncing = useRef(false);
   const [tableScrollWidth, setTableScrollWidth] = useState(0);
 
+  // Measure the group-header row's rendered height so the sub-column row's
+  // sticky top offset stays accurate even when labels wrap on narrow screens.
+  // A hardcoded 30 px fails on mobile: the group row wraps to ~50-60 px and the
+  // column-name row disappears behind it.
+  const groupHeaderRowRef = useRef<HTMLTableRowElement>(null);
+  const [groupHeaderHeight, setGroupHeaderHeight] = useState(30);
+  useLayoutEffect(() => {
+    const el = groupHeaderRowRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setGroupHeaderHeight(el.getBoundingClientRect().height);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   useEffect(() => {
     const update = () => {
       if (tableRef.current) setTableScrollWidth(tableRef.current.offsetWidth);
@@ -1390,7 +1406,7 @@ export default function ReferenceDataTable({
   const renderHeaders = () => (
     <thead className="sticky top-0 z-30">
       {/* Group header row */}
-      <tr>
+      <tr ref={groupHeaderRowRef}>
         {dynGroups.map((g, gi) => {
           const isExpanded = expandedGroups.has(g.id);
           return (
@@ -1535,7 +1551,7 @@ export default function ReferenceDataTable({
                 isFrozen ? "z-40" : ""
               }`}
               style={{
-                top: 30,
+                top: groupHeaderHeight,
                 minWidth: colW,
                 width: colW,
                 ...(isFrozen ? { left: frozenLeft, position: "sticky" } : {}),

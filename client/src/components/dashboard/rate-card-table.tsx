@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tansta
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+
 import { 
   Table, 
   TableBody, 
@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Calculator, CheckCircle, AlertCircle, Info, Loader2, Shield, ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2, Filter, X, Pencil, Trash2 } from "lucide-react";
+import { CheckCircle, AlertCircle, Info, Shield, ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2, Filter, X, Pencil, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
@@ -190,8 +190,6 @@ export default function RateCardTable({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const [activeModuloJobId, setActiveModuloJobId] = useState<string | null>(null);
-  const [moduloJobProgress, setModuloJobProgress] = useState<number>(0);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -317,91 +315,6 @@ export default function RateCardTable({
       }, 100);
     }
   }, [rateCardData, selectedUnit, selectedServiceLine, isLoading]);
-
-  // Poll background Modulo job until it completes, then refresh rates
-  useEffect(() => {
-    if (!activeModuloJobId) return;
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/pricing/job-status/${activeModuloJobId}`);
-        if (cancelled) return;
-        // Jobs live in an in-memory map, so a server restart loses anything in flight.
-        // Without this the progress bar spins forever with no explanation.
-        if (res.status === 404) {
-          setActiveModuloJobId(null);
-          setModuloJobProgress(0);
-          toast({
-            title: "Rules Rate calculation interrupted",
-            description: "The server restarted before the run finished. Please run it again.",
-            variant: "destructive",
-          });
-          return;
-        }
-        if (!res.ok) { setTimeout(poll, 3000); return; }
-        const job = await res.json();
-        const pct = job.progress?.percentage ?? 0;
-        setModuloJobProgress(pct);
-        if (job.status === 'completed') {
-          if (!cancelled) {
-            setActiveModuloJobId(null);
-            setModuloJobProgress(0);
-            toast({ title: "Rules rates saved", description: "Pricing recommendations have been calculated and saved" });
-            queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
-          }
-        } else if (job.status === 'failed') {
-          if (!cancelled) {
-            setActiveModuloJobId(null);
-            setModuloJobProgress(0);
-            toast({ title: "Rules Rate calculation failed", description: job.error || "Unknown error", variant: "destructive" });
-          }
-        } else {
-          setTimeout(poll, 2000);
-        }
-      } catch {
-        if (!cancelled) setTimeout(poll, 3000);
-      }
-    };
-    poll();
-    return () => { cancelled = true; };
-  }, [activeModuloJobId]);
-
-  const generateModuloMutation = useMutation({
-    // Use the background-job endpoint. The synchronous one prices ~16 units/sec, so a
-    // full portfolio run (7.9k demo / 19k Trilogy units) exceeds the HTTP timeout and
-    // surfaces as "Failed to generate Rules Rate suggestions" even though it is still
-    // running server-side. This path returns a jobId immediately and is polled below.
-    mutationFn: () => apiRequest('/api/pricing/generate-modulo-optimized', 'POST', { 
-      month: selectedMonth,
-      serviceLine: selectedServiceLine !== 'All' ? selectedServiceLine : undefined,
-      regions: selectedRegions,
-      divisions: selectedDivisions,
-      locations: selectedLocations
-    }),
-    onSuccess: async (response: any) => {
-      let jobId: string | null = null;
-      try {
-        const data = typeof response?.json === 'function' ? await response.json() : response;
-        jobId = data?.jobId ?? null;
-      } catch { /* ignore */ }
-      if (jobId) {
-        setActiveModuloJobId(jobId);
-        setModuloJobProgress(1);
-        toast({ title: "Rules Rate calculation started", description: "Rates will update automatically when complete" });
-      } else {
-        // Fallback: no job ID means synchronous response — just refresh
-        toast({ title: "Rules rates saved", description: "Pricing recommendations have been calculated and saved" });
-        queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
-      }
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Failed to apply Rules Rate",
-        description: error.message,
-        variant: "destructive"
-      });
-    }
-  });
 
   const acceptSuggestionsMutation = useMutation({
     mutationFn: ({ unitIds, type }: { unitIds: string[], type: string }) => 
@@ -675,28 +588,6 @@ export default function RateCardTable({
         <CardContent>
           <div className="space-y-4">
             <div className="space-y-3">
-              <div className="overflow-x-auto -mx-1 px-1">
-                <div className="flex space-x-4 min-w-max">
-                <Button
-                  onClick={() => generateModuloMutation.mutate()}
-                  disabled={generateModuloMutation.isPending || !!activeModuloJobId || filteredUnits.length === 0}
-                  data-testid="button-generate-modulo"
-                >
-                  {(generateModuloMutation.isPending || activeModuloJobId) ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Calculator className="h-4 w-4 mr-2" />
-                  )}
-                  {(generateModuloMutation.isPending || activeModuloJobId)
-                    ? "Applying Rules..."
-                    : "Apply Rules Rate"}
-                </Button>
-                <span className="text-xs text-muted-foreground self-center">
-                  Applies your saved pricing rules to all units. To create or edit rules, go to <strong>Pricing Controls</strong>.
-                </span>
-                </div>
-              </div>
-
               {/* Saved rates status — shows previously persisted rates are the current default */}
               {filteredUnits.length > 0 && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -712,7 +603,7 @@ export default function RateCardTable({
                         ) : (
                           <span className="flex items-center gap-1">
                             <Info className="h-3 w-3" />
-                            No rates calculated yet — click Apply Rules Rate to calculate recommendations
+                            Rules rates are applied automatically when rules are saved in Pricing Controls
                           </span>
                         )}
                       </>
@@ -730,15 +621,15 @@ export default function RateCardTable({
                     const unitsWithModulo = filteredUnits.filter((u: any) => u.ruleAdjustedRate);
                     if (unitsWithModulo.length === 0) {
                       toast({ 
-                        title: "No Rules Rates calculated", 
-                        description: "Click 'Apply Rules Rate' first to calculate rates for these units.",
+                        title: "No Rules Rates available", 
+                        description: "Create rules in Pricing Controls to generate rate recommendations.",
                         variant: "destructive"
                       });
                       return;
                     }
                     acceptSuggestionsMutation.mutate({
                       unitIds: unitsWithModulo.map((u: any) => u.id),
-                      type: 'modulo'
+                      type: 'rule'
                     });
                   }}
                   disabled={acceptSuggestionsMutation.isPending}
@@ -753,23 +644,7 @@ export default function RateCardTable({
               </div>
             </div>
             
-            {/* Progress bars for loading states */}
-            <div className="space-y-3">
-              {(generateModuloMutation.isPending || activeModuloJobId) && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Calculator className="h-4 w-4 text-primary animate-pulse" />
-                      <div className="text-sm text-muted-foreground">Calculating Rules Rate pricing recommendations...</div>
-                    </div>
-                    {moduloJobProgress > 0 && (
-                      <span className="text-xs text-muted-foreground tabular-nums">{Math.round(moduloJobProgress)}%</span>
-                    )}
-                  </div>
-                  <Progress value={generateModuloMutation.isPending ? 5 : moduloJobProgress} className="h-2" />
-                </div>
-              )}
-            </div>
+
           </div>
         </CardContent>
       </Card>
