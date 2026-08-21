@@ -1,0 +1,420 @@
+Replit Agent Prompt — Modulo In-House Rate Planning
+
+Build out Modulo’s In-House Increase Planning functionality.
+
+The goal is to allow a user to establish annual rate-growth assumptions by service line, define when street rates and in-house rates change, define acceptable resident-level increase ranges, and then have Modulo calculate the recommended street rates and resident-specific in-house increases necessary to achieve the target rate growth.
+
+The feature must be transparent. Users must be able to see and understand the calculations behind every recommendation.
+
+1. Reference Data Table — Add Required Fields
+
+Add the following fields to the appropriate service-line/reference-data configuration table.
+
+These should be configurable by campus + service line where appropriate.
+
+Rate Growth Assumptions
+
+* rate_growth_target_pct
+    * Decimal / percentage
+    * Example: 6.0%
+    * Represents required YOY realized in-house rate growth.
+* rate_growth_measurement
+    * Default: Quarterly YOY
+    * Build initially for quarterly YOY.
+    * Requirement means each individual quarter must meet or exceed the target compared with the same quarter in the prior year.
+
+Example:
+
+Q1 2027 realized rate / Q1 2026 realized rate - 1 >= 6%
+
+Q2 2027 realized rate / Q2 2026 realized rate - 1 >= 6%
+
+etc.
+
+Effective Dates
+
+* street_rate_effective_date
+    * Date
+    * Example: 10/1/2026
+* inhouse_rate_effective_date
+    * Date
+    * Example: 1/1/2027
+
+These dates should be editable by the user and used dynamically in the projection.
+
+Do not hard-code 10/1 or 1/1.
+
+Turnover Assumptions
+
+* annual_turnover_pct
+    * Percentage
+    * Example: 30%
+
+Use this to project the mix of:
+
+1. residents remaining from the existing in-house population; and
+2. replacement/new residents entering at applicable street rates.
+
+Convert annual turnover into the appropriate monthly or quarterly survival/turnover assumption for projections.
+
+Make the methodology visible in the calculation detail.
+
+Resident Increase Guardrails
+
+Add:
+
+* min_inhouse_increase_pct
+    * Example: 3%
+* max_inhouse_increase_pct
+    * Example: 9%
+* rate_equalization_strength
+    * Options:
+        * Low
+        * Medium
+        * High
+    * Default: Medium
+
+The resident-specific increase must always remain between the configured minimum and maximum unless another explicit business rule overrides it.
+
+Street Rate Guardrails
+
+Include:
+
+* allow_inhouse_above_street
+    * Boolean
+    * Default: false
+
+If false, recommended resident rates after the increase may not exceed the applicable street rate.
+
+If this constraint makes the required rate-growth target mathematically impossible, Modulo must flag the issue rather than silently violating the rule.
+
+2. “In-House Increases” Workflow
+
+When the user clicks In-House Increases, open a dedicated rate-planning experience.
+
+Do not immediately apply increases.
+
+The workflow should have these sections.
+
+Section A — Planning Assumptions
+
+Display editable assumptions for the selected campus/service line:
+
+* Rate Growth Target
+* Street Rate Effective Date
+* In-House Rate Effective Date
+* Annual Turnover
+* Minimum In-House Increase
+* Maximum In-House Increase
+* Rate Equalization Strength
+
+Show the current street rate and current average in-house rate as informational fields.
+
+Include a Calculate Recommendations button.
+
+3. Street Rate Recommendation
+
+Modulo should generate the recommended street rate effective on the configured street-rate date.
+
+The rate plan must work together with the in-house increase calculation.
+
+The system should ultimately determine a combination of:
+
+* recommended street rate;
+* street rate increase %;
+* required weighted-average in-house increase;
+* resident-specific in-house rates;
+
+that allows the service line to achieve the rate-growth objective.
+
+Display:
+
+Current Street Rate
+Recommended Street Rate
+Street Increase $
+Street Increase %
+
+Clearly show the effective date.
+
+4. Quarterly YOY Rate-Growth Test
+
+The primary financial requirement is:
+
+Every individual quarter must achieve at least the configured YOY realized-rate-growth target.
+
+For example, at a 6% target:
+
+Q1 2027 projected realized rate >= Q1 2026 realized rate × 1.06
+
+Q2 2027 projected realized rate >= Q2 2026 realized rate × 1.06
+
+Q3 2027 projected realized rate >= Q3 2026 realized rate × 1.06
+
+Q4 2027 projected realized rate >= Q4 2026 realized rate × 1.06
+
+Create a results table:
+
+Quarter	Prior-Year Actual Rate	Required Rate	Projected Rate	YOY Growth	Status
+Q1					Pass/Fail
+Q2					Pass/Fail
+Q3					Pass/Fail
+Q4					Pass/Fail
+
+Identify the binding quarter, meaning the quarter with the lowest projected YOY growth / least cushion above target.
+
+Example:
+
+Binding Quarter: Q4 — projected growth 6.1%
+
+The solver should continue adjusting the required rate plan until all applicable quarters satisfy the target, subject to the configured constraints.
+
+5. Realized Rate Calculation
+
+Use resident-day weighting wherever actual data supports it.
+
+Conceptually:
+
+Realized Rate = Total In-House Rate Revenue / Resident Days
+
+Do not use a simple unweighted average of resident rates when resident-day information is available.
+
+For future quarters, project realized rate using:
+
+* existing resident rates after the annual in-house increase;
+* expected persistence of the existing resident population;
+* assumed turnover;
+* expected replacement residents;
+* applicable street rates for replacement residents;
+* effective dates for street-rate changes.
+
+The calculation should account for timing within the quarter when a rate changes.
+
+6. Resident-Level Increase Allocation
+
+Once Modulo determines the required aggregate in-house rate increase, allocate increases at the resident level.
+
+Residents further below street rate should generally receive higher percentage increases.
+
+Residents closer to street rate should generally receive lower percentage increases.
+
+Calculate each resident’s current discount to street:
+
+Gap to Street % = (Applicable Street Rate - Current Resident Rate) / Applicable Street Rate
+
+Use this gap as the primary factor for allocating increases.
+
+The resident allocation algorithm must satisfy these conditions:
+
+1. Resident increase >= configured minimum.
+2. Resident increase <= configured maximum.
+3. Residents with larger gaps to street generally receive larger increases.
+4. Residents with smaller gaps generally receive smaller increases.
+5. The resulting resident-level rates must collectively produce the aggregate in-house rate required by the solver.
+6. If allow_inhouse_above_street = false, resulting resident rates cannot exceed applicable street.
+7. Resident-day weighting should be used when determining whether the aggregate target has been achieved.
+
+Do not simply map the largest gap directly to the maximum increase and the smallest gap directly to the minimum if doing so causes the aggregate increase to miss the required target.
+
+Instead, calibrate the distribution around the aggregate required increase.
+
+7. Rate Equalization Strength
+
+The rate_equalization_strength control determines how strongly the resident-to-street gap affects the distribution.
+
+Low
+
+Keep increases relatively tightly clustered around the required weighted-average increase.
+
+Example if required average is 5.8%:
+
+roughly 4.5%–7.0%, subject to guardrails.
+
+Medium
+
+Use a broader distribution.
+
+Example:
+
+roughly 3.8%–8.0%.
+
+High
+
+Aggressively use the configured minimum/maximum range to reduce legacy pricing disparities.
+
+Example:
+
+3%–9%.
+
+These are conceptual examples only. Do not hard-code these percentages.
+
+The actual algorithm should dynamically distribute increases based on resident gaps, required aggregate rate growth, and configured min/max values.
+
+8. Resident-Level Results
+
+Create a resident table showing:
+
+Resident	Current Rate	Street Rate	Gap to Street	Recommended Increase %	Increase $	New Rate	New Gap to Street
+
+Allow sorting by:
+
+* Gap to Street
+* Increase %
+* Current Rate
+* New Rate
+
+Make it visually obvious which residents are at the minimum or maximum increase constraint.
+
+9. Calculation Transparency
+
+Every recommendation must have a Show Calculation or equivalent expandable section.
+
+The explanation must be understandable to an operator, not just a developer.
+
+For the service-line recommendation, show:
+
+* prior-year quarterly realized rates;
+* target growth rate;
+* required future quarterly rates;
+* turnover assumption;
+* projected mix of existing vs replacement residents;
+* street rate used;
+* weighted-average in-house increase;
+* projected realized rate;
+* projected YOY growth.
+
+Example explanation:
+
+“Q3 2026 realized rate was $6,350. At a 6% growth target, Q3 2027 must achieve at least $6,731. Based on the configured turnover assumption, Modulo expects 78% of projected Q3 resident days to come from the existing in-house cohort and 22% from replacement residents. Applying the recommended resident increases and projected new-resident rates produces a Q3 2027 realized rate of $6,745, or 6.2% YOY growth.”
+
+Also allow a resident-level explanation:
+
+“Resident is 14.2% below current street rate. Because this resident is further below street than most residents in the service line, Modulo assigned a 7.1% increase versus the service-line weighted average of 5.8%.”
+
+10. Feasibility Testing
+
+The solver must detect when the user’s assumptions make the target impossible.
+
+Examples:
+
+* Maximum resident increase is too low.
+* Street rate cap is too low.
+* In-house rates cannot exceed street and too many residents are already near street.
+* Effective-date timing prevents the required quarterly target from being achieved.
+
+When this happens, do not return misleading recommendations.
+
+Show:
+
+Target Not Achievable With Current Constraints
+
+Then identify the reason and show the minimum change needed.
+
+Examples:
+
+“Maximum in-house increase would need to increase from 6.0% to at least 7.3%.”
+
+or
+
+“A street rate of at least $7,240 is required to achieve the Q4 target under the current turnover assumption.”
+
+11. Scenario Testing
+
+Before applying recommendations, allow the user to modify assumptions and immediately recalculate.
+
+The most important scenario fields are:
+
+* YOY target
+* turnover %
+* street effective date
+* in-house effective date
+* minimum increase
+* maximum increase
+* equalization strength
+* street rate
+
+Users should be able to see how changing any of these impacts:
+
+* required weighted-average in-house increase;
+* recommended street rate;
+* resident-specific increases;
+* quarterly YOY rate growth.
+
+12. Apply Process
+
+Do not alter production/current resident rates simply because the user ran the calculation.
+
+Separate:
+
+Calculate Recommendations
+
+from
+
+Apply In-House Rate Plan
+
+When Apply is selected, present a final summary showing:
+
+* number of residents affected;
+* weighted-average increase;
+* minimum increase;
+* maximum increase;
+* total monthly dollar increase;
+* recommended street rate;
+* projected quarterly YOY growth;
+* effective date.
+
+Preserve the recommended rate plan as an auditable scenario/version before applying it.
+
+13. Architecture / Implementation
+
+First inspect the existing Modulo codebase and reuse current:
+
+* campus structures;
+* service-line structures;
+* reference-data tables;
+* resident-rate tables;
+* street-rate fields;
+* current UI components;
+* styling;
+* database conventions;
+* API patterns.
+
+Do not create duplicate concepts if equivalents already exist.
+
+Add migrations safely.
+
+Keep calculation logic separated from UI code so the rate solver can later be reused by other workflows.
+
+Create a dedicated rate-planning calculation/service layer with clearly named functions for:
+
+* historical quarterly realized-rate calculation;
+* turnover projection;
+* future resident-cohort projection;
+* street-rate projection;
+* required in-house increase calculation;
+* resident-level allocation;
+* quarterly target validation;
+* feasibility testing;
+* calculation-detail generation.
+
+Add automated tests around the calculation logic.
+
+At minimum, test:
+
+1. 0% turnover.
+2. High turnover.
+3. Min increase equals max increase.
+4. Resident already at street rate.
+5. Resident above street rate.
+6. Target achievable.
+7. Target impossible because maximum increase is too low.
+8. Different street/in-house effective dates.
+9. Q1 as binding quarter.
+10. Q4 as binding quarter.
+11. Resident-day-weighted aggregate calculation.
+12. Resident allocation reconciles back to required aggregate increase.
+
+The most important design principle is:
+
+Modulo should solve the financial objective at the service-line level and then intelligently distribute the required increase across residents based primarily on their current variance to street rate.
+
+The resulting recommendation must be mathematically reconcilable, explainable, and easy for an operator to audit.
