@@ -133,7 +133,10 @@ const MAX_PLAUSIBLE_DAILY_CARE = 80;
  * number derived from junk.
  */
 export function normalizeCompetitorCareRate(rate: number | null | undefined, serviceLine: string): number | null {
-  if (rate == null || !Number.isFinite(rate) || rate <= 0) return null;
+  // rate === 0 is a valid signal: the competitor charges no separate care fee
+  // (care is bundled in their daily/monthly room rate). Only null, undefined,
+  // non-finite, and negative values indicate missing or junk data.
+  if (rate == null || !Number.isFinite(rate) || rate < 0) return null;
   if (isDailyServiceLine(serviceLine)) {
     const daily = rate >= HC_MONTHLY_CARE_THRESHOLD ? rate / DAYS_PER_MONTH : rate;
     if (daily < MIN_PLAUSIBLE_DAILY_CARE || daily > MAX_PLAUSIBLE_DAILY_CARE) return null;

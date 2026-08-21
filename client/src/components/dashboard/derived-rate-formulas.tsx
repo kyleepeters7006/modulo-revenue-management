@@ -21,7 +21,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
-import { Calculator, Info, Loader2, RotateCcw, Save } from "lucide-react";
+import { Calculator, ChevronDown, ChevronRight, Info, Loader2, RotateCcw, Save } from "lucide-react";
 import {
   DERIVED_RATE_TYPE_META,
   applyDerivedFormula,
@@ -52,6 +52,7 @@ interface Draft {
 export default function DerivedRateFormulas() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [collapsed, setCollapsed] = useState(true);
 
   const { data, isLoading } = useQuery<{ formulas: StoredFormula[] }>({
     queryKey: ["/api/derived-rate-formulas"],
@@ -165,11 +166,19 @@ export default function DerivedRateFormulas() {
 
   return (
     <Card data-testid="card-derived-rate-formulas">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Calculator className="h-5 w-5" />
-          Derived Rate Formulas
-        </CardTitle>
+      <CardHeader
+        className="cursor-pointer select-none"
+        onClick={() => setCollapsed((c) => !c)}
+      >
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Calculator className="h-5 w-5" />
+            Derived Rate Formulas
+          </CardTitle>
+          {collapsed
+            ? <ChevronRight className="h-4 w-4 text-gray-400" />
+            : <ChevronDown className="h-4 w-4 text-gray-400" />}
+        </div>
         <CardDescription>
           Reference Data and the rule designer price the <strong>base rate</strong> — one resident,
           one room, standard stay. Every other rate is calculated from it using the formulas below,
@@ -177,7 +186,7 @@ export default function DerivedRateFormulas() {
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      {!collapsed && <CardContent className="space-y-4">
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
             <Label htmlFor="derived-preview-base" className="text-xs">
@@ -344,7 +353,7 @@ export default function DerivedRateFormulas() {
             <span className="text-xs text-amber-600">Unsaved changes</span>
           )}
         </div>
-      </CardContent>
+      </CardContent>}
     </Card>
   );
 }
