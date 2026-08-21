@@ -15,7 +15,16 @@ import {
   getRevenueAccount,
   getPayerConfigurations,
 } from './matrixCareFuzzyMatch';
+import { getDerivedRateFormulas } from './services/derivedRateFormulasService';
+import { applyDerivedFormula, resolveFormula, type DerivedRateFormula } from '@shared/derivedRates';
+import { pool } from './db';
 import { callClaude } from './aiRouter';
+
+/** Bed types (from fuzzyMapRoomType) that are derived from the base Private rate. */
+const DERIVED_BED_TYPES = new Map<string, 'semi_private'>([
+  ['Companion',    'semi_private'],
+  ['Semi-Private', 'semi_private'],
+]);
 
 interface MatrixCareRow {
   FacilityName: string;
@@ -58,7 +67,8 @@ export type ExportableRentRollRow = SelectRentRollData & { effectiveRate?: numbe
 export function transformToMatrixCareFormat(
   rentRollData: ExportableRentRollRow[],
   facilityLookup: { byId: Map<string, FacilityLocation & { id: string; name: string }>; byName: Map<string, FacilityLocation & { id: string; name: string }> },
-  exportDate?: string | null
+  exportDate?: string | null,
+  formulas?: DerivedRateFormula[],
 ): { rows: MatrixCareRow[]; unmappedFacilities: string[] } {
   // Always produce a valid date string, never an empty/null value
   const effectiveDate = safeExportDate(exportDate);
@@ -105,14 +115,45 @@ export function transformToMatrixCareFormat(
       combo.rates.push(rate);
     }
 
+    // Compute the daily base (Private) rate for this facility + service line so derived
+    // bed types (Companion, Semi-Private) can be expressed as formulas rather than
+    // averaged rent-roll observations.
+    const privateBaseByServiceLine = new Map<string, number>();
+    for (const [, combo] of Array.from(combos.entries())) {
+      // buildBedTypeDescription includes rating suffixes; strip to the canonical type only.
+      const canonicalBedType = fuzzyMapRoomType(combo.bedType.split(';')[0]);
+      if (canonicalBedType !== 'Private' || combo.rates.length === 0) continue;
+      const avg = combo.rates.reduce((s, r) => s + r, 0) / combo.rates.length;
+      const isDaily = billingFrequencyFor(combo.serviceLine) === 'Daily';
+      // Store in per-day denomination; we'll convert back per payer below.
+      privateBaseByServiceLine.set(combo.serviceLine, isDaily ? avg : avg / DAYS_PER_MONTH);
+    }
+
     const uniqueCombinations = new Map<string, { bedType: string; serviceLine: string; basePrice: number }>();
     for (const [key, combo] of Array.from(combos.entries())) {
-      const avg = combo.rates.reduce((s, r) => s + r, 0) / combo.rates.length;
-      // MatrixCare expects a daily BasePrice: monthly senior housing is converted, HC is
-      // already per diem. Classified centrally so unrecognised service lines behave the
-      // same way here as in the street-rates export.
+      const canonicalBedType = fuzzyMapRoomType(combo.bedType.split(';')[0]);
       const isDaily = billingFrequencyFor(combo.serviceLine) === 'Daily';
-      const basePrice = Math.round(isDaily ? avg : avg / DAYS_PER_MONTH);
+
+      let dailyRate: number;
+      const derivedBedRateType = DERIVED_BED_TYPES.get(canonicalBedType);
+      if (derivedBedRateType && formulas) {
+        const baseDailyRate = privateBaseByServiceLine.get(combo.serviceLine);
+        const formula = resolveFormula(formulas, derivedBedRateType, combo.serviceLine);
+        const derived = applyDerivedFormula(baseDailyRate, formula);
+        if (derived != null) {
+          dailyRate = derived;
+        } else {
+          // Formula disabled or no base rate — fall back to rent-roll average.
+          const avg = combo.rates.reduce((s, r) => s + r, 0) / combo.rates.length;
+          dailyRate = isDaily ? avg : avg / DAYS_PER_MONTH;
+        }
+      } else {
+        const avg = combo.rates.reduce((s, r) => s + r, 0) / combo.rates.length;
+        dailyRate = isDaily ? avg : avg / DAYS_PER_MONTH;
+      }
+
+      // MatrixCare expects a daily BasePrice: convert back to daily regardless of source.
+      const basePrice = Math.round(dailyRate);
       uniqueCombinations.set(key, { bedType: combo.bedType, serviceLine: combo.serviceLine, basePrice });
     }
 
@@ -130,9 +171,14 @@ export function transformToMatrixCareFormat(
       const levels = fuzzyMapServiceLineToLevels(serviceLine);
       const payers = getPayerConfigurations(serviceLine);
 
+      // Bed-hold rate is always per diem and derived from the daily base price.
+      const bedHoldFormula = formulas ? resolveFormula(formulas, 'bed_hold', serviceLine) : null;
+      const bedHoldRate = applyDerivedFormula(basePrice, bedHoldFormula) ?? 0;
+
       for (const loc of levels) {
         for (const payer of payers) {
           const revAcct = getRevenueAccount(serviceLine, payer.payerName);
+          const isMedicaid = payer.payerName.toUpperCase().includes('MEDICAID');
           matrixCareRows.push({
             FacilityName:           facility.name,
             FacilityCustomerID:     `~${facility.customerId}`,
@@ -148,11 +194,11 @@ export function transformToMatrixCareFormat(
             Proration:              payer.proration,
             RevenueCode:            '',
             AllowableCharge:        0,
-            AllowablePercent:       payer.payerName.toUpperCase().includes('MEDICAID') ? 0 : 100,
-            HospBedHoldRate:        0,
-            HospBedHoldPercent:     payer.payerName.toUpperCase().includes('MEDICAID') ? 0 : 100,
-            TherBedHoldRate:        0,
-            TherBedHoldPercent:     payer.payerName.toUpperCase().includes('MEDICAID') ? 0 : 100,
+            AllowablePercent:       isMedicaid ? 0 : 100,
+            HospBedHoldRate:        isMedicaid ? 0 : bedHoldRate,
+            HospBedHoldPercent:     isMedicaid ? 0 : 100,
+            TherBedHoldRate:        isMedicaid ? 0 : bedHoldRate,
+            TherBedHoldPercent:     isMedicaid ? 0 : 100,
             RevenueAccount:         revAcct,
             ContractualAccount:     revAcct,
             CopayContractualAccount: revAcct,
@@ -252,8 +298,11 @@ export async function generateMatrixCareExcel(
   clientId: string,
   exportDate?: string | null
 ): Promise<{ buffer: Buffer; validation: any; unmappedFacilities: string[] }> {
-  const facilityLookup = await loadFacilityLookup(clientId);
-  const { rows: matrixCareData, unmappedFacilities } = transformToMatrixCareFormat(rentRollData, facilityLookup, exportDate);
+  const [facilityLookup, formulas] = await Promise.all([
+    loadFacilityLookup(clientId),
+    getDerivedRateFormulas((sql, params) => pool.query(sql, params), clientId),
+  ]);
+  const { rows: matrixCareData, unmappedFacilities } = transformToMatrixCareFormat(rentRollData, facilityLookup, exportDate, formulas);
   const validation = await validateMatrixCareMapping(rentRollData, matrixCareData);
 
   if (!validation.isValid)        console.warn('MatrixCare export validation issues:', validation.issues);
@@ -290,8 +339,11 @@ export async function generateMatrixCareCSV(
   clientId: string,
   exportDate?: string | null
 ): Promise<{ csv: string; validation: any; unmappedFacilities: string[] }> {
-  const facilityLookup = await loadFacilityLookup(clientId);
-  const { rows: matrixCareData, unmappedFacilities } = transformToMatrixCareFormat(rentRollData, facilityLookup, exportDate);
+  const [facilityLookup, formulas] = await Promise.all([
+    loadFacilityLookup(clientId),
+    getDerivedRateFormulas((sql, params) => pool.query(sql, params), clientId),
+  ]);
+  const { rows: matrixCareData, unmappedFacilities } = transformToMatrixCareFormat(rentRollData, facilityLookup, exportDate, formulas);
   const validation = await validateMatrixCareMapping(rentRollData, matrixCareData);
 
   if (!validation.isValid)        console.warn('MatrixCare CSV validation issues:', validation.issues);

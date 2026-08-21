@@ -14,8 +14,17 @@ import {
   DAYS_PER_MONTH,
 } from "./services/matrixCareFacility";
 import { getEffectiveRateUnits } from "./services/exportRateService";
+import { getDerivedRateFormulas } from "./services/derivedRateFormulasService";
+import { applyDerivedFormula, resolveFormula, type DerivedRateFormula } from "@shared/derivedRates";
+import { pool } from "./db";
 import { stringify } from 'csv-stringify';
 import { promises as fs } from 'fs';
+
+/** Bed types (as returned by fuzzyMapRoomType) that are derived from the base (Private) rate. */
+const DERIVED_BED_TYPES = new Map<string, 'semi_private'>([
+  ['Companion',    'semi_private'],
+  ['Semi-Private', 'semi_private'],
+]);
 
 interface StreetRateRecord {
   facilityName: string;
@@ -68,6 +77,13 @@ export async function generateStreetRatesExport(
   // name fallback could resolve to another tenant's facility mapping.
   const { byId: locById, byName: locByName } = await loadFacilityLookup(clientId);
 
+  // Load derived-rate formulas for this client so non-base bed types and bed hold
+  // columns are expressed as policy rather than averaged rent-roll observations.
+  const formulas = await getDerivedRateFormulas(
+    (sql, params) => pool.query(sql, params),
+    clientId,
+  );
+
   // Group by location + service line + MatrixCare bed type.
   //
   // The template carries a distinct BasePrice per BedTypeDescription, so pricing must
@@ -104,12 +120,46 @@ export async function generateStreetRatesExport(
     group.rates.push(u.effectiveRate);
   }
 
+  // Build a map of base (Private) rates per (locationId|serviceLine) so companion
+  // and semi-private rows can be derived from it rather than averaged from the rent roll.
+  const baseRateMap = new Map<string, number>();
+  for (const { location, serviceLine, bedType, rates } of Array.from(groups.values())) {
+    if (bedType !== 'Private' || rates.length === 0) continue;
+    const avgRate = rates.reduce((s, r) => s + r, 0) / rates.length;
+    const isDaily = billingFrequencyFor(serviceLine) === 'Daily';
+    // Store in the same per-day denomination so derivation is frequency-independent.
+    baseRateMap.set(`${location.id}|${serviceLine}`, isDaily ? avgRate : avgRate / DAYS_PER_MONTH);
+  }
+
   const streetRateRecords: StreetRateRecord[] = [];
   const unmappedFacilities = new Set<string>();
 
   for (const { location, serviceLine, bedType, rates } of Array.from(groups.values())) {
     if (rates.length === 0) continue;
-    const avgRate = rates.reduce((s, r) => s + r, 0) / rates.length;
+
+    // For derived bed types (Companion, Semi-Private), use the formula applied to the
+    // base (Private) rate rather than averaging the rent-roll observations for that bed type.
+    const derivedBedRateType = DERIVED_BED_TYPES.get(bedType);
+    let resolvedAvgRate: number;
+    if (derivedBedRateType) {
+      const baseDailyRate = baseRateMap.get(`${location.id}|${serviceLine}`);
+      const formula = resolveFormula(formulas, derivedBedRateType, serviceLine);
+      const derived = applyDerivedFormula(baseDailyRate, formula);
+      if (derived != null) {
+        // derived is already in daily denomination (we stored base as daily above)
+        const isDaily = billingFrequencyFor(serviceLine) === 'Daily';
+        resolvedAvgRate = isDaily ? derived : derived * DAYS_PER_MONTH;
+      } else {
+        // Formula disabled or no base rate — fall back to rent-roll average with a note.
+        resolvedAvgRate = rates.reduce((s, r) => s + r, 0) / rates.length;
+        console.info(
+          `[streetRatesExport] ${derivedBedRateType} formula not applied for ` +
+          `${location.name}/${serviceLine}/${bedType} — using rent-roll average instead.`
+        );
+      }
+    } else {
+      resolvedAvgRate = rates.reduce((s, r) => s + r, 0) / rates.length;
+    }
 
     const facility = resolveMatrixCareFacility(location, serviceLine);
     if (!facility.mapped) unmappedFacilities.add(location.name);
@@ -120,14 +170,24 @@ export async function generateStreetRatesExport(
     // service line can never be converted here but left raw in another export.
     const sourceFrequency = billingFrequencyFor(serviceLine);
 
+    // Bed-hold formula applied to the base price (daily), then converted back if needed.
+    const bedHoldFormula = resolveFormula(formulas, 'bed_hold', serviceLine);
+
     for (const payer of payers) {
       // Normalise rate to payer charge frequency
-      let adjustedRate = avgRate;
+      let adjustedRate = resolvedAvgRate;
       if (payer.payerChargeBy === 'Daily' && sourceFrequency === 'Monthly') {
-        adjustedRate = avgRate / DAYS_PER_MONTH;
+        adjustedRate = resolvedAvgRate / DAYS_PER_MONTH;
       } else if (payer.payerChargeBy === 'Monthly' && sourceFrequency === 'Daily') {
-        adjustedRate = avgRate * DAYS_PER_MONTH;
+        adjustedRate = resolvedAvgRate * DAYS_PER_MONTH;
       }
+
+      const roundedBasePrice = Math.round(adjustedRate * 100) / 100;
+
+      // Bed-hold rates are always per diem. Derive from the per-diem base price.
+      const basePriceDaily =
+        payer.payerChargeBy === 'Monthly' ? roundedBasePrice / DAYS_PER_MONTH : roundedBasePrice;
+      const bedHoldRate = applyDerivedFormula(basePriceDaily, bedHoldFormula) ?? 0;
 
       const revenueAccount = getRevenueAccount(serviceLine, payer.payerName);
       const isMedicaid = payer.payerName.toUpperCase().includes('MEDICAID');
@@ -139,7 +199,7 @@ export async function generateStreetRatesExport(
         levelOfCare:             levelOfCare,
         roomChargeDescription:   'ROOM CHARGE',
         basePriceBeginDate:      effectiveDate,   // always populated
-        basePrice:               Math.round(adjustedRate * 100) / 100,
+        basePrice:               roundedBasePrice,
         basePriceChargeBy:       payer.payerChargeBy,
         payerBeginDate:          effectiveDate,   // always populated
         payerName:               payer.payerName,
@@ -148,9 +208,9 @@ export async function generateStreetRatesExport(
         revenueCode:             '',
         allowableCharge:         0,
         allowablePercent:        isMedicaid ? 0 : 100,
-        hospBedHoldRate:         0,
+        hospBedHoldRate:         isMedicaid ? 0 : bedHoldRate,
         hospBedHoldPercent:      isMedicaid ? 0 : 100,
-        therBedHoldRate:         0,
+        therBedHoldRate:         isMedicaid ? 0 : bedHoldRate,
         therBedHoldPercent:      isMedicaid ? 0 : 100,
         revenueAccount:          revenueAccount,
         contractualAccount:      revenueAccount,

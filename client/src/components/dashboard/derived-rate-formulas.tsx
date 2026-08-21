@@ -314,15 +314,6 @@ export default function DerivedRateFormulas() {
           </AlertDescription>
         </Alert>
 
-        <Alert>
-          <Info className="h-4 w-4" />
-          <AlertDescription className="text-xs">
-            <strong>Stored policy, not yet applied.</strong> These formulas are saved and ready,
-            but no export or rate calculation reads them yet — the MatrixCare exports still emit
-            each bed's own recorded rate. Wiring them into the exports is a separate change.
-          </AlertDescription>
-        </Alert>
-
         <div className="flex items-center gap-2">
           <Button
             data-testid="button-save-derived-formulas"

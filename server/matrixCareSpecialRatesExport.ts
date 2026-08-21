@@ -8,6 +8,9 @@ import {
   billingFrequencyFor,
 } from "./services/matrixCareFacility";
 import { getEffectiveRateUnits } from "./services/exportRateService";
+import { getDerivedRateFormulas } from "./services/derivedRateFormulasService";
+import { applyDerivedFormula, resolveFormula } from "@shared/derivedRates";
+import { pool } from "./db";
 import { stringify } from 'csv-stringify';
 import { promises as fs } from 'fs';
 
@@ -63,16 +66,16 @@ export async function generateSpecialRatesExport(
   })();
   const endDate = `12/31/${beginYear}`;
 
-  const { uploadMonth, units } = await getEffectiveRateUnits(clientId, {
-    campusNames: selectedCampuses,
-  });
+  const [{ uploadMonth, units }, { byId: locById, byName: locByName }, formulas] = await Promise.all([
+    getEffectiveRateUnits(clientId, { campusNames: selectedCampuses }),
+    // Client-scoped: location names are only unique within a tenant, so an unscoped
+    // name fallback could resolve to another tenant's facility mapping.
+    loadFacilityLookup(clientId),
+    getDerivedRateFormulas((sql, params) => pool.query(sql, params), clientId),
+  ]);
   if (!uploadMonth) {
     throw new Error('No rent roll data available to export.');
   }
-
-  // Client-scoped: location names are only unique within a tenant, so an unscoped
-  // name fallback could resolve to another tenant's facility mapping.
-  const { byId: locById, byName: locByName } = await loadFacilityLookup(clientId);
 
   const specialRateRecords: SpecialRateRecord[] = [];
   const unmappedFacilities = new Set<string>();
@@ -108,8 +111,13 @@ export async function generateSpecialRatesExport(
 
     const amount = Math.round((unit.inHouseRate || 0) * 100) / 100;
 
-    // Private-pay rows carry bed-hold coverage at the same rate; the percent
-    // columns stay at 0 because the hold is expressed as a flat amount.
+    // Bed-hold amounts are derived from the resident's in-house rate using the saved
+    // bed_hold formula — a disabled formula falls back to the base amount.
+    const bedHoldFormula = resolveFormula(formulas, 'bed_hold', unit.serviceLine);
+    const bedHoldAmount = applyDerivedFormula(amount, bedHoldFormula) ?? amount;
+
+    // Private-pay rows carry bed-hold coverage; the percent columns stay at 0
+    // because the hold is expressed as a flat amount.
     specialRateRecords.push({
       facilityName:      facility.name,
       beginDate:         beginDate,
@@ -121,11 +129,11 @@ export async function generateSpecialRatesExport(
       pct:               0,
       monthly:           monthly,
       hospHold:          1,
-      hospHoldAmount:    amount,
+      hospHoldAmount:    bedHoldAmount,
       hospPct:           0,
       hospHoldMonthly:   monthly,
       therLv:            1,
-      therLvHoldAmount:  amount,
+      therLvHoldAmount:  bedHoldAmount,
       therLvPct:         0,
       therLvHoldMonthly: monthly,
       trailing:          '',
