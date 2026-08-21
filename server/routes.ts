@@ -2299,7 +2299,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // POST /api/admin/backfill-care-level-rates — harvest Level 2 care rates from rent_roll_history
   // and persist them into care_level_rates so the competitor formula has the correct "our" rate.
-  // Only inserts rows that don't already have an admin-entered value (DO NOTHING on conflict).
+  //
+  // There is no UI button for this: rent roll imports and competitive survey imports run the
+  // same fill-only backfill automatically. The endpoint remains for scripted one-time use
+  // (seed jobs) and for the force re-run below.
+  //
+  // Fill-only by default — existing entries are preserved. Pass { force: true } to overwrite
+  // stored values with the rent-roll figure; that is a manual repair, never automatic.
   app.post('/api/admin/backfill-care-level-rates', async (req: any, res) => {
     // Require either a logged-in admin session OR the seed secret header (for automation)
     const seedSecret = req.headers['x-seed-secret'];
@@ -2323,15 +2329,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ? (req.body?.clientId || 'trilogy')
       : (session.clientId as string);
 
+    const force = req.body?.force === true || req.query?.force === 'true';
+
     try {
-      console.log(`[backfill-care-level-rates] Starting backfill for client: ${clientId}`);
-      const result = await storage.backfillCareLevelRatesFromHistory(clientId);
-      console.log(`[backfill-care-level-rates] Done — upserted: ${result.upserted}, skipped: ${result.skipped}`);
+      console.log(`[backfill-care-level-rates] Starting ${force ? 'FORCE ' : ''}backfill for client: ${clientId}`);
+      const result = await storage.backfillCareLevelRatesFromHistory(clientId, { overwriteExisting: force });
+      console.log(
+        `[backfill-care-level-rates] Done — inserted: ${result.inserted}, overwritten: ${result.overwritten}, ` +
+        `preserved: ${result.preserved}, skipped: ${result.skipped}`,
+      );
       return res.json({
         success: true,
-        upserted: result.upserted,
+        force,
+        inserted: result.inserted,
+        overwritten: result.overwritten,
+        preserved: result.preserved,
         skipped: result.skipped,
-        message: `Backfill complete. Set or updated ${result.upserted} Level 2 care rate(s) from rent roll data. ${result.skipped} skipped (no location match or no valid rate).`,
+        message: force
+          ? `Force backfill complete. Inserted ${result.inserted} and overwrote ${result.overwritten} Level 2 care rate(s) from rent roll data. ${result.skipped} skipped (no location match or no valid rate).`
+          : `Backfill complete. Inserted ${result.inserted} missing Level 2 care rate(s) from rent roll data. ${result.preserved} existing entr(ies) preserved, ${result.skipped} skipped (no location match or no valid rate).`,
       });
     } catch (error: any) {
       console.error('[backfill-care-level-rates] Error:', error);
@@ -2557,11 +2573,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       purgeCompPositionCaches(clientId);
       console.log(`[reimport-competitive-survey] comp-position-studio cache cleared for client ${clientId}`);
 
-      // Backfill missing care_level_rates from rent roll before matching starts,
-      // so the care-adjustment formula has current values for every campus.
-      storage.backfillCareLevelRatesFromHistory(clientId)
-        .then(r => console.log(`[reimport-competitive-survey] care_level_rates backfill — upserted: ${r.upserted}, skipped: ${r.skipped}`))
-        .catch(err => console.warn('[reimport-competitive-survey] care_level_rates backfill error (non-fatal):', err));
+      // Fill any missing care_level_rates from the rent roll BEFORE matching starts, so the
+      // care-adjustment formula has a real "our care" value instead of the $55/day default.
+      // This must be awaited: matching reads care_level_rates once at the start of its run and
+      // is never re-run, so a backfill racing alongside it would leave the fallback in place for
+      // the whole survey month. Existing entries are preserved (fill-only).
+      //
+      // Failure policy: non-fatal. The survey rows are already imported and are worth keeping,
+      // so matching still runs — affected campuses simply fall back to the default care rate,
+      // which the Care Rate Fallback Campuses panel reports. The error is returned in the
+      // response so the caller sees that the backfill did not run.
+      let careRateBackfill: any;
+      try {
+        const r = await storage.backfillCareLevelRatesFromHistory(clientId);
+        careRateBackfill = { ok: true, ...r };
+        console.log(
+          `[reimport-competitive-survey] care_level_rates backfill — inserted: ${r.inserted}, ` +
+          `preserved: ${r.preserved}, skipped: ${r.skipped}`,
+        );
+      } catch (err: any) {
+        careRateBackfill = { ok: false, error: err?.message || String(err) };
+        console.error(
+          '[reimport-competitive-survey] care_level_rates backfill FAILED — matching will use the ' +
+          'default care rate for campuses with no stored entry:', err,
+        );
+      }
 
       // Fire competitor rate matching asynchronously so the HTTP response returns
       // immediately — matching 7 000+ units can take several minutes and would
@@ -2595,6 +2631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           failed: importResult.failedImports,
           errors: importResult.errors.slice(0, 20),
         },
+        careRateBackfill,
         matching: {
           queued: true,
           queuedAt: matchingQueuedAt,
@@ -24737,9 +24774,10 @@ Return ONLY valid JSON, no markdown fences:
           console.log(`[import/rent-roll] campus_metrics refresh complete for client ${importClientId}`);
         }).catch(err => console.warn('[import/rent-roll] campus_metrics refresh error:', err));
 
-        // Backfill missing care_level_rates from the newly-imported rent roll.
+        // Fill missing care_level_rates from the newly-imported rent roll. Fill-only:
+        // existing entries (admin-entered or from an earlier import) are preserved.
         storage.backfillCareLevelRatesFromHistory(importClientId)
-          .then(r => console.log(`[import/rent-roll] care_level_rates backfill — upserted: ${r.upserted}, skipped: ${r.skipped}`))
+          .then(r => console.log(`[import/rent-roll] care_level_rates backfill — inserted: ${r.inserted}, preserved: ${r.preserved}, skipped: ${r.skipped}`))
           .catch(err => console.warn('[import/rent-roll] care_level_rates backfill error (non-fatal):', err));
 
         return res.json({
@@ -24756,10 +24794,10 @@ Return ONLY valid JSON, no markdown fences:
       warmRefDataCacheForClient(importClientId);
       console.log(`[import/rent-roll] ref-data cache invalidated and re-warmed for client ${importClientId} after import`);
 
-      // Backfill any missing care_level_rates from the freshly-imported rent roll history.
-      // Only fills rows with no existing entry — manually-entered overrides are preserved.
+      // Fill any missing care_level_rates from the freshly-imported rent roll history.
+      // Only rows with no existing entry are written — manually-entered overrides are preserved.
       storage.backfillCareLevelRatesFromHistory(importClientId)
-        .then(r => console.log(`[import/rent-roll] care_level_rates backfill — upserted: ${r.upserted}, skipped: ${r.skipped}`))
+        .then(r => console.log(`[import/rent-roll] care_level_rates backfill — inserted: ${r.inserted}, preserved: ${r.preserved}, skipped: ${r.skipped}`))
         .catch(err => console.warn('[import/rent-roll] care_level_rates backfill error (non-fatal):', err));
 
       res.json({
@@ -24947,13 +24985,32 @@ Return ONLY valid JSON, no markdown fences:
       purgeCompPositionCaches(clientId);
       console.log(`[import-competitive-survey] comp-position-studio cache cleared for client ${clientId}`);
 
-      // Automatically backfill any missing care_level_rates entries from the rent roll
-      // so the care-adjustment formula has current "our care" values before (and during)
-      // competitor rate matching. Only fills rows with no existing entry — manually-entered
-      // overrides are never touched. Fire async; a failure here is non-fatal.
-      storage.backfillCareLevelRatesFromHistory(clientId)
-        .then(r => console.log(`[import-competitive-survey] care_level_rates backfill — upserted: ${r.upserted}, skipped: ${r.skipped}`))
-        .catch(err => console.warn('[import-competitive-survey] care_level_rates backfill error (non-fatal):', err));
+      // Fill any missing care_level_rates entries from the rent roll so the care-adjustment
+      // formula has a real "our care" value instead of the $55/day default. Only rows with no
+      // existing entry are written — manually-entered overrides are never touched.
+      //
+      // Awaited on purpose: competitor rate matching (queued below) reads care_level_rates at
+      // the start of its run and is not re-run afterwards, so a backfill racing alongside it
+      // would leave the fallback rate in place for the whole survey month.
+      //
+      // Failure policy: non-fatal. The imported survey rows are kept and matching still runs;
+      // affected campuses fall back to the default care rate and show up in the Care Rate
+      // Fallback Campuses panel. The error is reported in the response below.
+      let careRateBackfill: any;
+      try {
+        const r = await storage.backfillCareLevelRatesFromHistory(clientId);
+        careRateBackfill = { ok: true, ...r };
+        console.log(
+          `[import-competitive-survey] care_level_rates backfill — inserted: ${r.inserted}, ` +
+          `preserved: ${r.preserved}, skipped: ${r.skipped}`,
+        );
+      } catch (err: any) {
+        careRateBackfill = { ok: false, error: err?.message || String(err) };
+        console.error(
+          '[import-competitive-survey] care_level_rates backfill FAILED — matching will use the ' +
+          'default care rate for campuses with no stored entry:', err,
+        );
+      }
 
       // Auto-trigger competitor rate matching in the background so the HTTP
       // response returns immediately — matching thousands of units can take minutes.
@@ -24995,6 +25052,7 @@ Return ONLY valid JSON, no markdown fences:
         totalRecords: importResult.totalRecords,
         successfulImports: importResult.successfulImports,
         failedImports: importResult.failedImports,
+        careRateBackfill,
         matching: {
           queued: true,
           queuedAt: matchingQueuedAt,

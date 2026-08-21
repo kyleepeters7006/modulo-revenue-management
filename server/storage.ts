@@ -288,7 +288,10 @@ export interface IStorage {
   getCareLevel2Rates(clientId: string): Promise<CareLevelRate[]>;
   upsertCareLevel2Rate(locationId: string, serviceLine: string, level2Rate: number, clientId: string): Promise<CareLevelRate>;
   deleteCareLevel2Rate(locationId: string, serviceLine: string, clientId: string): Promise<void>;
-  backfillCareLevelRatesFromHistory(clientId: string): Promise<{ upserted: number; skipped: number }>;
+  backfillCareLevelRatesFromHistory(
+    clientId: string,
+    options?: { overwriteExisting?: boolean },
+  ): Promise<{ inserted: number; preserved: number; overwritten: number; skipped: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2696,12 +2699,27 @@ export class DatabaseStorage implements IStorage {
    *
    * Scans all history rows where careLevel matches a Level 2 pattern and careRate > 0.
    * Groups by (location, serviceLine), takes the highest careRate from the most recent
-   * uploadMonth. Inserts only when no existing entry exists for that location + service
-   * line combination (DO NOTHING on conflict to preserve admin-entered values).
+   * uploadMonth.
    *
-   * Returns { upserted, skipped } summary.
+   * FILL-ONLY BY DEFAULT. Every rent roll import and competitive survey import runs this
+   * automatically, so overwriting on conflict would silently replace an admin-entered care
+   * rate on every upload. On conflict we DO NOTHING and count the row as `preserved`.
+   *
+   * Pass { overwriteExisting: true } to replace stored values with the rent-roll figure.
+   * That is a deliberate, manually-triggered repair (the admin endpoint's force re-run /
+   * seed jobs) — never an automatic import side effect.
+   *
+   * Returns { inserted, preserved, overwritten, skipped }:
+   *   inserted    — new rows written for a location + service line that had none
+   *   preserved   — existing rows deliberately left untouched (fill-only mode)
+   *   overwritten — existing rows replaced (overwriteExisting mode only)
+   *   skipped     — rent-roll rows with no matching location or no usable rate
    */
-  async backfillCareLevelRatesFromHistory(clientId: string): Promise<{ upserted: number; skipped: number }> {
+  async backfillCareLevelRatesFromHistory(
+    clientId: string,
+    options: { overwriteExisting?: boolean } = {},
+  ): Promise<{ inserted: number; preserved: number; overwritten: number; skipped: number }> {
+    const overwriteExisting = options.overwriteExisting === true;
     // Get all locations for this client so we can resolve locationId from location name.
     // rent_roll_history has no client_id column; tenant scoping is done via the locations join below.
     // Also include global (client_id IS NULL) locations as a fallback, matching the convention used
@@ -2784,7 +2802,9 @@ export class DatabaseStorage implements IStorage {
 
     const rows = historyRows.rows as { location: string; service_line: string; max_care_rate: number }[];
 
-    let upserted = 0;
+    let inserted = 0;
+    let preserved = 0;
+    let overwritten = 0;
     let skipped = 0;
 
     for (const row of rows) {
@@ -2798,27 +2818,49 @@ export class DatabaseStorage implements IStorage {
         skipped++;
         continue;
       }
-      // Use ON CONFLICT DO UPDATE so that stale or incorrectly manually-entered
-      // values are overwritten with the authoritative rent-roll figure.  The rent
-      // roll is the ground truth: it reflects what each property actually charges.
       // The unique index is on (client_id, location_id, service_line) — all three
       // must appear in the conflict target.
+      const conflictTarget = [
+        careLevelRates.clientId,
+        careLevelRates.locationId,
+        careLevelRates.serviceLine,
+      ];
+      const values = { locationId, serviceLine: row.service_line, level2Rate: rate, clientId };
+
+      if (overwriteExisting) {
+        // Explicit repair: the rent roll wins over whatever is stored.
+        const before = await db
+          .select({ id: careLevelRates.id })
+          .from(careLevelRates)
+          .where(
+            and(
+              eq(careLevelRates.clientId, clientId),
+              eq(careLevelRates.locationId, locationId),
+              eq(careLevelRates.serviceLine, row.service_line),
+            ),
+          )
+          .limit(1);
+        await db
+          .insert(careLevelRates)
+          .values(values)
+          .onConflictDoUpdate({ target: conflictTarget, set: { level2Rate: rate } });
+        if (before.length > 0) overwritten++;
+        else inserted++;
+        continue;
+      }
+
+      // Fill-only (the automatic path): an existing entry — admin-entered or from an
+      // earlier backfill — is authoritative and must survive every subsequent import.
       const result = await db
         .insert(careLevelRates)
-        .values({ locationId, serviceLine: row.service_line, level2Rate: rate, clientId })
-        .onConflictDoUpdate({
-          target: [careLevelRates.clientId, careLevelRates.locationId, careLevelRates.serviceLine],
-          set: { level2Rate: rate },
-        })
-        .returning({ id: careLevelRates.locationId });
-      if (result.length > 0) {
-        upserted++;
-      } else {
-        skipped++;
-      }
+        .values(values)
+        .onConflictDoNothing({ target: conflictTarget })
+        .returning({ id: careLevelRates.id });
+      if (result.length > 0) inserted++;
+      else preserved++;
     }
 
-    return { upserted, skipped };
+    return { inserted, preserved, overwritten, skipped };
   }
 }
 

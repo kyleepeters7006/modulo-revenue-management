@@ -381,8 +381,8 @@ function CareRateFallbackPanel() {
           <div className="flex items-center justify-between">
             <p className="text-xs text-amber-700">
               Campuses listed below need a <code className="font-mono bg-amber-100 px-1 rounded">care_level_rates</code> entry.
-              Use <strong>Backfill Level 2 Care Rates</strong> above to populate them from historical rent roll data,
-              or enter them manually in the care rates configuration.
+              Missing entries are backfilled automatically from rent roll data on each competitive survey upload and rent
+              roll import — re-upload the latest data, or enter the rates manually in the care rates configuration.
             </p>
             <Button
               size="sm"
@@ -510,30 +510,10 @@ export default function DataManagement() {
   };
 
 
-  const backfillCareLevelRatesMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch('/api/admin/backfill-care-level-rates', { method: 'POST' });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Backfill failed');
-      }
-      return response.json();
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "Level 2 Care Rates Backfilled",
-        description: data.message || `Populated ${data.upserted} care rate(s).`,
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api"] });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Backfill Failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
+  // NOTE: the manual "Backfill Level 2 Care Rates" trigger was removed — every
+  // competitive survey upload and rent roll import now backfills missing
+  // care_level_rates entries automatically. POST /api/admin/backfill-care-level-rates
+  // is kept for scripted one-time use (seed jobs), just without a UI button.
 
   const cleanupOrphanedLocationsMutation = useMutation({
     mutationFn: async () => {
@@ -1912,38 +1892,6 @@ export default function DataManagement() {
               the derived rates are what that export emits for non-base beds. */}
           <DerivedRateFormulas />
 
-
-          {/* Admin: Backfill Level 2 Care Rates — visible to authenticated admins only */}
-          {isAdmin && (
-            <Card className="border-teal-200 bg-teal-50">
-              <CardHeader>
-                <CardTitle className="text-teal-900">Admin: Backfill Level 2 Care Rates</CardTitle>
-                <CardDescription className="text-teal-700">
-                  Scan all historical rent roll data for Level 2 LOC rows and populate the care rates table used by the competitor adjustment formula. Only fills in missing entries — existing manually-entered rates are preserved.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button
-                  onClick={() => backfillCareLevelRatesMutation.mutate()}
-                  disabled={backfillCareLevelRatesMutation.isPending}
-                  className="bg-teal-600 hover:bg-teal-700 text-white"
-                  data-testid="button-backfill-care-level-rates"
-                >
-                  {backfillCareLevelRatesMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Backfilling...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      Backfill Level 2 Care Rates
-                    </>
-                  )}
-                </Button>
-              </CardContent>
-            </Card>
-          )}
 
           {/* Admin: Care Rate Fallback Campuses — visible to authenticated admins only */}
           {isAdmin && <CareRateFallbackPanel />}
