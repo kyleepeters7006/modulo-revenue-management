@@ -44,10 +44,14 @@ a genuine care schedule above roughly $2,400/mo.
 
 ## A missing HC adjustment is usually missing data, not broken math
 
-Check the data before debugging the calculation. Competitor HC care rates are **almost
-entirely absent** in recent survey months (HC ~98% null-or-zero, HC/MC and SMC ~99%), while
-AL is well populated with a credible monthly spread. Our own side is complete, which is
-exactly what makes the gap look like a code bug.
+Check the data before debugging the calculation. Competitor HC care rates are **mostly
+absent** in recent survey months, while AL is well populated with a credible monthly spread.
+Our own side is complete, which is exactly what makes the gap look like a code bug.
+
+Count nulls and zeros **separately** when you do: a zero is a surveyed "care is bundled into
+the room rate" and must yield a real adjustment, not silence — see
+[care-rate-null-vs-zero.md](care-rate-null-vs-zero.md). Lumping the two together overstates
+how absent the data is.
 
 Also distrust a month that appears to have *full* HC coverage: at least one historical month
 had every HC row set to the identical constant 1196 — a blanket fill, not survey data.

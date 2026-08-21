@@ -86,7 +86,7 @@ import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizz
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import { clampRateWithGuardrails } from "./guardrailsUtil";
 import { splitCombinedSl, slWeightSqlPredicate, isSlWeightUnit, type SlWeight } from "./services/slSplit";
-import { resolveCareLevel2, normalizeCompetitorCareRate, normalizeCompetitorCareRateMonthly, normalizeCompetitorStreetRate, isDailyServiceLine, CARE_ELIGIBLE_SERVICE_LINES, DAYS_PER_MONTH as SHARED_DAYS_PER_MONTH } from "@shared/careRates";
+import { resolveCareLevel2, normalizeCompetitorCareRate, normalizeCompetitorCareRateMonthly, normalizeCompetitorStreetRate, computeCompetitorCareAdj, isDailyServiceLine, CARE_ELIGIBLE_SERVICE_LINES, DAYS_PER_MONTH as SHARED_DAYS_PER_MONTH } from "@shared/careRates";
 import { buildRateBaselineJoin, streetRateGate, inHouseRateGate, fetchStreetBaselineMap, passesStreetGate } from "./services/rateBaselineView";
 import { bBedExclusionSql } from "@shared/bBed";
 import { baseRateExclusionSql } from "@shared/baseRate";
@@ -4823,20 +4823,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
               const slBreakdown = Array.from(bySl.entries()).map(([sl, v]) => {
                 const daily = isDailyServiceLine(sl);
-                const careApplies = CARE_ELIGIBLE_SERVICE_LINES.has(sl);
 
                 // Everything below is expressed in the service line's native
                 // basis: per-day for HC and HC/MC, per-month for the rest.
                 // Competitor care rates arrive monthly regardless, so they are
                 // converted before being differenced against our daily figure.
-                const theirCare = careApplies
-                  ? normalizeCompetitorCareRate(v.careL2 ?? comp.careLevel2Rate, sl)
-                  : null;
-                const ourCareResolved = careApplies ? resolveCareLevel2(campusCare, sl) : null;
-
-                const careAdj = (theirCare != null && ourCareResolved != null)
-                  ? theirCare - ourCareResolved.rate
-                  : null;
+                const { theirCare, ourCare, ourCareInherited, careAdj } =
+                  computeCompetitorCareAdj(v.careL2 ?? comp.careLevel2Rate, campusCare, sl);
 
                 // monthly_rate_avg is monthly for the senior-housing lines but,
                 // for HC, its basis changed partway through the survey history:
@@ -4858,8 +4851,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   daily,
                   theirStreetRate: theirStreet,
                   theirCareLevel2: theirCare,
-                  ourCareLevel2: ourCareResolved ? ourCareResolved.rate : null,
-                  ourCareInherited: ourCareResolved ? ourCareResolved.inherited : false,
+                  ourCareLevel2: ourCare,
+                  ourCareInherited,
                   careAdj,
                   adjustedRate,
                   ourStreetRate: ourStreet,
@@ -4879,13 +4872,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 const compType: string = rr.competitorType || (comp.serviceLines && comp.serviceLines[0]) || '';
                 const sl = COMP_TYPE_TO_SL[compType] || '';
                 const daily = isDailyServiceLine(sl);
-                const careApplies = CARE_ELIGIBLE_SERVICE_LINES.has(sl);
 
                 const base = normalizeCompetitorStreetRate(rr.streetRate, sl);
-                const theirCare = careApplies
-                  ? normalizeCompetitorCareRate(rr.careLevel2Rate ?? comp.careLevel2Rate, sl)
-                  : null;
-                const ourCareResolved = careApplies ? resolveCareLevel2(campusCare, sl) : null;
+                const { careAdj: level2Adj, ourCareInherited } =
+                  computeCompetitorCareAdj(rr.careLevel2Rate ?? comp.careLevel2Rate, campusCare, sl);
 
                 // If the survey row carries a pre-computed care-adjustment override
                 // (imported from *_Comp_Care_Adj columns), use it directly as the ADJ
@@ -4904,9 +4894,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 // so the override must be divided by 30.44 before adding.
                 const adjustment = careAdjOverride != null
                   ? (daily ? careAdjOverride / SHARED_DAYS_PER_MONTH : careAdjOverride)
-                  : (theirCare != null && ourCareResolved != null)
-                    ? theirCare - ourCareResolved.rate
-                    : null;
+                  : level2Adj;
                 const adjusted = base != null ? base + (adjustment ?? 0) : null;
 
                 // Prefer our matching room type; fall back to the service-line
@@ -4927,7 +4915,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   adjusted,
                   ourRate,
                   ourRateBasis,
-                  ourCareInherited: ourCareResolved ? ourCareResolved.inherited : false,
+                  ourCareInherited,
                   varDollar,
                   varPct: (varDollar != null && ourRate) ? (varDollar / ourRate) * 100 : null,
                 };

@@ -51,7 +51,7 @@
 - [Leaflet popup constraints](leaflet-popup-constraints.md) — size popups against the map card not the viewport; bindPopup defaults to maxWidth 300 and will clip wide content.
 - [MC care-rate inheritance](care-level2-mc-inheritance.md) — AL/MC→AL and HC/MC→HC when no care row exists; flag as inherited, never insert client care data.
 - [Competitor care ADJ column](comp-care-adj-column.md) — ADJ is theirs−ours (uniform per room type by construction); the editable cell inverse-writes the survey's raw care rate.
-- [Care rate null vs zero](care-rate-null-vs-zero.md) — three states: never surveyed (~half of rows) / charges nothing / real rate. Never reuse the math's `|| 0` on a display surface.
+- [Care rate null vs zero](care-rate-null-vs-zero.md) — three states: never surveyed (~half of rows) / charges nothing / real rate. Never `|| 0` on display; a 0 must clear the plausibility band too.
 - [Care rate daily vs monthly](care-rate-daily-vs-monthly.md) — HC care column mixes bases; one shared normalizer or surfaces disagree ~30x. HC comp care is ~98% absent — check data before math.
 - [Competitor payload aggregation traps](competitor-payload-traps.md) — map-reduce create/append branches must carry identical fields; never default a missing rate to a plausible number.
 - [Rule table display vs priority order](rule-table-priority-vs-display.md) — sort a copy; badges come from canonical order. Status tiers never invert. serviceLine has a legacy string form.

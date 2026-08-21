@@ -90,7 +90,17 @@ export interface SurveyRow {
 
 export interface CompBenchmarkEntry {
   baseRate: number;
-  careL2: number;
+  /**
+   * Averaged Level-2 care rate, or **null when the survey carries none**.
+   *
+   * null and 0 are different facts and must not be collapsed: 0 is a surveyed
+   * "care is bundled into the room rate", which is a real comparison worth
+   * −(our care); null is "nobody recorded their care pricing", which is worth
+   * no adjustment at all. Defaulting an absent value to 0 handed every
+   * unsurveyed competitor a fabricated discount the size of our own care rate
+   * — on the HC lines that is ~$33/day off a ~$300/day rate, roughly 11%.
+   */
+  careL2: number | null;
   medMgmt: number;
 }
 
@@ -122,7 +132,11 @@ export function normalizeBaseRate(compType: string, value: number | string | nul
 }
 
 /**
- * Normalize a survey care-L2 rate; null when implausible/unusable.
+ * Normalize a survey care-L2 rate; null when absent, implausible or unusable.
+ *
+ * A surveyed exact zero is a VALUE, not an absence: the competitor bundles care
+ * into their room rate, which is one of the most competitive positions on the
+ * chart. It is returned as 0 so the aggregate keeps it, on both bases.
  *
  * The daily lines defer to the shared helper rather than keeping a local
  * cutoff. This previously used `> 200 ? v / 30.0 : v`, which disagreed with
@@ -131,7 +145,8 @@ export function normalizeBaseRate(compType: string, value: number | string | nul
  */
 export function normalizeCareL2(compType: string, value: number | string | null): number | null {
   const v = num(value);
-  if (v === null || v <= 0) return null;
+  if (v === null || v < 0) return null;
+  if (v === 0) return 0;
   if (DAILY_COMP_TYPES.has(compType)) {
     return normalizeCompetitorCareRate(v, 'HC');
   }
@@ -147,6 +162,19 @@ export function normalizeMedMgmt(compType: string, value: number | string | null
   }
   return v >= 1 && v <= 2000 ? v : null;
 }
+
+/** Whole-dollar average, matching the historical SQL `ROUND(AVG(...), 0)`. */
+const avgRounded = (a: number[]) => Math.round(a.reduce((s, x) => s + x, 0) / a.length);
+
+/** Average of an additive component; nothing surveyed adds nothing. */
+const avgOrZero = (a: number[]) => (a.length ? avgRounded(a) : 0);
+
+/**
+ * Average of the care component. Nothing surveyed is **unknown**, not zero:
+ * care is differenced against our own rate rather than added, so a 0 here
+ * would subtract our full care rate from an unsurveyed competitor.
+ */
+const avgCare = (a: number[]) => (a.length ? avgRounded(a) : null);
 
 /**
  * Aggregate raw survey rows into per-(location, competitor type) benchmark
@@ -166,13 +194,12 @@ export function aggregateSurveyRows(rows: SurveyRow[]): Map<string, CompBenchmar
     if (c !== null) e.care.push(c);
     if (m !== null) e.med.push(m);
   }
-  const avg = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : 0);
   const out = new Map<string, CompBenchmarkEntry>();
   for (const [key, e] of acc) {
     if (!e.base.length) continue;
-    const baseRate = avg(e.base);
+    const baseRate = avgOrZero(e.base);
     if (baseRate <= 0) continue;
-    out.set(key, { baseRate, careL2: avg(e.care), medMgmt: avg(e.med) });
+    out.set(key, { baseRate, careL2: avgCare(e.care), medMgmt: avgOrZero(e.med) });
   }
   return out;
 }
@@ -197,13 +224,12 @@ export function aggregateSurveyRowsByRT(rows: SurveyRow[]): Map<string, CompBenc
     if (c !== null) e.care.push(c);
     if (m !== null) e.med.push(m);
   }
-  const avg = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : 0);
   const out = new Map<string, CompBenchmarkEntry>();
   for (const [key, e] of acc) {
     if (!e.base.length) continue;
-    const baseRate = avg(e.base);
+    const baseRate = avgOrZero(e.base);
     if (baseRate <= 0) continue;
-    out.set(key, { baseRate, careL2: avg(e.care), medMgmt: avg(e.med) });
+    out.set(key, { baseRate, careL2: avgCare(e.care), medMgmt: avgOrZero(e.med) });
   }
   return out;
 }
@@ -239,7 +265,10 @@ export class CompBenchmark {
     for (const ct of SL_TO_COMP[serviceLine] || [serviceLine]) {
       const v = this.compMap.get(`${location}|||${ct}`);
       if (v && v.baseRate > 0) {
-        const careDiff = CARE_L2_APPLIES[serviceLine]
+        // careL2 === null means their care pricing was never surveyed, so there
+        // is nothing to difference — leave the base rate alone rather than
+        // handing them a discount the size of our own care rate.
+        const careDiff = CARE_L2_APPLIES[serviceLine] && v.careL2 != null
           ? v.careL2 - (this.ourCareMap.get(`${location}|||${serviceLine}`) || 0)
           : 0;
         const careAdj = careDiff + v.medMgmt;
@@ -268,7 +297,8 @@ export class CompBenchmark {
       for (const ct of SL_TO_COMP[serviceLine] || [serviceLine]) {
         const v = this.compRTMap.get(`${location}|||${ct}|||${roomType}`);
         if (v && v.baseRate > 0) {
-          const careDiff = CARE_L2_APPLIES[serviceLine]
+          // null care = not surveyed = no adjustment (see the SL-level lookup).
+          const careDiff = CARE_L2_APPLIES[serviceLine] && v.careL2 != null
             ? v.careL2 - (this.ourCareMap.get(`${location}|||${serviceLine}`) || 0)
             : 0;
           const careAdj = careDiff + v.medMgmt;
@@ -378,7 +408,8 @@ export class StudioCompBenchmark {
       const prefix = `${location}|||${ct}|||`;
       for (const [key, v] of this.compMap) {
         if (!key.startsWith(prefix) || v.baseRate <= 0) continue;
-        const careDiff = CARE_L2_APPLIES[serviceLine]
+        // null care = not surveyed = no adjustment (see the SL-level lookup).
+        const careDiff = CARE_L2_APPLIES[serviceLine] && v.careL2 != null
           ? v.careL2 - (this.ourCareMap.get(`${location}|||${serviceLine}`) || 0)
           : 0;
         const careAdj = careDiff + v.medMgmt;

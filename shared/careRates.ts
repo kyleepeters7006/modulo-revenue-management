@@ -137,6 +137,13 @@ export function normalizeCompetitorCareRate(rate: number | null | undefined, ser
   // (care is bundled in their daily/monthly room rate). Only null, undefined,
   // non-finite, and negative values indicate missing or junk data.
   if (rate == null || !Number.isFinite(rate) || rate < 0) return null;
+  // An exact zero is basis-independent — $0/day and $0/month are the same
+  // charge — so it must skip the plausibility band below, which would
+  // otherwise reject it as "below the minimum credible daily care rate" and
+  // silently turn an all-inclusive HC competitor back into "no data". The
+  // whole HC survey era that records these zeros also records real street
+  // rates on the same rows, so they are surveyed, not defaulted.
+  if (rate === 0) return 0;
   if (isDailyServiceLine(serviceLine)) {
     const daily = rate >= HC_MONTHLY_CARE_THRESHOLD ? rate / DAYS_PER_MONTH : rate;
     if (daily < MIN_PLAUSIBLE_DAILY_CARE || daily > MAX_PLAUSIBLE_DAILY_CARE) return null;
@@ -167,6 +174,53 @@ export function normalizeCompetitorCareRateMonthly(
   const native = normalizeCompetitorCareRate(rate, serviceLine);
   if (native == null) return null;
   return isDailyServiceLine(serviceLine) ? native * DAYS_PER_MONTH : native;
+}
+
+export interface CompetitorCareAdjustment {
+  /** Their Level-2 rate in the line's native basis; null when absent or unusable. */
+  theirCare: number | null;
+  /** Our Level-2 rate for the line, possibly inherited; null when we have none. */
+  ourCare: number | null;
+  /** True when our figure came from the base service line rather than an explicit row. */
+  ourCareInherited: boolean;
+  /**
+   * `theirCare − ourCare`, or null when either side is unknown.
+   *
+   * null and 0 mean different things and must stay distinguishable all the way
+   * to the UI: null is "we cannot compare", 0 is "we charge the same". A
+   * competitor who bundles care into their room rate surveys as 0, which is a
+   * real comparison (`careAdj = −ourCare`), not a missing one.
+   */
+  careAdj: number | null;
+}
+
+/**
+ * The competitor-vs-us Level-2 care comparison for one service line.
+ *
+ * Every surface that shows a care adjustment must call this rather than
+ * differencing the two rates itself: the comparison has three separate gates
+ * (is the line care-bearing at all, is their surveyed value usable and on the
+ * right basis, do we even have a rate of our own) and re-implementing them per
+ * call site is what previously let one screen show an adjustment where another
+ * showed nothing for the very same competitor.
+ *
+ * `ourRatesByServiceLine` is the campus's service-line → Level-2 rate map;
+ * memory-care lines inherit from their base line via resolveCareLevel2.
+ */
+export function computeCompetitorCareAdj(
+  theirRawCare: number | null | undefined,
+  ourRatesByServiceLine: Map<string, number> | undefined,
+  serviceLine: string,
+): CompetitorCareAdjustment {
+  const careApplies = CARE_ELIGIBLE_SERVICE_LINES.has(serviceLine);
+  const theirCare = careApplies ? normalizeCompetitorCareRate(theirRawCare, serviceLine) : null;
+  const ourResolved = careApplies ? resolveCareLevel2(ourRatesByServiceLine, serviceLine) : null;
+  return {
+    theirCare,
+    ourCare: ourResolved ? ourResolved.rate : null,
+    ourCareInherited: ourResolved ? ourResolved.inherited : false,
+    careAdj: theirCare != null && ourResolved != null ? theirCare - ourResolved.rate : null,
+  };
 }
 
 /**
