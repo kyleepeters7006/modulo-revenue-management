@@ -38,6 +38,10 @@ args = "al-mc-family-matching"
 task = "workflow.run"
 args = "inhouse-rate-planning"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "inhouse-rate-planning-live"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -76,6 +80,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npx tsx tests/inhouseRatePlanning.test.ts"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "inhouse-rate-planning-live"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx tsx tests/inhouseRatePlanningLive.test.ts"
 
 [workflows.workflow.metadata]
 outputType = "console"
