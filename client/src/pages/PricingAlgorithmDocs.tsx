@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft, Target, TrendingUp, BarChart3, Shield,
-  GitBranch, SlidersHorizontal,
+  GitBranch, SlidersHorizontal, Users,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -62,6 +62,7 @@ export default function PricingAlgorithmDocs() {
             ["#measurement", "Measurement"],
             ["#elasticity", "Elasticity"],
             ["#guardrails", "Guardrails"],
+            ["#inhouse-increases", "In-House Increases"],
           ].map(([href, label]) => (
             <a key={href} href={href} className="text-[var(--trilogy-teal)] hover:underline">{label}</a>
           ))}
@@ -107,6 +108,22 @@ export default function PricingAlgorithmDocs() {
             sub="Final safety layer — clamps the Rules Rate after all adjustments">
             <p>
               Guardrails set a hard floor and ceiling on the final rate, cap the largest single-cycle move, and limit deviation from the competitor median. Care-level rates are applied here and always honored. Configurable at portfolio, location, or service-line level, with optional seasonal overrides.
+            </p>
+          </Section>
+
+          <Section id="inhouse-increases" icon={Users} title="Annual In-House Increases"
+            sub="Plan resident rate increases to hit a year-over-year growth target">
+            <p>
+              The <strong className="text-[var(--trilogy-dark-blue)]">In-House Increases</strong> planner lets you set an annual realized-rate growth target and translate it into specific increases for every current private-pay resident. It solves two things jointly: a recommended street rate increase and a per-resident in-house increase, so neither lever is ignored.
+            </p>
+            <p>
+              The solver simulates two groups over the next four quarters — existing residents (who receive the increase on the in-house effective date and turn over at the configured rate) and new move-ins (who enter at the updated street rate). Census is held constant. The weighted projection is compared against the same quarter a year earlier; the plan is feasible when every quarter clears the target.
+            </p>
+            <p>
+              Each resident's increase is shaped by their headroom — the gap between their current rate and the street rate cap. An equalization setting (Low / Medium / High) controls how aggressively that headroom is used to spread increases toward residents who are furthest below street. Hard limits ensure no resident ever receives a rate cut, no rate is pushed above the street cap unless you explicitly allow it, and every increase stays within the minimum and maximum you set.
+            </p>
+            <p>
+              Every number carries a plain-language explanation. Infeasible plans — where the target cannot be reached within your guardrails — still return a best-effort result so you can see exactly which quarter falls short and by how much, what the binding constraint is, and what the smallest single change would be to close the gap.
             </p>
           </Section>
 
