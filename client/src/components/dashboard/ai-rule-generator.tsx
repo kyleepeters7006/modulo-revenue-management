@@ -313,9 +313,18 @@ export default function AiRuleGenerator({
       });
     },
     onError: (error: any) => {
+      // apiRequest throws "<status>: <raw body>", and the body is JSON, so show
+      // the server's sentence rather than the serialized object.
+      const raw: string = error?.message ?? "";
+      let description = raw || "Failed to create the rule. Please try again.";
+      const body = raw.slice(raw.indexOf(":") + 1).trim();
+      try {
+        const parsedBody = JSON.parse(body);
+        if (parsedBody?.error) description = String(parsedBody.error);
+      } catch { /* not JSON — keep the raw message */ }
       toast({
         title: "Accept Failed",
-        description: error.message || "Failed to create the rule. Please try again.",
+        description,
         variant: "destructive",
       });
     },

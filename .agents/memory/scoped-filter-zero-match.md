@@ -48,6 +48,19 @@ applied, and treat "filters were requested but matched nothing" as a **job failu
 success. Verify containment empirically — record a timestamp, run the scoped job, then confirm rows
 *outside* the scope have an untouched `*_calculated_at`. A run that reports success proves nothing.
 
+## The empty array has to survive every hand-off
+
+The distinction only holds if *every* layer preserves it. A helper that normalizes
+`ids.length ? { locationIds: ids } : undefined` before calling the impact engine destroys it one
+call short of the engine that would have handled it correctly — the engine reads `[]` as
+match-nothing but an absent scope as portfolio-wide. Passing a sentinel id like
+`'__no_such_location__'` "works" only because it cannot collide with a real id; it is a workaround
+that hides the real contract and will be deleted by the next person who tidies it up.
+
+**How to apply:** in any function that forwards a resolved scope, the only thing allowed to become
+`undefined` is `null`/absent. Test the empty case against a **real** context — with a null/empty
+context every branch returns the same fallback, so the assertion passes while proving nothing.
+
 ## Related trap: the endpoint names are inverted
 
 `POST /api/pricing/generate-modulo` is **synchronous** (it delegates to `generateModuloOptimized`),

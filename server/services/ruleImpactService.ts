@@ -1620,3 +1620,142 @@ export async function buildPreviewTrailingOccMap(clientId: string): Promise<Map<
   }
   return new Map<string, number>();
 }
+
+// ---------------------------------------------------------------------------
+// Suggestion impact selection — ONE policy, used by both the AI suggestion
+// generator and the accept handler.
+//
+// The generator used to compute a qualified, scope-aware impact and show it on
+// the card, while accept recomputed a naive, single-campus/single-service-line
+// number and persisted THAT. The operator approved one figure and the rule
+// stored another. Both call sites now go through this function, so the two can
+// only diverge if their inputs diverge.
+//
+// The naive estimate remains a deliberate fallback: for street-rate rules the
+// qualified engine legitimately returns zero when no group passes the trigger,
+// and a zero card was judged less useful than the elasticity estimate. In-house
+// rules always trust the qualified result — the naive path counts vacant units,
+// which cannot be repriced by an in-house rule.
+// ---------------------------------------------------------------------------
+
+export interface SuggestionImpactInput {
+  action: any;
+  trigger: any;
+  /** Full multi-service-line scope. Never pass just the first entry. */
+  serviceLines: string[];
+  locationId: string | null;
+  /**
+   * Campus scope of the run (region/division/multi-campus).
+   * `null`/`undefined` = portfolio-wide. An EMPTY array is a real scope that
+   * resolved to no campus, and must match nothing — never widen to everything.
+   */
+  scopeLocationIds?: string[] | null;
+  /** Naive elasticity estimate, used only where the policy below falls back to it. */
+  naive: {
+    unitsImpacted?: number | null;
+    monthlyImpact?: number | null;
+    annualImpact?: number | null;
+    /**
+     * The campus the naive estimate was actually computed under (`null` =
+     * portfolio-wide). REQUIRED for the fallback to be considered: the naive
+     * calculator only accepts a single location id, so for a region/division
+     * run it silently covers the whole portfolio. Without this the fallback
+     * would re-widen a scoped rule the moment the qualified engine returns 0.
+     */
+    computedForLocationId?: string | null;
+  };
+}
+
+export interface SuggestionImpactResult {
+  unitsImpacted: number;
+  monthlyImpact: number | null;
+  annualImpact: number | null;
+  /** Where the monthly figure came from, so callers can log or disclose it. */
+  basis: 'qualified' | 'naive' | 'unavailable';
+}
+
+export function selectSuggestionImpact(
+  ctx: RuleImpactContext | null,
+  input: SuggestionImpactInput,
+): SuggestionImpactResult {
+  const target = input.action?.target;
+  let qUnits: number | null = null;
+  let qMonthly: number | null = null;
+  let qAnnual: number | null = null;
+
+  if (ctx) {
+    try {
+      const qi = computeQualifiedRuleImpact(
+        ctx,
+        {
+          action: input.action,
+          trigger: input.trigger,
+          serviceLines: input.serviceLines,
+          locationId: input.locationId || null,
+        },
+        // computeQualifiedRuleImpact reads an empty locationIds array as
+        // "match nothing" and an absent scope as "the whole portfolio", so the
+        // distinction between "no campus filter" and "a campus filter that
+        // resolved to nothing" has to survive this hand-off intact. Collapsing
+        // the empty array to `undefined` would silently report a portfolio-wide
+        // figure for a scope that matched no campus at all.
+        input.scopeLocationIds
+          ? { locationIds: input.scopeLocationIds }
+          : undefined,
+      );
+      qUnits = qi.affectedUnits;
+      qMonthly = qi.monthlyImpact;
+      qAnnual = qi.annualImpact;
+    } catch (err) {
+      console.error('[ruleImpact] selectSuggestionImpact: qualified impact failed:', err);
+    }
+  }
+
+  if (target === 'in_house_rate') {
+    return {
+      unitsImpacted: qUnits ?? 0,
+      monthlyImpact: qMonthly,
+      annualImpact: qAnnual,
+      basis: qUnits != null ? 'qualified' : 'unavailable',
+    };
+  }
+
+  // The naive estimate may only stand in for the qualified one when it covers
+  // EXACTLY the same campuses. It is computed from a single location id, so a
+  // multi-campus run (or one whose campus scope resolved to nothing) produces a
+  // portfolio-wide naive figure — falling back to that would report numbers for
+  // campuses the operator never selected, which is the widening this whole
+  // policy exists to prevent. Zero from a correctly-scoped engine is an answer;
+  // a portfolio-wide substitute is not.
+  const requestedCampuses = input.scopeLocationIds
+    ?? (input.locationId ? [String(input.locationId)] : null);
+  const naiveCampuses = input.naive?.computedForLocationId
+    ? [String(input.naive.computedForLocationId)]
+    : null;
+  const naiveCoversSameCampuses =
+    requestedCampuses === null
+      ? naiveCampuses === null
+      : naiveCampuses !== null
+        && requestedCampuses.length === 1
+        && requestedCampuses[0] === naiveCampuses[0];
+
+  if (!naiveCoversSameCampuses) {
+    return {
+      unitsImpacted: qUnits ?? 0,
+      monthlyImpact: qMonthly,
+      annualImpact: qAnnual,
+      basis: qUnits != null ? 'qualified' : 'unavailable',
+    };
+  }
+
+  const naiveUnits = Number(input.naive?.unitsImpacted ?? 0) || 0;
+  const naiveMonthly = input.naive?.monthlyImpact ?? null;
+  const naiveAnnual = input.naive?.annualImpact ?? null;
+
+  return {
+    unitsImpacted: qUnits != null && qUnits > 0 ? qUnits : naiveUnits,
+    monthlyImpact: qMonthly != null && qMonthly !== 0 ? qMonthly : naiveMonthly,
+    annualImpact: qAnnual != null && qAnnual !== 0 ? qAnnual : naiveAnnual,
+    basis: qMonthly != null && qMonthly !== 0 ? 'qualified' : (ctx ? 'naive' : 'unavailable'),
+  };
+}

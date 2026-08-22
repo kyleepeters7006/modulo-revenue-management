@@ -146,7 +146,7 @@ import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } fro
 import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules, resolvePostServiceLineScope, resolvePatchServiceLineScope, recalculateAndPreloadCampusMetrics } from "./services/adjustmentRulesService";
-import { buildRuleImpactContext, computeQualifiedRuleImpact, computeProspectiveRuleImpact, compareRuleDedupOrder, isDedupEligibleRule, getT3MoveInsMap as getT3MoveInsMapSvc, getGroupedT3MoveInsMap as getGroupedT3MoveInsMapSvc, ruleSpecificityScore } from "./services/ruleImpactService";
+import { buildRuleImpactContext, computeQualifiedRuleImpact, selectSuggestionImpact, computeProspectiveRuleImpact, compareRuleDedupOrder, isDedupEligibleRule, getT3MoveInsMap as getT3MoveInsMapSvc, getGroupedT3MoveInsMap as getGroupedT3MoveInsMapSvc, ruleSpecificityScore } from "./services/ruleImpactService";
 import { loadCompBenchmark, loadStudioCompBenchmark, unitWeightedBenchmark, pickComparisonRate } from "./services/compBenchmark";
 import { queryCompPositionOwnRates } from "./services/compPositionOwnRates";
 import { lookupRtPhysMap, lookupRtOccWindow, rtoOccWindow, physVacWindow } from "./services/rtOccupancyHistory";
@@ -17839,24 +17839,20 @@ Respond in JSON format:
         }
 
         // Impact from the shared qualified-rule engine (triggers + filters +
-        // HC private-pay + daily→monthly conversion), consistent with the
-        // impact shown after the rule is accepted.
-        let qUnits: number | null = null, qMonthly: number | null = null, qAnnual: number | null = null;
-        if (suggestImpactCtx) {
-          try {
-            const qi = computeQualifiedRuleImpact(suggestImpactCtx, {
-              action: parsed.action,
-              trigger: parsed.trigger,
-              serviceLines: ruleSLs, // multi-SL scope (effectiveServiceLines)
-              locationId: locationId || null,
-            }, scopeActive ? { locationIds: scopedIds } : undefined);
-            qUnits = qi.affectedUnits;
-            qMonthly = qi.monthlyImpact;
-            qAnnual = qi.annualImpact;
-          } catch (qErr) {
-            console.error('suggest: computeQualifiedRuleImpact failed:', qErr);
-          }
-        }
+        // HC private-pay + daily→monthly conversion). The accept handler runs
+        // this same selector with the same inputs, so the number the operator
+        // approves is the number the rule is saved with.
+        const selected = selectSuggestionImpact(suggestImpactCtx, {
+          action: parsed.action,
+          trigger: parsed.trigger,
+          serviceLines: ruleSLs, // multi-SL scope (effectiveServiceLines)
+          locationId: locationId || null,
+          scopeLocationIds: scopeActive ? scopedIds : null,
+          // `impact` came from computeRuleElasticityImpact, which only takes a
+          // single location id — so for a region/division run it is a
+          // portfolio-wide figure and must not be used as a fallback.
+          naive: { ...impact, computedForLocationId: locationId || null },
+        });
 
         suggestions.push({
           suggestionId: randomUUID(),
@@ -17873,15 +17869,13 @@ Respond in JSON format:
           locationNames: scopeActive && scopedNames.length ? scopedNames : null,
           trigger: parsed.trigger,
           action: parsed.action,
-          // In-house rules: always trust the qualified (occupied-only) result —
-          // the naive fallback would count vacant units. Street rules fall back
-          // to the naive estimate only when the qualified engine found nothing.
-          unitsImpacted: tgt === 'in_house_rate' ? (qUnits ?? 0)
-            : (qUnits != null && qUnits > 0) ? qUnits : impact.unitsImpacted,
-          monthlyImpact: tgt === 'in_house_rate' ? qMonthly
-            : (qMonthly != null && qMonthly !== 0) ? qMonthly : impact.monthlyImpact,
-          annualImpact: tgt === 'in_house_rate' ? qAnnual
-            : (qAnnual != null && qAnnual !== 0) ? qAnnual : impact.annualImpact,
+          // Impact policy lives in selectSuggestionImpact so accept reproduces
+          // it exactly. `impactBasis` records whether the qualified engine or
+          // the naive elasticity estimate supplied these figures.
+          unitsImpacted: selected.unitsImpacted,
+          monthlyImpact: selected.monthlyImpact,
+          annualImpact: selected.annualImpact,
+          impactBasis: selected.basis,
           elasticity: impact.elasticity,
           elasticityMin: impact.elasticityMin,
           elasticityMax: impact.elasticityMax,
@@ -17982,11 +17976,30 @@ Respond in JSON format:
       let scopedLocationNames: string[] = [];
       if (!locationId && req.body?.suggestionId) {
         const cachedSugg = await findCachedSuggestion(clientId, String(req.body.suggestionId));
-        const names = cachedSugg?.locationNames;
+        // No cached run means the campus scope is unrecoverable. Continuing
+        // would save a rule that prices the WHOLE portfolio while the operator
+        // approved one region — and would report a portfolio-wide impact to
+        // match. Refuse instead, so a stale tab has to re-run rather than
+        // silently widening the scope of a pricing rule.
+        if (!cachedSugg) {
+          return res.status(409).json({
+            error: "This suggestion is no longer available — its run has expired or was already acted on. Generate suggestions again before accepting.",
+          });
+        }
+        const names = cachedSugg.locationNames;
         if (Array.isArray(names)) {
           scopedLocationNames = names.filter((n: any) => typeof n === 'string' && n.trim());
         }
       }
+
+      // The action AS SCORED, captured before the campus filter is injected
+      // below. Generation scored the rule under an id-based campus scope with
+      // no name filter; scoring here with the name filter as well would drop
+      // any qualifying row whose location_id is in scope but whose location
+      // NAME is stale or blank, making the stored figure differ from the
+      // approved one on exactly the data defect nobody would think to check.
+      const scoredAction = { ...parsed.action };
+
       if (scopedLocationNames.length) {
         parsed.action = {
           ...parsed.action,
@@ -17994,8 +18007,56 @@ Respond in JSON format:
         };
       }
 
+      // The impact stored on the rule must be the impact the operator approved.
+      //
+      // The card is drawn from the qualified engine under the run's FULL scope:
+      // every service line the suggestion covers, and every campus the run was
+      // filtered to. Recomputing here with `locationId` alone and `slList[0]`
+      // alone produced a different — for a region or division run, a
+      // portfolio-wide — number, right after the block above went to the
+      // trouble of recovering that campus scope. So resolve the same scope back
+      // to location ids and run the same selector the generator ran.
+      let acceptScopeIds: string[] | null = null;
+      if (locationId) {
+        acceptScopeIds = [String(locationId)];
+      } else if (scopedLocationNames.length) {
+        const idRows = await pool.query(
+          `SELECT id FROM locations WHERE client_id = $1 AND name = ANY($2::text[])`,
+          [clientId, scopedLocationNames],
+        );
+        // An empty result stays an empty array — a campus scope that resolves
+        // to nothing must report nothing, not fall through to portfolio-wide.
+        acceptScopeIds = idRows.rows.map((r: any) => String(r.id));
+        if (!acceptScopeIds.length) {
+          console.warn(
+            `[RuleSuggest] accept: campus scope ${JSON.stringify(scopedLocationNames)} resolved to no locations for client ${clientId}; impact will be reported as zero.`,
+          );
+        }
+      }
+
+      // Naive elasticity estimate — still the documented fallback for
+      // street-rate rules the qualified engine scores at zero, and the source
+      // of the elasticity fields returned to the client.
       const impact = await computeRuleElasticityImpact(
-        clientId, { locationId: locationId || null, serviceLine: slList[0] || null }, parsed.action);
+        clientId, { locationId: locationId || null, serviceLine: slList[0] || null }, scoredAction);
+
+      const acceptCtxKey = `ruleImpactCtx:${clientId}`;
+      let acceptImpactCtx = getCachedAnalytics(acceptCtxKey);
+      if (!acceptImpactCtx) {
+        acceptImpactCtx = await buildRuleImpactContext(clientId);
+        if (acceptImpactCtx) setCachedAnalytics(acceptCtxKey, acceptImpactCtx);
+      }
+      const selectedImpact = selectSuggestionImpact(acceptImpactCtx, {
+        action: scoredAction,          // pre-injection: exactly what generation scored
+        trigger: parsed.trigger,
+        serviceLines: slList,          // full multi-SL scope, not slList[0]
+        locationId: locationId || null,
+        scopeLocationIds: acceptScopeIds,
+        // Same constraint as generation: this estimate is scoped to a single
+        // location id at most, so the selector may only use it when that is
+        // the whole requested scope.
+        naive: { ...impact, computedForLocationId: locationId || null },
+      });
 
       const rule = await storage.createAdjustmentRule({
         locationId: locationId || null,
@@ -18007,9 +18068,10 @@ Respond in JSON format:
         action: parsed.action,
         isActive: true,
         createdBy: 'user',
-        monthlyImpact: impact.monthlyImpact ?? 0,
-        annualImpact: impact.annualImpact ?? 0,
-        volumeAdjustedAnnualImpact: impact.annualImpact != null ? Math.round(impact.annualImpact * 1.05) : 0,
+        monthlyImpact: selectedImpact.monthlyImpact ?? 0,
+        annualImpact: selectedImpact.annualImpact ?? 0,
+        volumeAdjustedAnnualImpact: selectedImpact.annualImpact != null
+          ? Math.round(selectedImpact.annualImpact * 1.05) : 0,
       });
 
       // Bust the cached rules list so Rule Administration immediately shows the
@@ -18031,7 +18093,7 @@ Respond in JSON format:
         await pruneCachedSuggestion(clientId, String(req.body.suggestionId));
       }
 
-      res.json({ success: true, rule, elasticity: impact });
+      res.json({ success: true, rule, elasticity: impact, impact: selectedImpact });
     } catch (error) {
       console.error('Error accepting rule suggestion:', error);
       res.status(500).json({ error: "Failed to accept rule suggestion" });

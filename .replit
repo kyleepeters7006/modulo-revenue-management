@@ -42,6 +42,10 @@ args = "inhouse-rate-planning"
 task = "workflow.run"
 args = "inhouse-rate-planning-live"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "ai-suggestion-impact-parity"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -91,6 +95,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npx tsx tests/inhouseRatePlanningLive.test.ts"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "ai-suggestion-impact-parity"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx tsx tests/aiSuggestionImpactParity.test.ts"
 
 [workflows.workflow.metadata]
 outputType = "console"
