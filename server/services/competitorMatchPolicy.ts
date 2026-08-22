@@ -122,10 +122,21 @@ export interface CompetitorAdjustments {
  * - Medication management (AL lines): competitor's fee − our $0.
  *
  * All inputs and outputs are MONTHLY dollars.
+ *
+ * `competitorCareLevel2Monthly` distinguishes two cases that MUST NOT be
+ * conflated:
+ *  - `null`  → care rate not surveyed / not applicable; no adjustment produced.
+ *  - `0`     → competitor bundles care in their room rate (all-inclusive);
+ *              adjustment = 0 − ourCare (a negative number for HC lines),
+ *              matching the display path in `shared/careRates.computeCompetitorCareAdj`.
+ *
+ * Callers MUST pass `null` (not `0`) when they have no surveyed care value —
+ * the previous `number` type with a `> 0` gate silently converted both "not
+ * surveyed" and "all-inclusive ($0)" to "no adjustment".
  */
 export function computeCompetitorAdjustments(
   serviceLine: string,
-  competitorCareLevel2Monthly: number,
+  competitorCareLevel2Monthly: number | null,
   competitorMedMgmtMonthly: number,
   careRatesByServiceLine: Map<string, number> | undefined,
 ): CompetitorAdjustments {
@@ -133,7 +144,9 @@ export function computeCompetitorAdjustments(
   let medMgmtAdjustment = 0;
   let usedCareFallback = false;
 
-  if (CARE_LEVEL_2_APPLIES[serviceLine] && competitorCareLevel2Monthly > 0) {
+  // `!== null` lets a surveyed $0 (all-inclusive competitor) through;
+  // only a true null (unsurveyed) skips the block.
+  if (CARE_LEVEL_2_APPLIES[serviceLine] && competitorCareLevel2Monthly !== null) {
     const resolved = resolveCareLevel2(careRatesByServiceLine, serviceLine);
     let trilogyCareLevel2Monthly: number;
     if (resolved) {

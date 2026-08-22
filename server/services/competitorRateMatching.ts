@@ -325,9 +325,13 @@ export async function calculateCompetitorRateForUnit(
     // SHARED adjustment math — identical to the batch job: care resolution
     // with inheritance and native-basis conversion, $55/day fallback when the
     // campus has no care entry at all, med mgmt for the AL lines. All monthly.
+    // Pass careLevel2Rate as-is (number | null): null = unsurveyed (no adjustment),
+    // 0 = all-inclusive competitor (adjustment = 0 − ourCare). Do NOT coerce null
+    // to 0 here — that was what caused the missing care adjustment for all-inclusive
+    // competitors on this path.
     const adj = computeCompetitorAdjustments(
       unit.serviceLine,
-      competitorData.careLevel2Rate ?? 0,
+      competitorData.careLevel2Rate ?? null,
       competitorData.medicationManagementFee ?? 0,
       careRatesByServiceLine
     );

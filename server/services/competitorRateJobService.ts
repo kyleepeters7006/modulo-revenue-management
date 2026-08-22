@@ -257,7 +257,11 @@ async function processBatch(
         
         // Survey data: HC/SMC rates are stored as DAILY, AL/IL rates are MONTHLY
         let baseRateMonthly = matchedCompetitor.monthlyRateAvg || 0;
-        let competitorCareLevel2Monthly = matchedCompetitor.careLevel2Rate || 0;
+        // Use ?? null (not || 0) so that a surveyed $0 (all-inclusive competitor)
+        // and a null (unsurveyed) remain distinguishable all the way to
+        // computeCompetitorAdjustments. A || 0 would collapse both to 0, and
+        // the > 0 gate would then drop all-inclusive competitors silently.
+        let competitorCareLevel2Monthly: number | null = matchedCompetitor.careLevel2Rate ?? null;
         let competitorMedMgmtMonthly = matchedCompetitor.medicationManagementFee || 0;
         
         // Care basis is resolved independently of the street-rate basis, via the
@@ -268,9 +272,11 @@ async function processBatch(
         // writer — while other surfaces read the same row differently. Values
         // that are not credible on either basis come back null and yield no care
         // adjustment instead of an inflated one.
+        // normalizeCompetitorCareRateMonthly(null, ...) → null (preserves "no data")
+        // normalizeCompetitorCareRateMonthly(0, ...) → 0 (preserves "all-inclusive")
         if (isHCOrSMC) {
           competitorCareLevel2Monthly =
-            normalizeCompetitorCareRateMonthly(competitorCareLevel2Monthly, 'HC') ?? 0;
+            normalizeCompetitorCareRateMonthly(competitorCareLevel2Monthly, 'HC');
         }
 
         // Convert HC/SMC survey rates from daily to monthly for calculations
