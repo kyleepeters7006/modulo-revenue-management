@@ -107,6 +107,15 @@ import * as cron from 'node-cron';
 import bcrypt from 'bcryptjs';
 import { parseNaturalLanguageRule, validateParsedRule, generateRuleName, checkRuleEnforceable, supportedTriggerMetrics } from "./naturalLanguageParser";
 import { buildRuleFromStructured } from "./structuredRuleBuilder";
+import {
+  partitionCandidates,
+  summarizeRejections,
+  describeDiagnostics,
+  OVER_CAP_CODE,
+  EMPTY_RUN_MESSAGES,
+  type SuggestionRejection,
+  type EmptyRunReason,
+} from "./services/suggestionGates";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -17196,6 +17205,30 @@ Respond in JSON format:
       const requestedSLs: string[] = Array.isArray(slsBody) && slsBody.length
         ? slsBody : (serviceLine ? [serviceLine] : []);
       if (!requestedSLs.length) return res.status(400).json({ error: "serviceLine(s) required" });
+
+      // An explained-empty run must survive a page reload exactly like a run
+      // with cards does — when there is nothing to show, the explanation IS the
+      // result, and losing it on refresh leaves the operator with the generic
+      // shrug this task exists to remove. Every early exit therefore goes
+      // through the same cache write the full path uses.
+      const respondEmpty = async (reason: EmptyRunReason, campus: string | null = null) => {
+        const payload = {
+          suggestions: [] as any[],
+          diagnostics: null,
+          context: { campus, reason, reasonMessage: EMPTY_RUN_MESSAGES[reason] },
+        };
+        try {
+          await pool.query(
+            `INSERT INTO ai_suggestion_runs (client_id, payload, created_at)
+             VALUES ($1, $2, now())
+             ON CONFLICT (client_id) DO UPDATE SET payload = EXCLUDED.payload, created_at = now()`,
+            [clientId, JSON.stringify(payload)]
+          );
+        } catch (err) {
+          console.error('Failed to cache empty AI suggestion run:', err);
+        }
+        return res.json(payload);
+      };
       const targetsBySL: Record<string, number | null> = {};
       for (const sl of requestedSLs) {
         const t = targets && targets[sl] != null ? Number(targets[sl])
@@ -17230,9 +17263,7 @@ Respond in JSON format:
         // A filter that matches nothing must return nothing. Falling through to
         // an unscoped run would quietly propose portfolio-wide rules from a page
         // that promised one region.
-        if (!rows.length) {
-          return res.json({ suggestions: [], context: { reason: 'no campuses match the current filters' } });
-        }
+        if (!rows.length) return respondEmpty('no_campuses_match_filters');
         scopedIds = rows.map(r => r.id);
         scopedNames = rows.map(r => r.name);
         scopeLabel = rows.length === 1
@@ -17252,7 +17283,7 @@ Respond in JSON format:
       const latestRes = await pool.query(
         `SELECT MAX(upload_month) AS m FROM rent_roll_data WHERE client_id = $1`, [clientId]);
       const latestMonth: string | null = latestRes.rows[0]?.m ?? null;
-      if (!latestMonth) return res.json({ suggestions: [], context: { reason: 'no rent roll data' } });
+      if (!latestMonth) return respondEmpty('no_rent_roll_data', scopeLabel);
 
       const allUnits = await storage.getRentRollDataByMonth(latestMonth, clientId);
       const { getElasticityMap } = await import('./services/elasticityService');
@@ -17620,7 +17651,7 @@ Respond in JSON format:
           ytdStreetRateGrowthPct: ytd?.streetGrowth != null ? Number((ytd.streetGrowth * 100).toFixed(1)) : null,
         });
       }
-      if (!validSLs.length) return res.json({ suggestions: [], context: { reason: 'no units in scope' } });
+      if (!validSLs.length) return respondEmpty('no_units_in_scope', scopeLabel);
 
       const metricsBlock =
         `Campus scope: ${scopeLabel}` +
@@ -17779,48 +17810,21 @@ Respond in JSON format:
         if (suggestImpactCtx) setCachedAnalytics(suggestCtxKey, suggestImpactCtx);
       }
 
-      for (const p of proposed) {
-        if (suggestions.length >= 10) break;
-        const sentence: string = p?.rule || p?.description || '';
-        if (!sentence) continue;
-        // Each rule targets one or more of the requested service lines.
-        const rawSLs: string[] = Array.isArray(p?.serviceLines) ? p.serviceLines
-          : p?.serviceLine ? [p.serviceLine] : [];
-        const ruleSLs: string[] = rawSLs.filter((s: string) => validSLs.includes(s));
-        if (!ruleSLs.length) ruleSLs.push(validSLs[0]);
+      // Every gate below used to be a bare `continue`, so a run where the model
+      // drafted 10 rules and 7 were rejected showed 3 cards and no trace of the
+      // rest. Attribute each rejection instead — it is the only way anyone can
+      // notice the prompt and the parser grammar drifting apart, whose sole
+      // symptom is "fewer suggestions today".
+      // The 10-rule cap is applied inside partitionCandidates, ahead of the
+      // gates: a draft past the limit was never considered, so it is counted as
+      // surplus rather than as a rule that failed a gate it never ran through.
+      const { accepted, rejections } = partitionCandidates(proposed, {
+        validServiceLines: validSLs,
+        includeInHouse: !!includeInHouse,
+      });
+
+      for (const { candidate: p, sentence, serviceLines: ruleSLs, parsed } of accepted) {
         const ruleSL = ruleSLs[0]; // primary SL (naive fallback + legacy field)
-        const parsed = parseNaturalLanguageRule(sentence);
-        if (!parsed) continue;
-        const validation = validateParsedRule(parsed);
-        if (!validation.isValid) continue;
-
-        // Enforceability gate: never suggest a rule the rule designer cannot
-        // faithfully build. parseTrigger silently degrades an unmappable
-        // condition to `{type:'immediate'}`, which would turn a targeted
-        // suggestion into a blanket repricing of everything its filters match.
-        const enforceable = checkRuleEnforceable(sentence, parsed);
-        if (!enforceable.ok) {
-          console.warn(
-            `[RuleSuggest] dropped unenforceable suggestion: ${enforceable.reason} — "${sentence}"`,
-          );
-          continue;
-        }
-
-        // Complexity gate: drop blanket rules — a suggestion must have a real
-        // trigger condition or at least a room-type / occupancy-status target,
-        // so the displayed rule matches the promised sophistication.
-        const f = parsed.action?.filters || {};
-        const hasCondition = parsed.trigger?.type === 'condition';
-        const hasTargeting = !!(f.roomType?.length || f.occupancyStatus || f.vacancyDuration);
-        if (!hasCondition && !hasTargeting) continue;
-
-        // Enforce target policy: street-rate rules only, unless the caller
-        // opted into in-house suggestions (then in-house INCREASES are allowed too).
-        const tgt = parsed.action?.target;
-        const adjSign = Number(parsed.action?.adjustmentValue ?? 0);
-        if (tgt !== 'street_rate') {
-          if (!(includeInHouse && tgt === 'in_house_rate' && adjSign > 0)) continue;
-        }
 
         const impact = await computeRuleElasticityImpact(
           clientId, { locationId: locationId || null, serviceLine: ruleSL }, parsed.action);
@@ -17830,7 +17834,7 @@ Respond in JSON format:
         // contradicts the parsed action direction, fall back to the
         // parser-generated name which always matches the action.
         const adjVal = Number(parsed.action?.adjustmentValue ?? 0);
-        let suggName: string = p?.name || parsed.name;
+        let suggName: string = typeof p?.name === 'string' && p.name.trim() ? p.name : parsed.name;
         const decreaseWords = /discount|relief|reduction|concession|markdown|rollback|\bcut\b/i;
         const increaseWords = /increase|raise|premium|surcharge|uplift|hike/i;
         if ((adjVal > 0 && decreaseWords.test(suggName)) ||
@@ -17857,7 +17861,7 @@ Respond in JSON format:
         suggestions.push({
           suggestionId: randomUUID(),
           name: suggName,
-          intent: p?.intent || parsed.description,
+          intent: typeof p?.intent === 'string' && p.intent.trim() ? p.intent : parsed.description,
           description: sentence,           // natural-language rule (persisted verbatim on accept)
           ruleDetail: formatRuleDetail(parsed),
           serviceLine: ruleSLs.join(', '),   // display / legacy
@@ -17888,14 +17892,39 @@ Respond in JSON format:
         });
       }
 
+      const diagnostics = summarizeRejections(rejections, proposed.length, suggestions.length);
+
+      // Structured, greppable record of every rejection. The response carries a
+      // tally; this is where an engineer finds the offending sentence.
+      for (const r of rejections) {
+        if (r.code === OVER_CAP_CODE) continue;
+        console.warn(
+          `[RuleSuggest] dropped candidate (${r.code}) client=${clientId} ` +
+          `scope="${scopeLabel}" sl="${r.serviceLines.join(', ')}": ${r.detail} — "${r.sentence}"`,
+        );
+      }
+      if (diagnostics.driftWarning) {
+        console.error(`[RuleSuggest] PROMPT/PARSER DRIFT client=${clientId}: ${diagnostics.driftWarning}`);
+      }
+
+      // An empty result has several distinct causes and they call for different
+      // actions, so they must not collapse into one grey "try another filter".
+      const emptyReason: EmptyRunReason | null = suggestions.length
+        ? null
+        : proposed.length === 0
+          ? 'model_returned_none'
+          : 'all_candidates_rejected';
+
       // Back-compat: legacy single-serviceLine callers expect flat context fields.
       const flatCtx = slContexts.length === 1 ? slContexts[0] : null;
       const responsePayload = {
         suggestions,
+        diagnostics: { ...diagnostics, summary: describeDiagnostics(diagnostics) },
         context: {
           campus: scopeLabel,
           campuses: scopeActive ? scopedNames : null,
           serviceLines: slContexts,
+          ...(emptyReason ? { reason: emptyReason, reasonMessage: EMPTY_RUN_MESSAGES[emptyReason] } : {}),
           ...(flatCtx ? {
             serviceLine: flatCtx.serviceLine,
             targetGrowthPercent: flatCtx.targetGrowthPercent,

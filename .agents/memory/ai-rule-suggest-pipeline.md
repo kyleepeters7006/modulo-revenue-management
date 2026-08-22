@@ -13,6 +13,31 @@ description: Durable constraints for the "Suggest Rules with AI" flow — prompt
 - Comparison-phrase regexes accept negative thresholds (e.g. comp var "less than -3").
 - Suggest response context: `context.serviceLines[]` always; flat legacy fields only when exactly one SL was requested (back-compat).
 
+## Every discarded candidate must be attributed, or drift is undetectable
+
+The gates are correct and must stay strict, but a gate that discards a candidate without saying so
+makes prompt/parser drift invisible: its ONLY symptom is fewer suggestion cards, which is
+indistinguishable from a scope where the model genuinely had little to say.
+
+- **A bare `continue` in the candidate loop is a bug even when the rejection is right.** Record a
+  reason code, the offending sentence, and the service lines, and return the tally with the run.
+- **Drift detection must count only wording failures** (parse and enforceability), never
+  policy failures. A model drafting 150% increases parsed perfectly; counting that as drift points
+  the next engineer at a grammar mismatch that does not exist.
+- **The 10-rule cap is not a rejection.** Surplus beyond the cap is discarded by design; folding it
+  into "could not be used" tells the operator something false.
+- **An empty run has several causes that need different next steps** — no campuses matched, no rent
+  roll, no units in the service lines, the model drafted nothing, or the model drafted rules that
+  all failed a gate. Collapsing them into one message hides the only one that indicates a bug.
+- **An explained-empty run must survive a page reload.** Restore-from-cache that keys on
+  `suggestions.length` drops exactly the outcome most worth explaining. Gate the restore on the
+  presence of a generation-time reason code instead, so a run whose cards were merely accepted or
+  denied away does not resurface as "all rejected".
+
+**Why:** the gates live in a shared module rather than inline in the route specifically so a test can
+drive the real decision logic; a test that re-implements the gate chain would pass while production
+drifted.
+
 ## Accepting a suggestion must re-select impact through the same path that displayed it
 
 Accept recomputes a number the operator already approved, so it drifts from the card unless both

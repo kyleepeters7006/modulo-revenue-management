@@ -57,6 +57,27 @@ interface RuleSuggestion {
   elasticityAnnualImpact: number | null;
 }
 
+/**
+ * What happened to the rules the AI drafted but never showed. Without this the
+ * run silently reads as "the AI didn't find much", which hides both a weak
+ * scope and a broken suggestion prompt behind the same empty-looking result.
+ */
+interface SuggestionDiagnostics {
+  drafted: number;
+  shown: number;
+  dropped: number;
+  overCap: number;
+  byReason: Array<{ code: string; label: string; count: number; examples: string[] }>;
+  driftWarning: string | null;
+  summary: string | null;
+}
+
+interface SuggestRunResponse {
+  suggestions?: RuleSuggestion[];
+  diagnostics?: SuggestionDiagnostics | null;
+  context?: { campus?: string | null; reason?: string | null; reasonMessage?: string | null } | null;
+}
+
 interface AiRuleGeneratorProps {
   locationId?: string;
   selectedServiceLine: string;
@@ -101,6 +122,9 @@ export default function AiRuleGenerator({
   const [restoredFromCache, setRestoredFromCache] = useState(false);
   const [restoredScope, setRestoredScope] = useState<string | null>(null);
   const [showLearningHistory, setShowLearningHistory] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<SuggestionDiagnostics | null>(null);
+  const [emptyMessage, setEmptyMessage] = useState<string | null>(null);
+  const [showDroppedDetail, setShowDroppedDetail] = useState(false);
 
   // What this run will analyze, in the user's own filter terms.
   const scopeSummary = useMemo(() => {
@@ -143,17 +167,28 @@ export default function AiRuleGenerator({
   });
 
   // Restore the last AI run (cached server-side) so suggestions survive reloads.
-  const { data: lastRun } = useQuery<{ suggestions?: RuleSuggestion[]; generatedAt?: string; context?: { campus?: string | null } } | null>({
+  const { data: lastRun } = useQuery<(SuggestRunResponse & { generatedAt?: string }) | null>({
     queryKey: ["/api/adjustment-rules/suggest/last"],
     staleTime: Infinity,
   });
   useEffect(() => {
-    if (hasGenerated || !lastRun?.suggestions?.length) return;
-    setSuggestions(lastRun.suggestions);
+    if (hasGenerated || !lastRun) return;
+    // An empty cached run still has something to say — a run where every
+    // drafted rule was rejected is the outcome most worth explaining, and it
+    // must not go silent on reload. `context.reason` is only set when the run
+    // produced nothing at generation time, so a run whose cards were merely
+    // accepted or denied away is correctly left unrestored.
+    const wasExplainedEmpty = !!lastRun.context?.reason;
+    if (!lastRun.suggestions?.length && !wasExplainedEmpty) return;
+    setSuggestions(lastRun.suggestions ?? []);
     setGeneratedAt(lastRun.generatedAt ?? null);
     // The cached run was made under whatever filters were active at the time —
     // say which, so restored suggestions are never mistaken for the current scope.
     setRestoredScope(lastRun.context?.campus ?? null);
+    // A restored run must carry its drop tally too, or reloading the page turns
+    // "3 of 10 shown" back into a bare 3.
+    setDiagnostics(lastRun.diagnostics ?? null);
+    setEmptyMessage(lastRun.context?.reasonMessage ?? null);
     setRestoredFromCache(true);
     setHasGenerated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -245,19 +280,28 @@ export default function AiRuleGenerator({
         includeInHouse,
         ...(focusText ? { focus: focusText } : {}),
       });
-      const data = await response.json();
-      return (data.suggestions || []) as RuleSuggestion[];
+      return (await response.json()) as SuggestRunResponse;
     },
     onSuccess: (data) => {
-      setSuggestions(data);
+      const list = data.suggestions ?? [];
+      const diag = data.diagnostics ?? null;
+      setSuggestions(list);
+      setDiagnostics(diag);
+      setEmptyMessage(data.context?.reasonMessage ?? null);
+      setShowDroppedDetail(false);
       setHasGenerated(true);
       setGeneratedAt(new Date().toISOString());
       setRestoredFromCache(false);
       toast({
-        title: data.length ? "Suggestions ready" : "No suggestions",
-        description: data.length
-          ? `AI proposed ${data.length} pricing rule${data.length > 1 ? 's' : ''}. Review and accept the ones you want.`
-          : "AI did not return any rule suggestions for this scope. Try a different location or service line.",
+        title: list.length ? "Suggestions ready" : "No suggestions",
+        description: list.length
+          ? `AI proposed ${list.length} pricing rule${list.length > 1 ? 's' : ''}.` +
+            (diag?.dropped ? ` ${diag.dropped} more could not be turned into enforceable rules.` : '') +
+            ' Review and accept the ones you want.'
+          // Each empty-result cause implies a different next step, so say which
+          // one happened rather than always suggesting a different filter.
+          : (data.context?.reasonMessage
+            ?? "AI did not return any rule suggestions for this scope. Try a different location or service line."),
       });
     },
     onError: (error: any) => {
@@ -449,7 +493,22 @@ export default function AiRuleGenerator({
 
       {!suggestRulesMutation.isPending && hasGenerated && suggestions.length === 0 && (
         <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 text-sm text-gray-500" data-testid="text-no-suggestions">
-          No rule suggestions were returned for this scope. Try a different location or service line, then click Suggest Rules again.
+          {/* The four empty-result causes need four different next steps — a
+              scope that matched no campuses is not the same as a run where the
+              AI drafted rules that all failed the enforceability gate. */}
+          {emptyMessage
+            ?? "No rule suggestions were returned for this scope. Try a different location or service line, then click Suggest Rules again."}
+          {!!diagnostics?.dropped && (
+            <span className="block mt-2 text-gray-600" data-testid="text-no-suggestions-dropped">
+              The AI drafted {diagnostics.drafted} rule{diagnostics.drafted === 1 ? '' : 's'}, but{' '}
+              {diagnostics.dropped === diagnostics.drafted ? 'none' : `${diagnostics.dropped}`} could be used.
+            </span>
+          )}
+          {diagnostics?.driftWarning && (
+            <span className="block mt-2 text-amber-700" data-testid="text-no-suggestions-drift">
+              {diagnostics.driftWarning}
+            </span>
+          )}
         </div>
       )}
 
@@ -470,6 +529,50 @@ export default function AiRuleGenerator({
             Each suggestion becomes an adjustment rule when accepted. Estimated impact is based on price elasticity.
             The AI learns from every Accept, Edit, and Deny — future suggestions are calibrated to your past decisions.
           </p>
+
+          {/* Drafted-but-dropped tally. Stated plainly and once; the per-reason
+              breakdown stays behind a disclosure so the raw parser wording never
+              becomes the headline. */}
+          {!!diagnostics?.dropped && (
+            <div
+              className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+              data-testid="text-dropped-summary"
+            >
+              <div className="flex items-start gap-2">
+                <span className="flex-1">
+                  {diagnostics.summary
+                    ?? `Showing ${diagnostics.shown} of ${diagnostics.drafted} drafted — ${diagnostics.dropped} could not be turned into an enforceable pricing rule.`}
+                </span>
+                <button
+                  type="button"
+                  className="shrink-0 font-medium underline underline-offset-2 hover:text-amber-950"
+                  onClick={() => setShowDroppedDetail(v => !v)}
+                  data-testid="button-toggle-dropped-detail"
+                >
+                  {showDroppedDetail ? 'Hide' : 'Why?'}
+                </button>
+              </div>
+              {diagnostics.driftWarning && (
+                <p className="mt-1.5 font-medium" data-testid="text-drift-warning">
+                  {diagnostics.driftWarning}
+                </p>
+              )}
+              {showDroppedDetail && (
+                <ul className="mt-2 space-y-1.5" data-testid="list-dropped-reasons">
+                  {diagnostics.byReason.map(r => (
+                    <li key={r.code}>
+                      <span className="font-medium">{r.count}×</span> {r.label}
+                      {r.examples.length > 0 && (
+                        <span className="mt-0.5 block font-mono text-[10px] leading-relaxed text-amber-800/80">
+                          {r.examples.map((ex, i) => <span key={i} className="block truncate">“{ex}”</span>)}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <div className="space-y-3">
             {suggestions.map((s) => {
               const monthly = s.monthlyImpact ?? 0;
