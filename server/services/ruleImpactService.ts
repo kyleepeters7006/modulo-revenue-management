@@ -61,6 +61,9 @@ export interface RuleImpactContext {
   compBenchmark: CompBenchmark;              // survey-based competitor benchmark (correct source for street_to_comp_var_pct)
   locIdToName: Map<string, string>;          // location_id → location name for benchmark lookup
   campusStreetToCompVar: Map<string, number>; // `${locId}|${sl}` → pre-computed street_to_comp_var_pct from campus_metrics
+  /** Other campus_metrics values the live pricing engine gates on.
+   *  Key: `${locId}|${sl}|${metric_name}` (private_pay_pct, inquiry_count). */
+  campusMetric: Map<string, number>;
   /** Trailing-N occupancy % from room_type_occupancy_history.
    *  Key: `${locId}|${sl}|${rt}|trailing${N}` (sl='' campus-level, rt='' SL-level).
    *  Value: weighted avg occ_percent over N most recent months (0–100 scale). */
@@ -70,6 +73,34 @@ export interface RuleImpactContext {
    *  branded group_name (e.g. 'Legacy Lane - Studio') against units whose
    *  rent_roll_data.room_type is the canonical value ('Studio'). */
   rtgReverse: Map<string, Set<string>>;
+}
+
+/**
+ * Resolve a campus_metrics value for a location + service line.
+ *
+ * Some metrics are stored per service line (private_pay_pct), some only
+ * campus-wide with a NULL service line (inquiry_count, tour_count), and some
+ * clients have both. Callers must not know which: they ask for a metric and get
+ * the most specific value available, falling back to the campus-wide row.
+ *
+ * Every surface that shows or gates on these metrics goes through this
+ * function. The AI suggestion prompt prints a number, the impact evaluator
+ * scores a threshold against it, and live pricing applies it — if those three
+ * resolved the key differently, a rule would be proposed on a figure the engine
+ * cannot see and would affect zero units with no error anywhere.
+ *
+ * Returns null (never 0) when there is no value, so "not measured" cannot be
+ * compared as if it were "measured zero".
+ */
+export function campusMetricValue(
+  ctx: RuleImpactContext,
+  locId: string,
+  sl: string,
+  metricName: string,
+): number | null {
+  return ctx.campusMetric.get(`${locId}|${sl}|${metricName}`)
+    ?? ctx.campusMetric.get(`${locId}|*|${metricName}`)
+    ?? null;
 }
 
 export interface RuleCampusImpact {
@@ -448,16 +479,44 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
   // competitor_final_rate values are available. campus_metrics is populated
   // during the reference-data calculation from survey data, so it has the
   // correct value even when competitor_final_rate is blank in the rent roll.
+  //
+  // The same query also carries the two metrics the LIVE pricing engine can
+  // already gate on — private-pay mix and inquiry volume. Without them here the
+  // impact evaluator scored those conditions as false, so a rule that really
+  // does fire in production was presented to the operator as affecting zero
+  // units. Same table, same keys and same 0–100 scale the live engine reads, so
+  // the two evaluators cannot disagree.
+  //
+  // service_line IS NOT NULL cannot be part of this filter. Some metrics are
+  // only ever recorded campus-wide: inquiry and tour counts arrive from the CRM
+  // with no service-line breakdown, so every one of their rows has a NULL
+  // service line. Excluding them here is what made "inquiry volume" parse,
+  // display and then score against nothing. Campus-wide rows are kept under a
+  // '*' service line and resolved by campusMetricValue().
   const campusMetricsRes = await pool.query(
-    `SELECT location_id, service_line, value
+    `SELECT location_id, service_line, metric_name, value
      FROM campus_metrics
-     WHERE client_id = $1 AND metric_name = 'street_to_comp_var_pct'
-       AND service_line IS NOT NULL AND room_type IS NULL`,
+     WHERE client_id = $1
+       AND metric_name IN ('street_to_comp_var_pct', 'private_pay_pct', 'inquiry_count')
+       AND room_type IS NULL`,
     [clientId],
   );
   const campusStreetToCompVar = new Map<string, number>();
+  const campusMetric = new Map<string, number>();
   for (const r of campusMetricsRes.rows as any[]) {
-    if (r.location_id && r.service_line) {
+    if (!r.location_id) continue;
+    // Number(null) is 0, and 0 is a legal value for every one of these metrics.
+    // Letting a SQL NULL through as 0 would turn "never measured" into
+    // "measured zero" and score thresholds against a fact that was never
+    // recorded. Absent must stay absent.
+    if (r.value === null || r.value === undefined) continue;
+    const numeric = Number(r.value);
+    if (!Number.isFinite(numeric)) continue;
+    campusMetric.set(`${r.location_id}|${r.service_line || '*'}|${r.metric_name}`, numeric);
+    // The comp-variance fallback stays strictly service-line specific: a
+    // campus-wide variance blended across AL and HC is not a substitute for
+    // either one, and quietly using it would understate both.
+    if (r.metric_name === 'street_to_comp_var_pct' && r.service_line) {
       campusStreetToCompVar.set(`${r.location_id}|${r.service_line}`, Number(r.value));
     }
   }
@@ -632,7 +691,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
     console.warn('[ruleImpact] Failed to load RTG reverse lookup:', err);
   }
 
-  return { clientId, latestMonth, units, groups, metrics, moveMap, slMoveInRate, compBenchmark, locIdToName, campusStreetToCompVar, trailingOccMap, rtgReverse };
+  return { clientId, latestMonth, units, groups, metrics, moveMap, slMoveInRate, compBenchmark, locIdToName, campusStreetToCompVar, campusMetric, trailingOccMap, rtgReverse };
 }
 
 /** Metric lookup with SL+RT → SL → campus fallback (mirrors the rate engine). */
@@ -809,10 +868,46 @@ function evalGroupCondition(
     const avg = g && g.dvN ? g.dvSum / g.dvN : 0;
     return cmp(avg, operator, Number(cond.value));
   }
-  // Metrics we can't compute here (inquiry volume, …) — treat as
-  // not passing, same as the rate engine does when the metric is missing.
+  // Payer / demand mix, read from the same campus_metrics rows the live pricing
+  // engine gates on so the two evaluators cannot disagree. A missing value is
+  // not a zero — `cmp(null, …)` is false, which is also how the live engine
+  // behaves when the metric was never computed for that campus.
+  if (field === "quality_mix" || field === "private_pay") {
+    return cmp(campusMetricValue(ctx, locId, sl, 'private_pay_pct'), operator, value);
+  }
+  if (field === "inquiry_volume" || field === "inquiry_tour_volume" || field === "inquiry_count") {
+    return cmp(campusMetricValue(ctx, locId, sl, 'inquiry_count'), operator, value);
+  }
+  // Anything else cannot be scored here. Returning false matches the rate
+  // engine's behaviour for a missing metric, but it is silent — which is why
+  // IMPACT_SCOREABLE_FIELDS below is the list the prompt is built from and the
+  // parity test asserts against. A metric that reaches this line is one the
+  // operator would see proposed and then scored at zero units.
   return false;
 }
+
+/**
+ * Every trigger field `evalGroupCondition` can actually score.
+ *
+ * This is the authoritative answer to "may the suggestion prompt advertise this
+ * metric?". A parsed-but-unscoreable metric degrades silently: the rule looks
+ * live, the impact reads zero, and nothing anywhere reports why. Keep this in
+ * lockstep with the branches above — adding a branch without adding its field
+ * here only hides the metric from the model; adding a field here without a
+ * branch reintroduces exactly the bug this list exists to prevent.
+ */
+export const IMPACT_SCOREABLE_FIELDS: ReadonlySet<string> = new Set([
+  'occupancy', 'campus_occupancy', 'service_line_occupancy', 'room_type_occupancy',
+  'occupancy_trailing3', 'occupancy_trailing6', 'occupancy_trailing12',
+  'service_line_occupancy_trailing3', 'service_line_occupancy_trailing6', 'service_line_occupancy_trailing12',
+  'room_type_occupancy_trailing3', 'room_type_occupancy_trailing6', 'room_type_occupancy_trailing12',
+  'vacant_units', 'vacant_beds',
+  'competitor_rate', 'competitor_variance', 'street_to_comp_var',
+  'ih_street_variance', 'street_to_ih_var',
+  'days_vacant',
+  'quality_mix', 'private_pay',
+  'inquiry_volume', 'inquiry_tour_volume', 'inquiry_count',
+]);
 
 /** Does the rule's trigger pass for this campus/SL/RT group? */
 function groupPassesTrigger(

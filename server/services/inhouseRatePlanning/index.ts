@@ -29,6 +29,7 @@ import {
   horizonQuarters,
   projectMissingQuarters,
   rollMonthsIntoQuarters,
+  type MonthlyRealized,
   type ScopeFilter,
 } from "./dataAccess";
 import {
@@ -39,7 +40,7 @@ import {
   quarterEndMs,
   quarterStartMs,
 } from "./dates";
-import { solvePlan, type ResidentAllocation } from "./solver";
+import { EQUALIZATION_EXPONENT, solvePlan, type ResidentAllocation } from "./solver";
 
 export * from "./dates";
 export * from "./solver";
@@ -56,7 +57,63 @@ export interface CalculatePlanInput {
 
 export class PlanningDataError extends Error {}
 
+/**
+ * Everything the solver knew but the operator-facing result does not carry.
+ *
+ * `PlanResult` deliberately publishes conclusions, not machinery — it crosses
+ * the wire to the browser on every keystroke-driven recalculation, so widening
+ * it with per-resident solver internals would cost real bandwidth for a payload
+ * the UI never reads. The Excel export is the one consumer that needs the
+ * derivation itself, so it takes this side channel instead.
+ */
+export interface PlanAudit {
+  /** Calibration scalar; `increase = clamp(lambda * shape, min, max)`. */
+  lambda: number;
+  /** Equalization curve exponent implied by the configured strength. */
+  equalizationExponent: number;
+  /** Street multiplier in force on the in-house effective date, e.g. 1.05. */
+  streetMultiplierAtInhouse: number;
+  minEffectiveFloor: number;
+  maxEffectiveCeiling: number;
+  allowAboveStreet: boolean;
+  currentStreetRateMonthly: number;
+  recommendedStreetRateMonthly: number;
+  /** Full realized-rate history, oldest first — the trend the target is built on. */
+  monthlyRealized: MonthlyRealized[];
+  residents: Array<{
+    key: string;
+    location: string;
+    serviceLine: string;
+    roomNumber: string;
+    roomType: string | null;
+    careLevel: string | null;
+    payorType: string | null;
+    moveInDate: string | null;
+    isCompanionBed: boolean;
+    /** Resident-day weight over the measurement window. */
+    weight: number;
+    currentRateMonthly: number;
+    streetRateMonthly: number;
+    headroom: number;
+    shape: number;
+    minEffective: number;
+    maxEffective: number;
+    increase: number;
+    constraint: string;
+  }>;
+}
+
 export async function calculatePlan(input: CalculatePlanInput): Promise<PlanResult> {
+  return (await calculatePlanDetailed(input)).plan;
+}
+
+/**
+ * Same calculation as `calculatePlan`, plus the solver internals needed to
+ * reconstruct each resident's number from first principles.
+ */
+export async function calculatePlanDetailed(
+  input: CalculatePlanInput,
+): Promise<{ plan: PlanResult; audit: PlanAudit }> {
   const scope: ScopeFilter = {
     clientId: input.clientId,
     location: input.location,
@@ -173,7 +230,7 @@ export async function calculatePlan(input: CalculatePlanInput): Promise<PlanResu
     sourceMonth,
   };
 
-  return {
+  const plan: PlanResult = {
     scope: planScope,
     assumptions,
     feasible: solved.feasible,
@@ -204,6 +261,40 @@ export async function calculatePlan(input: CalculatePlanInput): Promise<PlanResu
     }),
     warnings,
   };
+
+  const audit: PlanAudit = {
+    lambda: solved.allocation.lambda,
+    equalizationExponent: EQUALIZATION_EXPONENT[assumptions.equalizationStrength] ?? 0.5,
+    streetMultiplierAtInhouse,
+    minEffectiveFloor: assumptions.minInhouseIncreasePct / 100,
+    maxEffectiveCeiling: assumptions.maxInhouseIncreasePct / 100,
+    allowAboveStreet: assumptions.allowInhouseAboveStreet,
+    currentStreetRateMonthly,
+    recommendedStreetRateMonthly: solved.recommendedStreetMonthly,
+    monthlyRealized: monthly,
+    residents: solved.allocation.allocations.map((a) => ({
+      key: a.resident.key,
+      location: a.resident.location,
+      serviceLine: a.resident.serviceLine,
+      roomNumber: a.resident.roomNumber,
+      roomType: a.resident.roomType,
+      careLevel: a.resident.careLevel,
+      payorType: a.resident.payorType,
+      moveInDate: a.resident.moveInDate,
+      isCompanionBed: a.resident.isCompanionBed,
+      weight: a.resident.weight,
+      currentRateMonthly: a.resident.currentRateMonthly,
+      streetRateMonthly: a.resident.streetRateMonthly,
+      headroom: a.headroom,
+      shape: a.shape,
+      minEffective: a.minEffective,
+      maxEffective: a.maxEffective,
+      increase: a.increase,
+      constraint: a.constraint,
+    })),
+  };
+
+  return { plan, audit };
 }
 
 /**

@@ -11,7 +11,12 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { db, pool } from "../db";
 import { inhousePlanningAssumptions, inhouseRatePlans, locations } from "@shared/schema";
 import { DEFAULT_ASSUMPTIONS, type PlanningAssumptions } from "@shared/inhousePlanning";
-import { calculatePlan, PlanningDataError } from "../services/inhouseRatePlanning";
+import {
+  calculatePlan,
+  calculatePlanDetailed,
+  PlanningDataError,
+} from "../services/inhouseRatePlanning";
+import { buildRatePlanWorkbook } from "../services/inhouseRatePlanning/excelExport";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -265,6 +270,73 @@ export function registerInhousePlanningRoutes(app: Express) {
       }
       console.error("[inhouse-planning] calculate failed:", error);
       res.status(500).json({ error: "Failed to calculate the in-house rate plan" });
+    }
+  });
+
+  // ── Excel export ─────────────────────────────────────────────────────────
+
+  /**
+   * Builds the workbook server-side rather than in the browser. The formula
+   * chain needs the solver's per-resident internals — weight, headroom, shape,
+   * the effective bounds and lambda — and none of those cross the wire on the
+   * normal calculate response, which is deliberately kept lean because it is
+   * re-fetched on every assumption change.
+   *
+   * POST, not GET, because it takes the same assumptions body as /calculate:
+   * the operator exports what they are currently looking at, which may be
+   * unsaved edits rather than the stored defaults.
+   */
+  app.post("/api/inhouse-planning/export", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || "demo";
+      const body = scopeSchema
+        .extend({ assumptions: assumptionsSchema.optional() })
+        .safeParse(req.body);
+      if (!body.success) {
+        return res
+          .status(400)
+          .json({ error: body.error.errors[0]?.message || "Invalid export request" });
+      }
+      const locationId = body.data.locationId || null;
+      const location = await resolveLocationName(clientId, locationId);
+      const assumptions =
+        body.data.assumptions ??
+        (await resolveAssumptions(clientId, locationId, body.data.serviceLine)).assumptions;
+
+      const { plan, audit } = await calculatePlanDetailed({
+        clientId,
+        locationId,
+        location,
+        serviceLine: body.data.serviceLine,
+        assumptions,
+      });
+
+      const buffer = await buildRatePlanWorkbook({
+        plan,
+        audit,
+        generatedBy: req.user?.username || req.user?.email || undefined,
+      });
+
+      const slug = (value: string) =>
+        value.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "all";
+      const filename = `in-house-rate-plan_${slug(location ?? "all-campuses")}_${slug(
+        body.data.serviceLine,
+      )}_${plan.scope.sourceMonth}.xlsx`;
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Length", String(buffer.length));
+      res.setHeader("Cache-Control", "no-store");
+      res.end(buffer);
+    } catch (error) {
+      if (error instanceof PlanningDataError) {
+        return res.status(422).json({ error: error.message });
+      }
+      console.error("[inhouse-planning] export failed:", error);
+      res.status(500).json({ error: "Failed to build the rate plan export" });
     }
   });
 

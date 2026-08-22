@@ -76,3 +76,6 @@
 - [Derived rate formulas](derived-rate-formulas.md) — six non-base products derived from the base rate; outputs only, round once, whole-set saves on a pinned connection, session-scoped mutations.
 - [Cancelling a slow AI request](ai-run-cancellation.md) — `req.on('close')` fires when the body is read, not on disconnect; budgets must span both providers and be enforced by a non-unref'd timer.
 - [In-house rate planning solver](inhouse-rate-planning-solver.md) — solve bisections exact (tolerance at the edge); operator ceilings clamp derived floors; `computed || fallback` erases a real zero.
+- [campus_metrics granularity](campus-metrics-granularity.md) — CRM metrics exist only with a NULL service line; `service_line IS NOT NULL` silently kills them, and Number(null) is a measured 0.
+- [AI prompt metric contract](ai-prompt-metric-contract.md) — an advertised trigger must parse AND be scored by both engines; aliases containing AND/OR are unreachable by construction.
+- [Solver result → spreadsheet export](solver-to-spreadsheet-export.md) — only iterative/simulated values may be snapshots; label the three cell buckets, assert cross-sheet row coupling, ExcelJS needs raw OOXML for charts.

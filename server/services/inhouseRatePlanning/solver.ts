@@ -53,7 +53,7 @@ const PASS_EPSILON = 1e-6;
  * hard-coded percentage bands, which would silently ignore the operator's
  * own bounds.
  */
-const EQUALIZATION_EXPONENT: Record<EqualizationStrength, number> = {
+export const EQUALIZATION_EXPONENT: Record<EqualizationStrength, number> = {
   low: 0,
   medium: 0.5,
   high: 1,
@@ -189,10 +189,24 @@ export interface ResidentAllocation {
   headroom: number;
   minEffective: number;
   maxEffective: number;
+  /**
+   * This resident's position on the equalization curve,
+   * `(headroom / mean headroom) ^ exponent`. Exposed so an export can show the
+   * increase as a derivation rather than an unexplained number.
+   */
+  shape: number;
 }
 
 export interface AllocationResult {
   allocations: ResidentAllocation[];
+  /**
+   * The calibration scalar the bisection settled on. Every resident's increase
+   * is `clamp(lambda * shape, min, max)`, so this single number is what turns
+   * the shape curve into actual percentages. Exposed because it is the one
+   * value in the chain that has no closed form — an export can publish it as a
+   * solved input and derive everything else from it.
+   */
+  lambda: number;
   /** Revenue-weighted average increase actually achieved, as a fraction. */
   achievedAvgIncrease: number;
   /** Smallest average the constraints permit (everyone at their floor). */
@@ -315,11 +329,13 @@ export function allocateIncreases(input: AllocationInput): AllocationResult {
       headroom: b.headroom,
       minEffective: b.minEffective,
       maxEffective: b.maxEffective,
+      shape: b.shape,
     };
   });
 
   return {
     allocations,
+    lambda,
     achievedAvgIncrease: weightedAverage(bounds, (b) =>
       clamp(lambda * b.shape, b.minEffective, b.maxEffective),
     ),

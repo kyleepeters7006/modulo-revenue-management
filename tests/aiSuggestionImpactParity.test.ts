@@ -27,7 +27,9 @@ import {
   buildRuleImpactContext,
   computeQualifiedRuleImpact,
   selectSuggestionImpact,
+  IMPACT_SCOREABLE_FIELDS,
 } from '../server/services/ruleImpactService';
+import { ADVERTISED_METRICS } from '../server/services/ruleMetricCatalog';
 
 const BASE = process.env.TEST_BASE_URL || 'http://localhost:5000';
 const CLIENT = 'ptest-ai-impact-parity';
@@ -421,6 +423,78 @@ async function main() {
     apart('and is not the two-campus figure',
       Number(singleRow.monthly_impact), expected.monthlyImpact);
   }
+
+  // ── every advertised metric must survive parse AND scoring ───────────────
+  // The prompt teaches a phrase, the parser turns it into a field, the impact
+  // evaluator scores that field. When any link breaks nothing raises: the rule
+  // is proposed, accepted, and quietly affects zero units — or worse, the
+  // condition is dropped and a targeted rule silently becomes a blanket one.
+  // These assertions are the only place that failure is visible.
+  console.log('\n── every advertised trigger metric is parseable and scoreable ──');
+  for (const m of ADVERTISED_METRICS) {
+    const sentence = `If ${m.samplePhrase}, increase street rate by 5% for vacant units`;
+    const p: any = parseNaturalLanguageRule(sentence);
+    const trig = p?.trigger;
+    const conds: any[] = trig?.conditions ?? (trig?.condition ? [trig.condition] : []);
+    ok(`"${m.label}" parses to a real condition`,
+      conds.length === 1 && trig?.type === 'condition',
+      `sentence: ${sentence}\n    trigger: ${JSON.stringify(trig)}`);
+    ok(`"${m.label}" parses to field ${m.field}`,
+      conds[0]?.field === m.field,
+      `got: ${conds[0]?.field}`);
+    ok(`"${m.label}" is scoreable by the impact evaluator`,
+      IMPACT_SCOREABLE_FIELDS.has(m.field),
+      `${m.field} is not in IMPACT_SCOREABLE_FIELDS — a rule using it would report zero impact`);
+    // An alias containing a conjunction is unreachable: the compound-trigger
+    // splitter breaks the sentence on AND/OR before the metric table is
+    // consulted. 'inquiry and tour volume' was advertised for exactly this
+    // reason and could never once have matched.
+    ok(`"${m.label}" sample phrase has no AND/OR that would split it`,
+      !/\s(and|or)\s/i.test(m.samplePhrase),
+      `phrase: ${m.samplePhrase}`);
+  }
+  ok('total units is NOT advertised (no evaluator scores it)',
+    !ADVERTISED_METRICS.some(m => m.field === 'total_units'),
+    'total_units parses but neither the impact evaluator nor live pricing scores it');
+  ok('the prompt advertises the two metrics that used to score zero',
+    ADVERTISED_METRICS.some(m => m.field === 'quality_mix')
+    && ADVERTISED_METRICS.some(m => m.field === 'inquiry_volume'));
+
+  // Scoring the two newly-wired metrics against real context data, not just
+  // membership of a list. A field can be in the set and still be unreachable if
+  // the context never loads the value behind it.
+  console.log('\n── quality mix and inquiry volume score against real data ──');
+  // Seeded the way production actually stores these: private_pay_pct is broken
+  // out per service line, inquiry_count arrives from the CRM campus-wide with a
+  // NULL service line. Seeding inquiry_count against 'AL' would make this test
+  // pass while the real column shape scores nothing — which is precisely the
+  // bug it exists to catch.
+  await pool.query(
+    `INSERT INTO campus_metrics (client_id, location_id, service_line, metric_name, value)
+     VALUES ($1,$2,'AL','private_pay_pct',82), ($1,$2,NULL,'inquiry_count',140)`,
+    [CLIENT, locIds.get(SMALL_A)!],
+  );
+  const mixCtx = await buildRuleImpactContext(CLIENT);
+  ok('the impact context loads campus_metrics values',
+    mixCtx?.campusMetric.get(`${locIds.get(SMALL_A)!}|AL|private_pay_pct`) === 82,
+    `got: ${mixCtx?.campusMetric.get(`${locIds.get(SMALL_A)!}|AL|private_pay_pct`)}`);
+  for (const [label, sentence, shouldMatch] of [
+    ['quality mix above a threshold it clears', 'If quality mix is greater than 70, increase street rate by 5% for occupied Studio units', true],
+    ['quality mix above a threshold it misses', 'If quality mix is greater than 90, increase street rate by 5% for occupied Studio units', false],
+    ['inquiry volume above a threshold it clears', 'If inquiry volume is greater than 100, increase street rate by 5% for occupied Studio units', true],
+    ['inquiry volume above a threshold it misses', 'If inquiry volume is greater than 500, increase street rate by 5% for occupied Studio units', false],
+  ] as Array<[string, string, boolean]>) {
+    const q: any = parseNaturalLanguageRule(sentence);
+    const imp = computeQualifiedRuleImpact(
+      mixCtx!,
+      { action: q.action, trigger: q.trigger, serviceLines: ['AL'], locationId: locIds.get(SMALL_A)! },
+      { locationIds: [locIds.get(SMALL_A)!] },
+    );
+    ok(`${label} → ${shouldMatch ? 'affects units' : 'affects none'}`,
+      shouldMatch ? imp.affectedUnits > 0 : imp.affectedUnits === 0,
+      `affectedUnits: ${imp.affectedUnits}`);
+  }
+  await pool.query(`DELETE FROM campus_metrics WHERE client_id = $1`, [CLIENT]);
 
   await cleanup();
   console.log(`\n${passed} passed, ${failed} failed`);

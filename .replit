@@ -58,6 +58,10 @@ args = "ai-router-fallback"
 task = "workflow.run"
 args = "cancellable-write"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "inhouse-rate-plan-export"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -151,6 +155,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npx tsx tests/cancellableWrite.test.ts"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "inhouse-rate-plan-export"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx tsx tests/inhouseRatePlanExport.test.ts"
 
 [workflows.workflow.metadata]
 outputType = "console"

@@ -38,6 +38,7 @@ import {
   ChevronDown,
   ChevronRight,
   Calculator,
+  Download,
   Info,
   Loader2,
   Save,
@@ -259,6 +260,58 @@ export default function InhouseIncreases() {
       const json = await res.json();
       setAssumptions((prev) => (assumptionsTouched ? prev : json.assumptions));
       return json;
+    },
+  });
+
+  /**
+   * The workbook is built server-side: it needs the solver's per-resident
+   * internals (weight, headroom, shape, effective bounds, lambda) to write the
+   * formula chain, and none of those are on the PlanResult the page holds.
+   */
+  const exportPlan = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/inhouse-planning/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ locationId: scopeLocationId, serviceLine, assumptions }),
+      });
+      if (!res.ok) {
+        // A failed export still returns JSON; surface its message rather than
+        // handing the browser an error page saved as .xlsx.
+        let message = "Failed to build the export";
+        try {
+          message = (await res.json()).error || message;
+        } catch {
+          /* non-JSON error body — keep the generic message */
+        }
+        throw new Error(message);
+      }
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const named = /filename="([^"]+)"/.exec(disposition)?.[1];
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = named || `in-house-rate-plan-${serviceLine}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Rate plan exported",
+        description:
+          "Every step is a live Excel formula — change an assumption on the summary sheet and the workbook recalculates.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Export failed",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -931,19 +984,35 @@ export default function InhouseIncreases() {
                     increase was calculated.
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="constrained-only"
-                    data-testid="switch-constrained-only"
-                    checked={constrainedOnly}
-                    onCheckedChange={(v) => {
-                      setConstrainedOnly(v);
-                      setVisibleCount(50);
-                    }}
-                  />
-                  <Label htmlFor="constrained-only" className="text-xs">
-                    Only residents hitting a limit
-                  </Label>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="constrained-only"
+                      data-testid="switch-constrained-only"
+                      checked={constrainedOnly}
+                      onCheckedChange={(v) => {
+                        setConstrainedOnly(v);
+                        setVisibleCount(50);
+                      }}
+                    />
+                    <Label htmlFor="constrained-only" className="text-xs">
+                      Only residents hitting a limit
+                    </Label>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="button-export-plan"
+                    disabled={exportPlan.isPending}
+                    onClick={() => exportPlan.mutate()}
+                  >
+                    {exportPlan.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-2 h-4 w-4" />
+                    )}
+                    Export to Excel
+                  </Button>
                 </div>
               </div>
             </CardHeader>

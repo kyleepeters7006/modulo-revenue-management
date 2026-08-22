@@ -328,9 +328,30 @@ const METRIC_TO_FIELD: Array<{ key: string; field: string; rawPct?: boolean }> =
   { key: 'vacant units/beds',                                   field: 'vacant_units', rawPct: true },
   { key: 'total units/beds',                                    field: 'total_units', rawPct: true },
   { key: 'days vacant',                                         field: 'days_vacant', rawPct: true },
+  // ── Vacant unit COUNT ──────────────────────────────────────────────────
+  // Only the slashed column label used to parse, so the plain phrasing the
+  // prompt teaches ("vacant units is greater than 5") matched nothing and the
+  // condition was dropped. These must stay AFTER 'days vacant' so a vacancy
+  // DURATION clause is claimed by the duration metric first, and they are only
+  // ever tested against an if-clause — the "for vacant units" action filter is
+  // parsed separately by parseAction.
+  { key: 'vacant unit count',                                   field: 'vacant_units', rawPct: true },
+  { key: 'vacant bed count',                                    field: 'vacant_units', rawPct: true },
+  { key: 'vacant units',                                        field: 'vacant_units', rawPct: true },
+  { key: 'vacant beds',                                         field: 'vacant_units', rawPct: true },
+  // ── Inquiry volume ─────────────────────────────────────────────────────
+  // The original alias 'inquiry and tour volume' could never parse: the
+  // compound-trigger splitter breaks the sentence on " and " before this table
+  // is consulted, leaving "inquiry" and "tour volume ..." as two fragments that
+  // each match nothing. An alias containing AND or OR is unreachable by
+  // construction — keep these conjunction-free.
   { key: 'inquiry and tour volume',                             field: 'inquiry_volume', rawPct: true },
+  { key: 'inquiry volume',                                      field: 'inquiry_volume', rawPct: true },
+  { key: 'inquiry count',                                       field: 'inquiry_volume', rawPct: true },
   // Compared against private_pay_pct, which is on the 0–100 scale.
   { key: 'quality mix',                                         field: 'quality_mix', rawPct: true },
+  { key: 'private pay mix',                                     field: 'quality_mix', rawPct: true },
+  { key: 'private pay percentage',                              field: 'quality_mix', rawPct: true },
 ];
 
 /**
