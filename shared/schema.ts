@@ -614,6 +614,61 @@ export const derivedRateFormulas = pgTable("derived_rate_formulas", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// In-House Rate Planning assumptions.
+//
+// Three-tier scope exactly like `guardrails` and `adjustment_ranges`:
+// location + service line → location → global (both NULL), resolved most
+// specific first. Scoped per client on top of that, because an operator's
+// growth objective is not portfolio-neutral information.
+export const inhousePlanningAssumptions = pgTable("inhouse_planning_assumptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull(),
+  locationId: varchar("location_id").references(() => locations.id), // NULL = all campuses
+  serviceLine: text("service_line"),                                 // NULL = all service lines
+  rateGrowthTargetPct: real("rate_growth_target_pct").notNull().default(5),
+  measurementMode: text("measurement_mode").notNull().default("quarterly_yoy"),
+  streetRateEffectiveDate: text("street_rate_effective_date"), // YYYY-MM-DD; NULL = next quarter
+  inhouseEffectiveDate: text("inhouse_effective_date"),        // YYYY-MM-DD; NULL = next quarter
+  annualTurnoverPct: real("annual_turnover_pct").notNull().default(35),
+  minInhouseIncreasePct: real("min_inhouse_increase_pct").notNull().default(0),
+  maxInhouseIncreasePct: real("max_inhouse_increase_pct").notNull().default(8),
+  equalizationStrength: text("equalization_strength").notNull().default("medium"), // low | medium | high
+  allowInhouseAboveStreet: boolean("allow_inhouse_above_street").notNull().default(false),
+  maxStreetIncreasePct: real("max_street_increase_pct").notNull().default(15),
+  updatedBy: text("updated_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  uniqueScope: uniqueIndex("inhouse_planning_assumptions_scope")
+    .on(table.clientId, table.locationId, table.serviceLine),
+}));
+
+// An applied in-house increase plan, kept as an immutable audit version.
+//
+// Calculating never writes; applying does, and it writes here FIRST so the
+// numbers an operator approved survive independently of any later repricing.
+export const inhouseRatePlans = pgTable("inhouse_rate_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull(),
+  locationId: varchar("location_id").references(() => locations.id),
+  location: text("location"),
+  serviceLine: text("service_line").notNull(),
+  version: integer("version").notNull(),
+  status: text("status").notNull().default("applied"), // applied | superseded
+  assumptions: jsonb("assumptions").notNull(),
+  summary: jsonb("summary").notNull(),
+  quarters: jsonb("quarters").notNull(),
+  residents: jsonb("residents").notNull(),
+  streetRateEffectiveDate: text("street_rate_effective_date"),
+  inhouseEffectiveDate: text("inhouse_effective_date"),
+  recommendedStreetRate: real("recommended_street_rate"),
+  appliedBy: text("applied_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertInhousePlanningAssumptionsSchema = createInsertSchema(inhousePlanningAssumptions);
+export const insertInhouseRatePlansSchema = createInsertSchema(inhouseRatePlans);
+
 export const insertStreetRatesSchema = createInsertSchema(streetRates);
 export const insertSpecialRatesSchema = createInsertSchema(specialRates);
 export const insertDerivedRateFormulasSchema = createInsertSchema(derivedRateFormulas);

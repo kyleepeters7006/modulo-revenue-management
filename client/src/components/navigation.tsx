@@ -23,6 +23,7 @@ import {
   Layers,
   Shield,
   ChevronDown,
+  TrendingUp,
 } from "lucide-react";
 
 const primaryItems = [
@@ -35,6 +36,7 @@ const primaryItems = [
 ];
 
 const moreItems = [
+  { path: "/inhouse-increases", label: "In-House Increases", icon: TrendingUp },
   { path: "/room-attributes", label: "Room Attributes", icon: Layers },
   { path: "/floor-plans", label: "Floor Plans", icon: LayoutTemplate },
   { path: "/data-management", label: "Data Management", icon: Upload },

@@ -34,6 +34,10 @@ args = "comp-position-refdata-parity"
 task = "workflow.run"
 args = "al-mc-family-matching"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "inhouse-rate-planning"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -64,6 +68,17 @@ args = "npx tsx tests/alMcFamilyMatching.test.ts"
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "inhouse-rate-planning"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx tsx tests/inhouseRatePlanning.test.ts"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [[ports]]
 localPort = 5000

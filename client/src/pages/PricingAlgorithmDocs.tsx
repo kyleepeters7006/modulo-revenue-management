@@ -1,9 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  ArrowLeft, Calculator, Target, TrendingUp, Clock,
-  BarChart3, Activity, Shield, Sparkles, GitBranch,
-  SlidersHorizontal, Zap, Lock, Plus,
+  ArrowLeft, Target, TrendingUp, BarChart3, Shield,
+  GitBranch, SlidersHorizontal,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -59,7 +58,6 @@ export default function PricingAlgorithmDocs() {
           {[
             ["#overview", "Overview"],
             ["#rule-designer", "Rule Designer"],
-            ["#exclusivity", "Exclusivity"],
             ["#ai-suggestions", "AI Suggestions"],
             ["#measurement", "Measurement"],
             ["#elasticity", "Elasticity"],
@@ -73,49 +71,42 @@ export default function PricingAlgorithmDocs() {
 
           <Section id="overview" icon={GitBranch} title="Overview">
             <p>
-              Modulo recommends a rate for every unit based on the pricing rules your team has put in place. An <strong className="text-[var(--trilogy-dark-blue)]">AI rule generator</strong> analyzes occupancy trends, market conditions, and your community's performance to suggest rules designed to hit your revenue growth targets — you review and approve before anything goes live. Once active, each rule nudges rates up or down, and a built-in safety layer keeps every recommended rate within the boundaries you set.
+              Modulo recommends a rate for every unit from the pricing rules your team puts in place. An <strong className="text-[var(--trilogy-dark-blue)]">AI rule generator</strong> reads occupancy, market conditions, and community performance to propose rules aimed at your growth target — you approve them before anything goes live. Active rules move rates up or down, and guardrails keep every result inside the boundaries you set.
             </p>
           </Section>
 
           <Section id="rule-designer" icon={SlidersHorizontal} title="Rule Designer"
             sub="Where all pricing adjustments are authored">
             <p>
-              Build rules in plain English (<em>"Reduce vacant AL rates by $100 after 30 days"</em>) and let AI parse them into structured conditions, or use the Structured Builder directly. Conditions can trigger on occupancy, vacancy, days vacant, competitor variance, season, inquiries, elasticity, days-to-sell, or revenue target. Actions include % or fixed $ adjustments, absolute rate overrides, and discounts — scoped to portfolio, location, or service line.
-            </p>
-          </Section>
-
-          <Section id="exclusivity" icon={Lock} color="text-amber-500" title="Rule Exclusivity &amp; Priority"
-            sub="One rule per unit by default — stacking is opt-in">
-            <p>
-              <strong className="text-[var(--trilogy-dark-blue)]">Exclusive rules</strong> (the default) claim matching units in priority order; a lower-priority exclusive rule skips any unit already claimed. <strong className="text-[var(--trilogy-dark-blue)]">Additive rules</strong> always stack on top of the exclusive result and are never skipped. Priority is determined by creation order — oldest rule is #1.
+              Write rules in plain English — <em>"Reduce vacant AL rates by $100 after 30 days"</em> — and AI parses them into structured conditions, or use the Structured Builder directly. Triggers include occupancy, vacancy, days vacant, competitor variance, season, inquiries, elasticity, days-to-sell, and revenue target. Actions are % or $ adjustments, absolute overrides, and discounts, scoped to portfolio, location, or service line.
             </p>
           </Section>
 
           <Section id="ai-suggestions" icon={Target} color="text-[var(--trilogy-dark-blue)]" title="AI Rule Suggestions"
             sub="Turn a revenue goal into reviewable adjustment rules">
             <p>
-              Set a target annual revenue growth % per campus and service line. Modulo generates candidate rules with intent, affected units, projected revenue impact, and elasticity assumption. Review each suggestion and <strong className="text-[var(--trilogy-dark-blue)]">Accept</strong>, <strong>Edit</strong>, or <strong>Deny</strong> — accepted suggestions become ordinary rules in the Rule Designer. Every decision is logged: the AI learns from your choices and calibrates future runs to your strategy.
+              Set a target annual revenue growth % per campus and service line. Modulo proposes rules with their intent, affected units, projected revenue impact, and elasticity assumption. <strong className="text-[var(--trilogy-dark-blue)]">Accept</strong>, <strong>Edit</strong>, or <strong>Deny</strong> each one — accepted suggestions become ordinary rules in the Rule Designer. Every decision is logged, so future runs calibrate to your strategy.
             </p>
           </Section>
 
           <Section id="measurement" icon={BarChart3} title="Revenue Growth Measurement"
             sub="Trailing 3-month before-and-after tracking">
             <p>
-              Rule performance is measured using a <strong className="text-[var(--trilogy-dark-blue)]">T3 window</strong> — the three months of move-in data immediately before and after a rule is applied. The difference in average move-in rate and monthly revenue (T+ minus T−) gives the observed delta attributable to each rule. Rules with no applied history yet appear as <strong>projected</strong> rows estimated from current qualifying units. Win Rate tracks how often a unit leased at or above its proposed rate.
+              Rule performance uses a <strong className="text-[var(--trilogy-dark-blue)]">T3 window</strong> — the three months of move-ins immediately before and after a rule goes live. T+ minus T− is the observed change in average move-in rate and monthly revenue. Rules with no history yet show as <strong>projected</strong>, estimated from current qualifying units. Win Rate tracks how often a unit leased at or above its proposed rate.
             </p>
           </Section>
 
           <Section id="elasticity" icon={TrendingUp} title="Elasticity &amp; Revenue Impact"
             sub="How proposed changes are scored — and how predictions improve">
             <p>
-              When a rule proposes a rate change, Modulo estimates the resulting shift in <strong className="text-[var(--trilogy-dark-blue)]">days-to-sell</strong> using a price elasticity model — a lower rate typically leases faster, a higher rate slower. The days-to-sell change combined with the new rate projects monthly and annual revenue. Predicted days-to-sell is compared to actual outcomes over time, tightening the model per service line and location.
+              A proposed rate change is scored by its estimated effect on <strong className="text-[var(--trilogy-dark-blue)]">days-to-sell</strong>: lower rates lease faster, higher rates slower. That shift plus the new rate projects monthly and annual revenue. Predictions are compared against actual outcomes, tightening the model per service line and location.
             </p>
           </Section>
 
           <Section id="guardrails" icon={Shield} title="Guardrails"
             sub="Final safety layer — clamps the Rules Rate after all adjustments">
             <p>
-              Guardrails enforce a hard floor and ceiling on the final rate, cap the maximum single-cycle increase or decrease, and limit deviation from the competitor median. Care-level rates are also applied here and always honored. Guardrails are configurable at portfolio, location, or service-line level with optional seasonal overrides.
+              Guardrails set a hard floor and ceiling on the final rate, cap the largest single-cycle move, and limit deviation from the competitor median. Care-level rates are applied here and always honored. Configurable at portfolio, location, or service-line level, with optional seasonal overrides.
             </p>
           </Section>
 

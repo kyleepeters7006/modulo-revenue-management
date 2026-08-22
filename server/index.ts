@@ -517,6 +517,70 @@ app.use((req, res, next) => {
     log(`[migration] derived_rate_formulas migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: in-house rate planning.
+  //
+  // `inhouse_planning_assumptions` holds the per-scope growth objective and
+  // guardrails; `inhouse_rate_plans` keeps every applied plan as an immutable
+  // version so an operator can always answer "what did we approve, and on what
+  // numbers". Best-effort like the other table migrations — an absent table
+  // makes the planning page unavailable rather than breaking the app.
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS inhouse_planning_assumptions (
+        id                          varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id                   varchar NOT NULL,
+        location_id                 varchar REFERENCES locations(id),
+        service_line                text,
+        rate_growth_target_pct      real    NOT NULL DEFAULT 5,
+        measurement_mode            text    NOT NULL DEFAULT 'quarterly_yoy',
+        street_rate_effective_date  text,
+        inhouse_effective_date      text,
+        annual_turnover_pct         real    NOT NULL DEFAULT 35,
+        min_inhouse_increase_pct    real    NOT NULL DEFAULT 0,
+        max_inhouse_increase_pct    real    NOT NULL DEFAULT 8,
+        equalization_strength       text    NOT NULL DEFAULT 'medium',
+        allow_inhouse_above_street  boolean NOT NULL DEFAULT false,
+        max_street_increase_pct     real    NOT NULL DEFAULT 15,
+        updated_by                  text,
+        created_at                  timestamp DEFAULT now(),
+        updated_at                  timestamp DEFAULT now()
+      )`));
+    // NULLS NOT DISTINCT so the campus-wide and portfolio-wide rows collide
+    // with themselves and upsert cleanly instead of accumulating duplicates.
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS inhouse_planning_assumptions_scope
+        ON inhouse_planning_assumptions (client_id, location_id, service_line) NULLS NOT DISTINCT`));
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS inhouse_rate_plans (
+        id                          varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id                   varchar NOT NULL,
+        location_id                 varchar REFERENCES locations(id),
+        location                    text,
+        service_line                text NOT NULL,
+        version                     integer NOT NULL,
+        status                      text NOT NULL DEFAULT 'applied',
+        assumptions                 jsonb NOT NULL,
+        summary                     jsonb NOT NULL,
+        quarters                    jsonb NOT NULL,
+        residents                   jsonb NOT NULL,
+        street_rate_effective_date  text,
+        inhouse_effective_date      text,
+        recommended_street_rate     real,
+        applied_by                  text,
+        created_at                  timestamp DEFAULT now()
+      )`));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS inhouse_rate_plans_scope_idx
+        ON inhouse_rate_plans (client_id, location, service_line, version DESC)`));
+    // Two concurrent approvals must not be able to mint the same version.
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS inhouse_rate_plans_version_uniq
+        ON inhouse_rate_plans (client_id, location, service_line, version) NULLS NOT DISTINCT`));
+    log("[migration] in-house rate planning tables ensured");
+  } catch (migErr) {
+    log(`[migration] inhouse rate planning migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // One-time repair: fix stale action.filters.serviceLine on adjustment rules

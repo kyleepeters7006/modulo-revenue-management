@@ -22,6 +22,7 @@ import FloorPlansAdmin from "@/pages/floor-plans-admin";
 import DataImport from "@/pages/data-import";
 import DataImports from "@/pages/data-imports";
 import StreetRateQuality from "@/pages/street-rate-quality";
+import InhouseIncreases from "@/pages/inhouse-increases";
 import NotFound from "@/pages/not-found";
 
 function AppContent() {
@@ -47,6 +48,7 @@ function Router() {
       <Route path="/data-management" component={DataManagement} />
       <Route path="/rate-card" component={RateCard} />
       <Route path="/pricing-controls" component={PricingControls} />
+      <Route path="/inhouse-increases" component={InhouseIncreases} />
       <Route path="/room-attributes" component={RoomAttributes} />
       <Route path="/competitors">
         <Redirect to="/competitor-analysis" />
