@@ -157,6 +157,16 @@ export const rentRollData = pgTable("rent_roll_data", {
   ruleAdjustedRate: real("rule_adjusted_rate"), // Rate after applying adjustment rules (e.g., 5% AL increase)
   appliedRuleName: text("applied_rule_name"), // Name of the rule that was applied
   ruleRateCalculatedAt: timestamp("rule_rate_calculated_at"), // Timestamp when ruleAdjustedRate was last written
+  // ── Annual in-house increase plan output ────────────────────────────────
+  // Written by the plan overlay job the same way ruleAdjustedRate is written by
+  // the repricing job: the solve is far too slow to run per request, so its
+  // per-resident result is materialised here for Reference Data to read.
+  // Only occupied, private-pay rooms the plan actually covers get a value.
+  inhousePlannedRate: real("inhouse_planned_rate"), // New in-house rate, SAME basis as in_house_rate (daily for HC)
+  inhousePlanEffectiveDate: text("inhouse_plan_effective_date"), // When the increase takes effect
+  inhousePlanSource: text("inhouse_plan_source"), // 'applied' (approved plan) | 'preview' (current saved assumptions)
+  inhousePlanLabel: text("inhouse_plan_label"), // Human-readable plan scope, e.g. "All campuses · AL v3"
+  inhousePlanCalculatedAt: timestamp("inhouse_plan_calculated_at"),
   promotionAllowance: real("promotion_allowance"),
   // MatrixCare specific fields
   residentId: text("resident_id"), // Unique resident identifier for MatrixCare
