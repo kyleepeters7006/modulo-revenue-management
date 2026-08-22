@@ -11,12 +11,16 @@ export async function apiRequest(
   url: string,
   method: string,
   data?: unknown | undefined,
+  // Long-running requests (AI runs) need to be cancellable and time-bounded,
+  // or a hung socket leaves the caller on a spinner with no way out.
+  opts?: { signal?: AbortSignal },
 ): Promise<Response> {
   const res = await fetch(url, {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
+    signal: opts?.signal,
   });
 
   await throwIfResNotOk(res);

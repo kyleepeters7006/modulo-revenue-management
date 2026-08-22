@@ -50,6 +50,14 @@ args = "ai-suggestion-impact-parity"
 task = "workflow.run"
 args = "ai-suggestion-gates"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "ai-router-fallback"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "cancellable-write"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -121,6 +129,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npx tsx tests/aiSuggestionGates.test.ts"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "ai-router-fallback"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx tsx tests/aiRouterFallback.test.ts"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "cancellable-write"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx tsx tests/cancellableWrite.test.ts"
 
 [workflows.workflow.metadata]
 outputType = "console"

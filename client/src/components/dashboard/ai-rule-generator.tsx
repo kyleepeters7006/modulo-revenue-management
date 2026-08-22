@@ -72,10 +72,66 @@ interface SuggestionDiagnostics {
   summary: string | null;
 }
 
+/**
+ * Which model actually wrote these rules. The server falls back to a different
+ * model whenever the primary one fails, so "the AI suggested this" is not a
+ * specific enough provenance for a pricing change someone is about to approve.
+ */
+interface SuggestionModelInfo {
+  name: string;
+  usedFallback: boolean;
+  fallbackReason: string | null;
+  elapsedMs?: number;
+}
+
 interface SuggestRunResponse {
   suggestions?: RuleSuggestion[];
   diagnostics?: SuggestionDiagnostics | null;
+  model?: SuggestionModelInfo | null;
   context?: { campus?: string | null; reason?: string | null; reasonMessage?: string | null } | null;
+}
+
+/** A failed run needs to stay on the page; a toast that fades leaves nothing to act on. */
+interface RunFailure {
+  title: string;
+  message: string;
+  /** True when the run stopped because it ran out of time rather than erroring. */
+  timedOut: boolean;
+}
+
+// Hard stop on the client. The server gives up at 3 minutes and returns a
+// specific message, so this only fires when the socket itself is dead and no
+// response is ever coming.
+const CLIENT_RUN_TIMEOUT_MS = 300_000;
+// Past this, the run is outside its normal range and the operator deserves to
+// be told rather than left guessing whether it is stuck.
+const RUN_SLOW_AFTER_MS = 120_000;
+
+function formatElapsed(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  if (total < 60) return `${total}s`;
+  return `${Math.floor(total / 60)}m ${String(total % 60).padStart(2, '0')}s`;
+}
+
+/** Turn apiRequest's "<status>: <raw JSON body>" into something readable. */
+function readRunError(error: any): RunFailure {
+  const raw: string = error?.message ?? '';
+  const timedOut = error?.name === 'TimeoutError' || raw.startsWith('504');
+  const body = raw.slice(raw.indexOf(':') + 1).trim();
+  let message = raw || 'The suggestion run failed.';
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed?.error) {
+      message = String(parsed.error);
+      if (parsed.detail) message += ` (${parsed.detail})`;
+    }
+  } catch {
+    // Not JSON — a network-level failure. The raw text is all there is.
+    if (error?.name === 'TimeoutError') {
+      message = 'The run did not finish within 5 minutes and was stopped. Narrow the scope to a region or a single campus and try again.';
+    }
+  }
+  return { title: timedOut ? 'Suggestion run timed out' : 'Suggestion run failed', message, timedOut };
 }
 
 interface AiRuleGeneratorProps {
@@ -125,6 +181,17 @@ export default function AiRuleGenerator({
   const [diagnostics, setDiagnostics] = useState<SuggestionDiagnostics | null>(null);
   const [emptyMessage, setEmptyMessage] = useState<string | null>(null);
   const [showDroppedDetail, setShowDroppedDetail] = useState(false);
+  const [modelInfo, setModelInfo] = useState<SuggestionModelInfo | null>(null);
+  const [runError, setRunError] = useState<RunFailure | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const abortRef = useRef<AbortController | null>(null);
+  // Aborting rejects a fetch that is still in flight, but a response that has
+  // already arrived will settle regardless. Each run therefore carries an id,
+  // and only the run that is still current is allowed to write to the panel —
+  // otherwise a cancel could be overwritten a moment later by the very results
+  // the operator just declined to wait for.
+  const runSeqRef = useRef(0);
+  const currentRunRef = useRef<number | null>(null);
 
   // What this run will analyze, in the user's own filter terms.
   const scopeSummary = useMemo(() => {
@@ -189,6 +256,9 @@ export default function AiRuleGenerator({
     // "3 of 10 shown" back into a bare 3.
     setDiagnostics(lastRun.diagnostics ?? null);
     setEmptyMessage(lastRun.context?.reasonMessage ?? null);
+    // Attribution has to survive the reload too — otherwise a run written by
+    // the fallback model looks, after a refresh, exactly like one written by Opus.
+    setModelInfo(lastRun.model ?? null);
     setRestoredFromCache(true);
     setHasGenerated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -268,26 +338,47 @@ export default function AiRuleGenerator({
       for (const sl of targetSLs) {
         if (targetGrowth[sl]) targets[sl] = Number(targetGrowth[sl]);
       }
-      const response = await apiRequest("/api/adjustment-rules/suggest", "POST", {
-        locationId: locationId ?? null,
-        // The page's campus filters scope the analysis the same way the service
-        // line does — suggestions must only cover what the user is looking at.
-        locations: selectedLocations,
-        regions: selectedRegions,
-        divisions: selectedDivisions,
-        serviceLines: targetSLs,
-        targets,
-        includeInHouse,
-        ...(focusText ? { focus: focusText } : {}),
-      });
-      return (await response.json()) as SuggestRunResponse;
+      // One controller per run: the operator's Cancel button aborts it, and a
+      // hard timeout aborts it too, so a dead socket can never park the UI on
+      // an indeterminate spinner forever.
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const runId = ++runSeqRef.current;
+      currentRunRef.current = runId;
+      const timeoutId = window.setTimeout(
+        () => controller.abort(new DOMException('Run exceeded the client timeout', 'TimeoutError')),
+        CLIENT_RUN_TIMEOUT_MS,
+      );
+      try {
+        const response = await apiRequest("/api/adjustment-rules/suggest", "POST", {
+          locationId: locationId ?? null,
+          // The page's campus filters scope the analysis the same way the service
+          // line does — suggestions must only cover what the user is looking at.
+          locations: selectedLocations,
+          regions: selectedRegions,
+          divisions: selectedDivisions,
+          serviceLines: targetSLs,
+          targets,
+          includeInHouse,
+          ...(focusText ? { focus: focusText } : {}),
+        }, { signal: controller.signal });
+        return { ...(await response.json()), __runId: runId } as SuggestRunResponse & { __runId: number };
+      } finally {
+        window.clearTimeout(timeoutId);
+        if (abortRef.current === controller) abortRef.current = null;
+      }
     },
-    onSuccess: (data) => {
+    onSuccess: (data: SuggestRunResponse & { __runId?: number }) => {
+      // A cancelled or superseded run has no claim on the panel any more.
+      if (data.__runId !== currentRunRef.current) return;
+      currentRunRef.current = null;
       const list = data.suggestions ?? [];
       const diag = data.diagnostics ?? null;
       setSuggestions(list);
       setDiagnostics(diag);
+      setModelInfo(data.model ?? null);
       setEmptyMessage(data.context?.reasonMessage ?? null);
+      setRunError(null);
       setShowDroppedDetail(false);
       setHasGenerated(true);
       setGeneratedAt(new Date().toISOString());
@@ -305,13 +396,44 @@ export default function AiRuleGenerator({
       });
     },
     onError: (error: any) => {
-      toast({
-        title: "Suggestion Failed",
-        description: error.message || "Failed to generate rule suggestions. Please try again.",
-        variant: "destructive",
-      });
+      // Cancelling is a choice, not a failure: cancelRun has already
+      // acknowledged it, and the existing suggestions, diagnostics and
+      // attribution are deliberately left exactly as they were.
+      if (currentRunRef.current === null || error?.name === 'AbortError') return;
+      currentRunRef.current = null;
+      const failure = readRunError(error);
+      // A failed re-run must not destroy what is already on screen. The server
+      // does not overwrite its cached run on failure either, so the panel and
+      // the cache stay in agreement.
+      setRunError(failure);
+      toast({ title: failure.title, description: failure.message, variant: "destructive" });
     },
   });
+
+  const isRunning = suggestRulesMutation.isPending;
+
+  // Elapsed time is the minimum honest progress signal available for a single
+  // non-streaming call: it cannot say how far along the model is, but it does
+  // tell the operator the run is alive and how long they have been waiting.
+  useEffect(() => {
+    if (!isRunning) { setElapsedMs(0); return; }
+    const startedAt = Date.now();
+    setElapsedMs(0);
+    const id = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 1000);
+    return () => window.clearInterval(id);
+  }, [isRunning]);
+
+  // A run left in flight by an unmounting panel has nobody to return to.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const cancelRun = () => {
+    // Retire the run id first: a response already on the wire must not be able
+    // to land after the operator has said stop. Acknowledge immediately rather
+    // than waiting for the fetch rejection to travel back.
+    currentRunRef.current = null;
+    abortRef.current?.abort();
+    toast({ title: "Run cancelled", description: "Your previous suggestions are still here." });
+  };
 
   // Auto-generate when the parent hands us a focus recommendation (e.g. the
   // "Draft rule" button on a strategy-overview recommendation bullet).
@@ -484,14 +606,90 @@ export default function AiRuleGenerator({
       </div>
 
       {/* AI Rule Suggestions */}
-      {suggestRulesMutation.isPending && (
-        <div className="p-6 bg-blue-50 rounded-lg border border-blue-100 flex items-center justify-center gap-3 text-sm text-blue-700">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Analyzing your portfolio and drafting rule suggestions...
+      {isRunning && (
+        <div
+          className="p-4 bg-blue-50 rounded-lg border border-blue-100 text-sm text-blue-800"
+          data-testid="status-suggest-running"
+        >
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            <div className="flex-1 min-w-0">
+              <p className="font-medium">
+                Analyzing {scopeSummary} and drafting rule suggestions…
+              </p>
+              {/* Elapsed time plus the normal range: without the range a
+                  counter alone still can't tell the operator whether 90
+                  seconds is fine or a sign that nothing is coming back. */}
+              <p className="text-xs text-blue-700/80 mt-0.5" data-testid="text-run-elapsed">
+                {formatElapsed(elapsedMs)} elapsed · a run usually takes 30–90 seconds
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={cancelRun}
+              className="shrink-0 border-blue-300 bg-white text-blue-800 hover:bg-blue-100"
+              data-testid="button-cancel-suggest"
+            >
+              <X className="h-3.5 w-3.5 mr-1.5" />
+              Cancel
+            </Button>
+          </div>
+          {elapsedMs >= RUN_SLOW_AFTER_MS && (
+            <p className="mt-2 text-xs text-blue-900" data-testid="text-run-slow">
+              This is taking longer than usual for this scope. It will stop on its own if the
+              AI doesn't answer — you can cancel now and narrow to a region or a single campus.
+            </p>
+          )}
         </div>
       )}
 
-      {!suggestRulesMutation.isPending && hasGenerated && suggestions.length === 0 && (
+      {/* A failed run has to leave something behind. The toast is gone in
+          seconds, and the operator needs to know why they are looking at the
+          previous run's cards rather than new ones. */}
+      {!isRunning && runError && (
+        <div
+          className="p-4 rounded-lg border border-red-200 bg-red-50 text-sm text-red-900"
+          data-testid="text-run-error"
+        >
+          <div className="flex items-start gap-2">
+            <div className="flex-1">
+              <p className="font-medium">{runError.title}</p>
+              <p className="mt-1 text-xs leading-relaxed text-red-800">{runError.message}</p>
+              {suggestions.length > 0 && (
+                <p className="mt-1 text-xs text-red-800/80">
+                  The suggestions below are from the previous run and were left untouched.
+                </p>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => suggestRulesMutation.mutate(undefined)}
+                className="border-red-300 bg-white text-red-800 hover:bg-red-100"
+                data-testid="button-retry-suggest"
+              >
+                Try again
+              </Button>
+              <button
+                type="button"
+                onClick={() => setRunError(null)}
+                className="text-red-700/70 hover:text-red-900"
+                aria-label="Dismiss error"
+                data-testid="button-dismiss-run-error"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* When a run just failed, the error banner is the current truth — the
+          stale "no suggestions for this scope" reason from an earlier run would
+          contradict it. */}
+      {!isRunning && !runError && hasGenerated && suggestions.length === 0 && (
         <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 text-sm text-gray-500" data-testid="text-no-suggestions">
           {/* The four empty-result causes need four different next steps — a
               scope that matched no campuses is not the same as a run where the
@@ -518,10 +716,35 @@ export default function AiRuleGenerator({
             <Sparkles className="h-4 w-4 text-blue-600" />
             <h4 className="font-semibold text-gray-900">AI-Suggested Rules</h4>
             <Badge variant="secondary" className="text-xs">{suggestions.length} pending</Badge>
+            {/* Which model wrote these. Called out only when it was NOT the
+                model we intended — a silent fallback is the case where the
+                operator's expectation and reality diverge. */}
+            {modelInfo?.usedFallback && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] font-medium border-amber-300 bg-amber-50 text-amber-900 cursor-help"
+                      data-testid="badge-model-fallback"
+                    >
+                      Written by {modelInfo.name}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs">
+                    The primary model was unavailable{modelInfo.fallbackReason ? ` (${modelInfo.fallbackReason})` : ''},
+                    so these rules were drafted by the fallback model. They may differ in quality from a normal run.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
             {generatedAt && (
               <span className="text-[11px] text-gray-400 ml-auto" data-testid="text-generated-at">
                 {restoredFromCache ? `Restored from last run · ${restoredScope ? restoredScope + " · " : ""}` : ""}
                 {new Date(generatedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                {modelInfo && !modelInfo.usedFallback && (
+                  <span data-testid="text-model-name"> · {modelInfo.name}</span>
+                )}
               </span>
             )}
           </div>

@@ -119,7 +119,8 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import { callClaude, callClaudeThenGPT } from './aiRouter';
+import { callClaude, callClaudeThenGPT, callClaudeDetailed, AiTimeoutError, isAbortError } from './aiRouter';
+import { commitIfStillWanted } from './services/cancellableWrite';
 import { 
   insertRentRollDataSchema, 
   insertAssumptionsSchema, 
@@ -17195,7 +17196,43 @@ Respond in JSON format:
     } catch { return null; }
   }
 
+  // How long a single suggestion run may take before we stop waiting. A
+  // full-portfolio scope legitimately takes ~90s, so this is generous; the
+  // point is only that it is finite. Without it the operator has no way to
+  // distinguish "still thinking" from "will never return".
+  const AI_SUGGEST_BUDGET_MS = 180_000;
+
+  const CACHE_RUN_SQL = `INSERT INTO ai_suggestion_runs (client_id, payload, created_at)
+     VALUES ($1, $2, now())
+     ON CONFLICT (client_id) DO UPDATE SET payload = EXCLUDED.payload, created_at = now()`;
+
   app.post("/api/adjustment-rules/suggest", async (req: any, res) => {
+    // The operator can cancel this run from the browser. Propagate that all the
+    // way to the model call so cancelling actually stops the work rather than
+    // just hiding it — an abandoned Opus call still costs minutes and tokens.
+    // `clientGaveUp` also tells the error handler to stay quiet: there is no
+    // socket left to write a response to. Declared outside the try so the catch
+    // can distinguish a cancellation from a genuine failure.
+    // NB: it must be `res`, not `req`. An IncomingMessage emits 'close' as soon
+    // as its body has been fully read — which for a JSON POST is immediately —
+    // so listening there aborts every run the instant it starts. The response
+    // stream closes only when the response is finished or the socket dies, and
+    // `writableEnded` separates those two.
+    const abort = new AbortController();
+    let clientGaveUp = false;
+    res.once('close', () => {
+      if (res.writableEnded) return;
+      clientGaveUp = true;
+      abort.abort();
+    });
+    // The abort only reaches the model call. Everything after it — parsing,
+    // impact maths, the cache write — keeps running on a socket that may already
+    // be gone, so each terminal step asks first. Caching matters most: the
+    // client deliberately keeps the previous suggestions on screen after a
+    // cancel, and writing this run to the cache anyway would make the next
+    // reload show something the operator explicitly stopped.
+    const cancelled = () => clientGaveUp || abort.signal.aborted || res.writableEnded || res.destroyed;
+
     try {
       const clientId = req.clientId || 'demo';
       const { locationId, serviceLine, serviceLines: slsBody, targets, targetGrowthPercent, includeInHouse, focus } = req.body || {};
@@ -17212,21 +17249,17 @@ Respond in JSON format:
       // shrug this task exists to remove. Every early exit therefore goes
       // through the same cache write the full path uses.
       const respondEmpty = async (reason: EmptyRunReason, campus: string | null = null) => {
+        // No model ran, so there is nothing to attribute — say so explicitly
+        // rather than leaving the field absent and ambiguous.
         const payload = {
           suggestions: [] as any[],
           diagnostics: null,
+          model: null,
           context: { campus, reason, reasonMessage: EMPTY_RUN_MESSAGES[reason] },
         };
-        try {
-          await pool.query(
-            `INSERT INTO ai_suggestion_runs (client_id, payload, created_at)
-             VALUES ($1, $2, now())
-             ON CONFLICT (client_id) DO UPDATE SET payload = EXCLUDED.payload, created_at = now()`,
-            [clientId, JSON.stringify(payload)]
-          );
-        } catch (err) {
-          console.error('Failed to cache empty AI suggestion run:', err);
-        }
+        const wrote = await commitIfStillWanted(pool, cancelled, CACHE_RUN_SQL, [clientId, JSON.stringify(payload)]);
+        if (wrote === 'failed') console.error('Failed to cache empty AI suggestion run');
+        if (cancelled()) return;
         return res.json(payload);
       };
       const targetsBySL: Record<string, number | null> = {};
@@ -17782,11 +17815,24 @@ Respond in JSON format:
 
       // Single call to the most capable model (no second formatting call) —
       // the format instruction is appended to the prompt directly.
-      const rawText = await callClaude(system, `${user}\n\n${formatInstruction}`, {
+      //
+      // The budget is what turns an indefinite hang into a bounded failure. It
+      // is deliberately generous — a full-portfolio scope legitimately takes
+      // ~90s — but finite, so the operator is never left on a spinner with no
+      // end. `abort` is wired to the HTTP request, so cancelling in the browser
+      // also stops the upstream model call instead of leaving it billing away.
+      const aiCall = await callClaudeDetailed(system, `${user}\n\n${formatInstruction}`, {
         label: `rule-suggest:${scopeActive ? (scopedNames.length === 1 ? scopedNames[0] : `${scopedNames.length}campuses`) : 'all'}:${validSLs.join('+')}`,
         maxTokens: 4000,
         model: 'claude-opus-4-6',
+        timeoutMs: AI_SUGGEST_BUDGET_MS,
+        signal: abort.signal,
       });
+      const rawText = aiCall.text;
+      console.log(
+        `[RuleSuggest] answered by ${aiCall.model} in ${(aiCall.elapsedMs / 1000).toFixed(1)}s` +
+        (aiCall.usedFallback ? ` (fallback — primary failed: ${aiCall.fallbackReason})` : ''),
+      );
 
       let parsedResponse: any;
       try {
@@ -17920,6 +17966,16 @@ Respond in JSON format:
       const responsePayload = {
         suggestions,
         diagnostics: { ...diagnostics, summary: describeDiagnostics(diagnostics) },
+        // Who actually wrote these rules. The router falls back to a different
+        // model on any primary failure, and the operator is approving pricing
+        // changes — "an AI suggested this" is not specific enough to audit.
+        // Cached with the run so a restored run is attributed too.
+        model: {
+          name: aiCall.model,
+          usedFallback: aiCall.usedFallback,
+          fallbackReason: aiCall.fallbackReason,
+          elapsedMs: aiCall.elapsedMs,
+        },
         context: {
           campus: scopeLabel,
           campuses: scopeActive ? scopedNames : null,
@@ -17938,23 +17994,50 @@ Respond in JSON format:
       };
 
       // Cache the run per client so a page reload can restore the last
-      // suggestions without re-running the slow AI call. Await so a subsequent
-      // accept/deny prune can never race ahead of this write.
-      try {
-        await pool.query(
-          `INSERT INTO ai_suggestion_runs (client_id, payload, created_at)
-           VALUES ($1, $2, now())
-           ON CONFLICT (client_id) DO UPDATE SET payload = EXCLUDED.payload, created_at = now()`,
-          [clientId, JSON.stringify(responsePayload)]
-        );
-      } catch (err) {
-        console.error('Failed to cache AI suggestion run:', err);
+      // suggestions without re-running the slow AI call. Awaited so a subsequent
+      // accept/deny prune can never race ahead of this write, and transactional
+      // so a run the operator cancelled cannot replace the run still on screen.
+      const wrote = await commitIfStillWanted(pool, cancelled, CACHE_RUN_SQL, [clientId, JSON.stringify(responsePayload)]);
+      if (wrote === 'failed') console.error('Failed to cache AI suggestion run');
+      if (wrote === 'discarded') {
+        console.log('[RuleSuggest] run finished after the operator cancelled — discarded, previous cached run left intact');
+        return;
       }
 
-      res.json(responsePayload);
-    } catch (error) {
+      if (!cancelled()) res.json(responsePayload);
+    } catch (error: any) {
+      // The operator cancelled: the socket is gone and there is nothing to
+      // report. Log it as a normal outcome, not a failure.
+      if (clientGaveUp || isAbortError(error, abort.signal)) {
+        console.log('[RuleSuggest] run cancelled by the operator');
+        if (!res.writableEnded && !res.destroyed) res.end();
+        return;
+      }
+      if (cancelled()) return; // socket gone for another reason — nothing to report to
+      if (error instanceof AiTimeoutError) {
+        console.error('[RuleSuggest] budget exhausted:', error.message);
+        // Say the budget in whatever unit reads naturally, so a shortened
+        // budget can never produce "within 0 minutes".
+        const budgetSecs = Math.round(AI_SUGGEST_BUDGET_MS / 1000);
+        const budgetText = budgetSecs >= 120
+          ? `${Math.round(budgetSecs / 60)} minutes`
+          : `${budgetSecs} seconds`;
+        return res.status(504).json({
+          error: `The AI did not respond within ${budgetText}. ` +
+            `This usually means the scope is very large — narrow to a region or a single campus and run again. ` +
+            `Your previous suggestions have been kept.`,
+          code: 'ai_timeout',
+        });
+      }
       console.error('Error generating rule suggestions:', error);
-      res.status(500).json({ error: "Failed to generate rule suggestions" });
+      // A bare "it failed" gives the operator nothing to act on. The provider's
+      // own sentence is the only thing that distinguishes a transient outage
+      // from a misconfiguration, so pass it through.
+      res.status(500).json({
+        error: 'Failed to generate rule suggestions.',
+        detail: typeof error?.message === 'string' ? error.message.slice(0, 300) : undefined,
+        code: 'ai_failed',
+      });
     }
   });
 
