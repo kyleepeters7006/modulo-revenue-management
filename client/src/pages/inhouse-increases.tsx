@@ -237,6 +237,10 @@ export default function InhouseIncreases() {
   // Multi-select: default to all service lines.
   const [serviceLines, setServiceLines] = useState<string[]>([...SERVICE_LINES]);
   const [assumptions, setAssumptions] = useState<PlanningAssumptions>({ ...DEFAULT_ASSUMPTIONS });
+  // Per-line overrides for the two fields that legitimately differ by service line.
+  const [perLineTargets, setPerLineTargets] = useState<
+    Record<string, { rateGrowthTargetPct: number; annualTurnoverPct: number }>
+  >({});
   const [assumptionsTouched, setAssumptionsTouched] = useState(false);
   const [plans, setPlans] = useState<PlanWithSl[] | null>(null);
   const [expandedQuarter, setExpandedQuarter] = useState<string | null>(null);
@@ -285,7 +289,20 @@ export default function InhouseIncreases() {
       });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
-      setAssumptions((prev) => (assumptionsTouched ? prev : json.assumptions));
+      if (!assumptionsTouched) {
+        setAssumptions(json.assumptions);
+        // Seed per-line targets from the loaded values (only for lines that
+        // haven't been individually edited yet).
+        setPerLineTargets((prev) => {
+          const seed = {
+            rateGrowthTargetPct: json.assumptions.rateGrowthTargetPct,
+            annualTurnoverPct: json.assumptions.annualTurnoverPct,
+          };
+          const next: typeof prev = {};
+          for (const sl of serviceLines) next[sl] = prev[sl] ?? seed;
+          return next;
+        });
+      }
       return json;
     },
   });
@@ -339,7 +356,7 @@ export default function InhouseIncreases() {
           const res = await apiRequest("/api/inhouse-planning/calculate", "POST", {
             locationId: scopeLocationId,
             serviceLine: sl,
-            assumptions,
+            assumptions: assumptionsForLine(sl),
           });
           const plan = (await res.json()) as PlanResult;
           return { sl, plan } as PlanWithSl;
@@ -369,7 +386,7 @@ export default function InhouseIncreases() {
           apiRequest("/api/inhouse-planning/assumptions", "POST", {
             locationId: scopeLocationId,
             serviceLine: sl,
-            assumptions,
+            assumptions: assumptionsForLine(sl),
           }).then((r) => r.json()),
         ),
       );
@@ -397,7 +414,7 @@ export default function InhouseIncreases() {
           apiRequest("/api/inhouse-planning/apply", "POST", {
             locationId: scopeLocationId,
             serviceLine: sl,
-            assumptions,
+            assumptions: assumptionsForLine(sl),
           }).then((r) => r.json()),
         ),
       );
@@ -432,6 +449,25 @@ export default function InhouseIncreases() {
   function update<K extends keyof PlanningAssumptions>(key: K, value: PlanningAssumptions[K]) {
     setAssumptionsTouched(true);
     setAssumptions((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function updatePerLine(sl: string, field: "rateGrowthTargetPct" | "annualTurnoverPct", value: number) {
+    setAssumptionsTouched(true);
+    setPerLineTargets((prev) => ({
+      ...prev,
+      [sl]: {
+        rateGrowthTargetPct: prev[sl]?.rateGrowthTargetPct ?? assumptions.rateGrowthTargetPct,
+        annualTurnoverPct: prev[sl]?.annualTurnoverPct ?? assumptions.annualTurnoverPct,
+        [field]: value,
+      },
+    }));
+  }
+
+  /** Merge shared assumptions with a service line's per-line overrides. */
+  function assumptionsForLine(sl: string): PlanningAssumptions {
+    const overrides = perLineTargets[sl];
+    if (!overrides) return assumptions;
+    return { ...assumptions, ...overrides };
   }
 
   const rangeError =
@@ -671,23 +707,66 @@ export default function InhouseIncreases() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
+          {/* Rate growth target + Annual turnover: per-line when multiple SLs selected */}
+          {serviceLines.length > 1 ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-[6rem_1fr_1fr] gap-x-3 gap-y-0.5 text-xs font-medium text-muted-foreground">
+                <span>Service line</span>
+                <span>Rate growth target</span>
+                <span>Annual turnover</span>
+              </div>
+              {serviceLines.map((sl) => {
+                const vals = perLineTargets[sl] ?? {
+                  rateGrowthTargetPct: assumptions.rateGrowthTargetPct,
+                  annualTurnoverPct: assumptions.annualTurnoverPct,
+                };
+                return (
+                  <div key={sl} className="grid grid-cols-[6rem_1fr_1fr] items-center gap-x-3">
+                    <span className="text-sm font-medium">{sl}</span>
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        className="h-8 text-sm"
+                        value={vals.rateGrowthTargetPct}
+                        onChange={(e) => updatePerLine(sl, "rateGrowthTargetPct", Number(e.target.value))}
+                      />
+                      <span className="text-xs text-muted-foreground">%</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        className="h-8 text-sm"
+                        value={vals.annualTurnoverPct}
+                        onChange={(e) => updatePerLine(sl, "annualTurnoverPct", Number(e.target.value))}
+                      />
+                      <span className="text-xs text-muted-foreground">%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <NumberField
+                testId="input-growth-target"
+                label="Rate growth target"
+                value={assumptions.rateGrowthTargetPct}
+                onChange={(v) => update("rateGrowthTargetPct", v)}
+                suffix="%"
+                hint="Year-over-year realized rate growth, measured every quarter."
+              />
+              <NumberField
+                testId="input-turnover"
+                label="Annual turnover"
+                value={assumptions.annualTurnoverPct}
+                onChange={(v) => update("annualTurnoverPct", v)}
+                suffix="%"
+                hint="Move-outs replaced at street rate; higher turnover lifts the realized rate on its own."
+              />
+            </div>
+          )}
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <NumberField
-              testId="input-growth-target"
-              label="Rate growth target"
-              value={assumptions.rateGrowthTargetPct}
-              onChange={(v) => update("rateGrowthTargetPct", v)}
-              suffix="%"
-              hint="Year-over-year realized rate growth, measured every quarter."
-            />
-            <NumberField
-              testId="input-turnover"
-              label="Annual turnover"
-              value={assumptions.annualTurnoverPct}
-              onChange={(v) => update("annualTurnoverPct", v)}
-              suffix="%"
-              hint="Move-outs replaced at street rate; higher turnover lifts the realized rate on its own."
-            />
             <DateField
               testId="input-street-date"
               label="Street rate effective"
