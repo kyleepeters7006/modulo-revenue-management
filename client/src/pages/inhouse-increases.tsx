@@ -521,7 +521,7 @@ export default function InhouseIncreases() {
           src="/sailboats.jpg"
           alt=""
           className="w-full h-full object-cover"
-          style={{ objectPosition: "50% 45%" }}
+          style={{ objectPosition: "50% 58%" }}
         />
       </div>
 
