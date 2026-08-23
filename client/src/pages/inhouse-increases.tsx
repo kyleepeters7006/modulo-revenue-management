@@ -11,6 +11,7 @@
  * would fix it — never quietly rounded down to something achievable.
  */
 import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,8 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -33,6 +36,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   CheckCircle2,
   ChevronDown,
@@ -218,15 +222,23 @@ function DateField({
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
+/** A PlanResult tagged with the service line it was calculated for. */
+interface PlanWithSl { sl: string; plan: PlanResult }
+
+/** A ResidentRecommendation tagged with the service line it came from. */
+type TaggedResident = ResidentRecommendation & { _sl: string };
+
 export default function InhouseIncreases() {
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
+  const [, setLocation] = useLocation();
 
   const [locationId, setLocationId] = useState<string>(ALL_CAMPUSES);
-  const [serviceLine, setServiceLine] = useState<string>("AL");
+  // Multi-select: default to all service lines.
+  const [serviceLines, setServiceLines] = useState<string[]>([...SERVICE_LINES]);
   const [assumptions, setAssumptions] = useState<PlanningAssumptions>({ ...DEFAULT_ASSUMPTIONS });
   const [assumptionsTouched, setAssumptionsTouched] = useState(false);
-  const [plan, setPlan] = useState<PlanResult | null>(null);
+  const [plans, setPlans] = useState<PlanWithSl[] | null>(null);
   const [expandedQuarter, setExpandedQuarter] = useState<string | null>(null);
   const [expandedResident, setExpandedResident] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("increasePct");
@@ -235,6 +247,19 @@ export default function InhouseIncreases() {
   const [visibleCount, setVisibleCount] = useState(50);
 
   const scopeLocationId = locationId === ALL_CAMPUSES ? null : locationId;
+  // When a single line is selected use it; otherwise use the first for assumptions loading.
+  const firstLine = serviceLines[0] ?? SERVICE_LINES[0];
+  const singleLine = serviceLines.length === 1 ? serviceLines[0] : null;
+
+  function toggleServiceLine(sl: string) {
+    setServiceLines((prev) => {
+      const next = prev.includes(sl) ? prev.filter((x) => x !== sl) : [...prev, sl];
+      // Never leave the list empty.
+      return next.length ? next : prev;
+    });
+    setAssumptionsTouched(false);
+    setPlans(null);
+  }
 
   const { data: locationsData } = useQuery<{ locations: LocationRow[] }>({
     queryKey: ["/api/locations"],
@@ -244,14 +269,16 @@ export default function InhouseIncreases() {
   // Saved assumptions for this scope. Loading them replaces the editor state
   // only while the operator has not started editing, so a fetch settling late
   // can never overwrite something they just typed.
+  // Load assumptions keyed on the first selected line. When multiple lines are
+  // selected the user edits one shared set; saving writes it to all of them.
   const assumptionsQuery = useQuery<{ assumptions: PlanningAssumptions; scopeLevel: string }>({
     queryKey: [
       "/api/inhouse-planning/assumptions",
       scopeLocationId ?? "all",
-      serviceLine,
+      firstLine,
     ],
     queryFn: async () => {
-      const params = new URLSearchParams({ serviceLine });
+      const params = new URLSearchParams({ serviceLine: firstLine });
       if (scopeLocationId) params.set("locationId", scopeLocationId);
       const res = await fetch(`/api/inhouse-planning/assumptions?${params}`, {
         credentials: "include",
@@ -268,23 +295,19 @@ export default function InhouseIncreases() {
    * internals (weight, headroom, shape, effective bounds, lambda) to write the
    * formula chain, and none of those are on the PlanResult the page holds.
    */
+  // Export one service line at a time (the server builds the full formula workbook
+  // per-line). When multiple lines are selected we download each sequentially.
   const exportPlan = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (sl: string) => {
       const res = await fetch("/api/inhouse-planning/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ locationId: scopeLocationId, serviceLine, assumptions }),
+        body: JSON.stringify({ locationId: scopeLocationId, serviceLine: sl, assumptions }),
       });
       if (!res.ok) {
-        // A failed export still returns JSON; surface its message rather than
-        // handing the browser an error page saved as .xlsx.
         let message = "Failed to build the export";
-        try {
-          message = (await res.json()).error || message;
-        } catch {
-          /* non-JSON error body — keep the generic message */
-        }
+        try { message = (await res.json()).error || message; } catch { /* non-JSON */ }
         throw new Error(message);
       }
       const disposition = res.headers.get("Content-Disposition") || "";
@@ -293,108 +316,112 @@ export default function InhouseIncreases() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = named || `in-house-rate-plan-${serviceLine}.xlsx`;
+      a.download = named || `in-house-rate-plan-${sl}.xlsx`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     },
-    onSuccess: () => {
+    onSuccess: () =>
       toast({
         title: "Rate plan exported",
-        description:
-          "Every step is a live Excel formula — change an assumption on the summary sheet and the workbook recalculates.",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Export failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
+        description: "Every step is a live Excel formula — change an assumption on the summary sheet and the workbook recalculates.",
+      }),
+    onError: (error: Error) =>
+      toast({ title: "Export failed", description: error.message, variant: "destructive" }),
   });
 
+  // Run one calculate call per selected service line in parallel and combine.
   const calculate = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("/api/inhouse-planning/calculate", "POST", {
-        locationId: scopeLocationId,
-        serviceLine,
-        assumptions,
-      });
-      return (await res.json()) as PlanResult;
+      const results = await Promise.all(
+        serviceLines.map(async (sl) => {
+          const res = await apiRequest("/api/inhouse-planning/calculate", "POST", {
+            locationId: scopeLocationId,
+            serviceLine: sl,
+            assumptions,
+          });
+          const plan = (await res.json()) as PlanResult;
+          return { sl, plan } as PlanWithSl;
+        }),
+      );
+      return results;
     },
-    onSuccess: (result) => {
-      setPlan(result);
+    onSuccess: (results) => {
+      setPlans(results);
       setVisibleCount(50);
       setExpandedResident(null);
-      setExpandedQuarter(result.bindingQuarterLabel);
+      // Expand the binding quarter of the first feasible plan.
+      const first = results.find((r) => r.plan.feasible) ?? results[0];
+      setExpandedQuarter(first?.plan.bindingQuarterLabel ?? null);
     },
     onError: (err: Error) => {
-      setPlan(null);
-      toast({
-        title: "Could not calculate a plan",
-        description: cleanError(err.message),
-        variant: "destructive",
-      });
+      setPlans(null);
+      toast({ title: "Could not calculate a plan", description: cleanError(err.message), variant: "destructive" });
     },
   });
 
+  // Saving writes the shared assumptions to every selected service line.
   const saveAssumptions = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("/api/inhouse-planning/assumptions", "POST", {
-        locationId: scopeLocationId,
-        serviceLine,
-        assumptions,
-      });
-      return res.json();
+      await Promise.all(
+        serviceLines.map((sl) =>
+          apiRequest("/api/inhouse-planning/assumptions", "POST", {
+            locationId: scopeLocationId,
+            serviceLine: sl,
+            assumptions,
+          }).then((r) => r.json()),
+        ),
+      );
     },
     onSuccess: () => {
       setAssumptionsTouched(false);
       queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/assumptions"] });
+      const lineLabel = serviceLines.length === 1 ? serviceLines[0] : `${serviceLines.length} service lines`;
       toast({
         title: "Assumptions saved",
         description: scopeLocationId
-          ? `Saved for ${serviceLine} at this campus.`
-          : `Saved for ${serviceLine} across all campuses.`,
+          ? `Saved for ${lineLabel} at this campus.`
+          : `Saved for ${lineLabel} across all campuses.`,
       });
     },
     onError: (err: Error) =>
-      toast({
-        title: "Could not save assumptions",
-        description: cleanError(err.message),
-        variant: "destructive",
-      }),
+      toast({ title: "Could not save assumptions", description: cleanError(err.message), variant: "destructive" }),
   });
 
+  // Apply each plan separately. Server re-calculates and versions each one.
   const applyPlan = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("/api/inhouse-planning/apply", "POST", {
-        locationId: scopeLocationId,
-        serviceLine,
-        assumptions,
-      });
-      return res.json();
+      const results = await Promise.all(
+        (plans ?? []).map(({ sl }) =>
+          apiRequest("/api/inhouse-planning/apply", "POST", {
+            locationId: scopeLocationId,
+            serviceLine: sl,
+            assumptions,
+          }).then((r) => r.json()),
+        ),
+      );
+      return results;
     },
-    onSuccess: (result: any) => {
+    onSuccess: (results: any[]) => {
       queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/plans"] });
-      toast({
-        title: `Plan v${result.version} recorded`,
-        description: "The approved plan is saved and can be reviewed at any time.",
-      });
+      const desc =
+        results.length === 1
+          ? `Plan v${results[0].version} recorded.`
+          : `${results.length} plans recorded.`;
+      toast({ title: "Plan approved", description: desc });
     },
     onError: (err: Error) =>
-      toast({
-        title: "Could not apply this plan",
-        description: cleanError(err.message),
-        variant: "destructive",
-      }),
+      toast({ title: "Could not apply this plan", description: cleanError(err.message), variant: "destructive" }),
   });
 
+  // Fetch previously approved plans; omit serviceLine filter when multiple are
+  // selected so all lines' history shows in one list.
   const plansQuery = useQuery<{ plans: any[] }>({
-    queryKey: ["/api/inhouse-planning/plans", scopeLocationId ?? "all", serviceLine],
+    queryKey: ["/api/inhouse-planning/plans", scopeLocationId ?? "all", singleLine ?? "all"],
     queryFn: async () => {
-      const params = new URLSearchParams({ serviceLine });
+      const params = new URLSearchParams();
+      if (singleLine) params.set("serviceLine", singleLine);
       if (scopeLocationId) params.set("locationId", scopeLocationId);
       const res = await fetch(`/api/inhouse-planning/plans?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
@@ -412,58 +439,99 @@ export default function InhouseIncreases() {
       ? "The minimum increase cannot be larger than the maximum."
       : null;
 
-  const residents = plan?.residents ?? [];
+  // Combine residents from all plans, tagging each with its service line.
+  const allTaggedResidents: TaggedResident[] = useMemo(
+    () => (plans ?? []).flatMap(({ sl, plan }) => plan.residents.map((r) => ({ ...r, _sl: sl }))),
+    [plans],
+  );
+
   const sortedResidents = useMemo(() => {
     const filtered = constrainedOnly
-      ? residents.filter((r) => r.constraint !== "none")
-      : residents;
-    const pick = (r: ResidentRecommendation): string | number => {
+      ? allTaggedResidents.filter((r) => r.constraint !== "none")
+      : allTaggedResidents;
+    const pick = (r: TaggedResident): string | number => {
       switch (sortKey) {
-        case "location":
-          return r.location;
-        case "roomNumber":
-          return r.roomNumber;
-        case "currentRate":
-          return r.currentRateMonthly;
-        case "streetRate":
-          return r.streetRateMonthly;
-        case "gap":
-          return r.gapToStreetPct;
-        case "increaseDollars":
-          return r.increaseDollarsMonthly;
-        case "increasePct":
-        default:
-          return r.increasePct;
+        case "location": return r.location;
+        case "roomNumber": return r.roomNumber;
+        case "currentRate": return r.currentRateMonthly;
+        case "streetRate": return r.streetRateMonthly;
+        case "gap": return r.gapToStreetPct;
+        case "increaseDollars": return r.increaseDollarsMonthly;
+        case "increasePct": default: return r.increasePct;
       }
     };
-    // Sort a copy — the plan object is the source of truth for the summary
-    // totals and must not be reordered underneath them.
     return [...filtered].sort((a, b) => {
-      const av = pick(a);
-      const bv = pick(b);
+      const av = pick(a), bv = pick(b);
       const cmp =
         typeof av === "string" && typeof bv === "string"
-          ? av.localeCompare(bv)
-          : Number(av) - Number(bv);
+          ? av.localeCompare(bv) : Number(av) - Number(bv);
       return sortDesc ? -cmp : cmp;
     });
-  }, [residents, sortKey, sortDesc, constrainedOnly]);
+  }, [allTaggedResidents, sortKey, sortDesc, constrainedOnly]);
 
   function toggleSort(key: SortKey) {
-    if (key === sortKey) {
-      setSortDesc((d) => !d);
-    } else {
-      setSortKey(key);
-      setSortDesc(true);
-    }
+    if (key === sortKey) { setSortDesc((d) => !d); }
+    else { setSortKey(key); setSortDesc(true); }
     setVisibleCount(50);
   }
 
-  const unit = plan?.rateBasis === "daily" ? "/day" : "/mo";
+  // When all selected plans share the same rate basis we can show a unit in
+  // column headers; with a mix we omit it (each row shows its own basis).
+  const sharedBasis = plans && plans.length > 0 && plans.every((p) => p.plan.rateBasis === plans[0].plan.rateBasis)
+    ? plans[0].plan.rateBasis : null;
+  const unit = sharedBasis === "daily" ? "/day" : sharedBasis === "monthly" ? "/mo" : "";
+
+  // Aggregate summary across all plans.
+  const combinedSummary = useMemo(() => {
+    if (!plans || plans.length === 0) return null;
+    let totalResidents = 0, receivingIncrease = 0, blockedByStreet = 0, atMax = 0;
+    let totalMonthly = 0, totalAnnual = 0, totalRevAdded = 0, totalCurrentRev = 0;
+    for (const { plan } of plans) {
+      const s = plan.summary;
+      totalResidents += s.residentCount;
+      receivingIncrease += s.residentsReceivingIncrease;
+      blockedByStreet += s.residentsBlockedByStreet;
+      atMax += s.residentsAtMax;
+      totalMonthly += s.totalMonthlyIncreaseDollars;
+      totalAnnual += s.totalAnnualIncreaseDollars;
+      totalRevAdded += s.totalMonthlyIncreaseDollars;
+      if (s.weightedAvgIncreasePct > 0)
+        totalCurrentRev += s.totalMonthlyIncreaseDollars / s.weightedAvgIncreasePct;
+    }
+    return {
+      residentCount: totalResidents,
+      residentsReceivingIncrease: receivingIncrease,
+      residentsBlockedByStreet: blockedByStreet,
+      residentsAtMax: atMax,
+      totalMonthlyIncreaseDollars: totalMonthly,
+      totalAnnualIncreaseDollars: totalAnnual,
+      weightedAvgIncreasePct: totalCurrentRev > 0 ? totalRevAdded / totalCurrentRev : 0,
+    };
+  }, [plans]);
+
+  const allFeasible = plans ? plans.every((p) => p.plan.feasible) : false;
+  const anyFeasible = plans ? plans.some((p) => p.plan.feasible) : false;
+  const allWarnings = plans ? Array.from(new Set(plans.flatMap((p) => p.plan.warnings))) : [];
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 px-4 py-6 sm:px-6">
+      {/* Sailboat hero banner */}
+      <div className="-mx-4 -mt-6 mb-2 h-24 overflow-hidden sm:-mx-6 sm:h-32">
+        <img
+          src="/sailboats.jpg"
+          alt=""
+          className="w-full h-full object-cover"
+          style={{ objectPosition: "50% 45%" }}
+        />
+      </div>
+
       <header className="space-y-1 text-center">
+        <div className="flex justify-start">
+          <Button variant="ghost" size="sm" onClick={() => window.history.back()}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back
+          </Button>
+        </div>
         <h1 className="flex items-center justify-center gap-2 text-2xl font-semibold tracking-tight">
           <TrendingUp className="h-6 w-6 text-primary" />
           In-House Rate Planning
@@ -480,8 +548,8 @@ export default function InhouseIncreases() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Scope</CardTitle>
           <CardDescription>
-            Assumptions are saved per campus and service line, falling back to the portfolio-wide
-            setting when a campus has none of its own.
+            Assumptions are saved per campus and service line. Selecting multiple service lines
+            uses one shared set of assumptions, saving to each selected line.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -492,7 +560,7 @@ export default function InhouseIncreases() {
               onValueChange={(v) => {
                 setLocationId(v);
                 setAssumptionsTouched(false);
-                setPlan(null);
+                setPlans(null);
               }}
             >
               <SelectTrigger className="h-9" data-testid="select-campus">
@@ -508,37 +576,86 @@ export default function InhouseIncreases() {
               </SelectContent>
             </Select>
           </div>
+
+          {/* ── Multi-select service line ── */}
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">Service line</Label>
-            <Select
-              value={serviceLine}
-              onValueChange={(v) => {
-                setServiceLine(v);
-                setAssumptionsTouched(false);
-                setPlan(null);
-              }}
-            >
-              <SelectTrigger className="h-9" data-testid="select-service-line">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SERVICE_LINES.map((sl) => (
-                  <SelectItem key={sl} value={sl}>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  data-testid="select-service-line"
+                  className="h-9 w-full justify-between font-normal"
+                >
+                  <span className="truncate">
+                    {serviceLines.length === SERVICE_LINES.length
+                      ? "All service lines"
+                      : serviceLines.length === 1
+                      ? serviceLines[0]
+                      : `${serviceLines.length} selected`}
+                  </span>
+                  <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-48 p-2" align="start">
+                <div className="space-y-1">
+                  {/* Select all / clear all */}
+                  <button
+                    className="w-full rounded px-2 py-1 text-left text-xs text-muted-foreground hover:bg-muted"
+                    onClick={() =>
+                      serviceLines.length === SERVICE_LINES.length
+                        ? setServiceLines([SERVICE_LINES[0]])
+                        : setServiceLines([...SERVICE_LINES])
+                    }
+                  >
+                    {serviceLines.length === SERVICE_LINES.length ? "Deselect all" : "Select all"}
+                  </button>
+                  <div className="border-t pt-1">
+                    {SERVICE_LINES.map((sl) => (
+                      <label
+                        key={sl}
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-muted"
+                      >
+                        <Checkbox
+                          checked={serviceLines.includes(sl)}
+                          onCheckedChange={() => toggleServiceLine(sl)}
+                          className="h-3.5 w-3.5"
+                        />
+                        <span className="text-sm">{sl}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+            {/* Selected line badges */}
+            {serviceLines.length < SERVICE_LINES.length && (
+              <div className="flex flex-wrap gap-1 pt-0.5">
+                {serviceLines.map((sl) => (
+                  <Badge key={sl} variant="secondary" className="gap-1 text-[11px]">
                     {sl}
-                  </SelectItem>
+                    <button
+                      className="ml-0.5 rounded hover:text-destructive"
+                      onClick={() => toggleServiceLine(sl)}
+                    >
+                      ×
+                    </button>
+                  </Badge>
                 ))}
-              </SelectContent>
-            </Select>
+              </div>
+            )}
           </div>
+
           <div className="flex items-end text-xs text-muted-foreground sm:col-span-2">
             {assumptionsQuery.data && (
               <p>
                 Showing{" "}
                 <span className="font-medium text-foreground">
-                  {SCOPE_LEVEL_LABEL[assumptionsQuery.data.scopeLevel] ??
-                    "saved assumptions"}
+                  {SCOPE_LEVEL_LABEL[assumptionsQuery.data.scopeLevel] ?? "saved assumptions"}
                 </span>
-                . Saving writes to the scope selected above.
+                {serviceLines.length > 1
+                  ? ` (from ${firstLine}). Saving writes to all ${serviceLines.length} selected lines.`
+                  : ". Saving writes to the scope selected above."}
               </p>
             )}
           </div>
@@ -693,286 +810,194 @@ export default function InhouseIncreases() {
       {calculate.isPending && (
         <div className="flex items-center gap-3 rounded-md border p-6 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Reading the rent roll and solving for the street rate and resident increases…
+          Reading the rent roll and solving for {serviceLines.length > 1 ? `${serviceLines.length} service lines` : serviceLines[0]}…
         </div>
       )}
 
-      {plan && (
+      {plans && plans.length > 0 && combinedSummary && (
         <>
           {/* ── Feasibility ─────────────────────────────────────────── */}
-          {plan.feasible ? (
+          {allFeasible ? (
             <Alert className="border-emerald-500/40 bg-emerald-500/10">
               <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <AlertTitle>
-                {formatPct(plan.assumptions.rateGrowthTargetPct)} growth is reachable
+                {formatPct(assumptions.rateGrowthTargetPct)} growth is reachable
+                {plans.length > 1 ? " across all selected service lines" : ""}
               </AlertTitle>
               <AlertDescription>
                 Every quarter in the next year clears the target
-                {plan.bindingQuarterLabel && (
-                  <>
-                    {" "}
-                    — <span className="font-medium">{plan.bindingQuarterLabel}</span> is the
-                    tightest and sets the plan
-                  </>
-                )}
-                .
+                {plans.length === 1 && plans[0].plan.bindingQuarterLabel && (
+                  <> — <span className="font-medium">{plans[0].plan.bindingQuarterLabel}</span> is the tightest</>
+                )}.
               </AlertDescription>
             </Alert>
           ) : (
-            <Alert variant="destructive" data-testid="alert-infeasible">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>
-                {formatPct(plan.assumptions.rateGrowthTargetPct)} growth is not reachable within
-                these guardrails
-              </AlertTitle>
-              <AlertDescription className="space-y-2">
-                <p>{plan.infeasibility?.message}</p>
-                {plan.infeasibility && (
-                  <ul className="ml-4 list-disc space-y-1 text-sm">
-                    <li>
-                      Needs a {formatPct(plan.infeasibility.requiredAvgIncreasePct, 2)} average
-                      increase; the guardrails allow{" "}
-                      {formatPct(plan.infeasibility.achievableAvgIncreasePct, 2)}.
-                    </li>
-                    {plan.infeasibility.minimumChange.maxInhouseIncreasePct !== null && (
-                      <li>
-                        Raise the maximum resident increase to at least{" "}
-                        <span className="font-medium">
-                          {formatPct(plan.infeasibility.minimumChange.maxInhouseIncreasePct, 2)}
-                        </span>
-                        .
-                      </li>
-                    )}
-                    {plan.infeasibility.minimumChange.streetIncreasePct !== null && (
-                      <li>
-                        Or allow a street increase of at least{" "}
-                        <span className="font-medium">
-                          {formatPct(plan.infeasibility.minimumChange.streetIncreasePct, 2)}
-                        </span>
-                        .
-                      </li>
-                    )}
-                    <li>
-                      Or accept{" "}
-                      <span className="font-medium">
-                        {formatPct(
-                          plan.infeasibility.minimumChange.achievableGrowthTargetPct,
-                          2,
-                        )}
-                      </span>{" "}
-                      growth, which these guardrails do reach.
-                    </li>
-                  </ul>
-                )}
-                <p className="text-sm">
-                  The plan below is the best available under the current settings.
-                </p>
-              </AlertDescription>
-            </Alert>
+            // Show per-line feasibility breakdown when any line fails.
+            <div className="space-y-2" data-testid="alert-infeasible">
+              {plans.map(({ sl, plan }) =>
+                plan.feasible ? (
+                  <Alert key={sl} className="border-emerald-500/40 bg-emerald-500/10">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    <AlertTitle>{sl} — reachable</AlertTitle>
+                  </Alert>
+                ) : (
+                  <Alert key={sl} variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>{sl} — {formatPct(plan.assumptions.rateGrowthTargetPct)} growth is not reachable</AlertTitle>
+                    <AlertDescription className="space-y-1 text-sm">
+                      <p>{plan.infeasibility?.message}</p>
+                      {plan.infeasibility && (
+                        <ul className="ml-4 list-disc space-y-0.5">
+                          <li>Needs {formatPct(plan.infeasibility.requiredAvgIncreasePct, 2)} avg; guardrails allow {formatPct(plan.infeasibility.achievableAvgIncreasePct, 2)}.</li>
+                          {plan.infeasibility.minimumChange.maxInhouseIncreasePct !== null && (
+                            <li>Raise max resident increase to at least <span className="font-medium">{formatPct(plan.infeasibility.minimumChange.maxInhouseIncreasePct, 2)}</span>.</li>
+                          )}
+                          <li>Or accept <span className="font-medium">{formatPct(plan.infeasibility.minimumChange.achievableGrowthTargetPct, 2)}</span> growth, which these guardrails do reach.</li>
+                        </ul>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                ),
+              )}
+            </div>
           )}
 
-          {plan.warnings.length > 0 && (
+          {allWarnings.length > 0 && (
             <Alert>
               <Info className="h-4 w-4" />
               <AlertTitle>Worth knowing about this data</AlertTitle>
               <AlertDescription>
                 <ul className="ml-4 list-disc space-y-1 text-sm">
-                  {plan.warnings.map((w, i) => (
-                    <li key={i}>{w}</li>
-                  ))}
+                  {allWarnings.map((w, i) => <li key={i}>{w}</li>)}
                 </ul>
               </AlertDescription>
             </Alert>
           )}
 
-          {/* ── Headline recommendation ─────────────────────────────── */}
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Card className="lg:col-span-1">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Recommended street rate</CardTitle>
-                <CardDescription>
-                  Effective {plan.assumptions.streetRateEffectiveDate}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-lg text-muted-foreground line-through">
-                    {formatMoney(plan.currentStreetRateDisplay)}
-                  </span>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-3xl font-semibold" data-testid="text-recommended-street">
-                    {formatMoney(plan.recommendedStreetRateDisplay)}
-                  </span>
-                  <span className="text-sm text-muted-foreground">{unit}</span>
-                </div>
-                <Badge variant="secondary" className="text-xs">
-                  {formatPct(plan.streetIncreasePct, 2)} increase
-                </Badge>
-              </CardContent>
-            </Card>
+          {/* ── Street rate — one card per service line ─────────────── */}
+          <div className={cn("grid gap-4", plans.length === 1 ? "lg:grid-cols-3" : "sm:grid-cols-2 lg:grid-cols-3")}>
+            {plans.map(({ sl, plan }) => {
+              const slUnit = plan.rateBasis === "daily" ? "/day" : "/mo";
+              return (
+                <Card key={sl}>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Street rate{plans.length > 1 ? ` · ${sl}` : ""}</CardTitle>
+                    <CardDescription>Effective {plan.assumptions.streetRateEffectiveDate}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-base text-muted-foreground line-through">{formatMoney(plan.currentStreetRateDisplay)}</span>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-2xl font-semibold" data-testid="text-recommended-street">{formatMoney(plan.recommendedStreetRateDisplay)}</span>
+                      <span className="text-sm text-muted-foreground">{slUnit}</span>
+                    </div>
+                    <Badge variant="secondary" className="text-xs">{formatPct(plan.streetIncreasePct, 2)} increase</Badge>
+                  </CardContent>
+                </Card>
+              );
+            })}
 
-            <Card className="lg:col-span-2">
+            {/* ── Combined resident summary ── */}
+            <Card className={plans.length === 1 ? "lg:col-span-2" : "sm:col-span-2 lg:col-span-3"}>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Resident increases</CardTitle>
+                <CardTitle className="text-base">Resident increases{plans.length > 1 ? " — all lines" : ""}</CardTitle>
                 <CardDescription>
-                  Effective {plan.assumptions.inhouseEffectiveDate} · population read from{" "}
-                  {plan.scope.sourceMonth}
+                  Effective {assumptions.inhouseEffectiveDate}
+                  {plans.length === 1 ? ` · population read from ${plans[0].plan.scope.sourceMonth}` : ""}
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                <Stat
-                  label="Average increase"
-                  value={formatPct(plan.summary.weightedAvgIncreasePct, 2)}
-                  note="Revenue weighted"
-                  testId="text-avg-increase"
-                />
-                <Stat
-                  label="Residents"
-                  value={plan.summary.residentCount.toLocaleString()}
-                  note={`${plan.summary.residentsReceivingIncrease.toLocaleString()} receive one`}
-                />
-                <Stat
-                  label="Monthly revenue added"
-                  value={formatMoney(plan.summary.totalMonthlyIncreaseDollars)}
-                  note={`${formatMoney(plan.summary.totalAnnualIncreaseDollars)} annualized`}
-                />
-                <Stat
-                  label="Held back"
-                  value={(
-                    plan.summary.residentsBlockedByStreet + plan.summary.residentsAtMax
-                  ).toLocaleString()}
-                  note={`${plan.summary.residentsBlockedByStreet} at street · ${plan.summary.residentsAtMax} at max`}
-                />
+                <Stat label="Average increase" value={formatPct(combinedSummary.weightedAvgIncreasePct, 2)} note="Revenue weighted" testId="text-avg-increase" />
+                <Stat label="Residents" value={combinedSummary.residentCount.toLocaleString()} note={`${combinedSummary.residentsReceivingIncrease.toLocaleString()} receive one`} />
+                <Stat label="Monthly revenue added" value={formatMoney(combinedSummary.totalMonthlyIncreaseDollars)} note={`${formatMoney(combinedSummary.totalAnnualIncreaseDollars)} annualized`} />
+                <Stat label="Held back" value={(combinedSummary.residentsBlockedByStreet + combinedSummary.residentsAtMax).toLocaleString()} note={`${combinedSummary.residentsBlockedByStreet} at street · ${combinedSummary.residentsAtMax} at max`} />
               </CardContent>
             </Card>
           </div>
 
-          {/* ── How the plan was derived ────────────────────────────── */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">How this plan was derived</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Explanation explanation={plan.explanation} />
-            </CardContent>
-          </Card>
-
-          {/* ── Quarterly projection ────────────────────────────────── */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Quarterly realized rate vs prior year</CardTitle>
-              <CardDescription>
-                Each quarter is compared against the same quarter one year earlier. The binding
-                quarter is the one that sets the whole plan.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0 sm:p-6 sm:pt-0">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                      <th className="px-4 py-2 font-medium">Quarter</th>
-                      <th className="px-4 py-2 font-medium">Prior year</th>
-                      <th className="px-4 py-2 text-right font-medium">Prior rate</th>
-                      <th className="px-4 py-2 text-right font-medium">Needed</th>
-                      <th className="px-4 py-2 text-right font-medium">Projected</th>
-                      <th className="px-4 py-2 text-right font-medium">YoY</th>
-                      <th className="px-4 py-2 font-medium">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {plan.quarters.flatMap((q) => {
-                      const open = expandedQuarter === q.label;
-                      return [
-                          <tr
-                            key={q.label}
-                            data-testid={`row-quarter-${q.label.replace(/\s/g, "-")}`}
-                            className={cn(
-                              "cursor-pointer border-b transition-colors hover:bg-muted/50",
-                              q.isBinding && "bg-amber-500/[0.07]",
-                            )}
-                            onClick={() => setExpandedQuarter(open ? null : q.label)}
-                          >
-                            <td className="px-4 py-2.5 font-medium">
-                              <span className="flex items-center gap-1.5">
-                                {open ? (
-                                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                                ) : (
-                                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                                )}
-                                {q.label}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <span className="flex flex-wrap items-center gap-1.5">
-                                {q.priorYear.label}
-                                {q.priorYear.basis !== "actual" && (
-                                  <Badge
-                                    variant="outline"
-                                    className="border-amber-500/40 bg-amber-500/10 text-[11px] font-normal text-amber-600 dark:text-amber-400"
-                                  >
-                                    {q.priorYear.basis === "projected"
-                                      ? "Projected"
-                                      : `${q.priorYear.monthsAvailable} of ${q.priorYear.monthsExpected} months`}
-                                  </Badge>
-                                )}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono">
-                              {q.priorYear.realizedRateMonthly === null
-                                ? "—"
-                                : formatMoney(q.priorYear.realizedRateMonthly)}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">
-                              {formatMoney(q.requiredRateMonthly)}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono font-medium">
-                              {formatMoney(q.projectedRateMonthly)}
-                            </td>
-                            <td
-                              className={cn(
-                                "px-4 py-2.5 text-right font-mono font-medium",
-                                q.passes
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : "text-destructive",
-                              )}
+          {/* ── How each plan was derived + quarterly (per line) ─────── */}
+          {plans.map(({ sl, plan }) => (
+            <div key={sl} className="space-y-4">
+              {plans.length > 1 && (
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{sl}</h2>
+              )}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">How this plan was derived{plans.length > 1 ? ` · ${sl}` : ""}</CardTitle>
+                </CardHeader>
+                <CardContent><Explanation explanation={plan.explanation} /></CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Quarterly realized rate vs prior year{plans.length > 1 ? ` · ${sl}` : ""}</CardTitle>
+                  <CardDescription>Each quarter compared against the same quarter one year earlier. Binding quarter sets the plan.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0 sm:p-6 sm:pt-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[720px] text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                          <th className="px-4 py-2 font-medium">Quarter</th>
+                          <th className="px-4 py-2 font-medium">Prior year</th>
+                          <th className="px-4 py-2 text-right font-medium">Prior rate</th>
+                          <th className="px-4 py-2 text-right font-medium">Needed</th>
+                          <th className="px-4 py-2 text-right font-medium">Projected</th>
+                          <th className="px-4 py-2 text-right font-medium">YoY</th>
+                          <th className="px-4 py-2 font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {plan.quarters.flatMap((q) => {
+                          const qKey = `${sl}-${q.label}`;
+                          const open = expandedQuarter === qKey;
+                          return [
+                            <tr key={qKey} data-testid={`row-quarter-${q.label.replace(/\s/g, "-")}`}
+                              className={cn("cursor-pointer border-b transition-colors hover:bg-muted/50", q.isBinding && "bg-amber-500/[0.07]")}
+                              onClick={() => setExpandedQuarter(open ? null : qKey)}
                             >
-                              {formatPct(q.yoyGrowthPct, 2)}
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <span className="flex flex-wrap gap-1.5">
-                                {q.isBinding && (
-                                  <Badge
-                                    variant="outline"
-                                    className="border-amber-500/40 bg-amber-500/10 text-[11px] font-normal text-amber-600 dark:text-amber-400"
-                                  >
-                                    Binding
-                                  </Badge>
-                                )}
-                                {!q.passes && (
-                                  <Badge variant="destructive" className="text-[11px] font-normal">
-                                    {formatPct(q.shortfallPct, 2)} short
-                                  </Badge>
-                                )}
-                              </span>
-                            </td>
-                          </tr>,
-                          open ? (
-                            <tr key={`${q.label}-detail`} className="border-b bg-muted/30">
-                              <td colSpan={7} className="px-4 py-4">
-                                <Explanation explanation={q.explanation} />
+                              <td className="px-4 py-2.5 font-medium">
+                                <span className="flex items-center gap-1.5">
+                                  {open ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                                  {q.label}
+                                </span>
                               </td>
-                            </tr>
-                          ) : null,
-                      ];
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+                              <td className="px-4 py-2.5">
+                                <span className="flex flex-wrap items-center gap-1.5">
+                                  {q.priorYear.label}
+                                  {q.priorYear.basis !== "actual" && (
+                                    <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-[11px] font-normal text-amber-600 dark:text-amber-400">
+                                      {q.priorYear.basis === "projected" ? "Projected" : `${q.priorYear.monthsAvailable} of ${q.priorYear.monthsExpected} months`}
+                                    </Badge>
+                                  )}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 text-right font-mono">{q.priorYear.realizedRateMonthly === null ? "—" : formatMoney(q.priorYear.realizedRateMonthly)}</td>
+                              <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">{formatMoney(q.requiredRateMonthly)}</td>
+                              <td className="px-4 py-2.5 text-right font-mono font-medium">{formatMoney(q.projectedRateMonthly)}</td>
+                              <td className={cn("px-4 py-2.5 text-right font-mono font-medium", q.passes ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>{formatPct(q.yoyGrowthPct, 2)}</td>
+                              <td className="px-4 py-2.5">
+                                <span className="flex flex-wrap gap-1.5">
+                                  {q.isBinding && <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-[11px] font-normal text-amber-600 dark:text-amber-400">Binding</Badge>}
+                                  {!q.passes && <Badge variant="destructive" className="text-[11px] font-normal">{formatPct(q.shortfallPct, 2)} short</Badge>}
+                                </span>
+                              </td>
+                            </tr>,
+                            open ? (
+                              <tr key={`${qKey}-detail`} className="border-b bg-muted/30">
+                                <td colSpan={7} className="px-4 py-4"><Explanation explanation={q.explanation} /></td>
+                              </tr>
+                            ) : null,
+                          ];
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          ))}
 
-          {/* ── Residents ───────────────────────────────────────────── */}
+          {/* ── Residents — all lines combined ──────────────────────── */}
           <Card>
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -980,39 +1005,25 @@ export default function InhouseIncreases() {
                   <CardTitle className="text-base">Resident recommendations</CardTitle>
                   <CardDescription>
                     {sortedResidents.length.toLocaleString()} of{" "}
-                    {residents.length.toLocaleString()} residents. Tap a row to see how the
-                    increase was calculated.
+                    {allTaggedResidents.length.toLocaleString()} residents. Tap a row to see how the increase was calculated.
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <div className="flex items-center gap-2">
-                    <Switch
-                      id="constrained-only"
-                      data-testid="switch-constrained-only"
-                      checked={constrainedOnly}
-                      onCheckedChange={(v) => {
-                        setConstrainedOnly(v);
-                        setVisibleCount(50);
-                      }}
-                    />
-                    <Label htmlFor="constrained-only" className="text-xs">
-                      Only residents hitting a limit
-                    </Label>
+                    <Switch id="constrained-only" data-testid="switch-constrained-only" checked={constrainedOnly}
+                      onCheckedChange={(v) => { setConstrainedOnly(v); setVisibleCount(50); }} />
+                    <Label htmlFor="constrained-only" className="text-xs">Only residents hitting a limit</Label>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    data-testid="button-export-plan"
-                    disabled={exportPlan.isPending}
-                    onClick={() => exportPlan.mutate()}
-                  >
-                    {exportPlan.isPending ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Download className="mr-2 h-4 w-4" />
-                    )}
-                    Export to Excel
-                  </Button>
+                  {/* One export button per service line */}
+                  {plans.map(({ sl }) => (
+                    <Button key={sl} variant="outline" size="sm" data-testid="button-export-plan"
+                      disabled={exportPlan.isPending}
+                      onClick={() => exportPlan.mutate(sl)}
+                    >
+                      {exportPlan.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                      Export {plans.length > 1 ? sl : "to Excel"}
+                    </Button>
+                  ))}
                 </div>
               </div>
             </CardHeader>
@@ -1021,113 +1032,62 @@ export default function InhouseIncreases() {
                 <table className="w-full min-w-[860px] text-sm">
                   <thead>
                     <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      {plans.length > 1 && <th className="px-4 py-2 font-medium">SL</th>}
                       <SortableTh label="Campus" k="location" {...{ sortKey, sortDesc, toggleSort }} />
                       <SortableTh label="Room" k="roomNumber" {...{ sortKey, sortDesc, toggleSort }} />
                       <th className="px-4 py-2 font-medium">Room type</th>
-                      <SortableTh
-                        label={`Current${unit}`}
-                        k="currentRate"
-                        align="right"
-                        {...{ sortKey, sortDesc, toggleSort }}
-                      />
-                      <SortableTh
-                        label={`Street${unit}`}
-                        k="streetRate"
-                        align="right"
-                        {...{ sortKey, sortDesc, toggleSort }}
-                      />
-                      <SortableTh
-                        label="Room to street"
-                        k="gap"
-                        align="right"
-                        {...{ sortKey, sortDesc, toggleSort }}
-                      />
-                      <SortableTh
-                        label="Increase"
-                        k="increasePct"
-                        align="right"
-                        {...{ sortKey, sortDesc, toggleSort }}
-                      />
-                      <SortableTh
-                        label="New rate"
-                        k="increaseDollars"
-                        align="right"
-                        {...{ sortKey, sortDesc, toggleSort }}
-                      />
+                      <SortableTh label={`Current${unit}`} k="currentRate" align="right" {...{ sortKey, sortDesc, toggleSort }} />
+                      <SortableTh label={`Street${unit}`} k="streetRate" align="right" {...{ sortKey, sortDesc, toggleSort }} />
+                      <SortableTh label="Room to street" k="gap" align="right" {...{ sortKey, sortDesc, toggleSort }} />
+                      <SortableTh label="Increase" k="increasePct" align="right" {...{ sortKey, sortDesc, toggleSort }} />
+                      <SortableTh label="New rate" k="increaseDollars" align="right" {...{ sortKey, sortDesc, toggleSort }} />
                       <th className="px-4 py-2 font-medium">Limit</th>
                     </tr>
                   </thead>
                   <tbody>
                     {sortedResidents.slice(0, visibleCount).flatMap((r) => {
                       const open = expandedResident === r.key;
+                      const colSpan = plans.length > 1 ? 10 : 9;
                       return [
-                          <tr
-                            key={r.key}
-                            data-testid="row-resident"
-                            className="cursor-pointer border-b transition-colors hover:bg-muted/50"
-                            onClick={() => setExpandedResident(open ? null : r.key)}
-                          >
-                            <td className="px-4 py-2.5">{r.location}</td>
-                            <td className="px-4 py-2.5">
-                              <span className="flex items-center gap-1.5">
-                                {open ? (
-                                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                                ) : (
-                                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                                )}
-                                {r.roomNumber}
-                                {r.isCompanionBed && (
-                                  <Badge variant="outline" className="text-[11px] font-normal">
-                                    B
-                                  </Badge>
-                                )}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 text-muted-foreground">
-                              {r.roomType || "—"}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono">
-                              {formatMoney(r.currentRateDisplay)}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">
-                              {r.streetRateMonthly > 0
-                                ? formatMoney(
-                                    r.rateBasis === "daily"
-                                      ? r.streetRateMonthly / (365 / 12)
-                                      : r.streetRateMonthly,
-                                  )
-                                : "—"}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">
-                              {r.streetRateMonthly > 0 ? formatPct(r.gapToStreetPct, 1) : "—"}
-                            </td>
-                            <td
-                              className={cn(
-                                "px-4 py-2.5 text-right font-mono font-medium",
-                                r.increasePct > 0 ? "" : "text-muted-foreground",
-                              )}
-                            >
-                              {formatPct(r.increasePct, 2)}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono">
-                              {formatMoney(r.newRateDisplay)}
-                              {r.increaseDollarsDisplay > 0 && (
-                                <span className="ml-1.5 text-xs text-muted-foreground">
-                                  +{formatMoney(r.increaseDollarsDisplay)}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <ConstraintBadge constraint={r.constraint} />
-                            </td>
-                          </tr>,
-                          open ? (
-                            <tr key={`${r.key}-detail`} className="border-b bg-muted/30">
-                              <td colSpan={9} className="px-4 py-4">
-                                <Explanation explanation={r.explanation} />
-                              </td>
-                            </tr>
-                          ) : null,
+                        <tr key={r.key} data-testid="row-resident"
+                          className="cursor-pointer border-b transition-colors hover:bg-muted/50"
+                          onClick={() => setExpandedResident(open ? null : r.key)}
+                        >
+                          {plans.length > 1 && (
+                            <td className="px-4 py-2.5 text-xs text-muted-foreground">{r._sl}</td>
+                          )}
+                          <td className="px-4 py-2.5">{r.location}</td>
+                          <td className="px-4 py-2.5">
+                            <span className="flex items-center gap-1.5">
+                              {open ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                              {r.roomNumber}
+                              {r.isCompanionBed && <Badge variant="outline" className="text-[11px] font-normal">B</Badge>}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-muted-foreground">{r.roomType || "—"}</td>
+                          <td className="px-4 py-2.5 text-right font-mono">{formatMoney(r.currentRateDisplay)}</td>
+                          <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">
+                            {r.streetRateMonthly > 0 ? formatMoney(r.rateBasis === "daily" ? r.streetRateMonthly / (365 / 12) : r.streetRateMonthly) : "—"}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">
+                            {r.streetRateMonthly > 0 ? formatPct(r.gapToStreetPct, 1) : "—"}
+                          </td>
+                          <td className={cn("px-4 py-2.5 text-right font-mono font-medium", r.increasePct > 0 ? "" : "text-muted-foreground")}>
+                            {formatPct(r.increasePct, 2)}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-mono">
+                            {formatMoney(r.newRateDisplay)}
+                            {r.increaseDollarsDisplay > 0 && (
+                              <span className="ml-1.5 text-xs text-muted-foreground">+{formatMoney(r.increaseDollarsDisplay)}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5"><ConstraintBadge constraint={r.constraint} /></td>
+                        </tr>,
+                        open ? (
+                          <tr key={`${r.key}-detail`} className="border-b bg-muted/30">
+                            <td colSpan={colSpan} className="px-4 py-4"><Explanation explanation={r.explanation} /></td>
+                          </tr>
+                        ) : null,
                       ];
                     })}
                   </tbody>
@@ -1135,14 +1095,8 @@ export default function InhouseIncreases() {
               </div>
               {visibleCount < sortedResidents.length && (
                 <div className="flex justify-center border-t p-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setVisibleCount((c) => c + 100)}
-                    data-testid="button-show-more"
-                  >
-                    Show 100 more ({(sortedResidents.length - visibleCount).toLocaleString()}{" "}
-                    remaining)
+                  <Button variant="outline" size="sm" onClick={() => setVisibleCount((c) => c + 100)} data-testid="button-show-more">
+                    Show 100 more ({(sortedResidents.length - visibleCount).toLocaleString()} remaining)
                   </Button>
                 </div>
               )}
@@ -1157,15 +1111,23 @@ export default function InhouseIncreases() {
                 Recording a plan saves the assumptions, the street recommendation and every
                 resident increase as a numbered version you can come back to. It does not change
                 any live rate on its own.
+                {plans.length > 1 && " Each service line is saved as a separate versioned plan."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {!plan.feasible && (
+              {!anyFeasible && (
                 <Alert variant="destructive">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription>
-                    A plan that does not reach its target cannot be approved. Adjust the
-                    assumptions above first.
+                    No plans reach the target. Adjust the assumptions above first.
+                  </AlertDescription>
+                </Alert>
+              )}
+              {!allFeasible && anyFeasible && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    Some service lines do not reach the target and cannot be approved. Only the feasible lines will be recorded.
                   </AlertDescription>
                 </Alert>
               )}
@@ -1177,11 +1139,11 @@ export default function InhouseIncreases() {
               )}
               <Button
                 onClick={() => applyPlan.mutate()}
-                disabled={!plan.feasible || !isAuthenticated || applyPlan.isPending}
+                disabled={!anyFeasible || !isAuthenticated || applyPlan.isPending}
                 data-testid="button-apply-plan"
               >
                 {applyPlan.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Approve and record plan
+                Approve and record {plans.length > 1 ? `${plans.filter((p) => p.plan.feasible).length} plan(s)` : "plan"}
               </Button>
 
               {(plansQuery.data?.plans?.length ?? 0) > 0 && (
