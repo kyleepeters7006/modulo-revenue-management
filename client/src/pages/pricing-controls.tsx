@@ -188,7 +188,7 @@ export default function PricingControls() {
           src="/frog.jpg"
           alt=""
           className="w-full h-full object-cover"
-          style={{ objectPosition: "35% 55%" }}
+          style={{ objectPosition: "35% 68%" }}
         />
       </div>
 
