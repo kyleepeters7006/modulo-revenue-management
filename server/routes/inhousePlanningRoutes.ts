@@ -17,6 +17,7 @@ import {
   PlanningDataError,
 } from "../services/inhouseRatePlanning";
 import { buildRatePlanWorkbook } from "../services/inhouseRatePlanning/excelExport";
+import { computeHistoricalTurnover } from "../services/inhouseRatePlanning/historicalTurnover";
 import { invalidateRefDataCache } from "../refDataCache";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -234,6 +235,25 @@ export function registerInhousePlanningRoutes(app: Express) {
     } catch (error) {
       console.error("[inhouse-planning] assumptions save failed:", error);
       res.status(500).json({ error: "Failed to save planning assumptions" });
+    }
+  });
+
+  // ── Historical turnover (read-only, drives the turnover assumption) ──────
+
+  app.get("/api/inhouse-planning/historical-turnover", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || "demo";
+      const locationId = (req.query.locationId as string) || null;
+      const locationName = await resolveLocationName(clientId, locationId);
+      const result = await computeHistoricalTurnover(clientId, locationId, locationName);
+      res.setHeader("Cache-Control", "no-store");
+      res.json(result ?? { windowStart: null, windowEnd: null, monthsInWindow: 0, byServiceLine: [] });
+    } catch (error) {
+      if (error instanceof PlanningDataError) {
+        return res.status(400).json({ error: error.message });
+      }
+      console.error("[inhouse-planning] historical turnover failed:", error);
+      res.status(500).json({ error: "Failed to load historical turnover" });
     }
   });
 

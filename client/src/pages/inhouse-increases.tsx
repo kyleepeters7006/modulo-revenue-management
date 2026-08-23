@@ -10,7 +10,7 @@
  * unreachable target is shown as unreachable with the smallest change that
  * would fix it — never quietly rounded down to something achievable.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,6 +60,37 @@ import {
 } from "@shared/inhousePlanning";
 
 const SERVICE_LINES = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
+
+/** One service line's measured turnover, from /api/inhouse-planning/historical-turnover. */
+interface ServiceLineTurnover {
+  serviceLine: string;
+  moveOuts: number;
+  avgOccupiedUnits: number;
+  privatePaySharePct: number;
+  monthsCovered: number;
+  turnoverPct: number;
+  plausible: boolean;
+}
+
+interface HistoricalTurnoverResponse {
+  windowStart: string | null;
+  windowEnd: string | null;
+  monthsInWindow: number;
+  byServiceLine: ServiceLineTurnover[];
+}
+
+/** "2026-07" -> "Jul 2026", for labelling the measurement window. */
+function formatMonth(month: string | null): string {
+  if (!month) return "";
+  const [y, m] = month.split("-").map(Number);
+  if (!y || !m) return "";
+  return `${MONTH_ABBR[m - 1]} ${y}`;
+}
+
+const MONTH_ABBR = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 const ALL_CAMPUSES = "__all__";
 
 /** Which tier of the fallback chain the shown assumptions actually came from. */
@@ -133,6 +164,63 @@ function ConstraintBadge({ constraint }: { constraint: ResidentRecommendation["c
     <Badge variant="outline" className={cn("whitespace-nowrap text-[11px] font-normal", tone)}>
       {label}
     </Badge>
+  );
+}
+
+/**
+ * The arithmetic behind a line's turnover, shown under the input.
+ *
+ * The page's rule is that no number appears without its derivation, and this
+ * one carries a real trap: a line can be measured and still be unusable. An
+ * implausible figure is shown with what it was, not hidden, so the operator
+ * can see why the saved assumption is still in the box.
+ */
+function TurnoverEvidence({
+  hist,
+  applied,
+}: {
+  hist: ServiceLineTurnover | undefined;
+  applied: number;
+}) {
+  if (!hist) {
+    return (
+      <p className="mt-1 text-[11px] leading-tight text-muted-foreground">
+        No measured history — using the saved assumption.
+      </p>
+    );
+  }
+  if (hist.moveOuts === 0) {
+    return (
+      <p className="mt-1 text-[11px] leading-tight text-amber-500">
+        No private-pay move-outs recorded — using the saved assumption.
+      </p>
+    );
+  }
+  if (hist.monthsCovered < 12 && !hist.plausible) {
+    return (
+      <p className="mt-1 text-[11px] leading-tight text-amber-500">
+        Only {hist.monthsCovered} month{hist.monthsCovered === 1 ? "" : "s"} of occupancy
+        history here — too few to annualise, so the saved assumption is kept.
+      </p>
+    );
+  }
+  if (!hist.plausible) {
+    return (
+      <p className="mt-1 text-[11px] leading-tight text-amber-500">
+        History says {hist.turnoverPct}% ({hist.moveOuts.toLocaleString()} move-outs /{" "}
+        {hist.avgOccupiedUnits.toLocaleString()} private-pay units) — too high to plan with,
+        so the saved assumption is kept.
+      </p>
+    );
+  }
+  const adopted = Math.abs(applied - hist.turnoverPct) < 0.05;
+  return (
+    <p className="mt-1 text-[11px] leading-tight text-muted-foreground">
+      {adopted ? "From history: " : "History: "}
+      {hist.moveOuts.toLocaleString()} move-outs / {hist.avgOccupiedUnits.toLocaleString()}{" "}
+      private-pay units = {hist.turnoverPct}%
+      {!adopted && " (overridden)"}
+    </p>
   );
 }
 
@@ -306,6 +394,67 @@ export default function InhouseIncreases() {
       return json;
     },
   });
+
+  /**
+   * Per-line overrides belong to the campus they were seeded from. Keeping
+   * them across a campus change leaves the previous campus's turnover sitting
+   * in the box for any line the new campus cannot measure — while the note
+   * underneath says the saved assumption is being used. Clear them and let
+   * both loaders reseed for the new scope.
+   */
+  useEffect(() => {
+    setPerLineTargets({});
+  }, [scopeLocationId]);
+
+  /**
+   * Measured turnover per service line. This is what the turnover assumption
+   * should be — the solver blends residents toward the street rate at this
+   * rate, so a guessed number silently changes every recommended increase.
+   */
+  const turnoverQuery = useQuery<HistoricalTurnoverResponse>({
+    queryKey: ["/api/inhouse-planning/historical-turnover", scopeLocationId ?? "all"],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (scopeLocationId) params.set("locationId", scopeLocationId);
+      const res = await fetch(`/api/inhouse-planning/historical-turnover?${params}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+
+  const turnoverBySl = useMemo(() => {
+    const m = new Map<string, ServiceLineTurnover>();
+    for (const row of turnoverQuery.data?.byServiceLine ?? []) m.set(row.serviceLine, row);
+    return m;
+  }, [turnoverQuery.data]);
+
+  /**
+   * Adopt the measured turnover for every line that has a usable one, until
+   * the operator edits something. Implausible lines keep the saved assumption
+   * — see the badge in the table; a 549% turnover would clamp inside the
+   * solver and quietly make in-house increases irrelevant.
+   */
+  useEffect(() => {
+    if (assumptionsTouched || !turnoverQuery.data) return;
+    setPerLineTargets((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const sl of serviceLines) {
+        const hist = turnoverBySl.get(sl);
+        if (!hist?.plausible) continue;
+        const base = next[sl] ?? {
+          rateGrowthTargetPct: assumptions.rateGrowthTargetPct,
+          annualTurnoverPct: assumptions.annualTurnoverPct,
+        };
+        if (base.annualTurnoverPct === hist.turnoverPct && next[sl]) continue;
+        next[sl] = { ...base, annualTurnoverPct: hist.turnoverPct };
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [turnoverQuery.data, turnoverBySl, serviceLines, assumptionsTouched, assumptions]);
 
   /**
    * The workbook is built server-side: it needs the solver's per-resident
@@ -720,9 +869,10 @@ export default function InhouseIncreases() {
                   rateGrowthTargetPct: assumptions.rateGrowthTargetPct,
                   annualTurnoverPct: assumptions.annualTurnoverPct,
                 };
+                const hist = turnoverBySl.get(sl);
                 return (
-                  <div key={sl} className="grid grid-cols-[6rem_1fr_1fr] items-center gap-x-3">
-                    <span className="text-sm font-medium">{sl}</span>
+                  <div key={sl} className="grid grid-cols-[6rem_1fr_1fr] items-baseline gap-x-3">
+                    <span className="pt-1.5 text-sm font-medium">{sl}</span>
                     <div className="flex items-center gap-1">
                       <Input
                         type="number"
@@ -732,18 +882,30 @@ export default function InhouseIncreases() {
                       />
                       <span className="text-xs text-muted-foreground">%</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Input
-                        type="number"
-                        className="h-8 text-sm"
-                        value={vals.annualTurnoverPct}
-                        onChange={(e) => updatePerLine(sl, "annualTurnoverPct", Number(e.target.value))}
-                      />
-                      <span className="text-xs text-muted-foreground">%</span>
+                    <div>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="number"
+                          className="h-8 text-sm"
+                          value={vals.annualTurnoverPct}
+                          onChange={(e) => updatePerLine(sl, "annualTurnoverPct", Number(e.target.value))}
+                        />
+                        <span className="text-xs text-muted-foreground">%</span>
+                      </div>
+                      <TurnoverEvidence hist={hist} applied={vals.annualTurnoverPct} />
                     </div>
                   </div>
                 );
               })}
+              {turnoverQuery.data?.windowEnd && (
+                <p className="pt-1 text-xs text-muted-foreground">
+                  Turnover measured from private-pay move-outs over the{" "}
+                  {turnoverQuery.data.monthsInWindow} months to{" "}
+                  {formatMonth(turnoverQuery.data.windowEnd)}. Only residents whose rate we set
+                  are counted — Medicare, Medicaid and Managed Care are priced externally, so
+                  replacing one does not move revenue.
+                </p>
+              )}
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
