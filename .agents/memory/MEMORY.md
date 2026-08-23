@@ -74,6 +74,7 @@
 - [Display fallback ≠ identity](display-fallback-not-identity.md) — null→"Other" must stay in the display layer; as a group/React key it merges distinct partitions and undercounts.
 - [Base-rate basis](base-rate-basis.md) — rates = single occupant, standard stay; HC/HC-MC needs a room-type arm beyond B-beds; COALESCE every column or the JS/SQL twins diverge on NULLs.
 - [Derived rate formulas](derived-rate-formulas.md) — six non-base products derived from the base rate; outputs only, round once, whole-set saves on a pinned connection, session-scoped mutations.
+- [SDK timeout key presence](sdk-timeout-key-presence.md) — OpenAI/Anthropic validate `'timeout' in options`, so `{timeout: undefined}` kills the call pre-flight; omit the key, floor floats.
 - [Cancelling a slow AI request](ai-run-cancellation.md) — `req.on('close')` fires when the body is read, not on disconnect; budgets must span both providers and be enforced by a non-unref'd timer.
 - [In-house rate planning solver](inhouse-rate-planning-solver.md) — solve bisections exact (tolerance at the edge); operator ceilings clamp derived floors; `computed || fallback` erases a real zero.
 - [campus_metrics granularity](campus-metrics-granularity.md) — CRM metrics exist only with a NULL service line; `service_line IS NOT NULL` silently kills them, and Number(null) is a measured 0.

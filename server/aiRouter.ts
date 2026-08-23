@@ -40,6 +40,35 @@ export class AiTimeoutError extends Error {
   }
 }
 
+/**
+ * Build the per-request options handed to an SDK client.
+ *
+ * Both the OpenAI and Anthropic clients validate with `if ('timeout' in options)`
+ * — the KEY's presence, not its value. So `{ timeout: undefined }` (what an
+ * unbudgeted call produced) fails validation with "timeout must be an integer"
+ * before a single byte goes out, and because the router applies the same object
+ * to both providers, the primary and its fallback died identically. A float from
+ * a computed remaining budget fails the same check.
+ *
+ * So the key is omitted entirely unless there is a real, positive, integral
+ * number of milliseconds to ask for, and is floored rather than rounded so a
+ * fractional remainder can never be rounded UP past the shared deadline.
+ */
+export function sdkRequestOptions(
+  timeoutMs: number | undefined,
+  signal: AbortSignal | undefined,
+): { timeout?: number; signal?: AbortSignal } {
+  const opts: { timeout?: number; signal?: AbortSignal } = {};
+  if (signal) opts.signal = signal;
+  if (typeof timeoutMs === 'number' && Number.isFinite(timeoutMs)) {
+    const whole = Math.floor(timeoutMs);
+    // A 0ms timeout is not a request the SDK can honour; leaving the key off
+    // lets the client's own default apply instead of failing the call outright.
+    if (whole > 0) opts.timeout = whole;
+  }
+  return opts;
+}
+
 /** What a call actually did, as opposed to what it was asked to do. */
 export interface AiCallResult {
   text: string;
@@ -113,7 +142,7 @@ export async function callClaudeDetailed(
               system: systemPrompt,
               messages: [{ role: 'user', content: userPrompt }],
             },
-            { timeout: timeoutMs, signal },
+            sdkRequestOptions(timeoutMs, signal),
           );
           const block = response.content[0];
           return block.type === 'text' ? block.text : '';
@@ -130,7 +159,7 @@ export async function callClaudeDetailed(
           max_completion_tokens: maxTokens,
           temperature,
         },
-        { timeout: timeoutMs, signal },
+        sdkRequestOptions(timeoutMs, signal),
       );
       return response.choices[0].message.content || '';
     },

@@ -13,7 +13,7 @@
  * Run: npx tsx tests/aiRouterFallback.test.ts
  */
 
-import { runWithFallback, AiTimeoutError, isAbortError, type AiAttempt } from '../server/aiRouter';
+import { runWithFallback, AiTimeoutError, isAbortError, sdkRequestOptions, type AiAttempt } from '../server/aiRouter';
 
 let passed = 0;
 let failed = 0;
@@ -420,6 +420,60 @@ async function main() {
     process.off('unhandledRejection', onUnhandled);
     ok('a run inside the budget returns normally', r.text === 'done');
     ok('the deadline timer is cleaned up, with no stray rejection', unhandled === null, String(unhandled));
+  }
+
+  console.log('\n=== The timeout handed to an SDK is always a valid integer ===\n');
+  {
+    // Regression: both SDK clients validate with `if ('timeout' in options)` —
+    // the KEY's presence, not its value. Spreading `{ timeout: timeoutMs }` with
+    // an undefined budget therefore threw "timeout must be an integer" before
+    // any request went out, and since the router builds that object once for
+    // both providers, Claude AND the GPT fallback died on the same argument.
+    // The commentary panels showed an error with no fallback able to engage.
+    const unbudgeted = sdkRequestOptions(undefined, undefined);
+    ok('an absent budget omits the key entirely', !('timeout' in unbudgeted), JSON.stringify(unbudgeted));
+
+    const fractional = sdkRequestOptions(19_999.7, undefined);
+    ok('a fractional remainder becomes an integer', Number.isInteger(fractional.timeout), String(fractional.timeout));
+    ok('...and is floored, never rounded past the deadline', fractional.timeout === 19_999, String(fractional.timeout));
+
+    for (const bad of [NaN, Infinity, -Infinity, 0, -5, 0.4] as number[]) {
+      const opts = sdkRequestOptions(bad, undefined);
+      ok(`an unusable budget (${bad}) omits the key rather than failing the call`, !('timeout' in opts), JSON.stringify(opts));
+    }
+
+    const whole = sdkRequestOptions(30_000, undefined);
+    ok('a genuine budget is still passed through', whole.timeout === 30_000, String(whole.timeout));
+
+    const controller = new AbortController();
+    const signalled = sdkRequestOptions(undefined, controller.signal);
+    ok('the abort signal survives even with no budget', signalled.signal === controller.signal);
+    ok('a missing signal is omitted too', !('signal' in sdkRequestOptions(1_000, undefined)));
+  }
+  {
+    // The consequence the operator actually sees: with no budget set — the shape
+    // the commentary endpoint uses — a failing primary must reach the fallback,
+    // and every timeout value the router hands down must be SDK-acceptable.
+    const validated: Array<{ timeout?: number }> = [];
+    /** Mirrors the SDK's own check, so an invalid value fails here as it would live. */
+    const validatingAttempt = (result: () => string): AiAttempt => async (timeoutMs, signal) => {
+      const opts = sdkRequestOptions(timeoutMs, signal);
+      validated.push(opts);
+      if ('timeout' in opts && (typeof opts.timeout !== 'number' || !Number.isInteger(opts.timeout))) {
+        throw new Error('timeout must be an integer');
+      }
+      return result();
+    };
+    const r = await runWithFallback({
+      label: 'test', primaryModel: PRIMARY, fallbackModel: FALLBACK,
+      primary: validatingAttempt(() => { throw new Error('primary down'); }),
+      fallback: validatingAttempt(() => 'commentary text'),
+    });
+    ok('an unbudgeted call reaches both providers', validated.length === 2, String(validated.length));
+    ok('neither attempt is rejected on the timeout argument', r.text === 'commentary text');
+    ok('the fallback is the one that answered', r.usedFallback && r.model === FALLBACK);
+    ok('the primary failure is reported, not the SDK argument error',
+      r.fallbackReason === 'primary down', String(r.fallbackReason));
   }
 
   console.log(`\n${passed} passed, ${failed} failed\n`);
