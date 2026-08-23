@@ -516,7 +516,7 @@ export default function InhouseIncreases() {
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 px-4 py-6 sm:px-6">
       {/* Sailboat hero banner */}
-      <div className="-mx-4 -mt-6 mb-2 h-24 overflow-hidden sm:-mx-6 sm:h-32">
+      <div className="-mx-4 -mt-6 mb-2 h-36 overflow-hidden sm:-mx-6 sm:h-48">
         <img
           src="/sailboats.jpg"
           alt=""
