@@ -29,7 +29,6 @@
 - [Rule save visibility](rule-save-visibility.md) — purgeRuleCaches must be awaited BEFORE res.json(); GET /api/adjustment-rules needs Cache-Control: no-store; frontend should optimistically prepend new rule to state.
 - [RT-specific comp benchmark](rt-specific-comp-benchmark.md) — benchmarkForRT() gives room-type-specific comp; SL-level blending distorts variance for mixed-price RTs; compVarMap now keyed campus||sl||rt with SL fallback.
 - [Comp benchmark client_id + AL/MC type](comp-benchmark-client-id.md) — survey rows were once all client_id=NULL; NULL-tolerant predicate still worth keeping; AL/MC mapping depends on what each client's import actually produced.
-- [NEVER run drizzle db:push](drizzle-push-drops-undeclared-tables.md) — schema.ts is a partial model; push --force dropped room_type_groupings/manual_rate_overrides/competitor_rates and wiped rent_roll_data. Use raw ALTER TABLE.
 - [DATABASE_URL vs NEON_DATABASE_URL](db-url-distinction.md) — server uses DATABASE_URL; NEON_DATABASE_URL is a different incomplete DB; always use DATABASE_URL for manual node queries.
 - [room_type_groupings branded names](rtg-branded-names.md) — group_name has branded values like "Legacy Lane - Studio"; breaks ILIKE 'studio%' filter; use rr.room_type directly in competitive-position endpoint.
 - [`dark:` variants always on](dark-variant-always-on.md) — App.tsx wraps everything in `.dark`; literal dark palette colours paint a translucent wash. Sticky cells must be opaque in every branch.
