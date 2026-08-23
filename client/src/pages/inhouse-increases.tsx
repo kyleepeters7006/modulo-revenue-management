@@ -463,12 +463,12 @@ export default function InhouseIncreases() {
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 px-4 py-6 sm:px-6">
-      <header className="space-y-1">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+      <header className="space-y-1 text-center">
+        <h1 className="flex items-center justify-center gap-2 text-2xl font-semibold tracking-tight">
           <TrendingUp className="h-6 w-6 text-primary" />
           In-House Rate Planning
         </h1>
-        <p className="max-w-3xl text-sm text-muted-foreground">
+        <p className="mx-auto max-w-3xl text-sm text-muted-foreground">
           Set a rate-growth objective, then see the street rate and the resident-by-resident
           in-house increases required to reach it. Every number below can be expanded to show
           exactly how it was derived.
