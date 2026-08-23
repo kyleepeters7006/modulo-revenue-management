@@ -17,6 +17,7 @@ import {
   PlanningDataError,
 } from "../services/inhouseRatePlanning";
 import { buildRatePlanWorkbook } from "../services/inhouseRatePlanning/excelExport";
+import { invalidateRefDataCache } from "../refDataCache";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -440,6 +441,12 @@ export function registerInhousePlanningRoutes(app: Express) {
       } finally {
         client.release();
       }
+
+      // Reference Data now reads applied plans for its Annual Increase columns
+      // and its Final rate, so a newly applied plan must drop the cached
+      // responses. Without this the grid serves pre-plan numbers for the rest
+      // of the 10-minute TTL.
+      invalidateRefDataCache();
 
       res.json({ ok: true, version, planId, plan });
     } catch (error) {

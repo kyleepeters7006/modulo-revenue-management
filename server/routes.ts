@@ -23706,6 +23706,59 @@ Return ONLY valid JSON, no markdown fences:
         manualOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, { rate: Number(o.override_rate), notes: o.notes ?? null });
       }
 
+      // ── Applied annual in-house increases ────────────────────────────────
+      // Surfaced beside the rule columns, but they are a different quantity:
+      // a rule sets the STREET rate a new move-in would pay, while an applied
+      // plan sets the IN-HOUSE rate a sitting resident pays. Only occupied
+      // rooms are covered, so the group average is over covered residents and
+      // `ihPlanResidents` publishes that coverage rather than implying it.
+      const {
+        loadAppliedPlanRates, unitKey: planUnitKey, newPlanGroupAccumulator,
+        addToPlanGroup, finalizePlanGroup,
+      } = await import('./services/inhouseRatePlanning/appliedPlanRates');
+      const appliedPlans = await loadAppliedPlanRates(clientId);
+      const planGroupMap = new Map<string, ReturnType<typeof newPlanGroupAccumulator>>();
+      if (!appliedPlans.isEmpty) {
+        // Map each covered room to its Reference Data group. Room types must go
+        // through room_type_groupings exactly as the aggregate SQL does, or the
+        // branded group names ("Legacy Lane - Studio") never match.
+        const { parseFlexibleDate } = await import('./services/inhouseRatePlanning/dates');
+        const planScopeSls = Array.from(new Set(appliedPlans.scopes.map(s => s.serviceLine)));
+        const planRoomsRes = await pool.query(
+          `SELECT rr.location, rr.service_line, rr.room_number, rr.move_in_date,
+                  rr.room_type AS raw_room_type,
+                  COALESCE(rtg.group_name, rr.room_type) AS room_type
+             FROM rent_roll_data rr
+             LEFT JOIN room_type_groupings rtg
+               ON rtg.client_id = rr.client_id AND rtg.location = rr.location
+              AND rtg.service_line = rr.service_line AND rtg.source_room_type = rr.source_room_type
+            WHERE rr.client_id = $1 AND rr.upload_month = $2
+              AND rr.service_line = ANY($3::text[])
+              AND rr.room_number IS NOT NULL`,
+          [clientId, spotMonth, planScopeSls],
+        );
+        const keyToGroup = new Map<string, string>();
+        for (const pr of planRoomsRes.rows) {
+          keyToGroup.set(
+            planUnitKey(pr.location, pr.service_line, String(pr.room_number),
+              pr.raw_room_type ?? null, parseFlexibleDate(pr.move_in_date)),
+            `${pr.location}||${pr.service_line}||${pr.room_type || 'Other'}`,
+          );
+        }
+        // Iterate the PLAN's residents, not the rent-roll rows. Walking the
+        // rent roll counts a resident once per row that matches the key, which
+        // silently inflates coverage past the number of occupied rooms when a
+        // room number is reused. Driving from the plan makes double-counting
+        // structurally impossible: each resident contributes exactly once.
+        for (const [k, rate] of Array.from(appliedPlans.byUnit.entries())) {
+          const gk = keyToGroup.get(k);
+          if (!gk) continue; // resident no longer in the current rent roll
+          let acc = planGroupMap.get(gk);
+          if (!acc) { acc = newPlanGroupAccumulator(); planGroupMap.set(gk, acc); }
+          addToPlanGroup(acc, rate);
+        }
+      }
+
       const rows = Array.from(comboMap.values()).map(c => {
         const bm = c.byMonth;
         const spot = bm.get(spotMonth);
@@ -23756,12 +23809,26 @@ Return ONLY valid JSON, no markdown fences:
           const rr = ruleRatesMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}||${rule.id}`);
           if (rr !== null && rr !== undefined) { rulePreviewRate = rr; break; }
         }
-        const effectiveProposed = manualRate ?? proposed ?? rulePreviewRate;
+        // Applied annual increase for this group, if any.
+        const planFields = finalizePlanGroup(planGroupMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`));
+
+        // Final precedence: a manual override still wins over everything; below
+        // it an applied increase takes over from the rule rate, because for an
+        // occupied room the increase IS the served rate.
+        const effectiveProposed = manualRate ?? planFields.ihPlanNewRate ?? proposed ?? rulePreviewRate;
+
         // Revenue impact: (proposed rate − current street rate) × T3 move-ins/month.
         // Only move-ins are affected by street-rate changes; existing residents keep their rates.
+        //
+        // This deliberately uses the RULE rate, not `effectiveProposed`. An
+        // annual increase repricing sitting residents has nothing to do with
+        // move-in volume, so feeding it through this formula would fabricate a
+        // number. The increase's own impact is `ihPlanMonthlyImpact` —
+        // covered residents × their monthly delta.
+        const streetBasisProposed = manualRate ?? proposed ?? rulePreviewRate;
         const t3MoveInsForImpact = moveMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`) ?? null;
-        const monthlyImpact = (effectiveProposed !== null && streetSpot !== null && t3MoveInsForImpact !== null)
-          ? (effectiveProposed - streetSpot) * t3MoveInsForImpact
+        const monthlyImpact = (streetBasisProposed !== null && streetSpot !== null && t3MoveInsForImpact !== null)
+          ? (streetBasisProposed - streetSpot) * t3MoveInsForImpact
           : null;
 
         // ── Year-to-date growth ────────────────────────────────────────────────
@@ -23941,6 +24008,12 @@ Return ONLY valid JSON, no markdown fences:
           // The rule-calculated rate before any manual override; null when no rule applies.
           // Used by the UI tooltip: "Manual override — rule rate was $X".
           ruleRate: manualRate !== null ? (proposed ?? rulePreviewRate) : null,
+          // Applied annual in-house increase. `ihPlanNewRate` is an average over
+          // covered residents only — `ihPlanResidents` is the coverage count.
+          ...planFields,
+          // True when Final is showing the increase rather than a rule rate, so
+          // the grid can label the two apart.
+          finalFromPlan: manualRate === null && planFields.ihPlanNewRate !== null,
           proposedVarDollar: (effectiveProposed !== null && streetSpot !== null) ? effectiveProposed - streetSpot : null,
           proposedVarPct: (effectiveProposed !== null && streetSpot !== null && streetSpot !== 0) ? (effectiveProposed - streetSpot) / streetSpot : null,
           // Revenue impact: (proposed − street) × T3 move-ins/mo; annual =
@@ -24117,6 +24190,9 @@ Return ONLY valid JSON, no markdown fences:
           -- "TCU - Private", which normalises to plain "Studio".
           rr.source_room_type AS raw_source_room_type,
           rr.room_number,
+          -- Needed to identify a resident against an applied increase plan:
+          -- a room number repeats across room types, so it is not an identity.
+          rr.move_in_date,
           rr.occupied_yn,
           rr.days_vacant,
           NULLIF(rr.street_rate, 0)          AS street_rate,
@@ -24163,6 +24239,14 @@ Return ONLY valid JSON, no markdown fences:
           unitOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, Number(o.override_rate));
         }
       }
+
+      // Applied annual in-house increases, per unit. Same precedence as the
+      // grouped endpoint: below a manual override, an applied increase takes
+      // over Final for the occupied rooms it covers.
+      const { loadAppliedPlanRates: loadPlansForUnits, unitKey: planUnitKeyForUnits } =
+        await import('./services/inhouseRatePlanning/appliedPlanRates');
+      const { parseFlexibleDate: parsePlanMoveIn } = await import('./services/inhouseRatePlanning/dates');
+      const unitPlanIndex = await loadPlansForUnits(clientId);
 
       // Average street rate per group — the JS twin of the grouped
       // reference-data endpoint's
@@ -24397,7 +24481,18 @@ Return ONLY valid JSON, no markdown fences:
         const compAdj = num(r.comp_adj);
         const unitGroupKey = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
         const manualOverride = unitOverrideMap.get(`${r.campus}||${r.service_line}||${r.room_type}`) ?? null;
-        const proposed = manualOverride ?? num(r.proposed_rate) ?? rulePreviewMap.get(unitGroupKey) ?? null;
+        // Applied annual increase for this exact room, if one covers it. Keyed
+        // on the raw location/service line/room number the plan recorded — not
+        // the grouped room type, which may carry a branded name.
+        // `source_room_type` is the alias for the RAW rr.room_type here (the
+        // branded group name occupies `room_type`), which is what the plan stored.
+        const unitPlan = r.room_number
+          ? unitPlanIndex.byUnit.get(planUnitKeyForUnits(
+              r.campus, r.service_line, String(r.room_number),
+              r.source_room_type ?? null, parsePlanMoveIn(r.move_in_date),
+            )) ?? null
+          : null;
+        const proposed = manualOverride ?? unitPlan?.newRate ?? num(r.proposed_rate) ?? rulePreviewMap.get(unitGroupKey) ?? null;
         return {
           division: r.division,
           region: r.region,
@@ -24420,6 +24515,23 @@ Return ONLY valid JSON, no markdown fences:
           proposedRule: proposed,
           proposedVarDollar: (proposed !== null && streetSpot !== null) ? proposed - streetSpot : null,
           proposedVarPct: (proposed !== null && streetSpot !== null && streetSpot !== 0) ? (proposed - streetSpot) / streetSpot : null,
+          // Applied annual in-house increase for this room. Summing/averaging
+          // these across a group reproduces the grouped endpoint's figures:
+          // residents sum, monthly impact sums, and the rate averages over
+          // covered rooms only (uncovered rooms carry null, not 0).
+          ihPlanNewRate: unitPlan?.newRate ?? null,
+          ihPlanCurrentRate: unitPlan?.currentRate ?? null,
+          // Δ$ stays in the display basis so it is comparable to the in-house
+          // rate columns beside it (daily for HC); the impact below is monthly.
+          ihPlanDeltaDollar: unitPlan?.increaseDollars ?? null,
+          ihPlanDeltaPct: unitPlan?.increasePct ?? null,
+          ihPlanResidents: unitPlan ? 1 : null,
+          // Always the MONTHLY delta, never the display one: for daily-billed
+          // HC/HC-MC the display delta is per day and would understate the
+          // revenue impact by ~30x. Detail must sum to the grouped figure.
+          ihPlanMonthlyImpact: unitPlan?.increaseDollarsMonthly ?? null,
+          ihPlanEffectiveDate: unitPlan?.inhouseEffectiveDate ?? null,
+          finalFromPlan: manualOverride === null && unitPlan !== null,
           ...((): { revT3MoveIns: number | null; revMonthlyImpact: number | null; revAnnualImpact: number | null } => {
             const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;
             const groupT3  = t3Map.get(key) ?? null;

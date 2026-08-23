@@ -27,3 +27,16 @@ rate, Rules rate all competing).
 rate and allow null. Do not reintroduce a Modulo fallback for the served rate.
 The Modulo algorithm still exists for analysis/comparison, just not as the served
 proposed rate.
+
+## Amendment — applied annual in-house increases
+
+"Rules-only" no longer holds for occupied rooms. An applied in-house increase
+plan now takes over the Final rate for the residents it covers, so the
+precedence is: manual override → applied increase → rule rate → rule preview.
+
+This is a deliberate narrowing, not a reversal: a rule sets the STREET rate a
+new move-in pays, while an increase sets the IN-HOUSE rate a sitting resident
+pays. They are different quantities and the Modulo fallback is still gone. See
+[Annual increase columns in Reference Data](refdata-annual-increase.md) — in
+particular, the move-in-based Revenue Impact must keep using the rule rate even
+where Final shows the increase.

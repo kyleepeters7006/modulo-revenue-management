@@ -239,9 +239,20 @@ const GROUPS: GroupDef[] = [
     id: "proposed",
     label: "Final Rate (Rules Applied)",
     cols: [
-      { key: "proposedRule", label: "Final", type: "money", w: 80, tip: "Final proposed rate after all active rules (and any manual override) are applied. Blank when no adjustment rule applies to this combo." },
-      { key: "proposedVarDollar", label: "Δ$ vs Current", type: "moneysigned", w: 90, tip: "Final rules-applied rate minus the current street (spot) rate, in dollars." },
-      { key: "proposedVarPct", label: "Δ% vs Current", type: "pctfracsigned", w: 90, tip: "Final rules-applied rate vs the current street (spot) rate, as a percentage." },
+      { key: "proposedRule", label: "Final", type: "money", w: 80, tip: "The served rate. Precedence: manual override, then an applied annual in-house increase (occupied rooms only), then the rules-applied rate. Blank when none of those apply." },
+      { key: "proposedVarDollar", label: "Δ$ vs Current", type: "moneysigned", w: 90, tip: "Final rate minus the current street (spot) rate, in dollars." },
+      { key: "proposedVarPct", label: "Δ% vs Current", type: "pctfracsigned", w: 90, tip: "Final rate vs the current street (spot) rate, as a percentage." },
+    ],
+  },
+  {
+    id: "ihPlan",
+    label: "Annual Increase (Applied)",
+    cols: [
+      { key: "ihPlanNewRate", label: "New IH Rate", type: "money", w: 92, tip: "New in-house rate from the most recently applied annual increase plan, averaged over the residents it covers. This is an IN-HOUSE rate for sitting residents — not a street rate for new move-ins." },
+      { key: "ihPlanDeltaDollar", label: "Δ$ vs Current IH", type: "moneysigned", w: 100, tip: "Average increase per covered resident: new in-house rate minus their current in-house rate. Shown in the same basis as the in-house rate columns — per day for HC/HC-MC, per month elsewhere. See Monthly Impact for the revenue figure, which is always monthly." },
+      { key: "ihPlanDeltaPct", label: "Δ% vs Current IH", type: "pctfracsigned", w: 100, tip: "Total increase dollars ÷ total current in-house rate across covered residents. Derived from summed components, so it is not an average of percentages." },
+      { key: "ihPlanResidents", label: "Residents", type: "int", w: 78, tip: "How many residents the applied increase covers. An increase only touches occupied rooms, so this is usually fewer than the group's unit count — the rate columns average over these residents only." },
+      { key: "ihPlanMonthlyImpact", label: "Monthly Impact", type: "moneysigned", w: 100, tip: "Covered residents × their monthly increase. This is the correct impact basis for an in-house increase; the Revenue Impact group beside it models new move-ins at the street rate instead, so the two are not additive." },
     ],
   },
   {
@@ -351,6 +362,10 @@ const AGG_SUM_KEYS = [
   "revT3MoveIns", "moveInsLatest", "moveOutsLatest", "moveNetLatest",
   "revMonthlyImpact", "revAnnualImpact", "revSteadyStateImpact",
   "elasticityMonthlyImpact", "elasticityAnnualImpact", "elasticitySteadyStateImpact",
+  // Applied annual increase: residents covered and their combined monthly
+  // delta are both genuine sums. The rates are re-derived below — they must be
+  // weighted by residents covered, not by total units.
+  "ihPlanResidents", "ihPlanMonthlyImpact",
 ];
 // Inquiry/tour counts live at the campus+SL level and are duplicated on every
 // room-type row — sum them once per unique campus||SL, not per row.
@@ -455,6 +470,38 @@ function aggregateRows(
     };
     for (const k of AGG_CAMPUS_WAVG_KEYS) out[k] = dedupeWavg(byCampus, (r) => r[k]);
     for (const k of AGG_CAMPUS_SL_WAVG_KEYS) out[k] = dedupeWavg(byCampusSL, (r) => r[k]);
+    // Applied annual increase — re-derived from summed components, never by
+    // averaging the child averages. An increase only covers OCCUPIED rooms, so
+    // the weight is residents covered; weighting by total units would dilute
+    // the rate with vacant rooms the plan never touched. Rows with no coverage
+    // contribute nothing rather than a zero.
+    {
+      // Two different bases are in play and must never be mixed. The rate and
+      // Δ$ columns are in the DISPLAY basis (dollars per day for HC/HC-MC,
+      // per month for senior housing), matching the in-house rate columns.
+      // Monthly Impact is always per month. Summing the daily delta into the
+      // monthly figure understates HC impact by ~30x, so they are tracked apart.
+      let residents = 0, newSum = 0, curSum = 0, displayDeltaSum = 0, monthlyImpactSum = 0;
+      let effDate: string | null = null;
+      for (const r of rs) {
+        const n = Number(r.ihPlanResidents ?? 0);
+        if (!n) continue;
+        residents += n;
+        if (r.ihPlanNewRate !== null && r.ihPlanNewRate !== undefined) newSum += Number(r.ihPlanNewRate) * n;
+        if (r.ihPlanCurrentRate !== null && r.ihPlanCurrentRate !== undefined) curSum += Number(r.ihPlanCurrentRate) * n;
+        if (r.ihPlanDeltaDollar !== null && r.ihPlanDeltaDollar !== undefined) displayDeltaSum += Number(r.ihPlanDeltaDollar) * n;
+        if (r.ihPlanMonthlyImpact !== null && r.ihPlanMonthlyImpact !== undefined) monthlyImpactSum += Number(r.ihPlanMonthlyImpact);
+        if (effDate === null && r.ihPlanEffectiveDate) effDate = r.ihPlanEffectiveDate;
+      }
+      out.ihPlanResidents = residents || null;
+      out.ihPlanNewRate = residents ? newSum / residents : null;
+      out.ihPlanCurrentRate = residents ? curSum / residents : null;
+      out.ihPlanDeltaDollar = residents ? displayDeltaSum / residents : null;
+      // Both sides in the display basis, so the ratio is basis-independent.
+      out.ihPlanDeltaPct = curSum > 0 ? displayDeltaSum / curSum : null;
+      out.ihPlanMonthlyImpact = residents ? monthlyImpactSum : null;
+      out.ihPlanEffectiveDate = effDate;
+    }
     // % impact recomputed from summed components (never average %s): summed
     // move-ins-based monthly impact ÷ summed current in-house revenue
     // (ihSpot × occupied units per detail row) — same basis as the server's

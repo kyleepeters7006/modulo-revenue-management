@@ -79,3 +79,4 @@
 - [campus_metrics granularity](campus-metrics-granularity.md) — CRM metrics exist only with a NULL service line; `service_line IS NOT NULL` silently kills them, and Number(null) is a measured 0.
 - [AI prompt metric contract](ai-prompt-metric-contract.md) — an advertised trigger must parse AND be scored by both engines; aliases containing AND/OR are unreachable by construction.
 - [Solver result → spreadsheet export](solver-to-spreadsheet-export.md) — only iterative/simulated values may be snapshots; label the three cell buckets, assert cross-sheet row coupling, ExcelJS needs raw OOXML for charts.
+- [Annual increase in Reference Data](refdata-annual-increase.md) — room number is not a resident identity; drive joins from the plan; increase takes over Final but never move-in revenue impact.
