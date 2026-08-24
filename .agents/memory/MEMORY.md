@@ -83,5 +83,6 @@
 - [Annual increase in Reference Data](refdata-annual-increase.md) — room number is not a resident identity; drive joins from the plan; increase takes over Final but never move-in revenue impact.
 - [Turnover measurement basis](turnover-measurement-basis.md) — measured turnover must be private-pay scoped both sides and month-aligned; all-payer HC reads 943%; IL/VIL vocab + partial trailing month.
 - [Event service line from dept](event-service-line-from-dept.md) — department (not the SL column) separates memory care from its building; prove mappings by room join, never by name; Export feed wins per campus-month.
+- [Duplicate move-in/out imports](move-in-out-duplicate-imports.md) — two workbook formats store the same discharge twice; one format owns a campus-month, all counts read the deduped view.
 - [Per-service-line turnover bands](turnover-plausibility-bands.md) — one portfolio-wide plausibility ceiling cannot judge villas and skilled nursing; the floor catches the quiet error. Warn, never clamp.
 - [Inert inputs from rival state stores](inert-input-state-split.md) — a field bound to the losing side of a `{...shared, ...perKey}` merge ignores typing; per-key defaults are what expose it.

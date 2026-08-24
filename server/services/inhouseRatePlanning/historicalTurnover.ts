@@ -29,10 +29,7 @@
  */
 import { pool } from "../../db";
 import { privatePaySql } from "@shared/payerScope";
-import {
-  exportFeedCoverageSql,
-  supersededByExportFeedSql,
-} from "../moveInOutService";
+import { MOVE_IN_OUT_ACTIVE_VIEW } from "../moveInOutEventsView";
 import {
   explainTurnoverOutOfBand,
   isTurnoverInBand,
@@ -189,7 +186,7 @@ function normalizeEventSl(sl: string | null): string | null {
 async function resolveAnchorMonth(clientId: string): Promise<string | null> {
   const { rows } = await pool.query(
     `SELECT
-       (SELECT MAX(event_date) FROM move_in_out_events WHERE client_id = $1) AS max_event_date,
+       (SELECT MAX(event_date) FROM ${MOVE_IN_OUT_ACTIVE_VIEW} WHERE client_id = $1) AS max_event_date,
        (SELECT to_char(make_date(year, month, 1), 'YYYY-MM')
           FROM room_type_occupancy_history
          WHERE client_id = $1
@@ -289,23 +286,28 @@ export async function computeHistoricalTurnover(
   // TWO FEEDS REPORT THE SAME DISCHARGES, SO ONE HAS TO WIN
   //
   // A bed-hold and a companion departure are the same RESIDENT counted wrongly;
-  // this is the same EVENT stored twice. The table holds an older numeric-
-  // department import layered under a newer "Export" one, and where both cover
-  // a campus-month they report the same discharges. Worse, the numeric feed
-  // cannot tell a memory-care neighbourhood from its parent building, so its
-  // copy of an AL/MC discharge arrives labelled AL. Deferring to the Export
-  // feed for any campus-month it covers is what makes each discharge count
-  // once and lets AL/MC keep the ones that are its own.
+  // the duplicate imports are the same EVENT stored twice. The table holds an
+  // older numeric-department import layered under a newer "Export" one, and
+  // where both cover a campus-month they report the same discharges. Worse, the
+  // numeric feed cannot tell a memory-care neighbourhood from its parent
+  // building, so its copy of an AL/MC discharge arrives labelled AL. Deferring
+  // to the Export feed for any campus-month it covers is what makes each
+  // discharge count once and lets AL/MC keep the ones that are its own.
+  //
+  // That rule is not applied here. It is applied once, for everybody, by
+  // `move_in_out_events_active` — turnover is not the only consumer that was
+  // double-counting (monthly move-in series and T3 move-ins per month, which
+  // scales every rule's projected revenue impact, read the same rows), and a
+  // predicate each query has to remember to repeat is a predicate the next
+  // query will forget. Read the view; never the base table.
   const moveOutSql = `
-    WITH export_coverage AS (${exportFeedCoverageSql("$1", "'move_out'")})
     SELECT e.service_line AS sl, substring(e.event_date, 1, 7) AS m, COUNT(*)::int AS n
-      FROM move_in_out_events e
+      FROM ${MOVE_IN_OUT_ACTIVE_VIEW} e
      WHERE e.client_id = $1
        AND e.event_type = 'move_out'
        AND e.counted = true
        AND substring(e.event_date, 1, 7) BETWEEN $2 AND $3
        AND ${moveOutPayerScopeSql("e")}
-       AND ${supersededByExportFeedSql("e", "export_coverage")}
        ${locationName ? "AND e.location = $4" : ""}
      GROUP BY 1, 2`;
 

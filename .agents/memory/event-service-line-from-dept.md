@@ -61,3 +61,6 @@ the legacy copy of it is still a duplicate.
 **Verify de-duplication as a property, not a number.** Two assertions catch both directions: no
 campus-month contributes rows from both feeds, and the surviving legacy-only rows are still
 non-zero.
+
+The mechanics of that precedence — how the winner is stored and which view every count must
+read — are in [Duplicate move-in/out imports](move-in-out-duplicate-imports.md).

@@ -487,6 +487,23 @@ app.use((req, res, next) => {
     log(`[migration] rate_baseline_v view creation FAILED: ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: the move_in_out_events.import_format / superseded
+  // columns and move_in_out_events_active, the view that hides the duplicate
+  // copy of every event covered by both workbook import formats. The helper
+  // runs the ALTERs before the view so an existing database — the only kind
+  // that has the duplicates to hide — migrates in one step.
+  //
+  // This one fails loudly rather than degrading: with the view missing, every
+  // move-in/out accessor errors instead of quietly serving the doubled counts
+  // they served before it existed.
+  try {
+    const { ensureMoveInOutActiveView } = await import("./services/moveInOutEventsView");
+    await ensureMoveInOutActiveView((s) => db.execute(sql.raw(s)));
+    log("[migration] move_in_out_events columns + active view ensured");
+  } catch (migErr) {
+    log(`[migration] move_in_out_events_active view creation FAILED: ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Idempotent migration: derived_rate_formulas, the user-editable rules that
   // turn the base (single-occupant) rate into second-occupant, semi-private,
   // respite, rehab/TCU, bed-hold and couple rates. Best-effort like the other
@@ -621,10 +638,21 @@ app.use((req, res, next) => {
   // after the first run it corrects nothing and costs one indexed UPDATE.
   setTimeout(async () => {
     try {
-      const { backfillEventServiceLinesFromDept } = await import('./services/moveInOutService');
+      const {
+        backfillEventServiceLinesFromDept,
+        resolveStoredEventImportOverlap,
+      } = await import('./services/moveInOutService');
       const fixed = await backfillEventServiceLinesFromDept();
       if (fixed > 0) {
         log(`[startup-migration] Re-derived service line on ${fixed} move-in/out event(s) from their department`);
+      }
+      // Two workbook formats describe the same admissions and discharges under
+      // different synthetic census ids, so the upsert cannot dedupe them. Stored
+      // rows predate the resolution entirely; without this the overlap window
+      // stays double-counted no matter how many times the mapping is fixed.
+      const overlap = await resolveStoredEventImportOverlap();
+      if (overlap.formatsStamped > 0 || overlap.supersededChanged > 0) {
+        log(`[startup-migration] Move-in/out import overlap resolved: stamped ${overlap.formatsStamped} row(s) with their import format, changed ownership on ${overlap.supersededChanged}`);
       }
     } catch (err) {
       log(`[startup-migration] Move-in/out service-line backfill failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);

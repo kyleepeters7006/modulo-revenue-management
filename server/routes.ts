@@ -88,6 +88,7 @@ import { clampRateWithGuardrails } from "./guardrailsUtil";
 import { splitCombinedSl, slWeightSqlPredicate, isSlWeightUnit, type SlWeight } from "./services/slSplit";
 import { resolveCareLevel2, normalizeCompetitorCareRate, normalizeCompetitorCareRateMonthly, normalizeCompetitorStreetRate, computeCompetitorCareAdj, isDailyServiceLine, CARE_ELIGIBLE_SERVICE_LINES, DAYS_PER_MONTH as SHARED_DAYS_PER_MONTH } from "@shared/careRates";
 import { buildRateBaselineJoin, streetRateGate, inHouseRateGate, fetchStreetBaselineMap, passesStreetGate } from "./services/rateBaselineView";
+import { MOVE_IN_OUT_ACTIVE_VIEW } from "./services/moveInOutEventsView";
 import { bBedExclusionSql } from "@shared/bBed";
 import { baseRateExclusionSql } from "@shared/baseRate";
 import { RATE_OUTLIER_FLOOR_RATIO } from "@shared/rateOutliers";
@@ -25250,10 +25251,10 @@ Return ONLY valid JSON, no markdown fences:
       // Move-In/Out events: from move_in_out_events (Move Ins & Outs Detail workbook)
       const mioRes = await pool.query(
         `SELECT MAX(created_at) AS last_upload_at, COUNT(*)::int AS n,
-                ARRAY(SELECT DISTINCT SUBSTRING(event_date, 1, 7) FROM move_in_out_events
+                ARRAY(SELECT DISTINCT SUBSTRING(event_date, 1, 7) FROM ${MOVE_IN_OUT_ACTIVE_VIEW}
                       WHERE client_id = $1 AND event_date IS NOT NULL
                       ORDER BY 1 DESC) AS periods
-         FROM move_in_out_events WHERE client_id = $1`,
+         FROM ${MOVE_IN_OUT_ACTIVE_VIEW} WHERE client_id = $1`,
         [clientId]
       );
 
@@ -26121,7 +26122,7 @@ Return ONLY valid JSON, no markdown fences:
           COUNT(*) FILTER (WHERE event_type = 'move_out' AND counted)::int AS move_outs,
           MIN(SUBSTRING(event_date, 1, 7)) AS min_month,
           MAX(SUBSTRING(event_date, 1, 7)) AS max_month
-        FROM move_in_out_events WHERE client_id = $1
+        FROM ${MOVE_IN_OUT_ACTIVE_VIEW} WHERE client_id = $1
       `, [clientId]);
       const mio = mioRes.rows[0];
 

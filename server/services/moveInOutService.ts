@@ -2,6 +2,12 @@ import * as XLSX from "xlsx";
 import { isPrivatePayer, privatePaySql } from "@shared/payerScope";
 import { pool } from "../db";
 import { normalizeRoomType } from "@shared/roomTypes";
+import {
+  MOVE_IN_OUT_ACTIVE_VIEW,
+  backfillEventImportFormats,
+  importFormatForCensusId,
+  resolveOverlappingEventImports,
+} from "./moveInOutEventsView";
 
 // ── Move-In / Move-Out event import + monthly count accessors ────────────────
 // Authoritative event-level source for monthly move-in / move-out counts,
@@ -195,7 +201,16 @@ type Ev = {
   isReturn: boolean; counted: boolean;
 };
 
-/** Shared batch upsert for both import paths. */
+/**
+ * Shared batch upsert for both import paths.
+ *
+ * Ends by re-resolving which import format owns each campus-month: the two
+ * workbook formats cover the same admissions and discharges under different
+ * synthetic census ids, so the ON CONFLICT dedupe above cannot see them as the
+ * same event. Whichever format an upload adds to, the overlap is re-decided
+ * immediately — an import must never leave the table double-counted, not even
+ * until the next boot.
+ */
 async function upsertEvents(all: Ev[], clientId: string): Promise<MoveInOutImportStats> {
   const stats: MoveInOutImportStats = {
     moveInsImported: 0, moveOutsImported: 0, countedMoveIns: 0, countedMoveOuts: 0,
@@ -219,18 +234,19 @@ async function upsertEvents(all: Ev[], clientId: string): Promise<MoveInOutImpor
       const params: any[] = [];
       let p = 1;
       for (const e of chunk) {
-        vals.push(`($${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++})`);
+        vals.push(`($${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++})`);
         params.push(
           clientId, e.eventType, e.censusId, e.patientId, e.division, e.location,
           e.dept, e.serviceLine, e.roomType, e.bedType, e.roomName, e.payer,
           e.eventDate, e.eventCategory, e.isReturn, e.counted,
+          importFormatForCensusId(e.censusId),
         );
       }
       await client.query(`
         INSERT INTO move_in_out_events
           (client_id, event_type, census_id, patient_id, division, location, dept,
            service_line, room_type, bed_type, room_name, payer, event_date,
-           event_category, is_return, counted)
+           event_category, is_return, counted, import_format)
         VALUES ${vals.join(",")}
         ON CONFLICT (client_id, event_type, census_id) DO UPDATE SET
           patient_id = EXCLUDED.patient_id, division = EXCLUDED.division,
@@ -239,7 +255,7 @@ async function upsertEvents(all: Ev[], clientId: string): Promise<MoveInOutImpor
           bed_type = EXCLUDED.bed_type, room_name = EXCLUDED.room_name,
           payer = EXCLUDED.payer, event_date = EXCLUDED.event_date,
           event_category = EXCLUDED.event_category, is_return = EXCLUDED.is_return,
-          counted = EXCLUDED.counted
+          counted = EXCLUDED.counted, import_format = EXCLUDED.import_format
       `, params);
     }
     await client.query("COMMIT");
@@ -249,6 +265,7 @@ async function upsertEvents(all: Ev[], clientId: string): Promise<MoveInOutImpor
   } finally {
     client.release();
   }
+  await resolveOverlappingEventImports(pool, clientId);
   return stats;
 }
 
@@ -443,10 +460,34 @@ export async function backfillEventServiceLinesFromDept(): Promise<number> {
   return res.rowCount ?? 0;
 }
 
-/** Whether this client has any imported move-in/out event data. */
+/**
+ * Repair the import-format column and re-decide which format owns each
+ * campus-month, for rows already in the table.
+ *
+ * Event workbooks are historical uploads: the two overlapping formats have
+ * been sitting in the table since long before anything knew to tell them
+ * apart, so the resolution has to reach stored rows and not just the next
+ * import. Idempotent — after the first run it changes nothing.
+ *
+ * @returns how many rows had their format stamped and how many changed owner.
+ */
+export async function resolveStoredEventImportOverlap(): Promise<{
+  formatsStamped: number;
+  supersededChanged: number;
+}> {
+  const formatsStamped = await backfillEventImportFormats(pool);
+  const supersededChanged = await resolveOverlappingEventImports(pool);
+  return { formatsStamped, supersededChanged };
+}
+/**
+ * Whether this client has any imported move-in/out event data.
+ *
+ * Reads the active view like every other accessor: a client whose only rows
+ * are superseded duplicates has no usable feed.
+ */
 export async function hasMoveInOutEvents(clientId: string): Promise<boolean> {
   const res = await pool.query(
-    `SELECT 1 FROM move_in_out_events WHERE client_id = $1 LIMIT 1`, [clientId],
+    `SELECT 1 FROM ${MOVE_IN_OUT_ACTIVE_VIEW} WHERE client_id = $1 LIMIT 1`, [clientId],
   );
   return res.rows.length > 0;
 }
@@ -469,7 +510,7 @@ export async function getMonthlyMoveInSeriesFromEvents(
            THEN ${privatePaySql("payer")} ELSE TRUE END)`;
   const res = await pool.query(`
     SELECT location, service_line, room_type, SUBSTRING(event_date, 1, 7) AS mm, COUNT(*)::int AS n
-    FROM move_in_out_events
+    FROM ${MOVE_IN_OUT_ACTIVE_VIEW}
     WHERE client_id = $1 AND event_type = 'move_in' AND counted = true
       ${payerFilter}
     GROUP BY 1, 2, 3, 4
@@ -494,7 +535,7 @@ export async function getMonthlyMoveOutSeriesFromEvents(
   const sep = opts.keySep ?? "|";
   const res = await pool.query(`
     SELECT location, service_line, room_type, SUBSTRING(event_date, 1, 7) AS mm, COUNT(*)::int AS n
-    FROM move_in_out_events
+    FROM ${MOVE_IN_OUT_ACTIVE_VIEW}
     WHERE client_id = $1 AND event_type = 'move_out' AND counted = true
     GROUP BY 1, 2, 3, 4
   `, [clientId]);
@@ -530,7 +571,7 @@ export async function getT3MoveInsMapFromEvents(
   if (scope.serviceLine) { where.push(`service_line = $${idx++}`); params.push(scope.serviceLine); }
   const res = await pool.query(`
     SELECT location, service_line, room_type, COUNT(*)::float / ${t3Months.length} AS t3_moveins
-    FROM move_in_out_events
+    FROM ${MOVE_IN_OUT_ACTIVE_VIEW}
     WHERE ${where.join(" AND ")}
     GROUP BY 1, 2, 3
   `, params);

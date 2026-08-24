@@ -5,6 +5,7 @@ import { isBaseRateRow } from "@shared/baseRate";
 import { loadCompBenchmark, type CompBenchmark } from "./compBenchmark";
 import { normalizeRoomType } from "@shared/roomTypes";
 import { DAYS_PER_MONTH } from "@shared/careRates";
+import { MOVE_IN_OUT_ACTIVE_VIEW } from "./moveInOutEventsView";
 
 // ---------------------------------------------------------------------------
 // Qualified rule impact — the single source of truth for "how many units does
@@ -433,7 +434,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
   const slRateRes = useEvents
     ? await pool.query(`
         SELECT service_line, COUNT(*)::float / ${Math.max(t3Months.length, 1)} AS per_month
-        FROM move_in_out_events
+        FROM ${MOVE_IN_OUT_ACTIVE_VIEW}
         WHERE client_id = $1 AND event_type = 'move_in' AND counted = true
           AND SUBSTRING(event_date, 1, 7) = ANY($2)
           AND (CASE WHEN service_line IN ('HC','HC/MC')

@@ -930,10 +930,20 @@ export const moveInOutEvents = pgTable("move_in_out_events", {
   eventCategory: text("event_category"), // Census_Event or Discharge_Type
   isReturn: boolean("is_return").default(false),
   counted: boolean("counted").notNull().default(false), // true if this event counts toward monthly move-in/out stats
+  // Which workbook format produced this row: 'legacy' (Admissions/Discharges
+  // sheets) or 'export' (single "Export" sheet). The two formats can describe
+  // the SAME discharge under different synthetic census ids, so the format has
+  // to be a first-class column — it is what decides which copy is counted.
+  importFormat: text("import_format").notNull().default("legacy"),
+  // True when another import format already covers this campus + month, so this
+  // row is a duplicate of an event counted elsewhere. Never read the base table
+  // directly for counts; read `move_in_out_events_active`.
+  superseded: boolean("superseded").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => ({
   uniqueClientTypeCensus: uniqueIndex("miox_client_type_census_idx").on(t.clientId, t.eventType, t.censusId),
   clientLocSlDate: index("miox_client_loc_sl_date_idx").on(t.clientId, t.location, t.serviceLine, t.eventDate),
+  clientTypeFormatDate: index("miox_client_type_format_date_idx").on(t.clientId, t.eventType, t.importFormat, t.eventDate),
 }));
 
 export const insertMoveInOutEventSchema = createInsertSchema(moveInOutEvents).omit({
