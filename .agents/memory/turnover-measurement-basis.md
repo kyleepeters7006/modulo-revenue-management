@@ -1,51 +1,62 @@
 ---
 name: Measuring resident turnover from history
-description: Why measured turnover must be private-pay scoped and month-aligned, and the vocabulary/feed traps between the event table and occupancy history.
+description: Why measured turnover must be carefully scoped by line, and the many traps between the event table and occupancy history.
 ---
 
 ## Rule
-A turnover rate fed to pricing logic must be **private-pay scoped on BOTH sides**, and its
-numerator and denominator must cover the **same months**.
+Turnover measurement has **two distinct scoping regimes** — HC/HC-MC vs every other line — and
+one payer-neutral exclusion that applies to all lines.
 
-**Why:** All-payer, one client's Health Center turns over ~943%/yr — ~5,500 discharges a month
-against ~6,700 occupied beds. Those are real clinical discharges, not duplicates (verified: event
-count == distinct key count). But the overwhelming majority are Medicare / Medicare Advantage /
-Managed Care short-stay rehab residents whose rate is set externally. Replacing one moves no
-revenue, so counting them pretends the resident base re-prices itself several times a year.
-Private-pay-only the same line is ~549%, and AL ~153%, AL/MC ~14%, SL ~39%, VIL ~53%.
+### HC and HC/MC: full private-pay scope on both sides
+Numerator = private-pay move-outs; denominator = occ_units × private-pay share from rent roll.
+Without this, tens of thousands of Medicare/Managed Care short-stay rehab discharges push HC past
+4,500%/yr all-payer. Even private-pay-only HC lands ~540%, above the model limit.
 
-**How to apply:**
-- Numerator: counted private-pay move-outs. Denominator: occupancy LEVEL from
-  `room_type_occupancy_history` × private-pay SHARE from the rent roll. Never count rent-roll
-  occupied rows directly as the level — that flag over-counts (B beds, companion rows) and
-  inflates the denominator. Never pair a private numerator with an all-payer denominator; on HC
-  that understates by ~5x.
-- Use the shared exclusion-based payer scope, not an ILIKE '%private%'. The event feed's payer
-  column spells Medicare "MCR" and Medicaid "MCD" and carries insurer brand names.
-- Restrict the numerator to the months the denominator actually covers, then annualise. A campus
-  whose occupancy history lags will otherwise divide a full year of move-outs by an average over
-  the few months it reported, and report it as a twelve-month measure.
-- Refuse a half-specified scope. Events key on campus NAME, occupancy and rent roll key on
-  location ID; supplying one without the other scopes one side only and reads as a real collapse
-  rather than a bug.
+### All other lines (AL, AL/MC, SL, VIL): unit-turnover basis
+Numerator = all move-outs **except bedholds and companion (2nd-occupant) events**.
+Denominator = raw `occ_units` from occupancy history (no payer-share scaling).
 
-## Two feed traps
-- **The event feed's trailing month is partial.** It lands a few days into the new month with a
-  fraction of its discharges. Include it and every line drops by roughly a twelfth. Treat a feed
-  that stops before the 28th as not having finished its month.
-- **Two service-line vocabularies.** The admissions/event feed emits `IL`; occupancy history and
-  pricing use `VIL`. `IL` only ever appears at campuses whose history rows carry `VIL` and never
-  `IL`, so it must be folded in — left alone it becomes a line with move-outs and no denominator.
-  The reverse gap (a line with a denominator and no numerator) cannot be fixed by an alias — see
-  [Event service line comes from the department](event-service-line-from-dept.md).
+**Why the different regime:**
+- AL, AL/MC, SL, VIL have negligible external-payer volume, so the payer filter adds noise
+  without removing much signal.
+- The payer-share approximation understates denominator precision for those lines anyway.
+- "BEDHOLD" events (payer ILIKE '%BEDHOLD%') are temporary absences where the bed is held and the
+  resident returns — no new street-rate resident moved in, so they must not count as turnover.
+  In one trailing-year window, AL had 688 bedholds out of ~5,400 events — a 13% inflation.
+- "2ND OCCUPANT" companion events (payer ILIKE '%2ND OCCUPANT%') are B-bed companion departures,
+  not primary-unit turnovers; the room stays occupied by the other resident.
 
-## The shape to watch for
-A line that reports **0 move-outs against real occupancy** is the quiet failure: nothing errors,
-the denominator is right, and the page falls back to a typed-in assumption while implying it
-measured something. Assert against every line, not just the one you are fixing.
+**Why:** All-payer HC reads ~943%/yr; bedholds-included AL reads ~153%. Both numbers are real in
+the data but wrong as planning inputs because neither represents the replacement-at-street-rate
+event the solver models.
 
-## Plausibility is a disclosure, not a clamp
-Report the measured figure even when it is unusable, and say why it is unusable. Silently
-substituting a saved assumption while the UI implies a measurement is the failure mode. Short-stay
-rehab genuinely exceeds 100%/yr, so the gate is about whether the number can drive a plan, not
-about whether the data is wrong.
+### LOS is the sanity-check lever
+`losMonths = 1200 / turnoverPct` (12 months × 100 / pct). Show it beside every turnover figure
+so operators can spot-check against their intuition. AL at 153% implies ≈ 7.8 mo avg stay, which
+any operator will immediately flag as implausible. The LOS is also shown in the out-of-band
+commentary so the band explanation is grounded in concrete stay-length language.
+
+## Denominator construction
+`occ_units` from `room_type_occupancy_history` is the authoritative occupancy level.
+`rent_roll_data.occupied_yn` over-counts (B beds, companion rows) and must NEVER be used as the
+occupancy level — only for deriving the private-pay share for HC/HC-MC.
+Pair numerator and denominator month-by-month before averaging; a campus with lagging history
+would otherwise divide a full year of events by a partial-year average and report it as 12-month.
+
+## Feed traps
+- **Partial trailing month.** Feed lands days into the new month with a fraction of its events.
+  Treat any feed that stops before the 28th as not having finished its month.
+- **Two service-line vocabularies.** Event feed emits `IL`; occupancy uses `VIL`. Fold at read.
+- **HC/MC has occupancy but the event feed never emits it.** Its discharges arrive under `HC`
+  unless the department column is used to re-route them. Zero move-outs against real occupancy is
+  the quiet failure: nothing errors, the page silently falls back to a saved assumption.
+- **AL/MC reads ~14% portfolio-wide but ~62% among the 13 campuses that file it.** The gap is
+  discharges filed under AL by campuses that do not use the AL/MC service-line code. Warn in the
+  UI when AL reads high and AL/MC reads low — the two anomalies are the same root cause.
+
+## Plausibility bands
+Per-service-line, not a single portfolio-wide ceiling. A single 100% ceiling accepted AL/MC at
+14% (7-year memory-care stay) while flagging HC readings that are normal for that line.
+Bands: VIL 10-50, SL 15-65, AL 30-85, AL/MC 35-95, HC 60-100, HC/MC 40-100.
+These were set with bedholds EXCLUDED from the measurement; do not re-calibrate against
+bedhold-included numbers.

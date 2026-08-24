@@ -64,6 +64,7 @@ import {
   defaultTurnoverFor,
   describeTurnoverBand,
   explainTurnoverOutOfBand,
+  formatLos,
 } from "@shared/turnoverBounds";
 
 const SERVICE_LINES = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
@@ -73,9 +74,13 @@ interface ServiceLineTurnover {
   serviceLine: string;
   moveOuts: number;
   avgOccupiedUnits: number;
+  /** True for HC and HC/MC (private-pay numerator + private-pay denominator). False for all other lines (all move-outs / all occupied units). */
+  privatePayBasis: boolean;
   privatePaySharePct: number;
   monthsCovered: number;
   turnoverPct: number;
+  /** Average length of stay implied by the turnover rate, in months. 1200 / turnoverPct. */
+  losMonths: number;
   plausible: boolean;
   bandMin: number;
   bandMax: number;
@@ -219,14 +224,17 @@ function TurnoverEvidence({
   } else if (hist.moveOuts === 0) {
     history = (
       <span className="text-amber-500">
-        No private-pay move-outs recorded — using the saved assumption.
+        No {hist.privatePayBasis ? "private-pay " : ""}move-outs recorded — using the saved
+        assumption.
       </span>
     );
   } else if (!hist.plausible) {
+    const unitLabel = hist.privatePayBasis ? "private-pay units" : "occupied units";
     history = (
       <span className="text-amber-500">
-        History says {hist.turnoverPct}% ({hist.moveOuts.toLocaleString()} move-outs /{" "}
-        {hist.avgOccupiedUnits.toLocaleString()} private-pay units).{" "}
+        History says {hist.turnoverPct}% ({formatLos(hist.turnoverPct)}){" "}
+        — {hist.moveOuts.toLocaleString()} move-outs /{" "}
+        {hist.avgOccupiedUnits.toLocaleString()} {unitLabel}.{" "}
         {hist.outOfBandReason} Saved assumption kept.
       </span>
     );
@@ -238,16 +246,22 @@ function TurnoverEvidence({
     // plan they signed off on.
     const displaced =
       adopted && saved !== null && Math.abs(saved - hist.turnoverPct) >= 0.05;
+    const unitLabel = hist.privatePayBasis ? "private-pay units" : "occupied units";
     history = (
       <span className="text-muted-foreground">
         {adopted ? "From history: " : "History: "}
         {hist.moveOuts.toLocaleString()} move-outs /{" "}
-        {hist.avgOccupiedUnits.toLocaleString()} private-pay units = {hist.turnoverPct}%
+        {hist.avgOccupiedUnits.toLocaleString()} {unitLabel} = {hist.turnoverPct}%{" "}
+        ({formatLos(hist.turnoverPct)})
         {!adopted && " (overridden)"}
         {displaced && ` — replaces the saved ${saved}%`}
       </span>
     );
   }
+
+  // LOS for the value currently in the box — so the operator can spot-check
+  // the assumption they're about to plan against, not just the historical figure.
+  const appliedLos = formatLos(applied);
 
   return (
     <div className="mt-1 space-y-0.5 text-[11px] leading-tight">
@@ -257,7 +271,10 @@ function TurnoverEvidence({
           {appliedWarning}
         </p>
       )}
-      {!appliedWarning && <p className="text-muted-foreground/60">Typical {band}</p>}
+      <p className="text-muted-foreground/60">
+        {appliedWarning ? `Planning at ${applied}%` : `Typical ${band}`}
+        {appliedLos && ` — ${appliedLos}`}
+      </p>
     </div>
   );
 }

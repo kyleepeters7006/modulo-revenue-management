@@ -750,14 +750,15 @@ export default function CompetitorAnalysis() {
                     </TableHeader>
                     <TableBody>
                       {sortedData.map((row: any) => {
-                        const positionColor = row.marketPosition >= 100
+                        // marketPosition is now % above/below competitor (e.g. -0.5, +19.6)
+                        const positionColor = row.marketPosition > 0
                           ? "text-green-600"
-                          : row.marketPosition >= 90
+                          : row.marketPosition >= -10
                           ? "text-yellow-600"
                           : "text-red-600";
-                        const PositionIcon = row.marketPosition > 100
+                        const PositionIcon = row.marketPosition > 0
                           ? TrendingUp
-                          : row.marketPosition >= 90
+                          : row.marketPosition >= -10
                           ? Minus
                           : TrendingDown;
                         return (
@@ -793,7 +794,9 @@ export default function CompetitorAnalysis() {
                             <TableCell className="text-right">
                               <div className={`flex items-center justify-end gap-1 ${positionColor}`}>
                                 <PositionIcon className="h-4 w-4" />
-                                <span className="font-semibold">{row.marketPosition.toFixed(1)}%</span>
+                                <span className="font-semibold">
+                                  {row.marketPosition > 0 ? "+" : ""}{row.marketPosition.toFixed(1)}%
+                                </span>
                               </div>
                             </TableCell>
                           </TableRow>

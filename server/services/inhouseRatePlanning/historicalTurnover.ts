@@ -37,11 +37,26 @@ import {
 
 export interface ServiceLineTurnover {
   serviceLine: string;
-  /** Private-pay move-outs counted in the months this line actually covers. */
+  /**
+   * Move-outs counted in the months this line actually covers.
+   * For HC and HC/MC: private-pay only.
+   * For all other lines: all payers, excluding bed-holds and companion positions.
+   */
   moveOuts: number;
-  /** Average monthly occupied units across those months, private-pay share only. */
+  /**
+   * Average monthly occupied units across those months.
+   * For HC and HC/MC: private-pay share only (matches the numerator).
+   * For all other lines: all occupied units (physical unit basis).
+   */
   avgOccupiedUnits: number;
-  /** Share of occupied units that are private pay, 0-100. */
+  /** Average length of stay implied by the turnover rate, in months. 1200 / turnoverPct. */
+  losMonths: number;
+  /**
+   * Whether the numerator and denominator are both restricted to private-pay.
+   * True for HC and HC/MC; false for all other lines.
+   */
+  privatePayBasis: boolean;
+  /** Share of occupied units that are private pay, 0-100. Relevant for HC/HC-MC. */
   privatePaySharePct: number;
   /**
    * Months of occupancy history backing this line, out of 12. A campus whose
@@ -164,6 +179,24 @@ function addMonths(month: string, delta: number): string {
 }
 
 /**
+ * Service lines whose turnover should be measured on a private-pay-only basis.
+ *
+ * HC and HC/MC carry thousands of short-stay Medicare and Managed Care rehab
+ * discharges. Even after the private-pay filter their measured turnover sits at
+ * ~540% — still above the 0-100% model limit, but without the filter it would
+ * be ~4,500%. The filter strips the externally-priced population that we never
+ * price and that therefore contributes nothing to revenue when replaced. Both
+ * numerator and denominator must be on the same basis, so the denominator is
+ * also scaled by the private-pay unit share.
+ *
+ * For every other line (AL, AL/MC, SL, VIL) the denominator is raw physical
+ * units. Those lines have negligible Medicare/Managed Care volume, so counting
+ * all move-outs gives a cleaner "fraction of beds that turned over" and avoids
+ * the distortion from the payer-share approximation.
+ */
+const PRIVATE_PAY_ONLY_LINES = new Set(["HC", "HC/MC"]);
+
+/**
  * Annual turnover per service line over the trailing 12 complete months.
  *
  * `locationName` scopes events (which key on campus name) and `locationId`
@@ -191,9 +224,27 @@ export async function computeHistoricalTurnover(
   const monthsInWindow = 12;
   const windowStart = addMonths(windowEnd, -(monthsInWindow - 1));
 
-  // Private-pay move-outs, kept per month so the numerator can be restricted
-  // to the months the denominator can actually cover. The event feed's payer
-  // column is the same open vocabulary the shared scope helper is built for.
+  // Move-outs, kept per month so the numerator can be restricted to the months
+  // the denominator can actually cover.
+  //
+  // PAYER FILTER IS CONDITIONAL BY LINE
+  //
+  // HC / HC/MC: private-pay filter is mandatory. Without it tens of thousands
+  // of Medicare and Managed Care short-stay rehab discharges flood the numerator
+  // (portfolio HC reads 4,500% all-payer vs ~540% private-pay-only).
+  //
+  // All other lines: count all move-outs on a unit-turnover basis, EXCEPT:
+  //   - BEDHOLDS: the resident temporarily vacated but the bed was held and
+  //     they returned. No new resident moved in, so it is not the replacement
+  //     event the solver models. This is the main source of inflated AL
+  //     turnover (688 bedhold events in one trailing-year window).
+  //   - 2ND OCCUPANT / companion positions: a companion departure is not a
+  //     primary-unit turnover; the room continues to be occupied by the other
+  //     resident. Counting it inflates the numerator without any corresponding
+  //     denominator capacity freeing up.
+  //
+  // The BEDHOLD keyword is matched case-insensitively; "LEGACY - BEDHOLDS" and
+  // any future variant will also be caught. Same for "2ND OCCUPANT".
   const moveOutSql = `
     SELECT service_line AS sl, substring(event_date, 1, 7) AS m, COUNT(*)::int AS n
       FROM move_in_out_events
@@ -201,7 +252,12 @@ export async function computeHistoricalTurnover(
        AND event_type = 'move_out'
        AND counted = true
        AND substring(event_date, 1, 7) BETWEEN $2 AND $3
-       AND ${privatePaySql("payer")}
+       AND (
+         (UPPER(service_line) IN ('HC', 'HC/MC')     AND ${privatePaySql("payer")})
+         OR
+         (UPPER(service_line) NOT IN ('HC', 'HC/MC') AND payer NOT ILIKE '%BEDHOLD%'
+                                                      AND payer NOT ILIKE '%2ND OCCUPANT%')
+       )
        ${locationName ? "AND location = $4" : ""}
      GROUP BY 1, 2`;
 
@@ -279,11 +335,13 @@ export async function computeHistoricalTurnover(
 
   const out: ServiceLineTurnover[] = [];
   for (const [sl, occMonths] of Array.from(occBySl.entries())) {
+    const ppBasis = PRIVATE_PAY_ONLY_LINES.has(sl);
     const share = shareBySl.get(sl);
-    // No rent-roll payer mix for this line means we cannot put the numerator
-    // and denominator on the same basis. Reporting the all-payer denominator
-    // here would understate turnover, so the line is omitted instead.
-    if (share === undefined) continue;
+
+    // HC and HC/MC must have a private-pay share so the denominator can be
+    // scaled to match the private-pay numerator. Other lines use physical units
+    // (all-payer occ_units) as denominator and do not need the share.
+    if (ppBasis && share === undefined) continue;
 
     const months = Array.from(occMonths.keys()).filter((m) => (occMonths.get(m) ?? 0) > 0);
     const monthsCovered = months.length;
@@ -291,8 +349,12 @@ export async function computeHistoricalTurnover(
 
     const avgOccAll =
       months.reduce((s, m) => s + (occMonths.get(m) ?? 0), 0) / monthsCovered;
-    const avgOccPrivate = avgOccAll * share;
-    if (avgOccPrivate <= 0) continue;
+
+    // Denominator basis:
+    //   HC / HC/MC → private-pay units, so numerator and denominator match
+    //   all other lines → physical occupied units (all-payer)
+    const avgOcc = ppBasis ? avgOccAll * (share as number) : avgOccAll;
+    if (avgOcc <= 0) continue;
 
     // Count move-outs ONLY in the months occupancy can account for, then
     // annualise from that. Pairing a full year of move-outs with an average
@@ -301,7 +363,7 @@ export async function computeHistoricalTurnover(
     const byMonth = moveOutsBySlMonth.get(sl);
     const moveOuts = months.reduce((s, m) => s + (byMonth?.get(m) ?? 0), 0);
     const annualisedMoveOuts = (moveOuts / monthsCovered) * monthsInWindow;
-    const turnoverPct = (annualisedMoveOuts / avgOccPrivate) * 100;
+    const turnoverPct = (annualisedMoveOuts / avgOcc) * 100;
 
     // Judge the rounded figure, so the badge never contradicts the number
     // printed beside it (an 85.04% against an 85% ceiling reads as a bug).
@@ -316,10 +378,14 @@ export async function computeHistoricalTurnover(
     out.push({
       serviceLine: sl,
       moveOuts,
-      avgOccupiedUnits: Math.round(avgOccPrivate),
-      privatePaySharePct: Math.round(share * 1000) / 10,
+      avgOccupiedUnits: Math.round(avgOcc),
+      privatePayBasis: ppBasis,
+      privatePaySharePct: share !== undefined ? Math.round(share * 1000) / 10 : 0,
       monthsCovered,
       turnoverPct: rounded,
+      // 1200 = 12 months × 100 (to convert pct to fraction). Rounded to one
+      // decimal so it matches the rounding applied to turnoverPct itself.
+      losMonths: Math.round((1200 / rounded) * 10) / 10,
       plausible: inBand && thinCoverage === null,
       bandMin: band.min,
       bandMax: band.max,

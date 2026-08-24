@@ -13963,9 +13963,10 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         const trilogyServiceLine = serviceLine === 'AL' ? 'AL' : serviceLine;
         const trilogyRate = trilogyRates[trilogyServiceLine]?.[record.roomType || ''] || 0;
         
-        // Calculate market position (Trilogy rate / Competitor rate * 100), 1 decimal place
-        // so 99.6% doesn't round to 100% and incorrectly show as "at/above market"
-        const marketPosition = adjustedRate > 0 ? parseFloat((trilogyRate / adjustedRate * 100).toFixed(1)) : 0;
+        // Calculate market position as % above/below the competitor's adjusted rate.
+        // Positive = we are priced above the competitor; negative = below.
+        // e.g. our $6,999 vs their $7,035 → (6999 - 7035) / 7035 * 100 = -0.5%
+        const marketPosition = adjustedRate > 0 ? parseFloat(((trilogyRate - adjustedRate) / adjustedRate * 100).toFixed(1)) : 0;
         
         return {
           id: record.id,

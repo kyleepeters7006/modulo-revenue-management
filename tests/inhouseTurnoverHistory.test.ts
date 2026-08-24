@@ -132,7 +132,15 @@ async function main() {
     `window ends ${result.windowEnd}, history ends ${histRows[0]?.m}`,
   );
 
-  // ── Payer scope actually bites ────────────────────────────────────────────
+  // ── Payer scope bites on HC/HC-MC, and all-payer is used for other lines ──
+  //
+  // HC and HC/MC carry tens of thousands of Medicare/Managed Care short-stay
+  // rehab discharges. Counting them as turnover pretends the resident base
+  // re-prices itself several times a year. The filter is mandatory there.
+  //
+  // For all other lines (AL, AL/MC, SL, VIL) the numerator counts all move-
+  // outs regardless of payer, giving a cleaner "fraction of beds that turned
+  // over" measure. Those lines have negligible external-payer volume.
 
   const { rows: payerRows } = await pool.query<{ all_payer: string; private_pay: string }>(
     `SELECT COUNT(*)::text AS all_payer,
@@ -141,23 +149,49 @@ async function main() {
       WHERE client_id = $1
         AND event_type = 'move_out'
         AND counted = true
+        AND service_line IN ('HC', 'HC/MC')
         AND substring(event_date, 1, 7) BETWEEN $2 AND $3`,
     [clientId, result.windowStart, result.windowEnd],
   );
-  const allPayer = Number(payerRows[0].all_payer);
-  const privatePay = Number(payerRows[0].private_pay);
+  const allPayerHc = Number(payerRows[0].all_payer);
+  const privatePayHc = Number(payerRows[0].private_pay);
   ok(
-    "the payer scope excludes externally-priced move-outs",
-    privatePay < allPayer,
-    `private ${privatePay} vs all ${allPayer} — scope is not filtering`,
+    "HC / HC/MC payer scope excludes externally-priced move-outs",
+    privatePayHc < allPayerHc,
+    `private ${privatePayHc} vs all ${allPayerHc} — scope is not filtering HC/HC-MC`,
+  );
+
+  // HC and HC/MC lines must only count private-pay move-outs.
+  const hcLinesInResult = result.byServiceLine.filter((r) =>
+    ["HC", "HC/MC"].includes(r.serviceLine),
+  );
+  const hcMoveOuts = hcLinesInResult.reduce((s, r) => s + r.moveOuts, 0);
+  ok(
+    "HC / HC/MC lines do not count externally-priced move-outs",
+    hcMoveOuts <= privatePayHc,
+    `HC+HC/MC lines total ${hcMoveOuts} but only ${privatePayHc} private-pay HC/HC-MC move-outs exist`,
+  );
+
+  // Non-HC lines count all move-outs (no payer filter) — verify at least one
+  // non-HC line has move-outs and that its privatePayBasis is false.
+  const nonHcLines = result.byServiceLine.filter(
+    (r) => !["HC", "HC/MC"].includes(r.serviceLine),
+  );
+  ok(
+    "non-HC lines report privatePayBasis = false (unit-turnover basis)",
+    nonHcLines.every((r) => !r.privatePayBasis),
+    nonHcLines
+      .filter((r) => r.privatePayBasis)
+      .map((r) => r.serviceLine)
+      .join(", ") || "all correct",
+  );
+  ok(
+    "HC / HC/MC lines report privatePayBasis = true",
+    hcLinesInResult.every((r) => r.privatePayBasis),
+    "an HC-family line was flagged as unit-turnover basis",
   );
 
   const summedMoveOuts = result.byServiceLine.reduce((s, r) => s + r.moveOuts, 0);
-  ok(
-    "no line counts a move-out we do not price",
-    summedMoveOuts <= privatePay,
-    `lines total ${summedMoveOuts} but only ${privatePay} private-pay move-outs exist`,
-  );
 
   // ── Every line is internally consistent ───────────────────────────────────
 
@@ -168,11 +202,14 @@ async function main() {
       Math.abs(recomputed - line.turnoverPct) < 0.6,
       `${line.moveOuts}/${line.avgOccupiedUnits} = ${recomputed.toFixed(1)}% but reported ${line.turnoverPct}%`,
     );
-    ok(
-      `${line.serviceLine}: the denominator is the private-pay share, not the whole census`,
-      line.privatePaySharePct > 0 && line.privatePaySharePct <= 100,
-      `share ${line.privatePaySharePct}%`,
-    );
+    // HC/HC-MC use private-pay share; other lines use all occupied units.
+    if (["HC", "HC/MC"].includes(line.serviceLine)) {
+      ok(
+        `${line.serviceLine}: denominator is private-pay share, not the whole census`,
+        line.privatePaySharePct > 0 && line.privatePaySharePct <= 100,
+        `share ${line.privatePaySharePct}%`,
+      );
+    }
     ok(
       `${line.serviceLine}: coverage is a real month count inside the window`,
       line.monthsCovered > 0 && line.monthsCovered <= 12,
