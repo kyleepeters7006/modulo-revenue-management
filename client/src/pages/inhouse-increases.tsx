@@ -58,6 +58,13 @@ import {
   type ResidentRecommendation,
   type CalcExplanation,
 } from "@shared/inhousePlanning";
+import {
+  MODEL_MAX_TURNOVER_PCT,
+  MODEL_MIN_TURNOVER_PCT,
+  defaultTurnoverFor,
+  describeTurnoverBand,
+  explainTurnoverOutOfBand,
+} from "@shared/turnoverBounds";
 
 const SERVICE_LINES = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
 
@@ -70,6 +77,9 @@ interface ServiceLineTurnover {
   monthsCovered: number;
   turnoverPct: number;
   plausible: boolean;
+  bandMin: number;
+  bandMax: number;
+  outOfBandReason: string | null;
 }
 
 interface HistoricalTurnoverResponse {
@@ -176,51 +186,79 @@ function ConstraintBadge({ constraint }: { constraint: ResidentRecommendation["c
  * can see why the saved assumption is still in the box.
  */
 function TurnoverEvidence({
+  serviceLine,
   hist,
   applied,
+  saved,
 }: {
+  serviceLine: string;
   hist: ServiceLineTurnover | undefined;
   applied: number;
+  /**
+   * The stored assumption for this scope, or null when none was ever saved.
+   * Measured history outranks it, so this is shown whenever the two differ —
+   * an operator who deliberately saved a number is entitled to see that it is
+   * not the one being planned with.
+   */
+  saved: number | null;
 }) {
+  // The value actually in the box is what the plan will run on, so it gets
+  // checked against the band whatever its provenance — measured, saved years
+  // ago, or just typed. This is the only warning that can catch a stale saved
+  // assumption, which no amount of history validation would ever look at.
+  const appliedWarning = explainTurnoverOutOfBand(serviceLine, applied);
+  const band = describeTurnoverBand(serviceLine);
+
+  let history: JSX.Element;
   if (!hist) {
-    return (
-      <p className="mt-1 text-[11px] leading-tight text-muted-foreground">
+    history = (
+      <span className="text-muted-foreground">
         No measured history — using the saved assumption.
-      </p>
+      </span>
     );
-  }
-  if (hist.moveOuts === 0) {
-    return (
-      <p className="mt-1 text-[11px] leading-tight text-amber-500">
+  } else if (hist.moveOuts === 0) {
+    history = (
+      <span className="text-amber-500">
         No private-pay move-outs recorded — using the saved assumption.
-      </p>
+      </span>
     );
-  }
-  if (hist.monthsCovered < 12 && !hist.plausible) {
-    return (
-      <p className="mt-1 text-[11px] leading-tight text-amber-500">
-        Only {hist.monthsCovered} month{hist.monthsCovered === 1 ? "" : "s"} of occupancy
-        history here — too few to annualise, so the saved assumption is kept.
-      </p>
-    );
-  }
-  if (!hist.plausible) {
-    return (
-      <p className="mt-1 text-[11px] leading-tight text-amber-500">
+  } else if (!hist.plausible) {
+    history = (
+      <span className="text-amber-500">
         History says {hist.turnoverPct}% ({hist.moveOuts.toLocaleString()} move-outs /{" "}
-        {hist.avgOccupiedUnits.toLocaleString()} private-pay units) — too high to plan with,
-        so the saved assumption is kept.
-      </p>
+        {hist.avgOccupiedUnits.toLocaleString()} private-pay units).{" "}
+        {hist.outOfBandReason} Saved assumption kept.
+      </span>
+    );
+  } else {
+    const adopted = Math.abs(applied - hist.turnoverPct) < 0.05;
+    // Measured history outranks a stored assumption, so when it displaces one
+    // say so outright. Swapping an operator's saved number for a different one
+    // and printing only the new value is how a plan quietly stops being the
+    // plan they signed off on.
+    const displaced =
+      adopted && saved !== null && Math.abs(saved - hist.turnoverPct) >= 0.05;
+    history = (
+      <span className="text-muted-foreground">
+        {adopted ? "From history: " : "History: "}
+        {hist.moveOuts.toLocaleString()} move-outs /{" "}
+        {hist.avgOccupiedUnits.toLocaleString()} private-pay units = {hist.turnoverPct}%
+        {!adopted && " (overridden)"}
+        {displaced && ` — replaces the saved ${saved}%`}
+      </span>
     );
   }
-  const adopted = Math.abs(applied - hist.turnoverPct) < 0.05;
+
   return (
-    <p className="mt-1 text-[11px] leading-tight text-muted-foreground">
-      {adopted ? "From history: " : "History: "}
-      {hist.moveOuts.toLocaleString()} move-outs / {hist.avgOccupiedUnits.toLocaleString()}{" "}
-      private-pay units = {hist.turnoverPct}%
-      {!adopted && " (overridden)"}
-    </p>
+    <div className="mt-1 space-y-0.5 text-[11px] leading-tight">
+      <p>{history}</p>
+      {appliedWarning && (
+        <p className="text-amber-500" data-testid={`turnover-out-of-band-${serviceLine}`}>
+          {appliedWarning}
+        </p>
+      )}
+      {!appliedWarning && <p className="text-muted-foreground/60">Typical {band}</p>}
+    </div>
   );
 }
 
@@ -382,12 +420,26 @@ export default function InhouseIncreases() {
         // Seed per-line targets from the loaded values (only for lines that
         // haven't been individually edited yet).
         setPerLineTargets((prev) => {
-          const seed = {
-            rateGrowthTargetPct: json.assumptions.rateGrowthTargetPct,
-            annualTurnoverPct: json.assumptions.annualTurnoverPct,
-          };
+          // Nothing saved anywhere means the flat 35% is a system placeholder,
+          // not somebody's decision — and 35% is wrong for every line except
+          // by accident. Start each line at its own normal instead.
+          //
+          // Scope of this rule: it governs the PLACEHOLDER only. A value from a
+          // real saved row is never replaced by a band default; if that value
+          // is out of band the operator gets a warning, not a rewrite. Measured
+          // history is the one thing that does outrank a saved value (see the
+          // adoption effect below) — and when it does, the evidence line says
+          // so explicitly rather than just showing the new number.
+          const isPlaceholder = json.scopeLevel === "default";
           const next: typeof prev = {};
-          for (const sl of serviceLines) next[sl] = prev[sl] ?? seed;
+          for (const sl of serviceLines) {
+            next[sl] = prev[sl] ?? {
+              rateGrowthTargetPct: json.assumptions.rateGrowthTargetPct,
+              annualTurnoverPct: isPlaceholder
+                ? defaultTurnoverFor(sl)
+                : json.assumptions.annualTurnoverPct,
+            };
+          }
           return next;
         });
       }
@@ -423,6 +475,16 @@ export default function InhouseIncreases() {
       return res.json();
     },
   });
+
+  /**
+   * What is actually stored for this scope, or null when the page is showing
+   * system defaults. Read from the query rather than the `assumptions` state
+   * so that in-session edits do not masquerade as a saved decision.
+   */
+  const savedTurnoverPct =
+    assumptionsQuery.data && assumptionsQuery.data.scopeLevel !== "default"
+      ? assumptionsQuery.data.assumptions.annualTurnoverPct
+      : null;
 
   const turnoverBySl = useMemo(() => {
     const m = new Map<string, ServiceLineTurnover>();
@@ -887,45 +949,75 @@ export default function InhouseIncreases() {
                         <Input
                           type="number"
                           className="h-8 text-sm"
+                          min={MODEL_MIN_TURNOVER_PCT}
+                          max={MODEL_MAX_TURNOVER_PCT}
                           value={vals.annualTurnoverPct}
                           onChange={(e) => updatePerLine(sl, "annualTurnoverPct", Number(e.target.value))}
                         />
                         <span className="text-xs text-muted-foreground">%</span>
                       </div>
-                      <TurnoverEvidence hist={hist} applied={vals.annualTurnoverPct} />
+                      <TurnoverEvidence
+                        serviceLine={sl}
+                        hist={hist}
+                        applied={vals.annualTurnoverPct}
+                        saved={savedTurnoverPct}
+                      />
                     </div>
                   </div>
                 );
               })}
-              {turnoverQuery.data?.windowEnd && (
-                <p className="pt-1 text-xs text-muted-foreground">
-                  Turnover measured from private-pay move-outs over the{" "}
-                  {turnoverQuery.data.monthsInWindow} months to{" "}
-                  {formatMonth(turnoverQuery.data.windowEnd)}. Only residents whose rate we set
-                  are counted — Medicare, Medicaid and Managed Care are priced externally, so
-                  replacing one does not move revenue.
-                </p>
-              )}
             </div>
           ) : (
+            /*
+             * Bound to perLineTargets, exactly like the multi-line branch.
+             *
+             * These two fields must NOT bind to `assumptions`: the solver reads
+             * them back through assumptionsForLine(), which prefers
+             * perLineTargets[sl] whenever it exists — and seeding always
+             * populates it for every selected line. Binding to `assumptions`
+             * here made the field inert, typing into it changed nothing the
+             * solver saw. It was invisible only while the seed happened to
+             * equal the shared value; per-line defaults made the two diverge.
+             */
             <div className="grid gap-4 sm:grid-cols-2">
               <NumberField
                 testId="input-growth-target"
                 label="Rate growth target"
-                value={assumptions.rateGrowthTargetPct}
-                onChange={(v) => update("rateGrowthTargetPct", v)}
+                value={assumptionsForLine(firstLine).rateGrowthTargetPct}
+                onChange={(v) => updatePerLine(firstLine, "rateGrowthTargetPct", v)}
                 suffix="%"
                 hint="Year-over-year realized rate growth, measured every quarter."
               />
-              <NumberField
-                testId="input-turnover"
-                label="Annual turnover"
-                value={assumptions.annualTurnoverPct}
-                onChange={(v) => update("annualTurnoverPct", v)}
-                suffix="%"
-                hint="Move-outs replaced at street rate; higher turnover lifts the realized rate on its own."
-              />
+              <div>
+                <NumberField
+                  testId="input-turnover"
+                  label="Annual turnover"
+                  value={assumptionsForLine(firstLine).annualTurnoverPct}
+                  onChange={(v) => updatePerLine(firstLine, "annualTurnoverPct", v)}
+                  suffix="%"
+                  min={MODEL_MIN_TURNOVER_PCT}
+                  max={MODEL_MAX_TURNOVER_PCT}
+                  hint="Move-outs replaced at street rate; higher turnover lifts the realized rate on its own."
+                />
+                <TurnoverEvidence
+                  serviceLine={firstLine}
+                  hist={turnoverBySl.get(firstLine)}
+                  applied={assumptionsForLine(firstLine).annualTurnoverPct}
+                  saved={savedTurnoverPct}
+                />
+              </div>
             </div>
+          )}
+
+          {/* Applies to both branches: one service line is measured the same way as six. */}
+          {turnoverQuery.data?.windowEnd && (
+            <p className="text-xs text-muted-foreground">
+              Turnover measured from private-pay move-outs over the{" "}
+              {turnoverQuery.data.monthsInWindow} months to{" "}
+              {formatMonth(turnoverQuery.data.windowEnd)}. Only residents whose rate we set are
+              counted — Medicare, Medicaid and Managed Care are priced externally, so replacing
+              one does not move revenue.
+            </p>
           )}
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

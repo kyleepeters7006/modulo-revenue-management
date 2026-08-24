@@ -29,6 +29,11 @@
  */
 import { pool } from "../../db";
 import { privatePaySql } from "@shared/payerScope";
+import {
+  explainTurnoverOutOfBand,
+  isTurnoverInBand,
+  turnoverBandFor,
+} from "@shared/turnoverBounds";
 
 export interface ServiceLineTurnover {
   serviceLine: string;
@@ -46,12 +51,16 @@ export interface ServiceLineTurnover {
   /** Annualised move-outs over average occupied units, as a percent. */
   turnoverPct: number;
   /**
-   * False when the figure must not be fed to the solver as-is — either too
-   * extreme (over 100% means every unit re-lets at least once a year, making
-   * an in-house increase nearly irrelevant) or built on too few months. The
+   * False when the figure must not be fed to the solver as-is — either outside
+   * the plausible band for this service line, or built on too few months. The
    * operator sees the number and the reason and decides.
    */
   plausible: boolean;
+  /** Inclusive plausible band for this line, in percent, for the UI to cite. */
+  bandMin: number;
+  bandMax: number;
+  /** Why the measured figure was rejected, or null when it was accepted. */
+  outOfBandReason: string | null;
 }
 
 export interface HistoricalTurnoverResult {
@@ -68,7 +77,17 @@ export interface HistoricalTurnoverResult {
  * judgement — short-stay rehab really does exceed it — but past 100% the
  * assumption stops behaving like a planning input.
  */
-const PLAUSIBLE_MAX_PCT = 100;
+/**
+ * Retired: `PLAUSIBLE_MAX_PCT`, a single portfolio-wide 100% ceiling.
+ *
+ * See shared/turnoverBounds for the per-service-line bands that replaced it.
+ *
+ * A single portfolio-wide ceiling cannot judge both a villa (long tenure) and
+ * a skilled-nursing health center (short-stay rehab) with one number. At 100%
+ * it waved through an AL/MC reading of 14%, which implies a seven-year
+ * memory-care stay, while rejecting health-center readings that are ordinary
+ * for that line.
+ */
 
 /**
  * Fewest months of occupancy history a line may be annualised from.
@@ -273,17 +292,30 @@ export async function computeHistoricalTurnover(
     const annualisedMoveOuts = (moveOuts / monthsCovered) * monthsInWindow;
     const turnoverPct = (annualisedMoveOuts / avgOccPrivate) * 100;
 
+    // Judge the rounded figure, so the badge never contradicts the number
+    // printed beside it (an 85.04% against an 85% ceiling reads as a bug).
+    const rounded = Math.round(turnoverPct * 10) / 10;
+    const band = turnoverBandFor(sl);
+    const inBand = isTurnoverInBand(sl, rounded);
+    const thinCoverage =
+      monthsCovered < MIN_MONTHS_COVERED
+        ? `Only ${monthsCovered} month${monthsCovered === 1 ? "" : "s"} of occupancy history — too few to annualise from.`
+        : null;
+
     out.push({
       serviceLine: sl,
       moveOuts,
       avgOccupiedUnits: Math.round(avgOccPrivate),
       privatePaySharePct: Math.round(share * 1000) / 10,
       monthsCovered,
-      turnoverPct: Math.round(turnoverPct * 10) / 10,
-      plausible:
-        turnoverPct > 0 &&
-        turnoverPct <= PLAUSIBLE_MAX_PCT &&
-        monthsCovered >= MIN_MONTHS_COVERED,
+      turnoverPct: rounded,
+      plausible: inBand && thinCoverage === null,
+      bandMin: band.min,
+      bandMax: band.max,
+      // Coverage is reported first: with only a few months behind it the
+      // percent itself is not yet evidence of anything, in band or out.
+      outOfBandReason:
+        thinCoverage ?? explainTurnoverOutOfBand(sl, rounded),
     });
   }
 

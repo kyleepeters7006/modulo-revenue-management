@@ -27,6 +27,14 @@
 import { pool } from "../server/db";
 import { privatePaySql } from "../shared/payerScope";
 import { computeHistoricalTurnover } from "../server/services/inhouseRatePlanning/historicalTurnover";
+import {
+  MODEL_MAX_TURNOVER_PCT,
+  TURNOVER_BANDS,
+  defaultTurnoverFor,
+  explainTurnoverOutOfBand,
+  isTurnoverInBand,
+  turnoverBandFor,
+} from "../shared/turnoverBounds";
 
 const PASS = "\x1b[32m✓\x1b[0m";
 const FAIL = "\x1b[31m✗\x1b[0m";
@@ -153,17 +161,57 @@ async function main() {
       `share ${line.privatePaySharePct}%`,
     );
     ok(
-      `${line.serviceLine}: plausibility agrees with the value it flags`,
-      line.plausible ===
-        (line.turnoverPct > 0 && line.turnoverPct <= 100 && line.monthsCovered >= 6),
-      `${line.turnoverPct}% over ${line.monthsCovered}mo flagged plausible=${line.plausible}`,
-    );
-    ok(
       `${line.serviceLine}: coverage is a real month count inside the window`,
       line.monthsCovered > 0 && line.monthsCovered <= 12,
       `monthsCovered ${line.monthsCovered}`,
     );
+
+    // ── The band is per service line, and the verdict must follow it ────────
+
+    const band = turnoverBandFor(line.serviceLine);
+    ok(
+      `${line.serviceLine}: reports the band it was judged against`,
+      line.bandMin === band.min && line.bandMax === band.max,
+      `got ${line.bandMin}-${line.bandMax}, band is ${band.min}-${band.max}`,
+    );
+    ok(
+      `${line.serviceLine}: nothing outside its own band is ever auto-applied`,
+      !line.plausible || isTurnoverInBand(line.serviceLine, line.turnoverPct),
+      `${line.turnoverPct}% passed a ${band.min}-${band.max}% band`,
+    );
+    ok(
+      `${line.serviceLine}: a rejected line always says why`,
+      line.plausible === (line.outOfBandReason === null),
+      `plausible=${line.plausible} reason=${line.outOfBandReason}`,
+    );
+    // The rounded percent is what the badge prints; judging the unrounded one
+    // would let a line read "85%" beside an "expected 30-85%" warning.
+    ok(
+      `${line.serviceLine}: the verdict matches the number shown, not a rounding of it`,
+      line.plausible ===
+        (isTurnoverInBand(line.serviceLine, line.turnoverPct) && line.monthsCovered >= 6),
+      `${line.turnoverPct}% flagged plausible=${line.plausible}`,
+    );
   }
+
+  // ── The floor has to bite, not just the ceiling ───────────────────────────
+  //
+  // A single 100% ceiling accepted AL/MC at 14%, which implies a seven-year
+  // memory-care stay. That direction of error is the dangerous one: it is
+  // quiet, and it makes in-house increases look far more load-bearing than
+  // they are.
+
+  const tooSlow = result.byServiceLine.filter(
+    (r) => r.turnoverPct > 0 && r.turnoverPct < turnoverBandFor(r.serviceLine).min,
+  );
+  for (const line of tooSlow) {
+    ok(
+      `${line.serviceLine}: an implausibly SLOW line is rejected, not silently adopted`,
+      !line.plausible && (line.outOfBandReason ?? "").includes("longer stay"),
+      `${line.turnoverPct}% was accepted below a ${line.bandMin}% floor`,
+    );
+  }
+  console.log(`  (${tooSlow.length} line(s) rejected by the floor rather than the ceiling)`);
 
   // ── A scope with partial history must not borrow months it does not have ──
   //
@@ -301,6 +349,72 @@ async function main() {
     "an unknown client yields no measurement rather than zeroes",
     missing === null,
     "a fabricated 0% turnover would silently plan as if nobody ever leaves",
+  );
+
+  // ── The bands themselves ──────────────────────────────────────────────────
+
+  console.log("\n── turnover bands ──");
+
+  for (const [sl, band] of Object.entries(TURNOVER_BANDS)) {
+    ok(
+      `${sl}: the band is ordered and contains its own default`,
+      band.min < band.typical && band.typical < band.max,
+      `min ${band.min} / typical ${band.typical} / max ${band.max}`,
+    );
+    // The solver converts turnover into a daily survival probability, so a
+    // band that reached past full replacement would hand it an input it can
+    // only clamp — the plan would silently stop responding to the number.
+    ok(
+      `${sl}: the band stays inside what the projection can model`,
+      band.min >= 0 && band.max <= MODEL_MAX_TURNOVER_PCT,
+      `band ${band.min}-${band.max} exceeds the 0-${MODEL_MAX_TURNOVER_PCT}% model limit`,
+    );
+    ok(
+      `${sl}: its own default passes its own band`,
+      isTurnoverInBand(sl, defaultTurnoverFor(sl)),
+      `default ${defaultTurnoverFor(sl)} is outside ${band.min}-${band.max}`,
+    );
+    ok(
+      `${sl}: a value inside the band draws no warning`,
+      explainTurnoverOutOfBand(sl, band.typical) === null,
+      "the typical value was flagged",
+    );
+    ok(
+      `${sl}: both edges of the band are inclusive`,
+      isTurnoverInBand(sl, band.min) && isTurnoverInBand(sl, band.max),
+      "an edge value was rejected",
+    );
+    ok(
+      `${sl}: a value under the floor is called out as too slow`,
+      (explainTurnoverOutOfBand(sl, band.min - 0.1) ?? "").includes("longer stay"),
+      "no floor warning",
+    );
+  }
+
+  // Care levels must not be interchangeable: if independent living and skilled
+  // nursing shared a band we would be back to the single ceiling this replaced.
+  ok(
+    "the slowest line's ceiling sits below the fastest line's floor",
+    TURNOVER_BANDS.VIL.max < TURNOVER_BANDS.HC.min,
+    `VIL max ${TURNOVER_BANDS.VIL.max} vs HC min ${TURNOVER_BANDS.HC.min}`,
+  );
+  ok(
+    "acuity orders the defaults — villas turn over slowest, the health center fastest",
+    defaultTurnoverFor("VIL") < defaultTurnoverFor("SL") &&
+      defaultTurnoverFor("SL") < defaultTurnoverFor("AL") &&
+      defaultTurnoverFor("AL") < defaultTurnoverFor("AL/MC") &&
+      defaultTurnoverFor("AL/MC") < defaultTurnoverFor("HC"),
+    "the per-line defaults are not ordered by care level",
+  );
+  ok(
+    "an unrecognised service line still gets a usable band rather than throwing",
+    isTurnoverInBand("NOT_A_LINE", 35) && !isTurnoverInBand("NOT_A_LINE", 250),
+    "the fallback band misbehaved",
+  );
+  ok(
+    "service lines resolve regardless of case or stray whitespace",
+    turnoverBandFor(" al/mc ").max === TURNOVER_BANDS["AL/MC"].max,
+    "a lowercase service line silently fell through to the fallback band",
   );
 }
 
