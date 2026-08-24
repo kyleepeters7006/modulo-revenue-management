@@ -19,14 +19,24 @@
  *      move-outs; the denominator must be private-pay occupied units. Pairing
  *      a scoped numerator with an all-payer denominator understates HC by ~5x.
  *
- *   4. A service line with a denominator and no numerator. Memory care inside
- *      the Health Center is its own line in occupancy history and the rent
- *      roll, but the event feed's "Service Line" column calls the whole
- *      building "Health Center". Its discharges were therefore filed under HC
- *      and HC/MC measured exactly 0% — read as "nobody ever leaves memory
- *      care", and silently replaced by a hand-typed assumption. Only the
+ *   4. A memory-care line measuring somebody else's discharges. Memory care is
+ *      its own line in occupancy history and the rent roll, but the event
+ *      feed's "Service Line" column names only the parent building. HC/MC's
+ *      discharges were therefore filed under HC and it measured exactly 0%,
+ *      while AL/MC was handed the discharges of an unrelated senior-living
+ *      department and measured 14% — a seven-year memory-care stay. Only the
  *      event's DEPARTMENT distinguishes the neighbourhood, so the department
  *      mapping is what these tests pin.
+ *
+ *      14% was out of band and got flagged; a slightly different wrong number
+ *      would not have been. So the tests below check the PROVENANCE of each
+ *      line's discharges — that they happened in rooms that line carries —
+ *      rather than only whether the percent looks sensible.
+ *
+ *   5. The same discharge counted twice. The event table holds two overlapping
+ *      imports of the same events under different department vocabularies, and
+ *      counting both put AL at 153% a year. Only the newer feed separates the
+ *      memory-care neighbourhoods, so it wins any campus-month both cover.
  *
  * Scopes are DISCOVERED, so the suite keeps testing something after a
  * re-import rather than pinning values that a new upload invalidates.
@@ -35,10 +45,16 @@
  */
 import { pool } from "../server/db";
 import { privatePaySql } from "../shared/payerScope";
-import { computeHistoricalTurnover } from "../server/services/inhouseRatePlanning/historicalTurnover";
+import {
+  computeHistoricalTurnover,
+  moveOutPayerScopeSql,
+} from "../server/services/inhouseRatePlanning/historicalTurnover";
 import {
   DEPT_TO_SERVICE_LINE,
+  LEGACY_FEED_DEPTS,
+  exportFeedCoverageSql,
   serviceLineForDept,
+  supersededByExportFeedSql,
 } from "../server/services/moveInOutService";
 import {
   MODEL_MAX_TURNOVER_PCT,
@@ -356,25 +372,42 @@ async function main() {
     );
   }
 
-  // ── Memory care inside the Health Center is its own line ──────────────────
+  // ── Memory care is its own line, in both buildings ────────────────────────
   //
   // The failure this guards is the quietest one in the whole measurement: the
-  // line still appears, its denominator is right, and it reports 0%. Nothing
-  // errors. The page falls back to the typed-in assumption while implying it
-  // measured something.
+  // line still appears and its denominator is right, so nothing errors. HC/MC
+  // showed it as a 0%; AL/MC showed it as a plausible-looking 14% built from
+  // another line's discharges entirely.
 
   // The mapping is what makes the split possible, so pin it directly. A future
   // import format that stops emitting the department, or a "simplification"
-  // that drops the entry, reverts the bug in full silence.
+  // that drops an entry, reverts the bug in full silence.
+  for (const [dept, expected] of [
+    ["HC Legacy", "HC/MC"],
+    ["AL Legacy", "AL/MC"],
+  ] as const) {
+    ok(
+      `the "${dept}" department resolves to its own service line`,
+      serviceLineForDept(dept) === expected,
+      `got ${serviceLineForDept(dept)} — its discharges would be filed as the parent building`,
+    );
+    ok(
+      `"${dept}" is found however the workbook spells it`,
+      serviceLineForDept(`  ${dept.toLowerCase()}  `) === expected,
+      "case/whitespace variation must not silently fall through to the Service Line text",
+    );
+  }
+
+  // `24-A/I` reads like an Alzheimer's unit and was mapped to AL/MC on that
+  // reading alone. It is the older feed's name for senior living: every one of
+  // its move-outs is in a room the rent roll calls SL, and its monthly counts
+  // track the SL department almost exactly. Pointing it back at memory care
+  // would hand AL/MC a numerator belonging to a different service line — which
+  // is precisely how a 14% memory-care turnover happened.
   ok(
-    "the memory-care department still resolves to its own service line",
-    serviceLineForDept("HC Legacy") === "HC/MC",
-    `got ${serviceLineForDept("HC Legacy")} — HC/MC discharges would be filed as HC`,
-  );
-  ok(
-    "the department lookup tolerates the spelling a workbook actually uses",
-    serviceLineForDept("  hc legacy  ") === "HC/MC",
-    "case/whitespace variation must not silently fall through to the Service Line text",
+    "the senior-living department does not feed memory care",
+    serviceLineForDept("24-A/I") === "SL",
+    `got ${serviceLineForDept("24-A/I")} — AL/MC would measure senior-living discharges`,
   );
 
   // Stored rows have to agree with the mapping too. Event workbooks are
@@ -411,51 +444,176 @@ async function main() {
       "their discharges are most likely filed under another line",
   );
 
-  const hcmc = result.byServiceLine.find((r) => r.serviceLine === "HC/MC");
-  const { rows: hcmcOccRows } = await pool.query<{ n: string }>(
-    `SELECT COUNT(*)::text AS n
-       FROM room_type_occupancy_history
-      WHERE client_id = $1 AND service_line = 'HC/MC' AND occ_units > 0`,
-    [clientId],
-  );
-  if (Number(hcmcOccRows[0].n) > 0) {
+  // Both memory-care lines are checked the same way. AL/MC is the one that
+  // measured a plausible-looking number rather than a zero, so it is the one
+  // that proves the checks below have to be about provenance, not magnitude.
+  for (const [parent, mc] of [
+    ["HC", "HC/MC"],
+    ["AL", "AL/MC"],
+  ] as const) {
+    const mcLine = result.byServiceLine.find((r) => r.serviceLine === mc);
+    const { rows: occRows } = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n
+         FROM room_type_occupancy_history
+        WHERE client_id = $1 AND service_line = $2 AND occ_units > 0`,
+      [clientId, mc],
+    );
+    if (Number(occRows[0].n) === 0) {
+      console.log(`  (this client has no ${mc} occupancy — that split not exercised)`);
+      continue;
+    }
+
     ok(
-      "memory care in the Health Center reports a measured turnover, not a zero",
-      !!hcmc && hcmc.moveOuts > 0 && hcmc.turnoverPct > 0,
-      `HC/MC: ${hcmc?.moveOuts ?? "no line"} move-outs, ${hcmc?.turnoverPct ?? "-"}%`,
+      `${mc} reports a measured turnover, not a zero`,
+      !!mcLine && mcLine.moveOuts > 0 && mcLine.turnoverPct > 0,
+      `${mc}: ${mcLine?.moveOuts ?? "no line"} move-outs, ${mcLine?.turnoverPct ?? "-"}%`,
     );
 
     // Splitting a line out only helps if it is a split and not a copy. The
-    // same discharge counted in both HC and HC/MC would inflate the Health
-    // Center on top of the memory-care line it was supposed to leave.
-    const hc = result.byServiceLine.find((r) => r.serviceLine === "HC");
-    if (hc && hcmc && hc.monthsCovered === 12 && hcmc.monthsCovered === 12) {
+    // same discharge counted in both would inflate the parent building on top
+    // of the memory-care line it was supposed to leave.
+    const parentLine = result.byServiceLine.find((r) => r.serviceLine === parent);
+    if (
+      parentLine &&
+      mcLine &&
+      parentLine.monthsCovered === 12 &&
+      mcLine.monthsCovered === 12
+    ) {
       const { rows: familyRows } = await pool.query<{ sl: string; n: string }>(
-        `SELECT service_line AS sl, COUNT(*)::text AS n
-           FROM move_in_out_events
-          WHERE client_id = $1
-            AND event_type = 'move_out'
-            AND counted = true
-            AND service_line IN ('HC', 'HC/MC')
-            AND substring(event_date, 1, 7) BETWEEN $2 AND $3
-            AND ${privatePaySql("payer")}
+        `WITH export_coverage AS (${exportFeedCoverageSql("$1", "'move_out'")})
+         SELECT e.service_line AS sl, COUNT(*)::text AS n
+           FROM move_in_out_events e
+          WHERE e.client_id = $1
+            AND e.event_type = 'move_out'
+            AND e.counted = true
+            AND e.service_line IN ($4, $5)
+            AND substring(e.event_date, 1, 7) BETWEEN $2 AND $3
+            AND ${moveOutPayerScopeSql("e")}
+            AND ${supersededByExportFeedSql("e", "export_coverage")}
           GROUP BY 1`,
-        [clientId, result.windowStart, result.windowEnd],
+        [clientId, result.windowStart, result.windowEnd, parent, mc],
       );
       const family = Object.fromEntries(familyRows.map((r) => [r.sl, Number(r.n)]));
       ok(
-        "the Health Center and its memory-care line partition the same discharges",
-        hc.moveOuts + hcmc.moveOuts === (family.HC ?? 0) + (family["HC/MC"] ?? 0),
-        `reported ${hc.moveOuts}+${hcmc.moveOuts} vs feed ${family.HC ?? 0}+${family["HC/MC"] ?? 0}`,
+        `${parent} and ${mc} partition the same discharges`,
+        parentLine.moveOuts + mcLine.moveOuts === (family[parent] ?? 0) + (family[mc] ?? 0),
+        `reported ${parentLine.moveOuts}+${mcLine.moveOuts} vs feed ${family[parent] ?? 0}+${family[mc] ?? 0}`,
       );
       ok(
-        "no memory-care discharge is left behind in the Health Center",
-        hcmc.moveOuts === (family["HC/MC"] ?? 0) && hc.moveOuts === (family.HC ?? 0),
-        `HC/MC ${hcmc.moveOuts} vs ${family["HC/MC"] ?? 0}, HC ${hc.moveOuts} vs ${family.HC ?? 0}`,
+        `no ${mc} discharge is left behind in ${parent}`,
+        mcLine.moveOuts === (family[mc] ?? 0) && parentLine.moveOuts === (family[parent] ?? 0),
+        `${mc} ${mcLine.moveOuts} vs ${family[mc] ?? 0}, ${parent} ${parentLine.moveOuts} vs ${family[parent] ?? 0}`,
       );
     }
-  } else {
-    console.log("  (this client has no HC/MC occupancy — memory-care split not exercised)");
+  }
+
+  // ── Two overlapping feeds, one discharge ──────────────────────────────────
+  //
+  // The event table holds an older numeric-department import layered under the
+  // newer Export one, reporting the same discharges. Counting both put AL at
+  // 153% a year. The Export feed wins any campus-month it covers — it reaches
+  // every month the older one does and it is the only one that separates the
+  // memory-care neighbourhoods — but a campus-month only the older feed
+  // reported still has to count, so precedence is per campus-month.
+
+  const { rows: dupRows } = await pool.query<{ location: string; m: string }>(
+    `WITH export_coverage AS (${exportFeedCoverageSql("$1", "'move_out'")})
+     SELECT e.location, substring(e.event_date, 1, 7) AS m
+       FROM move_in_out_events e
+      WHERE e.client_id = $1
+        AND e.event_type = 'move_out'
+        AND e.counted = true
+        AND ${supersededByExportFeedSql("e", "export_coverage")}
+      GROUP BY 1, 2
+     HAVING bool_or(COALESCE(upper(trim(e.dept)), '') = ANY($2))
+        AND bool_or(NOT (COALESCE(upper(trim(e.dept)), '') = ANY($2)))
+      LIMIT 5`,
+    [clientId, [...LEGACY_FEED_DEPTS]],
+  );
+  ok(
+    "no campus-month is counted from both feeds at once",
+    dupRows.length === 0,
+    dupRows.map((r) => `${r.location} ${r.m}`).join("; ") || undefined,
+  );
+
+  const { rows: legacyOnlyRows } = await pool.query<{ n: string }>(
+    `WITH export_coverage AS (${exportFeedCoverageSql("$1", "'move_out'")})
+     SELECT COUNT(*)::text AS n
+       FROM move_in_out_events e
+      WHERE e.client_id = $1
+        AND e.event_type = 'move_out'
+        AND e.counted = true
+        AND COALESCE(upper(trim(e.dept)), '') = ANY($2)
+        AND ${supersededByExportFeedSql("e", "export_coverage")}`,
+    [clientId, [...LEGACY_FEED_DEPTS]],
+  );
+  ok(
+    "a campus-month only the older feed reported is still counted",
+    Number(legacyOnlyRows[0].n) > 0,
+    "precedence dropped the older feed wholesale instead of per campus-month — " +
+      "months it alone covers would vanish from the numerator",
+  );
+
+  // ── The discharges a line reports actually happened in that line's rooms ──
+  //
+  // This is the check that would have caught AL/MC at 14%. The percent looked
+  // like something; what was wrong was where the discharges came from. Every
+  // event carries the room it happened in, and the rent roll says which line
+  // owns that room, so provenance is checkable independently of the department
+  // vocabulary that produced it. Rooms do get reassigned between lines over
+  // time, so this asserts a strong majority rather than unanimity.
+
+  const { rows: provenanceRows } = await pool.query<{
+    sl: string;
+    matched: string;
+    agrees: string;
+  }>(
+    `WITH export_coverage AS (${exportFeedCoverageSql("$1", "'move_out'")}),
+     rooms AS (
+       SELECT l.name AS loc,
+              upper(split_part(trim(r.room_number), '/', 1)) AS rn,
+              array_agg(DISTINCT r.service_line) AS lines
+         FROM rent_roll_data r
+         JOIN locations l ON l.id = r.location_id
+        WHERE r.client_id = $1 AND r.room_number IS NOT NULL
+        GROUP BY 1, 2
+     )
+     SELECT CASE upper(trim(e.service_line)) WHEN 'IL' THEN 'VIL'
+                 ELSE upper(trim(e.service_line)) END AS sl,
+            COUNT(rooms.lines)::text AS matched,
+            COUNT(*) FILTER (
+              WHERE rooms.lines @> ARRAY[CASE upper(trim(e.service_line))
+                                           WHEN 'IL' THEN 'VIL'
+                                           ELSE upper(trim(e.service_line)) END]
+            )::text AS agrees
+       FROM move_in_out_events e
+       LEFT JOIN rooms ON rooms.loc = e.location
+                      AND rooms.rn = upper(split_part(trim(e.room_name), '/', 1))
+      WHERE e.client_id = $1
+        AND e.event_type = 'move_out'
+        AND e.counted = true
+        AND e.service_line IS NOT NULL
+        AND substring(e.event_date, 1, 7) BETWEEN $2 AND $3
+        AND ${moveOutPayerScopeSql("e")}
+        AND ${supersededByExportFeedSql("e", "export_coverage")}
+      GROUP BY 1`,
+    [clientId, result.windowStart, result.windowEnd],
+  );
+  for (const row of provenanceRows) {
+    const matched = Number(row.matched);
+    const agrees = Number(row.agrees);
+    // Below this there is no room evidence to reason from — say so rather than
+    // passing on an empty sample.
+    if (matched < 50) {
+      console.log(`  (${row.sl}: only ${matched} move-outs matched a known room — provenance not checked)`);
+      continue;
+    }
+    ok(
+      `${row.sl}: its move-outs happened in rooms it actually carries`,
+      agrees / matched >= 0.9,
+      `only ${agrees}/${matched} (${((agrees / matched) * 100).toFixed(0)}%) of ${row.sl} move-outs ` +
+        `are in a ${row.sl} room — this line is measuring another line's discharges`,
+    );
   }
 
   // ── Campus scope narrows both sides together ──────────────────────────────

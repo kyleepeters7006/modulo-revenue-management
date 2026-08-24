@@ -26,9 +26,19 @@ Denominator = raw `occ_units` from occupancy history (no payer-share scaling).
 - "2ND OCCUPANT" companion events (payer ILIKE '%2ND OCCUPANT%') are B-bed companion departures,
   not primary-unit turnovers; the room stays occupied by the other resident.
 
-**Why:** All-payer HC reads ~943%/yr; bedholds-included AL reads ~153%. Both numbers are real in
-the data but wrong as planning inputs because neither represents the replacement-at-street-rate
-event the solver models.
+**Why:** All-payer HC reads ~943%/yr; raw AL reads ~153%. Both numbers are real in the data but
+wrong as planning inputs because neither represents the replacement-at-street-rate event the
+solver models.
+
+**AL's 153% had two independent causes, and fixing one hides the other.** Bedholds were ~13% of
+it; the rest was the same discharge stored twice by two overlapping imports (see Feed traps).
+De-duplication alone takes AL to ~57%, bedhold exclusion on top takes it to ~40%. When a number is
+this far out, do not stop at the first sufficient explanation — a plausible result after one fix
+is not evidence the other cause is absent.
+
+### Current portfolio readings (post-dedup, post-bedhold, private-pay HC basis)
+AL 40%, AL/MC 39%, SL 31%, VIL 23%, HC/MC 82%, HC 281%. Only HC remains out of band, and its
+residue is private-pay short-stay rehab rather than a counting defect.
 
 ### LOS is the sanity-check lever
 `losMonths = 1200 / turnoverPct` (12 months × 100 / pct). Show it beside every turnover figure
@@ -50,13 +60,36 @@ would otherwise divide a full year of events by a partial-year average and repor
 - **HC/MC has occupancy but the event feed never emits it.** Its discharges arrive under `HC`
   unless the department column is used to re-route them. Zero move-outs against real occupancy is
   the quiet failure: nothing errors, the page silently falls back to a saved assumption.
-- **AL/MC reads ~14% portfolio-wide but ~62% among the 13 campuses that file it.** The gap is
-  discharges filed under AL by campuses that do not use the AL/MC service-line code. Warn in the
-  UI when AL reads high and AL/MC reads low — the two anomalies are the same root cause.
+- **Two overlapping imports store the same discharge twice.** An older numeric-department feed
+  (`01-HCC`, `02-AL`, `03-VIL`, `24-A/I`) sits under a newer "Export" text feed (`HC`, `AL`, `SL`,
+  `IL`, plus the `* Legacy` memory-care neighbourhoods). The Export feed wins: it reaches every
+  month the older one does, starts a year earlier, and is the only vocabulary that separates
+  memory care from its parent building. Decide precedence **per campus-month** — a small tail of
+  campus-months is reported by the older feed alone and would vanish if it were dropped wholesale.
+  Build the coverage set ignoring the `counted` flag: a month of nothing but hospital leaves is
+  still a month that feed covered. Full detail in
+  [Event service line comes from the department](event-service-line-from-dept.md).
+- **AL/MC once read ~14% portfolio-wide but ~62% at the campuses that filed it.** Root cause was
+  the Export feed's memory-care department not being mapped, so those discharges counted as AL.
+  Resolved. The generalisable signal remains: when a parent line reads high and its sub-line reads
+  low, suspect one anomaly, not two.
 
 ## Plausibility bands
 Per-service-line, not a single portfolio-wide ceiling. A single 100% ceiling accepted AL/MC at
 14% (7-year memory-care stay) while flagging HC readings that are normal for that line.
-Bands: VIL 10-50, SL 15-65, AL 30-85, AL/MC 35-95, HC 60-100, HC/MC 40-100.
-These were set with bedholds EXCLUDED from the measurement; do not re-calibrate against
-bedhold-included numbers.
+Bands live in `shared/turnoverBounds.ts` — read them there rather than from this note, which has
+already drifted once. They were set with bedholds EXCLUDED and the feeds DE-DUPLICATED; do not
+re-calibrate against a raw number that still contains either.
+
+## Verify provenance, not just magnitude
+A band check only catches a figure that looks wrong. The worse failure is a line reporting a
+believable number built from **someone else's discharges** — AL/MC's 14% was a different service
+line's move-outs over AL/MC's occupancy, and it sat comfortably under every ceiling. Every event
+carries the room it happened in and the rent roll says which line owns that room, so assert that a
+line's discharges occurred in rooms it actually carries (a strong majority, not unanimity — rooms
+get reassigned between lines over time). That check is independent of the department vocabulary
+that produced the row, so it survives import-format changes a mapping assertion would not.
+
+Pair it with the reverse shape: a line reporting **0 move-outs against real occupancy**. Nothing
+errors, the denominator is right, and the page quietly falls back to a saved assumption while
+implying it measured something. Assert both against every line, not just the one being fixed.

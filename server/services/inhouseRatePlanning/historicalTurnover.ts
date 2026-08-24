@@ -30,6 +30,10 @@
 import { pool } from "../../db";
 import { privatePaySql } from "@shared/payerScope";
 import {
+  exportFeedCoverageSql,
+  supersededByExportFeedSql,
+} from "../moveInOutService";
+import {
   explainTurnoverOutOfBand,
   isTurnoverInBand,
   turnoverBandFor,
@@ -78,6 +82,39 @@ export interface ServiceLineTurnover {
   outOfBandReason: string | null;
 }
 
+/**
+ * Payer scope for the move-out numerator, which is deliberately NOT uniform.
+ *
+ * HC / HC/MC: the private-pay filter is mandatory. Without it tens of thousands
+ * of Medicare and Managed Care short-stay rehab discharges flood the numerator
+ * (portfolio HC reads ~4,500% all-payer against ~281% private-pay-only). We
+ * never set those rates, so replacing one of those residents moves no revenue.
+ *
+ * Every other line (AL, AL/MC, SL, VIL) counts all payers — their external-payer
+ * volume is negligible and the filter would remove more signal than noise — but
+ * two categories are still excluded because they are not turnover at all:
+ *   - BEDHOLDS: the resident vacated temporarily, the bed was held, and they
+ *     came back. No new resident moved in, so it is not the replacement event
+ *     the solver models.
+ *   - 2ND OCCUPANT / companion positions: the room stays occupied by the other
+ *     resident, so no denominator capacity frees up.
+ * Both keywords are matched case-insensitively, so "LEGACY - BEDHOLDS" and any
+ * future variant are caught too.
+ *
+ * Exported so the tests assert against this exact predicate. A test that
+ * hand-copies production SQL passes whichever way the two drift apart, which
+ * makes it worse than no test.
+ */
+export function moveOutPayerScopeSql(alias?: string): string {
+  const p = alias ? `${alias}.` : "";
+  return `(
+         (UPPER(${p}service_line) IN ('HC', 'HC/MC')     AND ${privatePaySql(`${p}payer`)})
+         OR
+         (UPPER(${p}service_line) NOT IN ('HC', 'HC/MC') AND ${p}payer NOT ILIKE '%BEDHOLD%'
+                                                          AND ${p}payer NOT ILIKE '%2ND OCCUPANT%')
+       )`;
+}
+
 export interface HistoricalTurnoverResult {
   /** First month of the measurement window, YYYY-MM. */
   windowStart: string;
@@ -119,14 +156,16 @@ const MIN_MONTHS_COVERED = 6;
  * carry `VIL` and never `IL`, so the two names denote the same service line.
  *
  * THE OTHER HALF OF THIS GAP IS NOT AN ALIAS
- * `HC/MC` is the reverse case: occupancy history and the rent roll carry it,
- * the event feed never emitted it, and the missing discharges are sitting
- * inside `HC`. A rename cannot fix that — a line with a denominator and no
- * numerator measures 0% turnover, which reads as "nobody ever leaves memory
- * care". The fix belongs upstream, where the event's DEPARTMENT still knows
- * which neighbourhood the resident was in: the importer maps the memory-care
- * department to `HC/MC` and a boot-time backfill re-derives stored rows. So
- * there is deliberately no `HC/MC` entry here, and adding one would be wrong.
+ * The memory-care lines are the reverse case: occupancy history and the rent
+ * roll carry `HC/MC` and `AL/MC`, but the Export feed's "Service Line" column
+ * names only the parent building, so their discharges sat inside `HC` and
+ * `AL`. A rename cannot fix that — a line with a denominator and no numerator
+ * of its own reports a turnover that belongs to something else. The fix
+ * belongs upstream, where the event's DEPARTMENT still knows which
+ * neighbourhood the resident was in: the importer maps each `* Legacy`
+ * department to its memory-care line and a boot-time backfill re-derives
+ * stored rows. So there are deliberately no `HC/MC` or `AL/MC` entries here,
+ * and adding one would be wrong.
  * See `moveInOutService.ts` (DEPT_TO_SERVICE_LINE).
  */
 const EVENT_SL_ALIASES: Record<string, string> = { IL: "VIL" };
@@ -243,22 +282,31 @@ export async function computeHistoricalTurnover(
   //     resident. Counting it inflates the numerator without any corresponding
   //     denominator capacity freeing up.
   //
-  // The BEDHOLD keyword is matched case-insensitively; "LEGACY - BEDHOLDS" and
-  // any future variant will also be caught. Same for "2ND OCCUPANT".
+  // The filter itself lives in `moveOutPayerScopeSql` so the tests can assert
+  // against the same predicate the measurement uses rather than a hand-copied
+  // twin that drifts the moment either is edited.
+  //
+  // TWO FEEDS REPORT THE SAME DISCHARGES, SO ONE HAS TO WIN
+  //
+  // A bed-hold and a companion departure are the same RESIDENT counted wrongly;
+  // this is the same EVENT stored twice. The table holds an older numeric-
+  // department import layered under a newer "Export" one, and where both cover
+  // a campus-month they report the same discharges. Worse, the numeric feed
+  // cannot tell a memory-care neighbourhood from its parent building, so its
+  // copy of an AL/MC discharge arrives labelled AL. Deferring to the Export
+  // feed for any campus-month it covers is what makes each discharge count
+  // once and lets AL/MC keep the ones that are its own.
   const moveOutSql = `
-    SELECT service_line AS sl, substring(event_date, 1, 7) AS m, COUNT(*)::int AS n
-      FROM move_in_out_events
-     WHERE client_id = $1
-       AND event_type = 'move_out'
-       AND counted = true
-       AND substring(event_date, 1, 7) BETWEEN $2 AND $3
-       AND (
-         (UPPER(service_line) IN ('HC', 'HC/MC')     AND ${privatePaySql("payer")})
-         OR
-         (UPPER(service_line) NOT IN ('HC', 'HC/MC') AND payer NOT ILIKE '%BEDHOLD%'
-                                                      AND payer NOT ILIKE '%2ND OCCUPANT%')
-       )
-       ${locationName ? "AND location = $4" : ""}
+    WITH export_coverage AS (${exportFeedCoverageSql("$1", "'move_out'")})
+    SELECT e.service_line AS sl, substring(e.event_date, 1, 7) AS m, COUNT(*)::int AS n
+      FROM move_in_out_events e
+     WHERE e.client_id = $1
+       AND e.event_type = 'move_out'
+       AND e.counted = true
+       AND substring(e.event_date, 1, 7) BETWEEN $2 AND $3
+       AND ${moveOutPayerScopeSql("e")}
+       AND ${supersededByExportFeedSql("e", "export_coverage")}
+       ${locationName ? "AND e.location = $4" : ""}
      GROUP BY 1, 2`;
 
   // Occupied units per month from the authoritative occupancy source. Left

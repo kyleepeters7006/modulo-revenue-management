@@ -17,32 +17,125 @@ import { normalizeRoomType } from "@shared/roomTypes";
 /**
  * Department → service-line code.
  *
- * MEMORY CARE INSIDE THE HEALTH CENTER
- * `HC Legacy` is this client's branded memory-care neighbourhood inside the
- * Health Center, and it is the ONLY place a HC/MC discharge is identifiable in
- * the event feed. Without this entry the department text falls through to the
- * "Service Line" column, which says "Health Center" for the whole building, so
- * every memory-care discharge was stored as plain `HC`. Occupancy history and
- * the rent roll both carry `HC/MC` as a service line of its own, which left it
- * with a denominator and no numerator — measured turnover of exactly zero.
+ * THE `* LEGACY` DEPARTMENTS ARE THE MEMORY-CARE NEIGHBOURHOODS
+ * `Legacy` is this client's brand for a memory-care neighbourhood, and the
+ * department is the ONLY place those discharges are identifiable in the event
+ * feed. Without these entries the department falls through to the "Service
+ * Line" column, which names the whole building — "Health Center" for
+ * `HC Legacy`, "Assisted Living" for `AL Legacy` — so every memory-care
+ * discharge was stored as plain `HC` or plain `AL`. Occupancy history and the
+ * rent roll both carry `HC/MC` and `AL/MC` as service lines of their own, so
+ * each was left with a denominator and a numerator that belonged to its
+ * parent.
  *
- * The mapping is not a guess. Joining event `room_name` to the rent roll's
- * `room_number` at the same campus, 987 of the 1,038 counted `HC Legacy`
- * move-outs land in a room the rent roll classifies as HC/MC and only 2 land
- * in an HC-only room; the rest are rooms the rent roll has never carried.
+ * Neither mapping is a guess. Joining the event's `room_name` to the rent
+ * roll's `room_number` at the same campus:
+ *   • 987 of 1,038 counted `HC Legacy` move-outs land in a room the rent roll
+ *     classifies HC/MC; 2 land in an HC-only room.
+ *   • 1,808 of 1,854 counted `AL Legacy` move-outs land in an AL/MC-only room
+ *     and every one of the remainder is in a room AL/MC has also carried; not
+ *     one lands in an AL-only room. All 94 campuses filing `AL Legacy`
+ *     discharges report AL/MC occupancy.
  *
- * `AL Legacy` is deliberately NOT mapped to `AL/MC` here. AL/MC already
- * receives its own events from the `24-A/I` department, so folding the Legacy
- * rows in would count part of that line twice. Assisted-living memory care is
- * a separate question from this one.
+ * `24-A/I` IS SENIOR LIVING, NOT MEMORY CARE
+ * It reads like an Alzheimer's unit and was mapped to `AL/MC`, which gave
+ * assisted-living memory care a numerator drawn entirely from a different
+ * service line — 14% measured annual turnover, i.e. a seven-year memory-care
+ * stay. It is in fact the legacy feed's name for the line the Export feed
+ * calls `SL`:
+ *   • every one of its 342 counted move-outs lands in a room the rent roll
+ *     classifies SL, and none in an AL/MC room — including at the 13 campuses
+ *     that do have AL/MC rooms;
+ *   • all 22 campuses filing it also file Export-feed `SL`, and none file it
+ *     without;
+ *   • month by month its counts track Export `SL` almost exactly (21/20,
+ *     10/10, 7/7, 42/44, 19/19, …).
+ *
+ * The legacy feed has no memory-care department for assisted living at all —
+ * its `02-AL` mixes the two, with ~1,120 of its move-outs in AL/MC rooms. That
+ * is not a mapping problem but a duplication one: see {@link LEGACY_FEED_DEPTS}.
  */
 export const DEPT_TO_SERVICE_LINE: Record<string, string> = {
   "01-HCC": "HC",
   "02-AL": "AL",
   "03-VIL": "VIL",
-  "24-A/I": "AL/MC",
+  "24-A/I": "SL",
   "HC LEGACY": "HC/MC",
+  "AL LEGACY": "AL/MC",
 };
+
+/**
+ * Departments belonging to the older numeric feed.
+ *
+ * This client's event table holds two overlapping imports of the same
+ * discharges. The numeric feed (`01-HCC`, `02-AL`, `03-VIL`, `24-A/I`) covers
+ * 2025-01 onward; the newer "Export" feed (`HC`, `HC Legacy`, `AL`,
+ * `AL Legacy`, `SL`, `IL`) covers 2024-01 onward and runs a month ahead. Where
+ * both cover a campus-month they report the same discharges, so any count
+ * spanning the two is inflated — `01-HCC` ≈ `HC` + `HC Legacy`, `02-AL` ≈ `AL`
+ * + `AL Legacy`, `24-A/I` ≈ `SL`.
+ *
+ * The Export feed wins that tie for two reasons: it covers a strictly wider
+ * window (there is no month the numeric feed reaches and it does not), and it
+ * is the only one that separates the memory-care neighbourhoods from their
+ * parent buildings. Deferring to the numeric feed would fold AL/MC back into
+ * AL for every month both cover.
+ *
+ * Precedence is decided per campus-month rather than globally, because a
+ * handful of campus-months (58 of ~4,200) are reported by the numeric feed
+ * alone. Dropping the feed outright would lose those discharges.
+ *
+ * @see supersededByExportFeedSql
+ */
+export const LEGACY_FEED_DEPTS = ["01-HCC", "02-AL", "03-VIL", "24-A/I"] as const;
+
+/**
+ * SQL predicate selecting the rows that survive feed precedence: everything
+ * from the Export feed, plus numeric-feed rows for campus-months the Export
+ * feed never reported.
+ *
+ * `eventsAlias` is the alias of the `move_in_out_events` row being filtered;
+ * `coverageCte` is the name of a CTE of `(location, m)` campus-months the
+ * Export feed covers. Kept as a correlated CTE lookup rather than a
+ * `NOT EXISTS` over the whole table so the coverage set is built once.
+ */
+export function supersededByExportFeedSql(
+  eventsAlias: string,
+  coverageCte: string,
+): string {
+  const legacy = LEGACY_FEED_DEPTS.map((d) => `'${d}'`).join(", ");
+  return `(
+    COALESCE(upper(trim(${eventsAlias}.dept)), '') NOT IN (${legacy})
+    OR NOT EXISTS (
+      SELECT 1 FROM ${coverageCte} c
+       WHERE c.location = ${eventsAlias}.location
+         AND c.m = substring(${eventsAlias}.event_date, 1, 7)
+    )
+  )`;
+}
+
+/**
+ * The campus-months the Export feed reports, as a CTE body for
+ * {@link supersededByExportFeedSql}. Coverage means "this feed filed for that
+ * campus-month at all", so it deliberately ignores the `counted` flag — a
+ * month in which the Export feed recorded only hospital leaves is still a
+ * month it covered, and the numeric feed's copy of it is still a duplicate.
+ *
+ * `clientParam` / `eventTypeParam` are the placeholders (e.g. `$1`) carrying
+ * the client id and event type.
+ */
+export function exportFeedCoverageSql(
+  clientParam: string,
+  eventTypeParam: string,
+): string {
+  const legacy = LEGACY_FEED_DEPTS.map((d) => `'${d}'`).join(", ");
+  return `
+    SELECT DISTINCT location, substring(event_date, 1, 7) AS m
+      FROM move_in_out_events
+     WHERE client_id = ${clientParam}
+       AND event_type = ${eventTypeParam}
+       AND COALESCE(upper(trim(dept)), '') NOT IN (${legacy})`;
+}
 
 /**
  * Department text as it appears in a workbook is not normalised, so look it up
