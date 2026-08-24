@@ -102,6 +102,17 @@ const MIN_MONTHS_COVERED = 6;
  * Event rows use the admissions vocabulary, occupancy history uses the
  * pricing vocabulary. `IL` only ever appears at campuses whose history rows
  * carry `VIL` and never `IL`, so the two names denote the same service line.
+ *
+ * THE OTHER HALF OF THIS GAP IS NOT AN ALIAS
+ * `HC/MC` is the reverse case: occupancy history and the rent roll carry it,
+ * the event feed never emitted it, and the missing discharges are sitting
+ * inside `HC`. A rename cannot fix that — a line with a denominator and no
+ * numerator measures 0% turnover, which reads as "nobody ever leaves memory
+ * care". The fix belongs upstream, where the event's DEPARTMENT still knows
+ * which neighbourhood the resident was in: the importer maps the memory-care
+ * department to `HC/MC` and a boot-time backfill re-derives stored rows. So
+ * there is deliberately no `HC/MC` entry here, and adding one would be wrong.
+ * See `moveInOutService.ts` (DEPT_TO_SERVICE_LINE).
  */
 const EVENT_SL_ALIASES: Record<string, string> = { IL: "VIL" };
 

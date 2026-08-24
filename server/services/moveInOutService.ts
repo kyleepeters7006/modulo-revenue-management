@@ -14,12 +14,44 @@ import { normalizeRoomType } from "@shared/roomTypes";
 //     stored but NOT counted as permanent move-outs)
 // All rows are stored with a `counted` flag so raw data stays queryable.
 
-const DEPT_TO_SERVICE_LINE: Record<string, string> = {
+/**
+ * Department → service-line code.
+ *
+ * MEMORY CARE INSIDE THE HEALTH CENTER
+ * `HC Legacy` is this client's branded memory-care neighbourhood inside the
+ * Health Center, and it is the ONLY place a HC/MC discharge is identifiable in
+ * the event feed. Without this entry the department text falls through to the
+ * "Service Line" column, which says "Health Center" for the whole building, so
+ * every memory-care discharge was stored as plain `HC`. Occupancy history and
+ * the rent roll both carry `HC/MC` as a service line of its own, which left it
+ * with a denominator and no numerator — measured turnover of exactly zero.
+ *
+ * The mapping is not a guess. Joining event `room_name` to the rent roll's
+ * `room_number` at the same campus, 987 of the 1,038 counted `HC Legacy`
+ * move-outs land in a room the rent roll classifies as HC/MC and only 2 land
+ * in an HC-only room; the rest are rooms the rent roll has never carried.
+ *
+ * `AL Legacy` is deliberately NOT mapped to `AL/MC` here. AL/MC already
+ * receives its own events from the `24-A/I` department, so folding the Legacy
+ * rows in would count part of that line twice. Assisted-living memory care is
+ * a separate question from this one.
+ */
+export const DEPT_TO_SERVICE_LINE: Record<string, string> = {
   "01-HCC": "HC",
   "02-AL": "AL",
   "03-VIL": "VIL",
   "24-A/I": "AL/MC",
+  "HC LEGACY": "HC/MC",
 };
+
+/**
+ * Department text as it appears in a workbook is not normalised, so look it up
+ * case- and whitespace-insensitively rather than pinning one spelling.
+ */
+export function serviceLineForDept(dept: string | null): string | null {
+  if (!dept) return null;
+  return DEPT_TO_SERVICE_LINE[dept.trim().toUpperCase()] ?? null;
+}
 
 // New "Export" sheet format — text service line → SL code
 const SL_TEXT_TO_CODE: Record<string, string> = {
@@ -160,12 +192,17 @@ async function importExportSheetFormat(ws: XLSX.WorkSheet, clientId: string): Pr
     const eventDate = excelDateToISO(rawDate);
     if (!campus || !eventDate) { skippedNoDate++; continue; }
 
-    // Service line: prefer Department (already has SL code like "HC"), fall back to text mapping
+    // Service line: prefer Department, fall back to the Service Line text.
+    // The explicit department map comes FIRST because it is the only thing that
+    // can tell a sub-neighbourhood apart from the building it sits in — the
+    // "Service Line" column says "Health Center" for memory care too.
     const deptRaw = r["Department"] != null ? String(r["Department"]).trim() : null;
     const slText  = r["Service Line"] != null ? String(r["Service Line"]).trim().toLowerCase() : null;
-    const serviceLine = deptRaw && /^[A-Z\/]+$/.test(deptRaw) && deptRaw.length <= 6
-      ? deptRaw  // already a code ("HC", "AL", "AL/MC", etc.)
-      : (slText ? (SL_TEXT_TO_CODE[slText] ?? null) : null);
+    const serviceLine =
+      serviceLineForDept(deptRaw)
+      ?? (deptRaw && /^[A-Z\/]+$/.test(deptRaw) && deptRaw.length <= 6
+        ? deptRaw  // already a code ("HC", "AL", "AL/MC", etc.)
+        : (slText ? (SL_TEXT_TO_CODE[slText] ?? null) : null));
 
     const roomBed  = r["Room/Bed"] != null ? String(r["Room/Bed"]).trim() : null;
     const lastName = r["Last Name"] != null ? String(r["Last Name"]).trim() : "";
@@ -240,7 +277,7 @@ export async function importMoveInOutWorkbook(buffer: Buffer, clientId: string):
       division: r.division != null ? String(r.division).trim() : null,
       location: r.location != null ? String(r.location).trim() : "",
       dept,
-      serviceLine: dept ? (DEPT_TO_SERVICE_LINE[dept] ?? null) : null,
+      serviceLine: serviceLineForDept(dept),
       bedType: r.BedTypeDesc != null ? String(r.BedTypeDesc).trim() : null,
       roomType: r.BedTypeDesc != null ? normalizeRoomType(String(r.BedTypeDesc)) : null,
       roomName: r.RoomName != null ? String(r.RoomName).trim() : null,
@@ -284,6 +321,33 @@ export async function importMoveInOutWorkbook(buffer: Buffer, clientId: string):
   const stats = await upsertEvents(all, clientId);
   stats.skippedNoDate = skippedNoDate;
   return stats;
+}
+
+/**
+ * Re-derive `service_line` from `dept` for rows already in the table.
+ *
+ * Event workbooks are historical: nobody re-uploads two years of admissions
+ * because a department mapping changed, so a fix to {@link DEPT_TO_SERVICE_LINE}
+ * only reaches the next import unless stored rows are repaired too. Rows whose
+ * department is not in the map are left exactly as imported — this repairs the
+ * mapping, it does not re-classify anything the mapping has no opinion about.
+ *
+ * Idempotent: only rows that disagree with the current mapping are written.
+ *
+ * @returns the number of rows corrected.
+ */
+export async function backfillEventServiceLinesFromDept(): Promise<number> {
+  const depts = Object.keys(DEPT_TO_SERVICE_LINE);
+  const lines = depts.map((d) => DEPT_TO_SERVICE_LINE[d]);
+  const res = await pool.query(
+    `UPDATE move_in_out_events e
+        SET service_line = m.sl
+       FROM unnest($1::text[], $2::text[]) AS m(dept, sl)
+      WHERE upper(trim(e.dept)) = m.dept
+        AND e.service_line IS DISTINCT FROM m.sl`,
+    [depts, lines],
+  );
+  return res.rowCount ?? 0;
 }
 
 /** Whether this client has any imported move-in/out event data. */

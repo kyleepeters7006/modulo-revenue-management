@@ -19,6 +19,15 @@
  *      move-outs; the denominator must be private-pay occupied units. Pairing
  *      a scoped numerator with an all-payer denominator understates HC by ~5x.
  *
+ *   4. A service line with a denominator and no numerator. Memory care inside
+ *      the Health Center is its own line in occupancy history and the rent
+ *      roll, but the event feed's "Service Line" column calls the whole
+ *      building "Health Center". Its discharges were therefore filed under HC
+ *      and HC/MC measured exactly 0% — read as "nobody ever leaves memory
+ *      care", and silently replaced by a hand-typed assumption. Only the
+ *      event's DEPARTMENT distinguishes the neighbourhood, so the department
+ *      mapping is what these tests pin.
+ *
  * Scopes are DISCOVERED, so the suite keeps testing something after a
  * re-import rather than pinning values that a new upload invalidates.
  *
@@ -27,6 +36,10 @@
 import { pool } from "../server/db";
 import { privatePaySql } from "../shared/payerScope";
 import { computeHistoricalTurnover } from "../server/services/inhouseRatePlanning/historicalTurnover";
+import {
+  DEPT_TO_SERVICE_LINE,
+  serviceLineForDept,
+} from "../server/services/moveInOutService";
 import {
   MODEL_MAX_TURNOVER_PCT,
   TURNOVER_BANDS,
@@ -304,6 +317,108 @@ async function main() {
       !!vil && vil.moveOuts > 0,
       `VIL move-outs: ${vil?.moveOuts}`,
     );
+  }
+
+  // ── Memory care inside the Health Center is its own line ──────────────────
+  //
+  // The failure this guards is the quietest one in the whole measurement: the
+  // line still appears, its denominator is right, and it reports 0%. Nothing
+  // errors. The page falls back to the typed-in assumption while implying it
+  // measured something.
+
+  // The mapping is what makes the split possible, so pin it directly. A future
+  // import format that stops emitting the department, or a "simplification"
+  // that drops the entry, reverts the bug in full silence.
+  ok(
+    "the memory-care department still resolves to its own service line",
+    serviceLineForDept("HC Legacy") === "HC/MC",
+    `got ${serviceLineForDept("HC Legacy")} — HC/MC discharges would be filed as HC`,
+  );
+  ok(
+    "the department lookup tolerates the spelling a workbook actually uses",
+    serviceLineForDept("  hc legacy  ") === "HC/MC",
+    "case/whitespace variation must not silently fall through to the Service Line text",
+  );
+
+  // Stored rows have to agree with the mapping too. Event workbooks are
+  // historical uploads; a mapping fix that never reaches the rows already in
+  // the table leaves years of discharges misfiled.
+  const mappedDepts = Object.keys(DEPT_TO_SERVICE_LINE);
+  const { rows: misfiled } = await pool.query<{ dept: string; sl: string; n: string }>(
+    `SELECT dept, service_line AS sl, COUNT(*)::text AS n
+       FROM move_in_out_events
+      WHERE client_id = $1
+        AND upper(trim(dept)) = ANY($2)
+        AND service_line IS DISTINCT FROM
+            (SELECT sl FROM unnest($2::text[], $3::text[]) AS m(d, sl)
+              WHERE m.d = upper(trim(dept)))
+      GROUP BY 1, 2`,
+    [clientId, mappedDepts, mappedDepts.map((d) => DEPT_TO_SERVICE_LINE[d])],
+  );
+  ok(
+    "every stored event agrees with the department mapping",
+    misfiled.length === 0,
+    misfiled
+      .map((r) => `${r.dept} stored as ${r.sl} (${r.n} rows)`)
+      .join("; ") || undefined,
+  );
+
+  // A line occupancy history carries but the event feed never names is the
+  // shape of this bug. Report it against every line, not just HC/MC, because
+  // the next vocabulary gap will arrive in a line nobody is watching.
+  const starved = result.byServiceLine.filter((r) => r.moveOuts === 0);
+  ok(
+    "no service line has occupancy to divide by and no move-outs to divide",
+    starved.length === 0,
+    `${starved.map((r) => r.serviceLine).join(", ")} report 0 move-outs against real occupancy — ` +
+      "their discharges are most likely filed under another line",
+  );
+
+  const hcmc = result.byServiceLine.find((r) => r.serviceLine === "HC/MC");
+  const { rows: hcmcOccRows } = await pool.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM room_type_occupancy_history
+      WHERE client_id = $1 AND service_line = 'HC/MC' AND occ_units > 0`,
+    [clientId],
+  );
+  if (Number(hcmcOccRows[0].n) > 0) {
+    ok(
+      "memory care in the Health Center reports a measured turnover, not a zero",
+      !!hcmc && hcmc.moveOuts > 0 && hcmc.turnoverPct > 0,
+      `HC/MC: ${hcmc?.moveOuts ?? "no line"} move-outs, ${hcmc?.turnoverPct ?? "-"}%`,
+    );
+
+    // Splitting a line out only helps if it is a split and not a copy. The
+    // same discharge counted in both HC and HC/MC would inflate the Health
+    // Center on top of the memory-care line it was supposed to leave.
+    const hc = result.byServiceLine.find((r) => r.serviceLine === "HC");
+    if (hc && hcmc && hc.monthsCovered === 12 && hcmc.monthsCovered === 12) {
+      const { rows: familyRows } = await pool.query<{ sl: string; n: string }>(
+        `SELECT service_line AS sl, COUNT(*)::text AS n
+           FROM move_in_out_events
+          WHERE client_id = $1
+            AND event_type = 'move_out'
+            AND counted = true
+            AND service_line IN ('HC', 'HC/MC')
+            AND substring(event_date, 1, 7) BETWEEN $2 AND $3
+            AND ${privatePaySql("payer")}
+          GROUP BY 1`,
+        [clientId, result.windowStart, result.windowEnd],
+      );
+      const family = Object.fromEntries(familyRows.map((r) => [r.sl, Number(r.n)]));
+      ok(
+        "the Health Center and its memory-care line partition the same discharges",
+        hc.moveOuts + hcmc.moveOuts === (family.HC ?? 0) + (family["HC/MC"] ?? 0),
+        `reported ${hc.moveOuts}+${hcmc.moveOuts} vs feed ${family.HC ?? 0}+${family["HC/MC"] ?? 0}`,
+      );
+      ok(
+        "no memory-care discharge is left behind in the Health Center",
+        hcmc.moveOuts === (family["HC/MC"] ?? 0) && hc.moveOuts === (family.HC ?? 0),
+        `HC/MC ${hcmc.moveOuts} vs ${family["HC/MC"] ?? 0}, HC ${hc.moveOuts} vs ${family.HC ?? 0}`,
+      );
+    }
+  } else {
+    console.log("  (this client has no HC/MC occupancy — memory-care split not exercised)");
   }
 
   // ── Campus scope narrows both sides together ──────────────────────────────

@@ -36,8 +36,13 @@ Private-pay-only the same line is ~549%, and AL ~153%, AL/MC ~14%, SL ~39%, VIL 
 - **Two service-line vocabularies.** The admissions/event feed emits `IL`; occupancy history and
   pricing use `VIL`. `IL` only ever appears at campuses whose history rows carry `VIL` and never
   `IL`, so it must be folded in — left alone it becomes a line with move-outs and no denominator.
-  Conversely `HC/MC` exists in occupancy history but produces no events of its own (those
-  discharges are recorded under `HC`), so it measures zero move-outs.
+  The reverse gap (a line with a denominator and no numerator) cannot be fixed by an alias — see
+  [Event service line comes from the department](event-service-line-from-dept.md).
+
+## The shape to watch for
+A line that reports **0 move-outs against real occupancy** is the quiet failure: nothing errors,
+the denominator is right, and the page falls back to a typed-in assumption while implying it
+measured something. Assert against every line, not just the one you are fixing.
 
 ## Plausibility is a disclosure, not a clamp
 Report the measured figure even when it is unusable, and say why it is unusable. Silently

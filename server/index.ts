@@ -612,6 +612,25 @@ app.use((req, res, next) => {
     }
   }, 3000);
 
+  // Re-derive move-in/out event service lines from their department.
+  //
+  // Event workbooks are historical uploads, so a correction to the department
+  // mapping (e.g. recognising the memory-care neighbourhood inside the Health
+  // Center as HC/MC rather than HC) would otherwise only apply to the next
+  // import and leave two years of stored discharges misfiled. Idempotent —
+  // after the first run it corrects nothing and costs one indexed UPDATE.
+  setTimeout(async () => {
+    try {
+      const { backfillEventServiceLinesFromDept } = await import('./services/moveInOutService');
+      const fixed = await backfillEventServiceLinesFromDept();
+      if (fixed > 0) {
+        log(`[startup-migration] Re-derived service line on ${fixed} move-in/out event(s) from their department`);
+      }
+    } catch (err) {
+      log(`[startup-migration] Move-in/out service-line backfill failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, 4000);
+
   // Run room type normalization backfill asynchronously in background
   // This won't block server startup
   setTimeout(async () => {

@@ -82,5 +82,6 @@
 - [Solver result → spreadsheet export](solver-to-spreadsheet-export.md) — only iterative/simulated values may be snapshots; label the three cell buckets, assert cross-sheet row coupling, ExcelJS needs raw OOXML for charts.
 - [Annual increase in Reference Data](refdata-annual-increase.md) — room number is not a resident identity; drive joins from the plan; increase takes over Final but never move-in revenue impact.
 - [Turnover measurement basis](turnover-measurement-basis.md) — measured turnover must be private-pay scoped both sides and month-aligned; all-payer HC reads 943%; IL/VIL vocab + partial trailing month.
+- [Event service line from dept](event-service-line-from-dept.md) — only the department separates a memory-care neighbourhood from its building; map it first, backfill stored rows, and beware two overlapping imports.
 - [Per-service-line turnover bands](turnover-plausibility-bands.md) — one portfolio-wide plausibility ceiling cannot judge villas and skilled nursing; the floor catches the quiet error. Warn, never clamp.
 - [Inert inputs from rival state stores](inert-input-state-split.md) — a field bound to the losing side of a `{...shared, ...perKey}` merge ignores typing; per-key defaults are what expose it.
