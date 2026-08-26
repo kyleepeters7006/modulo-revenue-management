@@ -2911,67 +2911,114 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/template/rent-roll", async (req, res) => {
     try {
       const workbook = xlsx.utils.book_new();
-      
-      // Template with description row first, then example data, then empty row, then frequency note
-      // Only includes fields that are actually used in the system
+
+      // All fields from the import registry (required first, then optional).
+      // HC & HC/MC: Street Rate and In-House Rate are daily; all others are monthly.
       const rentRollTemplate = [
         // Row 1: Field descriptions
         {
-          Date: 'DESCRIPTION: Date of rent roll snapshot (YYYY-MM-DD format, use last day of month)',
-          Location: 'DESCRIPTION: Facility/campus name (must match Location Data)',
-          'Room Number': 'DESCRIPTION: Unit identifier (e.g., 101, 101A, 101B for companion rooms)',
-          'Room Type': 'DESCRIPTION: Studio, One Bedroom, Two Bedroom, Companion, Suite',
-          'Service Line': 'DESCRIPTION: HC, HC/MC, AL, AL/MC, SL, or VIL',
-          'Occupied Y/N': 'DESCRIPTION: Y if occupied, N if vacant',
-          'Days Vacant': 'DESCRIPTION: Number of days unit has been vacant (0 if occupied)',
-          'Street Rate': 'DESCRIPTION: Monthly rate for new admissions (daily rate for HC/HC-MC)',
-          'In-House Rate': 'DESCRIPTION: Current rate being charged (daily for HC/HC-MC)',
-          'Care Level': 'DESCRIPTION: Care level tier (Level 1, Level 2, Level 3, Level 4)',
-          'Care Rate': 'DESCRIPTION: Monthly care fee based on care level',
-          'Payor Type': 'DESCRIPTION: Payment source (Private Pay, Medicaid, Medicare, Managed Care, Hospice)',
-          'Location Rating': 'DESCRIPTION: Room location quality rating (A, B, or C)',
-          'Size Rating': 'DESCRIPTION: Room size quality rating (A, B, or C)',
-          'View Rating': 'DESCRIPTION: Room view quality rating (A, B, or C)',
-          'Renovation Rating': 'DESCRIPTION: Room renovation status rating (A, B, or C)',
-          'Amenity Rating': 'DESCRIPTION: Room amenity quality rating (A, B, or C)',
-          'Move In Date': 'DESCRIPTION: Date resident moved in (YYYY-MM-DD, used for ML training)',
-          'Promotion Allowance': 'DESCRIPTION: Dollar amount of any room rate discount applied to the unit — enter as a NEGATIVE number (e.g., -150 for a $150 discount). Enter 0 if no discount. Used for RRA discount trend analytics.'
+          'Upload Month':      'REQUIRED. Reporting period (YYYY-MM, e.g. 2026-06). Determines which month this data replaces.',
+          'Date':              'REQUIRED. Snapshot as-of date (YYYY-MM-DD). Use the last calendar day of the month.',
+          'Location':          'REQUIRED. Campus/community name — must match an entry in Location Data.',
+          'Room Number':       'REQUIRED. Unit identifier unique within the campus (e.g. 101, 101A, 101B for companion rooms).',
+          'Room Type':         'REQUIRED. Studio, One Bedroom, Two Bedroom, Companion, or Suite.',
+          'Service Line':      'REQUIRED. HC, HC/MC, AL, AL/MC, SL, or VIL.',
+          'Occupied Y/N':      'REQUIRED. Y if occupied, N if vacant.',
+          'Size':              'REQUIRED. Unit size descriptor (e.g. Studio, One Bedroom).',
+          'Street Rate':       'REQUIRED. Published market rate. Monthly for AL/AL-MC/SL/VIL; daily for HC/HC-MC.',
+          'In-House Rate':     'REQUIRED. Actual rate charged to the current resident. Same daily/monthly convention as Street Rate.',
+          'Days Vacant':       'Optional. Consecutive days the unit has been vacant. Leave blank or 0 if occupied.',
+          'View':              'Optional. View descriptor (e.g. Garden View, Courtyard View).',
+          'Renovated':         'Optional. Y/N — whether the unit has been renovated.',
+          'Preferred Location':'Optional. Premium location flag or descriptor (e.g. Near Dining).',
+          'Other Premium Feature': 'Optional. Additional premium feature notes (e.g. Balcony).',
+          'Location Rating':   'Optional. A, B, or C — quality of the unit\'s location within the building.',
+          'Size Rating':       'Optional. A, B, or C — quality of the unit\'s size.',
+          'View Rating':       'Optional. A, B, or C — quality of the unit\'s view.',
+          'Renovation Rating': 'Optional. A, B, or C — renovation state of the unit.',
+          'Amenity Rating':    'Optional. A, B, or C — amenity quality of the unit.',
+          'Care Level':        'Optional. Care level tier (Level 1, Level 2, Level 3, Level 4).',
+          'Care Rate':         'Optional. Monthly care fee based on care level.',
+          'Rent and Care Rate':'Optional. Combined rent + care rate.',
+          'Promotion Allowance':'Optional. Discount amount — enter as a NEGATIVE number (e.g. -150 for a $150 discount).',
+          'Resident ID':       'Optional. Unique resident identifier from your system.',
+          'Resident Name':     'Optional. Resident full name.',
+          'Move-In Date':      'Optional. Resident move-in date (YYYY-MM-DD).',
+          'Move-Out Date':     'Optional. Resident move-out date (YYYY-MM-DD), if applicable.',
+          'Payor Type':        'Optional. Payment source (Private Pay, Medicaid, Medicare, Managed Care, Hospice).',
         },
-        // Row 2: Example data
+        // Row 2: Example — occupied AL unit
         {
-          Date: '2024-01-31',
-          Location: 'Anderson - 112',
+          'Upload Month': '2026-06',
+          'Date': '2026-06-30',
+          'Location': 'Anderson - 112',
           'Room Number': '101',
           'Room Type': 'Studio',
           'Service Line': 'AL',
           'Occupied Y/N': 'Y',
-          'Days Vacant': 0,
+          'Size': 'Studio',
           'Street Rate': 3500,
           'In-House Rate': 3200,
-          'Care Level': 'Level 1',
-          'Care Rate': 500,
-          'Payor Type': 'Private Pay',
+          'Days Vacant': 0,
+          'View': 'Garden View',
+          'Renovated': 'N',
+          'Preferred Location': '',
+          'Other Premium Feature': '',
           'Location Rating': 'A',
           'Size Rating': 'B',
           'View Rating': 'A',
           'Renovation Rating': 'B',
           'Amenity Rating': 'A',
-          'Move In Date': '2023-06-15',
-          'Promotion Allowance': -150
+          'Care Level': 'Level 1',
+          'Care Rate': 500,
+          'Rent and Care Rate': 3700,
+          'Promotion Allowance': 0,
+          'Resident ID': 'R-10422',
+          'Resident Name': 'Jane Doe',
+          'Move-In Date': '2025-11-04',
+          'Move-Out Date': '',
+          'Payor Type': 'Private Pay',
         },
-        // Row 3: Empty row for spacing
-        {},
-        // Row 4: Frequency note
+        // Row 3: Example — vacant HC unit (daily rates)
         {
-          Date: 'FREQUENCY: Monthly upload. Upload one snapshot per month using the last day of each month as the Date.'
-        }
+          'Upload Month': '2026-06',
+          'Date': '2026-06-30',
+          'Location': 'Anderson - 112',
+          'Room Number': '201',
+          'Room Type': 'One Bedroom',
+          'Service Line': 'HC',
+          'Occupied Y/N': 'N',
+          'Size': 'One Bedroom',
+          'Street Rate': 285,
+          'In-House Rate': 0,
+          'Days Vacant': 12,
+          'View': '',
+          'Renovated': 'Y',
+          'Preferred Location': '',
+          'Other Premium Feature': '',
+          'Location Rating': 'B',
+          'Size Rating': 'A',
+          'View Rating': 'B',
+          'Renovation Rating': 'A',
+          'Amenity Rating': 'B',
+          'Care Level': '',
+          'Care Rate': 0,
+          'Rent and Care Rate': 0,
+          'Promotion Allowance': 0,
+          'Resident ID': '',
+          'Resident Name': '',
+          'Move-In Date': '',
+          'Move-Out Date': '',
+          'Payor Type': '',
+        },
+        {},
+        { 'Upload Month': 'FREQUENCY: Monthly. Upload one complete snapshot per month (all units, occupied and vacant) using the last calendar day as the Date.' },
       ];
-      
+
       const sheet = xlsx.utils.json_to_sheet(rentRollTemplate);
       xlsx.utils.book_append_sheet(workbook, sheet, 'Rent Roll');
-      
+
       const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-      
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', 'attachment; filename="rent_roll_template.xlsx"');
       res.send(buffer);
@@ -3014,40 +3061,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/template/inquiry", async (req, res) => {
     try {
       const workbook = xlsx.utils.book_new();
-      
-      // Template with description row first, then example data, then empty row, then frequency note
+
       const inquiryTemplate = [
         // Row 1: Field descriptions
         {
-          Date: 'DESCRIPTION: Date of inquiry data (YYYY-MM-DD format)',
-          Location: 'DESCRIPTION: Facility/campus name (must match Location Data)',
-          'Service Line': 'DESCRIPTION: HC, HC/MC, AL, AL/MC, SL, or VIL',
-          'Lead Source': 'DESCRIPTION: Marketing source (Website, Referral, A Place for Mom, etc.)',
-          'Inquiry Count': 'DESCRIPTION: Number of inquiries received (whole number)',
-          'Tour Count': 'DESCRIPTION: Number of tours conducted (whole number)'
+          'Upload Month':      'REQUIRED. Reporting period (YYYY-MM). Determines which month this data replaces.',
+          'Date':              'REQUIRED. As-of date of the data (YYYY-MM-DD).',
+          'Location':          'REQUIRED. Campus/community name — must match Location Data.',
+          'Inquiry Count':     'REQUIRED. Number of inquiries received in the period (whole number).',
+          'Region':            'Optional. Geographic region grouping.',
+          'Division':          'Optional. Division within the region.',
+          'Service Line':      'Optional. HC, HC/MC, AL, AL/MC, SL, or VIL. Leave blank for campus-level totals.',
+          'Lead Source':       'Optional. Marketing source (e.g. Website, Referral, A Place for Mom).',
+          'Tour Count':        'Optional. Number of tours conducted.',
+          'Conversion Count':  'Optional. Number of move-ins that resulted from inquiries.',
+          'Conversion Rate':   'Optional. Conversion rate percentage (0–100). Computed if omitted.',
+          'Days to Tour':      'Optional. Average days from inquiry to tour.',
+          'Days to Move-In':   'Optional. Average days from inquiry to move-in.',
         },
-        // Row 2: Example data
+        // Row 2: Example — service-line row
         {
-          Date: '2024-01-15',
-          Location: 'Anderson - 112',
+          'Upload Month': '2026-06',
+          'Date': '2026-06-30',
+          'Location': 'Anderson - 112',
+          'Inquiry Count': 34,
+          'Region': 'East',
+          'Division': 'Indiana',
           'Service Line': 'AL',
-          'Lead Source': 'Website',
-          'Inquiry Count': 5,
-          'Tour Count': 2
+          'Lead Source': 'A Place for Mom',
+          'Tour Count': 18,
+          'Conversion Count': 6,
+          'Conversion Rate': 17.6,
+          'Days to Tour': 5,
+          'Days to Move-In': 21,
         },
-        // Row 3: Empty row for spacing
-        {},
-        // Row 4: Frequency note
+        // Row 3: Example — campus-level row (no service line)
         {
-          Date: 'FREQUENCY: Daily or monthly upload. System aggregates daily data into monthly totals automatically.'
-        }
+          'Upload Month': '2026-06',
+          'Date': '2026-06-30',
+          'Location': 'Beavercreek - 205',
+          'Inquiry Count': 52,
+          'Region': 'East',
+          'Division': 'Ohio',
+          'Service Line': '',
+          'Lead Source': 'Website',
+          'Tour Count': 24,
+          'Conversion Count': 9,
+          'Conversion Rate': 17.3,
+          'Days to Tour': 4,
+          'Days to Move-In': 18,
+        },
+        {},
+        { 'Upload Month': 'FREQUENCY: Monthly. Importing a month replaces all existing inquiry data for that month and location.' },
       ];
-      
+
       const sheet = xlsx.utils.json_to_sheet(inquiryTemplate);
       xlsx.utils.book_append_sheet(workbook, sheet, 'Inquiry Data');
-      
+
       const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-      
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', 'attachment; filename="inquiry_data_template.xlsx"');
       res.send(buffer);
@@ -3245,44 +3316,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/template/location", async (req, res) => {
     try {
       const workbook = xlsx.utils.book_new();
-      
-      // Create template with description row first, then example data, then empty row, then frequency note
+
       const templateData = [
         // Row 1: Field descriptions
         {
-          'Location Name': 'DESCRIPTION: Unique facility/campus name used as the primary identifier',
-          'Region': 'DESCRIPTION: Geographic region grouping (e.g., East, West, Central)',
-          'Division': 'DESCRIPTION: Sub-region or division within the region',
-          'Class': 'DESCRIPTION: Campus classification (e.g., Same Store, New Acquisition)',
-          'Address': 'DESCRIPTION: Street address of the facility',
-          'City': 'DESCRIPTION: City name',
-          'State': 'DESCRIPTION: Two-letter state code (e.g., IN, OH, KY)',
-          'Zip Code': 'DESCRIPTION: 5-digit postal code'
+          'Location Name':          'REQUIRED. Unique campus/community display name. Used to match existing records — must be consistent across all uploads.',
+          'Location Code':          'Optional. 4-digit internal location code.',
+          'Region':                 'Optional. Geographic region grouping (e.g. East, West, Central).',
+          'Division':               'Optional. Sub-region or division within the region (e.g. Indiana, Ohio).',
+          'Location Class':         'Optional. Campus classification (e.g. Same Store, New Acquisition).',
+          'Address':                'Optional. Street address.',
+          'City':                   'Optional. City name.',
+          'State':                  'Optional. Two-letter state code (e.g. IN, OH, KY).',
+          'Zip Code':               'Optional. 5-digit postal code.',
+          'Total Units':            'Optional. Total unit count at the campus.',
+          'Same Store':             'Optional. Y/N — include in same-store comparisons.',
+          'MatrixCare Name HC':     'Optional. MatrixCare facility name used for Health Center data matching.',
+          'MatrixCare Name AL':     'Optional. MatrixCare facility name used for Assisted Living data matching.',
+          'MatrixCare Name IL':     'Optional. MatrixCare facility name used for Independent Living data matching.',
+          'Customer Facility ID HC':'Optional. Customer facility ID for Health Center (used in automated feeds).',
+          'Customer Facility ID AL':'Optional. Customer facility ID for Assisted Living (used in automated feeds).',
+          'Customer Facility ID IL':'Optional. Customer facility ID for Independent Living (used in automated feeds).',
         },
-        // Row 2: Example data
+        // Row 2: Example
         {
           'Location Name': 'Anderson - 112',
+          'Location Code': '2112',
           'Region': 'East',
           'Division': 'Indiana',
-          'Class': 'Same Store',
-          'Address': '123 Main Street',
+          'Location Class': 'Same Store',
+          'Address': '500 Grove Ave',
           'City': 'Anderson',
           'State': 'IN',
-          'Zip Code': '46011'
+          'Zip Code': '46011',
+          'Total Units': 120,
+          'Same Store': 'Y',
+          'MatrixCare Name HC': 'Anderson HC',
+          'MatrixCare Name AL': 'Anderson AL',
+          'MatrixCare Name IL': '',
+          'Customer Facility ID HC': '',
+          'Customer Facility ID AL': '',
+          'Customer Facility ID IL': '',
         },
-        // Row 3: Empty row for spacing
         {},
-        // Row 4: Frequency note
-        {
-          'Location Name': 'FREQUENCY: One upload per data set. System does not account for changes in Regions/Divisions/Classes.'
-        }
+        { 'Location Name': 'FREQUENCY: Upload whenever the campus list changes. Existing campuses are updated by Location Name; new names are added.' },
       ];
-      
+
       const sheet = xlsx.utils.json_to_sheet(templateData);
       xlsx.utils.book_append_sheet(workbook, sheet, 'Locations');
-      
+
       const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-      
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', 'attachment; filename="location_template.xlsx"');
       res.send(buffer);
@@ -3296,53 +3379,100 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/template/competitor", async (req, res) => {
     try {
       const workbook = xlsx.utils.book_new();
-      
-      // Template with description row first, then example data, then empty row, then frequency note
-      // Only includes fields that are actually used in competitor matching
+
       const competitorTemplate = [
         // Row 1: Field descriptions
         {
-          'Survey Month': 'DESCRIPTION: Month of survey data (YYYY-MM format, used to select most recent data)',
-          'KeyStats Location': 'DESCRIPTION: Your facility name this competitor is near (must match Location Data)',
-          'Competitor Name': 'DESCRIPTION: Name of the competing facility',
-          'Competitor Address': 'DESCRIPTION: Full address of competitor (used for mapping)',
-          'Distance (Miles)': 'DESCRIPTION: Distance from your facility in miles (decimal number)',
-          'Competitor Type': 'DESCRIPTION: Service line - HC, HC/MC (or SMC), AL, AL/MC, SL (or IL_IL), VIL (or IL_Villa)',
-          'Room Type': 'DESCRIPTION: Studio, One Bedroom, Two Bedroom, Companion',
-          'Monthly Rate Avg': 'DESCRIPTION: Average monthly base rent rate (number)',
-          'Care Fees Avg': 'DESCRIPTION: Average monthly care fee (number)',
-          'Care Level 2 Rate': 'DESCRIPTION: Care Level 2 fee for rate adjustments (used in competitor rate calculations)',
-          'Medication Management Fee': 'DESCRIPTION: Medication management fee (used in competitor rate calculations)',
-          'Weight': 'DESCRIPTION: Relative importance weight 0-1 (used in rate matching calculations)'
+          'Survey Month':             'REQUIRED. Month the survey was conducted (YYYY-MM). Importing a month replaces existing survey data for that month.',
+          'KeyStats Location':        'REQUIRED. Your campus name this competitor is benchmarked against — must match Location Data.',
+          'Competitor Name':          'REQUIRED. Name of the competing community.',
+          'Competitor Address':       'Optional. Full street address of competitor (used for map placement).',
+          'Distance (Miles)':         'Optional. Distance from your campus in miles (decimal).',
+          'Competitor Type':          'Optional. Service line: HC, HC/MC (or SMC), AL, AL/MC, SL (or IL_IL), VIL (or IL_Villa).',
+          'Room Type':                'Optional. Studio, One Bedroom, Two Bedroom, Companion.',
+          'Square Footage':           'Optional. Unit square footage.',
+          'Monthly Rate Low':         'Optional. Low end of monthly base rate range.',
+          'Monthly Rate High':        'Optional. High end of monthly base rate range.',
+          'Monthly Rate Avg':         'Optional. Average monthly base rate. Used in competitive position calculations.',
+          'Care Fees Avg':            'Optional. Average monthly care fee across all levels.',
+          'Care Level 1 Rate':        'Optional. Monthly care fee at level 1.',
+          'Care Level 2 Rate':        'Optional. Monthly care fee at level 2. Used in care-adjusted rate comparisons.',
+          'Care Level 3 Rate':        'Optional. Monthly care fee at level 3.',
+          'Care Level 4 Rate':        'Optional. Monthly care fee at level 4.',
+          'Medication Management Fee':'Optional. Monthly medication management fee. Used in care-adjusted rate comparisons.',
+          'Community Fee':            'Optional. One-time community/move-in fee.',
+          'Pet Fee':                  'Optional. Pet fee.',
+          'Incentives':               'Optional. Current move-in incentives (free-text, e.g. "1 month free").',
+          'Total Units':              'Optional. Total unit count at the competitor community.',
+          'Occupancy Rate':           'Optional. Occupancy as a percentage (0–100).',
+          'Year Built':               'Optional. Year the community was built.',
+          'Notes':                    'Optional. Free-form survey notes.',
+          'Weight':                   'Optional. Relative importance weight 0–1 for this competitor in rate matching (default 1).',
         },
-        // Row 2: Example data
+        // Row 2: Example — AL competitor with full data
         {
-          'Survey Month': '2024-01',
+          'Survey Month': '2026-06',
           'KeyStats Location': 'Anderson - 112',
           'Competitor Name': 'Sunrise Senior Living',
           'Competitor Address': '123 Main Street, Anderson, IN 46011',
           'Distance (Miles)': 2.5,
           'Competitor Type': 'AL',
           'Room Type': 'Studio',
+          'Square Footage': 420,
+          'Monthly Rate Low': 3200,
+          'Monthly Rate High': 3800,
           'Monthly Rate Avg': 3500,
-          'Care Fees Avg': 600,
+          'Care Fees Avg': 650,
+          'Care Level 1 Rate': 450,
           'Care Level 2 Rate': 800,
+          'Care Level 3 Rate': 1200,
+          'Care Level 4 Rate': 1600,
           'Medication Management Fee': 250,
-          'Weight': 0.8
+          'Community Fee': 3000,
+          'Pet Fee': 500,
+          'Incentives': '1 month free',
+          'Total Units': 88,
+          'Occupancy Rate': 92,
+          'Year Built': 2008,
+          'Notes': 'Recently renovated dining room',
+          'Weight': 0.8,
         },
-        // Row 3: Empty row for spacing
-        {},
-        // Row 4: Frequency note
+        // Row 3: Example — HC competitor (daily rates)
         {
-          'KeyStats Location': 'FREQUENCY: Periodic upload. Update when new competitive survey data is available (typically quarterly or as market conditions change).'
-        }
+          'Survey Month': '2026-06',
+          'KeyStats Location': 'Anderson - 112',
+          'Competitor Name': 'Sunrise Health Center',
+          'Competitor Address': '456 Oak Blvd, Anderson, IN 46011',
+          'Distance (Miles)': 3.1,
+          'Competitor Type': 'HC',
+          'Room Type': 'Semi-Private',
+          'Square Footage': '',
+          'Monthly Rate Low': '',
+          'Monthly Rate High': '',
+          'Monthly Rate Avg': 290,
+          'Care Fees Avg': '',
+          'Care Level 1 Rate': '',
+          'Care Level 2 Rate': '',
+          'Care Level 3 Rate': '',
+          'Care Level 4 Rate': '',
+          'Medication Management Fee': '',
+          'Community Fee': '',
+          'Pet Fee': '',
+          'Incentives': '',
+          'Total Units': 60,
+          'Occupancy Rate': 88,
+          'Year Built': 1995,
+          'Notes': 'Daily rate — private pay',
+          'Weight': 1,
+        },
+        {},
+        { 'Survey Month': 'FREQUENCY: Quarterly or as market conditions change. Importing a survey month replaces all existing data for that month.' },
       ];
-      
+
       const sheet = xlsx.utils.json_to_sheet(competitorTemplate);
       xlsx.utils.book_append_sheet(workbook, sheet, 'Competitive Survey');
-      
+
       const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-      
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', 'attachment; filename="competitive_survey_template.xlsx"');
       res.send(buffer);

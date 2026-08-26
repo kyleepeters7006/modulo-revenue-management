@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Upload, Download, FileSpreadsheet, FileText, CheckCircle2, XCircle, AlertTriangle, Clock, Play, Trash2, Pencil, Server, Bell, RefreshCw } from "lucide-react";
+import { Upload, Download, FileSpreadsheet, FileText, CheckCircle2, XCircle, AlertTriangle, Clock, Play, Trash2, Pencil, Server, Bell, RefreshCw, ArrowRight } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 // ── Types (mirror server registry / API) ────────────────────────────
@@ -290,7 +290,35 @@ function ImportTab({ registry }: { registry: DatasetDefinition[] }) {
         </CardContent>
       </Card>
 
-      {validation && (
+      {/* Move Ins & Outs uses a specialized uploader — redirect to the Uploads tab */}
+      {datasetId === "move_ins_outs" && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="py-5 flex items-start gap-3">
+            <FileSpreadsheet className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="font-medium text-blue-900 mb-1">Move Ins &amp; Outs use the specialized uploader</p>
+              <p className="text-sm text-blue-700 mb-3">
+                This data type requires direction detection (move-ins vs. move-outs), event deduplication, and
+                legacy workbook support that the standard import pipeline cannot handle. Upload your file from
+                the <strong>Uploads</strong> tab using the Move Ins &amp; Outs section.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-blue-400 text-blue-700 hover:bg-blue-100"
+                onClick={() => {
+                  // Navigate to the data management page Uploads tab
+                  window.location.href = "/data-management";
+                }}
+              >
+                Go to Uploads tab <ArrowRight className="h-3 w-3 ml-1" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {validation && datasetId !== "move_ins_outs" && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
