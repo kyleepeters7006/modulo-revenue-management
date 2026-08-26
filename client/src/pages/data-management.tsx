@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, RefreshCw, Clock, CalendarDays, ChevronRight, ChevronDown, ShieldAlert, Info, ArrowUpCircle } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, RefreshCw, Clock, CalendarDays, ChevronRight, ChevronDown, ArrowUpCircle } from "lucide-react";
 import { useState, useRef } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
@@ -1576,72 +1576,22 @@ export default function DataManagement() {
           {/* Pricing Strategy Documentation */}
           <PricingStrategyDocumentation />
 
-          {/* Data Upload Instructions */}
+          {/* Consolidated field reference download */}
           <Card>
             <CardHeader>
-              <CardTitle>Data Upload Instructions</CardTitle>
+              <CardTitle>Data Upload Templates</CardTitle>
+              <CardDescription>
+                Download a single Excel workbook containing formatted templates for every data type — Location Data, Rent Roll, Inquiry, Competitive Survey, Room Type Occupancy, and Move Ins &amp; Outs. Each sheet includes column descriptions and example rows.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <h3 className="font-semibold text-lg text-[var(--trilogy-blue)]">Source Report</h3>
-                <p className="text-sm text-gray-600">KeyStats Rent Roll export from MatrixCare — one file per campus per month</p>
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="font-semibold text-base text-[var(--trilogy-blue)]">Key Columns Used</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-1 text-gray-800 dark:text-gray-200">
-                    <p className="font-semibold text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Identity & Location</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">division</span> — Division name</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">location</span> — Campus name (must match exactly across files)</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">Room_Bed</span> — Unit / bed identifier</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">BedTypeDesc</span> — Room type (Studio, One Bedroom, etc.)</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">Service1</span> — Service line (AL, HC, SL, VIL, etc.)</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">Private_Companion1</span> — Private or Companion unit</p>
-                  </div>
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-1 text-gray-800 dark:text-gray-200">
-                    <p className="font-semibold text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Occupancy & Resident</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">PatientID1</span> — Resident ID (used for occupancy)</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">MoveInDate</span> — Move-in date</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">MoveOutDate</span> — Move-out date</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">PayerName</span> — Payer type (used for private pay filter)</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">DisplayPayer</span> — Display payer name</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">LevelOfCare1</span> — Care level description</p>
-                  </div>
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-1 text-gray-800 dark:text-gray-200">
-                    <p className="font-semibold text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Rates</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">BaseRate1</span> — Street rate <span className="text-gray-500">(fallback: Room_Rate)</span></p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">FinalRate</span> — In-house (actual billed) rate</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">BilledRate</span> — Daily billed rate (HC/HC-MC units)</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">BaseLOC1</span> — Base level-of-care rate</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">LOC_Rate</span> — Level-of-care rate</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">Room_Rate_Adjustments</span> — Promotion allowance / RRA (stored negative)</p>
-                  </div>
-                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-1 text-gray-800 dark:text-gray-200">
-                    <p className="font-semibold text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Rate Charge Type</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">ChargeBy</span> — Rate charge basis (Day / Month)</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">Rate_Type</span> — Rate type classification</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">RRADescription</span> — RRA reason description</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">RRAEndDate</span> — RRA expiry date</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">Certified</span> — Certified bed flag</p>
-                    <p><span className="font-mono text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">BedSpecialization1</span> — Bed specialization type</p>
-                  </div>
-                </div>
-              </div>
-
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  <strong>HC / HC-MC rates:</strong> Stored as $/day and automatically multiplied by actual calendar days when calculating monthly revenue. All other service lines (AL, SL, VIL, AL/MC) are stored as $/month.
-                </AlertDescription>
-              </Alert>
-
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  <strong>Private Pay Filter:</strong> Revenue calculations exclude residents whose <span className="font-mono text-xs">PayerName</span> contains Hospice, Medicaid, Medicare, or Managed — only private pay residents are counted.
-                </AlertDescription>
-              </Alert>
+            <CardContent>
+              <Button
+                onClick={() => window.open('/api/template/all-templates', '_blank')}
+                className="gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Download All Templates
+              </Button>
             </CardContent>
           </Card>
 

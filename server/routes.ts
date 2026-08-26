@@ -3482,6 +3482,297 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Consolidated "all templates" download ──────────────────────────────────
+  // One ExcelJS workbook, one sheet per data type, each sheet formatted as:
+  //   Row 1  — column headers (dark navy, white bold)
+  //   Row 2  — field descriptions (pale yellow, italic)
+  //   Row 3+ — example data rows (alternating white / pale blue)
+  // Freeze rows 1-2 so headers stay visible while scrolling.
+  app.get("/api/template/all-templates", async (_req, res) => {
+    try {
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Inflect";
+      wb.created = new Date();
+
+      // ── Colour palette ──────────────────────────────────────────────────
+      const HEADER_FILL: ExcelJS.Fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A2B4A' } };
+      const DESC_FILL:   ExcelJS.Fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF9E6' } };
+      const ALT_FILL:    ExcelJS.Fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4FF' } };
+      const WHITE_FILL:  ExcelJS.Fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+      const HEADER_FONT: Partial<ExcelJS.Font> = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
+      const DESC_FONT:   Partial<ExcelJS.Font> = { italic: true, color: { argb: 'FF5C5C00' }, size: 9 };
+      const DATA_FONT:   Partial<ExcelJS.Font> = { color: { argb: 'FF1A1A1A' }, size: 10 };
+      const BORDER: Partial<ExcelJS.Borders> = {
+        top:    { style: 'thin', color: { argb: 'FFD0D0D0' } },
+        bottom: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+        left:   { style: 'thin', color: { argb: 'FFD0D0D0' } },
+        right:  { style: 'thin', color: { argb: 'FFD0D0D0' } },
+      };
+
+      type SheetDef = {
+        name: string;
+        note: string;
+        headers: string[];
+        descriptions: (string | number)[];
+        examples: (string | number | null)[][];
+        colWidths: number[];
+      };
+
+      function buildSheet(def: SheetDef) {
+        const ws = wb.addWorksheet(def.name);
+
+        // Column widths
+        ws.columns = def.headers.map((h, i) => ({
+          header: h,
+          key: h,
+          width: def.colWidths[i] ?? 20,
+        }));
+
+        // Row 1 — headers
+        const hRow = ws.getRow(1);
+        def.headers.forEach((h, i) => {
+          const cell = hRow.getCell(i + 1);
+          cell.value = h;
+          cell.font  = HEADER_FONT;
+          cell.fill  = HEADER_FILL;
+          cell.alignment = { vertical: 'middle', wrapText: false };
+          cell.border = BORDER;
+        });
+        hRow.height = 20;
+
+        // Row 2 — descriptions
+        const dRow = ws.getRow(2);
+        def.descriptions.forEach((d, i) => {
+          const cell = dRow.getCell(i + 1);
+          cell.value = d;
+          cell.font  = DESC_FONT;
+          cell.fill  = DESC_FILL;
+          cell.alignment = { vertical: 'top', wrapText: true };
+          cell.border = BORDER;
+        });
+        dRow.height = 72;
+
+        // Rows 3+ — examples
+        def.examples.forEach((ex, ri) => {
+          const row = ws.addRow(ex);
+          const fill = ri % 2 === 0 ? WHITE_FILL : ALT_FILL;
+          row.eachCell({ includeEmpty: true }, cell => {
+            cell.font   = DATA_FONT;
+            cell.fill   = fill;
+            cell.border = BORDER;
+            cell.alignment = { vertical: 'middle' };
+          });
+          row.height = 18;
+        });
+
+        // Blank gap + frequency note
+        ws.addRow([]);
+        const noteRow = ws.addRow([def.note]);
+        noteRow.getCell(1).font = { italic: true, color: { argb: 'FF666666' }, size: 9 };
+        ws.mergeCells(noteRow.number, 1, noteRow.number, def.headers.length);
+
+        // Freeze header + description rows
+        ws.views = [{ state: 'frozen', ySplit: 2, xSplit: 0 }];
+      }
+
+      // ── 1. Location Data ────────────────────────────────────────────────
+      buildSheet({
+        name: 'Location Data',
+        note: 'FREQUENCY: Upload whenever your campus list changes. Existing campuses are matched by Location Name and updated; new names are added.',
+        headers: ['Location Name','Location Code','Region','Division','Location Class','Address','City','State','Zip Code','Total Units','Same Store','MatrixCare Name HC','MatrixCare Name AL','MatrixCare Name IL','Customer Facility ID HC','Customer Facility ID AL','Customer Facility ID IL'],
+        descriptions: [
+          'REQUIRED. Unique campus/community display name. Must be consistent across all uploads.',
+          'Optional. 4-digit internal location code.',
+          'Optional. Geographic region grouping (e.g. East, West, Central).',
+          'Optional. Sub-region within the region (e.g. Indiana, Ohio).',
+          'Optional. Campus classification (e.g. Same Store, New Acquisition).',
+          'Optional. Street address.',
+          'Optional. City name.',
+          'Optional. Two-letter state code (e.g. IN, OH, KY).',
+          'Optional. 5-digit postal code.',
+          'Optional. Total unit count at the campus.',
+          'Optional. Y/N — include in same-store comparisons.',
+          'Optional. MatrixCare facility name for Health Center data matching.',
+          'Optional. MatrixCare facility name for Assisted Living data matching.',
+          'Optional. MatrixCare facility name for Independent Living data matching.',
+          'Optional. Customer facility ID for Health Center (automated feeds).',
+          'Optional. Customer facility ID for Assisted Living (automated feeds).',
+          'Optional. Customer facility ID for Independent Living (automated feeds).',
+        ],
+        examples: [
+          ['Anderson - 112','2112','East','Indiana','Same Store','500 Grove Ave','Anderson','IN','46011',120,'Y','Anderson HC','Anderson AL','','','',''],
+          ['Beavercreek - 205','2205','East','Ohio','Same Store','1200 Research Park Dr','Beavercreek','OH','45432',98,'Y','Beavercreek HC','Beavercreek AL','Beavercreek IL','HC-205','AL-205',''],
+        ],
+        colWidths: [28,14,14,14,18,30,16,8,10,12,12,22,22,22,22,22,22],
+      });
+
+      // ── 2. Rent Roll ────────────────────────────────────────────────────
+      buildSheet({
+        name: 'Rent Roll',
+        note: 'FREQUENCY: Monthly. Upload one complete unit snapshot per month (all units, occupied and vacant) using the last calendar day as the Date. HC / HC-MC street and in-house rates are $/day; all other service lines are $/month.',
+        headers: ['Upload Month','Date','Location','Room Number','Room Type','Service Line','Occupied Y/N','Size','Street Rate','In-House Rate','Days Vacant','View','Renovated','Preferred Location','Other Premium Feature','Location Rating','Size Rating','View Rating','Renovation Rating','Amenity Rating','Care Level','Care Rate','Rent and Care Rate','Promotion Allowance','Resident ID','Resident Name','Move-In Date','Move-Out Date','Payor Type'],
+        descriptions: [
+          'REQUIRED. Reporting period (YYYY-MM, e.g. 2026-06).',
+          'REQUIRED. Snapshot as-of date (YYYY-MM-DD). Use the last calendar day of the month.',
+          'REQUIRED. Campus/community name — must match Location Data.',
+          'REQUIRED. Unit identifier unique within campus (e.g. 101, 101A, 101B).',
+          'REQUIRED. Studio, One Bedroom, Two Bedroom, Companion, or Suite.',
+          'REQUIRED. HC, HC/MC, AL, AL/MC, SL, or VIL.',
+          'REQUIRED. Y if occupied, N if vacant.',
+          'REQUIRED. Unit size descriptor (e.g. Studio, One Bedroom).',
+          'REQUIRED. Published market rate. Monthly for AL/SL/VIL/AL-MC; daily for HC/HC-MC.',
+          'REQUIRED. Actual rate charged to current resident. Same daily/monthly convention.',
+          'Optional. Consecutive days the unit has been vacant. Leave blank or 0 if occupied.',
+          'Optional. View descriptor (e.g. Garden View, Courtyard View).',
+          'Optional. Y/N — whether the unit has been renovated.',
+          'Optional. Premium location descriptor (e.g. Near Dining).',
+          'Optional. Additional premium feature notes (e.g. Balcony).',
+          'Optional. A, B, or C — quality of the unit\'s location within building.',
+          'Optional. A, B, or C — quality of the unit\'s size.',
+          'Optional. A, B, or C — quality of the unit\'s view.',
+          'Optional. A, B, or C — renovation state of the unit.',
+          'Optional. A, B, or C — amenity quality of the unit.',
+          'Optional. Care level tier (Level 1, Level 2, Level 3, Level 4).',
+          'Optional. Monthly care fee based on care level.',
+          'Optional. Combined rent + care rate.',
+          'Optional. Discount amount — enter as a NEGATIVE number (e.g. -150).',
+          'Optional. Unique resident identifier from your system.',
+          'Optional. Resident full name.',
+          'Optional. Resident move-in date (YYYY-MM-DD).',
+          'Optional. Resident move-out date (YYYY-MM-DD), if applicable.',
+          'Optional. Private Pay, Medicaid, Medicare, Managed Care, Hospice.',
+        ],
+        examples: [
+          ['2026-06','2026-06-30','Anderson - 112','101','Studio','AL','Y','Studio',3500,3200,0,'Garden View','N','','','A','B','A','B','A','Level 1',500,3700,0,'R-10422','Jane Doe','2025-11-04','','Private Pay'],
+          ['2026-06','2026-06-30','Anderson - 112','201','One Bedroom','HC','N','One Bedroom',285,0,12,'','Y','','','B','A','B','A','B','','',0,0,'','','','',''],
+        ],
+        colWidths: [14,14,22,14,16,14,14,16,13,14,13,14,11,18,20,16,13,14,17,15,13,11,17,18,14,16,14,14,16],
+      });
+
+      // ── 3. Inquiry Data ─────────────────────────────────────────────────
+      buildSheet({
+        name: 'Inquiry Data',
+        note: 'FREQUENCY: Monthly. Importing a month replaces all existing inquiry data for that month and location.',
+        headers: ['Upload Month','Date','Location','Inquiry Count','Region','Division','Service Line','Lead Source','Tour Count','Conversion Count','Conversion Rate','Days to Tour','Days to Move-In'],
+        descriptions: [
+          'REQUIRED. Reporting period (YYYY-MM).',
+          'REQUIRED. As-of date (YYYY-MM-DD).',
+          'REQUIRED. Campus/community name — must match Location Data.',
+          'REQUIRED. Number of inquiries received in the period (whole number).',
+          'Optional. Geographic region grouping.',
+          'Optional. Division within the region.',
+          'Optional. HC, HC/MC, AL, AL/MC, SL, or VIL. Leave blank for campus-level totals.',
+          'Optional. Marketing source (e.g. Website, Referral, A Place for Mom).',
+          'Optional. Number of tours conducted.',
+          'Optional. Number of move-ins resulting from inquiries.',
+          'Optional. Conversion rate percentage (0–100). Computed if omitted.',
+          'Optional. Average days from inquiry to tour.',
+          'Optional. Average days from inquiry to move-in.',
+        ],
+        examples: [
+          ['2026-06','2026-06-30','Anderson - 112',34,'East','Indiana','AL','A Place for Mom',18,6,17.6,5,21],
+          ['2026-06','2026-06-30','Beavercreek - 205',52,'East','Ohio','','Website',24,9,17.3,4,18],
+        ],
+        colWidths: [14,14,22,14,14,14,14,20,12,16,16,13,15],
+      });
+
+      // ── 4. Competitive Survey ───────────────────────────────────────────
+      buildSheet({
+        name: 'Competitive Survey',
+        note: 'FREQUENCY: Quarterly or as market conditions change. Importing a survey month replaces all existing data for that month. HC Monthly Rate Avg is a daily rate.',
+        headers: ['Survey Month','KeyStats Location','Competitor Name','Competitor Address','Distance (Miles)','Competitor Type','Room Type','Square Footage','Monthly Rate Low','Monthly Rate High','Monthly Rate Avg','Care Fees Avg','Care Level 1 Rate','Care Level 2 Rate','Care Level 3 Rate','Care Level 4 Rate','Medication Management Fee','Community Fee','Pet Fee','Incentives','Total Units','Occupancy Rate','Year Built','Notes','Weight'],
+        descriptions: [
+          'REQUIRED. Month the survey was conducted (YYYY-MM).',
+          'REQUIRED. Your campus name this competitor is benchmarked against — must match Location Data.',
+          'REQUIRED. Name of the competing community.',
+          'Optional. Full street address of competitor (used for map placement).',
+          'Optional. Distance from your campus in miles (decimal).',
+          'Optional. HC, HC/MC (or SMC), AL, AL/MC, SL (or IL_IL), VIL (or IL_Villa).',
+          'Optional. Studio, One Bedroom, Two Bedroom, Companion.',
+          'Optional. Unit square footage.',
+          'Optional. Low end of monthly base rate range.',
+          'Optional. High end of monthly base rate range.',
+          'Optional. Average monthly base rate. Used in competitive position calculations. For HC: daily rate.',
+          'Optional. Average monthly care fee across all levels.',
+          'Optional. Monthly care fee at level 1.',
+          'Optional. Monthly care fee at level 2. Used in care-adjusted comparisons.',
+          'Optional. Monthly care fee at level 3.',
+          'Optional. Monthly care fee at level 4.',
+          'Optional. Monthly medication management fee.',
+          'Optional. One-time community/move-in fee.',
+          'Optional. Pet fee.',
+          'Optional. Current move-in incentives (e.g. "1 month free").',
+          'Optional. Total unit count at the competitor community.',
+          'Optional. Occupancy as a percentage (0–100).',
+          'Optional. Year the community was built.',
+          'Optional. Free-form survey notes.',
+          'Optional. Relative importance weight 0–1 for this competitor in rate matching (default 1).',
+        ],
+        examples: [
+          ['2026-06','Anderson - 112','Sunrise Senior Living','123 Main Street, Anderson, IN 46011',2.5,'AL','Studio',420,3200,3800,3500,650,450,800,1200,1600,250,3000,500,'1 month free',88,92,2008,'Recently renovated dining room',0.8],
+          ['2026-06','Anderson - 112','Sunrise Health Center','456 Oak Blvd, Anderson, IN 46011',3.1,'HC','Semi-Private','','','',290,'','','','','','','','','',60,88,1995,'Daily rate — private pay',1],
+        ],
+        colWidths: [14,22,26,36,16,16,16,15,16,16,16,14,16,16,16,16,22,14,10,20,12,14,12,28,8],
+      });
+
+      // ── 5. Room Type Occupancy ──────────────────────────────────────────
+      buildSheet({
+        name: 'RT Occupancy History',
+        note: 'FREQUENCY: Monthly. Rows are matched by Campus + Service Line + Normalized Room Type + Month/Year and upserted.',
+        headers: ['Month','Division','Campus','Service Line','Room Type','Occ Units','Available Units/Beds','OCC%'],
+        descriptions: [
+          'REQUIRED. Last day of the month (e.g. 1/31/2026 or 2026-01-31).',
+          'Optional. Division name (e.g. Indiana).',
+          'REQUIRED. Facility/campus name — must match Location Data.',
+          'REQUIRED. Service line code (e.g. AL, HC, IL, SL, VIL).',
+          'REQUIRED. Raw room type string from the VO report (e.g. Studio;A Vw;B Loc;B Sz).',
+          'REQUIRED. Number of occupied units (numeric).',
+          'REQUIRED. Total available units or beds (numeric).',
+          'Optional. Occupancy percentage (e.g. 84% or 84). Computed if omitted.',
+        ],
+        examples: [
+          ['1/31/2026','Indiana','Anderson - 112','AL','Studio;A Vw;B Loc;B Sz',10,12,'83.33%'],
+          ['1/31/2026','Indiana','Anderson - 112','AL','MC-Compan;A Vw;A Loc;A Sz',4,4,'100%'],
+          ['1/31/2026','Ohio','Beavercreek - 205','HC','1BR;B Vw;A Loc;A Sz',8,10,'80%'],
+        ],
+        colWidths: [14,14,26,14,30,12,20,10],
+      });
+
+      // ── 6. Move Ins & Outs ──────────────────────────────────────────────
+      buildSheet({
+        name: 'Move Ins & Outs',
+        note: 'FREQUENCY: Monthly, after the month closes. Upload move-ins and move-outs as SEPARATE files. The last column name ("Move Ins" or "Move Outs") determines the direction. Move Event = Admission counts as move-in. Move Category = "Discharge - Return Not Anticipated" counts as move-out.',
+        headers: ['Date','Campus','Department','Service Line','Room/Bed','Last Name','Payer Name','Move Event','Move Category','Move Ins'],
+        descriptions: [
+          'REQUIRED. Event date. Excel date or M/D/YYYY.',
+          'REQUIRED. Must match the campus name used in Location and Rent Roll uploads.',
+          'Optional. Service line code (HC, AL, AL/MC, VIL, SL). Preferred over Service Line when present.',
+          'Optional. Text fallback: Health Center, Assisted Living, Memory Care, Skilled Nursing, Independent Living, Villas.',
+          'Optional. Room and bed (e.g. 204/A). The portion after "/" is read as the bed position.',
+          'Optional. Used with date, campus and room to de-duplicate rows within a file.',
+          'Optional. Payment source (e.g. Private Pay, Medicaid, Medicare A, Managed Care).',
+          'Optional. Admission, Return, Transfer. Only "Admission" rows count toward move-in totals.',
+          'Optional. Free-text category. For move-outs, must be exactly "Discharge - Return Not Anticipated" to count.',
+          'Marker column. Its value is not used — only its presence sets direction as move-ins. Rename to "Move Outs" for a discharge file.',
+        ],
+        examples: [
+          ['7/3/2026','Anderson - 112','AL','Assisted Living','204/A','Sample','Private Pay','Admission','New Admission',1],
+          ['7/11/2026','Anderson - 112','AL/MC','Memory Care','311/B','Sample','Private Pay','Admission','New Admission',1],
+          ['7/19/2026','Beavercreek - 205','HC','Health Center','120/A','Sample','Medicare A','Return','Return From Hospital',1],
+        ],
+        colWidths: [12,22,14,18,12,14,18,16,30,12],
+      });
+
+      const buffer = await wb.xlsx.writeBuffer();
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="inflect_data_upload_templates.xlsx"');
+      res.send(buffer);
+    } catch (err) {
+      console.error("Error generating consolidated templates:", err);
+      res.status(500).json({ error: "Failed to generate templates" });
+    }
+  });
+
   /* ============================================================================
    * DATA IMPORT ENDPOINTS
    * 
