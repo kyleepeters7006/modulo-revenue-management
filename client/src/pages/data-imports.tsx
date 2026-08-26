@@ -164,15 +164,11 @@ export function DataImportsContent() {
 
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="import">
+      <Tabs defaultValue="schedules">
         <TabsList>
-          <TabsTrigger value="import" data-testid="tab-import"><Upload className="h-4 w-4 mr-1" />Import</TabsTrigger>
-          <TabsTrigger value="templates" data-testid="tab-templates"><Download className="h-4 w-4 mr-1" />Templates & Fields</TabsTrigger>
           <TabsTrigger value="schedules" data-testid="tab-schedules"><Server className="h-4 w-4 mr-1" />Scheduled (SFTP)</TabsTrigger>
           <TabsTrigger value="history" data-testid="tab-history"><Clock className="h-4 w-4 mr-1" />History</TabsTrigger>
         </TabsList>
-        <TabsContent value="import"><ImportTab registry={registry} /></TabsContent>
-        <TabsContent value="templates"><TemplatesTab registry={registry} /></TabsContent>
         <TabsContent value="schedules"><SchedulesTab registry={registry} /></TabsContent>
         <TabsContent value="history"><HistoryTab /></TabsContent>
       </Tabs>
