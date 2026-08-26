@@ -31,6 +31,7 @@ import { pool } from "../../db";
 import { privatePaySql } from "@shared/payerScope";
 import { MOVE_IN_OUT_ACTIVE_VIEW } from "../moveInOutEventsView";
 import {
+  MODEL_MAX_TURNOVER_PCT,
   explainTurnoverOutOfBand,
   isTurnoverInBand,
   turnoverBandFor,
@@ -66,6 +67,24 @@ export interface ServiceLineTurnover {
   monthsCovered: number;
   /** Annualised move-outs over average occupied units, as a percent. */
   turnoverPct: number;
+  /**
+   * What the solver should actually plan with: {@link turnoverPct} capped at
+   * the model's maximum. Identical to the measurement for every line that does
+   * not saturate.
+   */
+  plannedPct: number;
+  /**
+   * True when the line genuinely turns over faster than the model can express
+   * — the measurement is trusted, but a unit cannot re-let more than once per
+   * year in the planning model, so {@link plannedPct} is a ceiling rather than
+   * the measurement.
+   *
+   * Short-stay rehab is the real case: the Health Center measures well past
+   * 300% because its residents stay weeks. Rejecting that as implausible sent
+   * the page back to a typed guess for the largest line in the portfolio,
+   * which is strictly worse than planning at the ceiling.
+   */
+  saturating: boolean;
   /**
    * False when the figure must not be fed to the solver as-is — either outside
    * the plausible band for this service line, or built on too few months. The
@@ -419,7 +438,14 @@ export async function computeHistoricalTurnover(
     // printed beside it (an 85.04% against an 85% ceiling reads as a bug).
     const rounded = Math.round(turnoverPct * 10) / 10;
     const band = turnoverBandFor(sl);
-    const inBand = isTurnoverInBand(sl, rounded);
+    // A line whose band reaches the model's ceiling is one we already accept
+    // as very fast, so a measurement ABOVE that ceiling is confirmation, not
+    // contradiction — the only thing it tells us is that the model's maximum
+    // binds. Lines whose band stops short (assisted living, the villas) get no
+    // such reprieve: for them an over-ceiling figure really is out of band.
+    const saturating =
+      rounded > MODEL_MAX_TURNOVER_PCT && band.max >= MODEL_MAX_TURNOVER_PCT;
+    const inBand = saturating || isTurnoverInBand(sl, rounded);
     const thinCoverage =
       monthsCovered < MIN_MONTHS_COVERED
         ? `Only ${monthsCovered} month${monthsCovered === 1 ? "" : "s"} of occupancy history — too few to annualise from.`
@@ -433,6 +459,10 @@ export async function computeHistoricalTurnover(
       privatePaySharePct: share !== undefined ? Math.round(share * 1000) / 10 : 0,
       monthsCovered,
       turnoverPct: rounded,
+      // The cap applies to what we PLAN with, not to what we measured or to
+      // the stay length we report — those stay faithful to the data.
+      plannedPct: Math.min(rounded, MODEL_MAX_TURNOVER_PCT),
+      saturating,
       // 1200 = 12 months × 100 (to convert pct to fraction). Rounded to one
       // decimal so it matches the rounding applied to turnoverPct itself.
       losMonths: Math.round((1200 / rounded) * 10) / 10,
@@ -441,8 +471,9 @@ export async function computeHistoricalTurnover(
       bandMax: band.max,
       // Coverage is reported first: with only a few months behind it the
       // percent itself is not yet evidence of anything, in band or out.
+      // A saturating line is in band by construction, so it has no reason.
       outOfBandReason:
-        thinCoverage ?? explainTurnoverOutOfBand(sl, rounded),
+        thinCoverage ?? (saturating ? null : explainTurnoverOutOfBand(sl, rounded)),
     });
   }
 

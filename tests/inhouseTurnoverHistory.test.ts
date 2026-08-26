@@ -53,6 +53,7 @@ import {
   DEPT_TO_SERVICE_LINE,
   LEGACY_FEED_DEPTS,
   exportFeedCoverageSql,
+  isPermanentDeparture,
   serviceLineForDept,
   supersededByExportFeedSql,
 } from "../server/services/moveInOutService";
@@ -240,10 +241,13 @@ async function main() {
       line.bandMin === band.min && line.bandMax === band.max,
       `got ${line.bandMin}-${line.bandMax}, band is ${band.min}-${band.max}`,
     );
+    // Judged on the value that actually reaches the solver, not the raw
+    // measurement — a saturating line is trusted precisely because what gets
+    // applied is the ceiling, and the ceiling is inside its band.
     ok(
       `${line.serviceLine}: nothing outside its own band is ever auto-applied`,
-      !line.plausible || isTurnoverInBand(line.serviceLine, line.turnoverPct),
-      `${line.turnoverPct}% passed a ${band.min}-${band.max}% band`,
+      !line.plausible || isTurnoverInBand(line.serviceLine, line.plannedPct),
+      `${line.plannedPct}% passed a ${band.min}-${band.max}% band`,
     );
     ok(
       `${line.serviceLine}: a rejected line always says why`,
@@ -255,8 +259,9 @@ async function main() {
     ok(
       `${line.serviceLine}: the verdict matches the number shown, not a rounding of it`,
       line.plausible ===
-        (isTurnoverInBand(line.serviceLine, line.turnoverPct) && line.monthsCovered >= 6),
-      `${line.turnoverPct}% flagged plausible=${line.plausible}`,
+        ((line.saturating || isTurnoverInBand(line.serviceLine, line.turnoverPct)) &&
+          line.monthsCovered >= 6),
+      `${line.turnoverPct}% flagged plausible=${line.plausible}, saturating=${line.saturating}`,
     );
   }
 
@@ -725,6 +730,126 @@ async function main() {
     "service lines resolve regardless of case or stray whitespace",
     turnoverBandFor(" al/mc ").max === TURNOVER_BANDS["AL/MC"].max,
     "a lowercase service line silently fell through to the fallback band",
+  );
+
+  // ── What counts as a departure ─────────────────────────────────────────────
+  // A death vacates a unit exactly as a discharge does, and both workbook
+  // shapes record it by leaving the discharge category blank. A rule keyed on
+  // the category string alone therefore dropped every one of them — 29% of
+  // Assisted Living departures — and understated turnover across the board.
+  ok(
+    "a discharge with no anticipated return counts as a departure",
+    isPermanentDeparture("Discharge - Return Not Anticipated"),
+    "the ordinary permanent discharge stopped counting",
+  );
+  ok(
+    "a death counts as a departure however the workbook spells it",
+    ["Expired", "expired", " Deceased ", "Death"].every((c) =>
+      isPermanentDeparture(c),
+    ),
+    "a death spelling was not recognised — those move-outs go uncounted",
+  );
+  ok(
+    "a hospital or therapeutic leave is not a departure",
+    !isPermanentDeparture("Discharge - Return Anticipated") &&
+      !isPermanentDeparture("Hospital Leave") &&
+      !isPermanentDeparture("Therapeutic Leave"),
+    "a resident who keeps their unit and their rate was counted as turnover",
+  );
+  // The two sheets disagree about what a blank means, so the predicate cannot
+  // decide on its own: the legacy sheet omits Discharge_Type on a death, while
+  // the export sheet names the event elsewhere and a blank there is unknown.
+  ok(
+    "a blank category is a death only for the sheet that omits it on death",
+    isPermanentDeparture("", { blankMeansDeath: true }) &&
+      isPermanentDeparture(null, { blankMeansDeath: true }) &&
+      !isPermanentDeparture("") &&
+      !isPermanentDeparture(null),
+    "the blank-category rule is not scoped to the sheet it belongs to",
+  );
+
+  // Stored rows must agree with the rule, not just newly imported ones: the
+  // feed is years of historical uploads, so a rule change that never reaches
+  // them leaves the measurement wrong no matter how correct the importer is.
+  const { rows: uncountedDeaths } = await pool.query<{
+    named: string;
+    legacy_blank: string;
+  }>(
+    `SELECT
+       COUNT(*) FILTER (
+         WHERE lower(btrim(coalesce(event_category, ''))) IN
+               ('expired', 'deceased', 'death'))::text AS named,
+       COUNT(*) FILTER (
+         WHERE import_format = 'legacy'
+           AND coalesce(btrim(event_category), '') = '')::text AS legacy_blank
+       FROM move_in_out_events
+      WHERE client_id = $1
+        AND event_type = 'move_out'
+        AND counted = false`,
+    [clientId],
+  );
+  ok(
+    "no stored death is still sitting uncounted, however its sheet spells it",
+    Number(uncountedDeaths[0].named) === 0 &&
+      Number(uncountedDeaths[0].legacy_blank) === 0,
+    `${uncountedDeaths[0].named} named + ${uncountedDeaths[0].legacy_blank} blank-category legacy deaths are stored uncounted — the departure backfill has not reached them`,
+  );
+
+  // The blank rule is format-scoped, and the format column is what scopes it.
+  // A blank category on the export sheet is genuinely unknown, so counting it
+  // as a death — which is what happens if the backfill runs before formats are
+  // stamped, since every row defaults to 'legacy' — invents departures.
+  const { rows: exportBlanks } = await pool.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM move_in_out_events
+      WHERE client_id = $1
+        AND event_type = 'move_out'
+        AND import_format <> 'legacy'
+        AND coalesce(btrim(event_category), '') = ''
+        AND counted = true`,
+    [clientId],
+  );
+  ok(
+    "a blank category outside the legacy sheet is never counted as a death",
+    Number(exportBlanks[0].n) === 0,
+    `${exportBlanks[0].n} export rows with no category are counted — the blank rule escaped its sheet`,
+  );
+
+  // ── Saturating lines ───────────────────────────────────────────────────────
+  // Short-stay rehab genuinely turns over several times a year. That is a real
+  // measurement, not a data fault, so it must not be rejected — but a unit
+  // cannot re-let more than once a year in the planning model either.
+  for (const line of result.byServiceLine) {
+    if (!line.saturating) continue;
+    ok(
+      `${line.serviceLine}: a line above the ceiling plans at the ceiling`,
+      line.plannedPct === MODEL_MAX_TURNOVER_PCT,
+      `measured ${line.turnoverPct}% but plans with ${line.plannedPct}%`,
+    );
+    ok(
+      `${line.serviceLine}: exceeding the ceiling is not treated as a fault`,
+      line.plausible && line.outOfBandReason === null,
+      `saturating line was rejected: ${line.outOfBandReason}`,
+    );
+    ok(
+      `${line.serviceLine}: only a line whose band reaches the ceiling may saturate`,
+      line.bandMax >= MODEL_MAX_TURNOVER_PCT,
+      `band tops out at ${line.bandMax}, so an over-ceiling figure is out of band, not saturating`,
+    );
+  }
+  const nonSaturating = result.byServiceLine.filter((l) => !l.saturating);
+  ok(
+    "a line inside the model's range plans with exactly what was measured",
+    nonSaturating.every((l) => l.plannedPct === l.turnoverPct),
+    nonSaturating
+      .filter((l) => l.plannedPct !== l.turnoverPct)
+      .map((l) => `${l.serviceLine} measured ${l.turnoverPct}% plans ${l.plannedPct}%`)
+      .join("; "),
+  );
+  ok(
+    "nothing is ever planned above the model's maximum",
+    result.byServiceLine.every((l) => l.plannedPct <= MODEL_MAX_TURNOVER_PCT),
+    "a line would feed the solver a rate it cannot represent",
   );
 }
 

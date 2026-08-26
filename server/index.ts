@@ -641,6 +641,7 @@ app.use((req, res, next) => {
       const {
         backfillEventServiceLinesFromDept,
         resolveStoredEventImportOverlap,
+        backfillDepartureRule,
       } = await import('./services/moveInOutService');
       const fixed = await backfillEventServiceLinesFromDept();
       if (fixed > 0) {
@@ -653,6 +654,15 @@ app.use((req, res, next) => {
       const overlap = await resolveStoredEventImportOverlap();
       if (overlap.formatsStamped > 0 || overlap.supersededChanged > 0) {
         log(`[startup-migration] Move-in/out import overlap resolved: stamped ${overlap.formatsStamped} row(s) with their import format, changed ownership on ${overlap.supersededChanged}`);
+      }
+      // Deaths were imported uncounted, and the export importer discarded the
+      // Move Event that identifies them. Both repairs have to reach stored
+      // rows: dropping deaths understated every measured turnover figure by
+      // roughly the share of residents who die in place, which in Assisted
+      // Living is 29% of all departures.
+      const departures = await backfillDepartureRule();
+      if (departures > 0) {
+        log(`[startup-migration] Departure rule applied: changed counted on ${departures} move-out(s)`);
       }
     } catch (err) {
       log(`[startup-migration] Move-in/out service-line backfill failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);

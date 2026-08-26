@@ -15,10 +15,16 @@ import {
 // Discharges sheets). Counting rules:
 //   • Move-in counted  = Census_Event 'Admission' (returns from hospital
 //     leave are stored but NOT counted as new move-ins)
-//   • Move-out counted = Discharge_Type 'Discharge - Return Not Anticipated'
-//     (hospital leaves / therapeutic leaves / return-expected discharges are
-//     stored but NOT counted as permanent move-outs)
+//   • Move-out counted = the resident permanently released the unit: a
+//     'Discharge - Return Not Anticipated' or a death. Hospital leaves,
+//     therapeutic leaves and return-expected discharges are stored but NOT
+//     counted, because the resident keeps both the unit and their rate.
 // All rows are stored with a `counted` flag so raw data stays queryable.
+//
+// Deaths are the reason this is a predicate and not a string comparison: both
+// workbook shapes leave the discharge category BLANK when the resident died
+// and name the event elsewhere, so a rule keyed on the category alone silently
+// dropped them. That was 29% of Assisted Living departures.
 
 /**
  * Department → service-line code.
@@ -323,10 +329,13 @@ async function importExportSheetFormat(ws: XLSX.WorkSheet, clientId: string): Pr
     // Synthetic census ID — deduplicates same person/room/date/event within this upload
     const censusId = `exp|${eventDate}|${campus}|${roomBed ?? ""}|${lastName}|${moveEvent ?? ""}`;
 
-    // Counting rules (same logic as legacy format)
+    // A death is written with a blank Move Category and the event named in
+    // Move Event, so the category alone drops it. Resolve the category first,
+    // then apply the same departure rule the legacy format uses.
+    const moveOutCategory = moveCategory || moveEvent;
     const counted = eventType === "move_in"
       ? moveEvent?.toLowerCase() === "admission"
-      : moveCategory?.toLowerCase() === "discharge - return not anticipated";
+      : isPermanentDeparture(moveOutCategory);
 
     const isReturn = eventType === "move_in" && moveEvent?.toLowerCase() === "return";
 
@@ -343,7 +352,7 @@ async function importExportSheetFormat(ws: XLSX.WorkSheet, clientId: string): Pr
       roomName: roomBed,
       payer,
       eventDate,
-      eventCategory: eventType === "move_in" ? moveEvent : moveCategory,
+      eventCategory: eventType === "move_in" ? moveEvent : moveOutCategory,
       isReturn,
       counted,
     });
@@ -422,7 +431,9 @@ export async function importMoveInOutWorkbook(buffer: Buffer, clientId: string):
         eventType: "move_out", censusId, ...mapCommon(r),
         payer: r.Discharge_Payer != null ? String(r.Discharge_Payer).trim() : null,
         eventDate, eventCategory: category, isReturn: false,
-        counted: category?.toLowerCase() === "discharge - return not anticipated",
+        // This sheet writes no Discharge_Type at all when the resident died,
+        // so a blank here is a death rather than a missing value.
+        counted: isPermanentDeparture(category, { blankMeansDeath: true }),
       });
     }
   }
@@ -478,6 +489,79 @@ export async function resolveStoredEventImportOverlap(): Promise<{
   const formatsStamped = await backfillEventImportFormats(pool);
   const supersededChanged = await resolveOverlappingEventImports(pool);
   return { formatsStamped, supersededChanged };
+}
+
+/**
+ * Categories that mean the resident permanently released the unit.
+ *
+ * A death vacates a unit exactly as a discharge does — it re-lets at street
+ * rate — so for pricing it is turnover. Hospital and therapeutic leaves are
+ * absent from this list on purpose: the resident keeps the unit and the rate,
+ * so the unit never re-prices and counting it would inflate turnover.
+ */
+const PERMANENT_DEPARTURE_CATEGORIES = [
+  "discharge - return not anticipated",
+  "expired",
+  "deceased",
+  "death",
+];
+
+/**
+ * Whether a discharge category means the resident permanently left.
+ *
+ * @param blankMeansDeath treat an empty category as a death. True only for the
+ * legacy Discharges sheet, which writes no `Discharge_Type` at all when the
+ * resident died. The export sheet names the event instead, so its caller
+ * resolves the category before asking and must NOT set this — a blank there is
+ * genuinely unknown and stays uncounted.
+ */
+export function isPermanentDeparture(
+  category: string | null | undefined,
+  opts: { blankMeansDeath?: boolean } = {},
+): boolean {
+  const c = category?.trim().toLowerCase() ?? "";
+  if (!c) return opts.blankMeansDeath === true;
+  return PERMANENT_DEPARTURE_CATEGORIES.includes(c);
+}
+
+/**
+ * The same rule as {@link isPermanentDeparture}, in SQL, for the backfill.
+ *
+ * The `blankMeansDeath` argument the predicate takes is decided here by the
+ * stored import format, which is the only thing that can tell the two sheets
+ * apart after the fact. Keep the two in step: a category added to the list
+ * above reaches this automatically, but a change to the blank rule does not.
+ */
+const PERMANENT_DEPARTURE_SQL = `(
+  lower(btrim(coalesce(event_category, ''))) IN (
+    ${PERMANENT_DEPARTURE_CATEGORIES.map((c) => `'${c}'`).join(", ")}
+  )
+  OR (
+    import_format = 'legacy'
+    AND coalesce(btrim(event_category), '') = ''
+  )
+)`;
+
+/**
+ * Bring move-outs imported before deaths counted into line with the rule.
+ *
+ * Idempotent: matches nothing once it has run.
+ *
+ * Must run AFTER the import formats are stamped — the rule reads
+ * `import_format` to decide whether a blank category is a death, and every row
+ * defaults to 'legacy' before stamping, which would count blank export rows as
+ * deaths.
+ *
+ * @returns how many stored move-outs changed count.
+ */
+export async function backfillDepartureRule(): Promise<number> {
+  const counted = await pool.query(
+    `UPDATE move_in_out_events
+        SET counted = ${PERMANENT_DEPARTURE_SQL}
+      WHERE event_type = 'move_out'
+        AND counted IS DISTINCT FROM ${PERMANENT_DEPARTURE_SQL}`,
+  );
+  return counted.rowCount ?? 0;
 }
 /**
  * Whether this client has any imported move-in/out event data.

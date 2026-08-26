@@ -81,6 +81,10 @@ interface ServiceLineTurnover {
   turnoverPct: number;
   /** Average length of stay implied by the turnover rate, in months. 1200 / turnoverPct. */
   losMonths: number;
+  /** What the solver plans with: turnoverPct capped at the model's maximum. */
+  plannedPct: number;
+  /** True when the line really does turn over faster than the model can express. */
+  saturating: boolean;
   plausible: boolean;
   bandMin: number;
   bandMax: number;
@@ -239,13 +243,16 @@ function TurnoverEvidence({
       </span>
     );
   } else {
-    const adopted = Math.abs(applied - hist.turnoverPct) < 0.05;
+    // Compare against what is actually planned with, not the raw measurement:
+    // for a saturating line those differ, and judging "adopted" against the
+    // measurement would report every capped line as overridden.
+    const adopted = Math.abs(applied - hist.plannedPct) < 0.05;
     // Measured history outranks a stored assumption, so when it displaces one
     // say so outright. Swapping an operator's saved number for a different one
     // and printing only the new value is how a plan quietly stops being the
     // plan they signed off on.
     const displaced =
-      adopted && saved !== null && Math.abs(saved - hist.turnoverPct) >= 0.05;
+      adopted && saved !== null && Math.abs(saved - hist.plannedPct) >= 0.05;
     const unitLabel = hist.privatePayBasis ? "private-pay units" : "occupied units";
     history = (
       <span className="text-muted-foreground">
@@ -253,6 +260,10 @@ function TurnoverEvidence({
         {hist.moveOuts.toLocaleString()} move-outs /{" "}
         {hist.avgOccupiedUnits.toLocaleString()} {unitLabel} = {hist.turnoverPct}%{" "}
         ({formatLos(hist.turnoverPct)})
+        {/* The measurement is trusted here, so say the ceiling bound rather
+            than quietly printing a number the operator never measured. */}
+        {hist.saturating &&
+          ` — turns over faster than a year can hold, so planning uses ${hist.plannedPct}%`}
         {!adopted && " (overridden)"}
         {displaced && ` — replaces the saved ${saved}%`}
       </span>
@@ -512,8 +523,12 @@ export default function InhouseIncreases() {
   /**
    * Adopt the measured turnover for every line that has a usable one, until
    * the operator edits something. Implausible lines keep the saved assumption
-   * — see the badge in the table; a 549% turnover would clamp inside the
-   * solver and quietly make in-house increases irrelevant.
+   * — see the badge in the table.
+   *
+   * `plannedPct`, not `turnoverPct`: a short-stay line genuinely measures past
+   * 100%, and feeding that in raw would clamp inside the solver and quietly
+   * make in-house increases irrelevant. Capping here keeps the cap visible on
+   * the page instead of burying it in the solver.
    */
   useEffect(() => {
     if (assumptionsTouched || !turnoverQuery.data) return;
@@ -527,8 +542,8 @@ export default function InhouseIncreases() {
           rateGrowthTargetPct: assumptions.rateGrowthTargetPct,
           annualTurnoverPct: assumptions.annualTurnoverPct,
         };
-        if (base.annualTurnoverPct === hist.turnoverPct && next[sl]) continue;
-        next[sl] = { ...base, annualTurnoverPct: hist.turnoverPct };
+        if (base.annualTurnoverPct === hist.plannedPct && next[sl]) continue;
+        next[sl] = { ...base, annualTurnoverPct: hist.plannedPct };
         changed = true;
       }
       return changed ? next : prev;
