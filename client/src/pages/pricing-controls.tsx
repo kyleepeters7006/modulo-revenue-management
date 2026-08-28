@@ -183,7 +183,7 @@ export default function PricingControls() {
       <Navigation />
 
       {/* Frog hero banner */}
-      <div className="w-full h-24 sm:h-32 overflow-hidden">
+      <div className="w-full h-20 sm:h-24 overflow-hidden">
         <img
           src="/frog.jpg"
           alt=""
