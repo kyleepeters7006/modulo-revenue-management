@@ -182,15 +182,6 @@ export default function PricingControls() {
     <div className="min-h-screen bg-gray-50">
       <Navigation />
 
-      {/* Frog hero banner */}
-      <div className="mx-auto aspect-[40/3] w-full max-w-7xl overflow-hidden px-4 sm:px-6 lg:px-8">
-        <img
-          src="/frog-banner.jpg?v=5"
-          alt=""
-          className="h-full w-full object-cover"
-        />
-      </div>
-
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 pb-20 sm:py-8 sm:pb-8">
         <div className="mb-6 sm:mb-8 flex items-start justify-between gap-4">
           <div>
