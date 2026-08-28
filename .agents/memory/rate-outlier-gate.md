@@ -1,6 +1,6 @@
 ---
 name: Relative rate outlier gate (two-level)
-description: Why the street/in-house outlier filter is relative and two-level, and the four traps that make a naive version silently wrong.
+description: Why aggregate rate filters are relative and two-level, and why resident-level in-house planning must not use them to remove people.
 ---
 
 # Relative rate outlier gate
@@ -54,9 +54,20 @@ rate. Level 2 is the only thing that catches it.
 ## How to apply
 
 - Never hand-copy the predicate into a new query. Import the shared builder.
+- Use the gate for rate aggregates, not resident eligibility. In-house planning
+  must retain every occupied resident with a positive current rate even when
+  that rate fails the plausibility gate.
 - Expect a small number of groups to go blank rather than report a wrong number.
   On real data this was a handful portfolio-wide, each a single row far out of
   line with its own campus. Blank is the correct output there.
 - Changing the basis shifts published averages by a percent or two overall but
   moves a large minority of individual groups. Re-baseline cross-surface
   tie-outs after any change to it.
+
+**Why:** The operator explicitly chose complete resident coverage over removing
+low-but-positive source rates. A suspicious rate can be reviewed later; silently
+omitting its resident makes the plan incomplete.
+
+**How to apply:** Treat plausibility as an aggregate-quality rule. At the
+resident level, preserve the source rate and continue applying the ordinary
+minimum, maximum, and street-cap guardrails.

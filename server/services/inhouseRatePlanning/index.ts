@@ -614,11 +614,6 @@ function buildWarnings(ctx: {
       `${ctx.excluded.departingBeforeHorizon} resident${ctx.excluded.departingBeforeHorizon === 1 ? " has a move-out date" : "s have move-out dates"} before the increase takes effect and ${ctx.excluded.departingBeforeHorizon === 1 ? "was" : "were"} left out of the plan.`,
     );
   }
-  if (ctx.excluded.implausibleRate > 0) {
-    warnings.push(
-      `${ctx.excluded.implausibleRate} occupied row${ctx.excluded.implausibleRate === 1 ? "" : "s"} were excluded for an implausibly low in-house rate.`,
-    );
-  }
   if (ctx.excluded.noRate > 0) {
     warnings.push(
       `${ctx.excluded.noRate} occupied row${ctx.excluded.noRate === 1 ? "" : "s"} had no in-house rate and were excluded.`,

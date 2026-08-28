@@ -670,10 +670,11 @@ console.log("\n-- 14. Move-out dates decide who is in the plan and how much they
     `got ${hc.residents[0].currentRateMonthly}`,
   );
 
-  // A rate that fails the plausibility gate must not enter the plan at all.
+  // A low rate may fail the plausibility gate, but it is still a real resident
+  // rate and must remain in the plan.
   const gated = build([row({ room_number: "F", passes_ih_gate: false })]);
-  ok("an implausible in-house rate is excluded", gated.residents.length === 0);
-  ok("and counted as such", gated.excluded.implausibleRate === 1);
+  ok("an implausible in-house rate remains in the plan", gated.residents.length === 1);
+  ok("it is not reported as an excluded resident", gated.excluded.implausibleRate === 0);
 
   // A failed street gate leaves the resident in, but with no usable street cap.
   const noStreet = build([row({ room_number: "G", passes_street_gate: false })]);

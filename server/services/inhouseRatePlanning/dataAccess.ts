@@ -177,10 +177,10 @@ export function buildResidents(
       excluded.noRate++;
       continue;
     }
-    if (!row.passes_ih_gate) {
-      excluded.implausibleRate++;
-      continue;
-    }
+    // A low in-house rate may be a data-quality issue, but it is still the
+    // resident's actual rate and must remain in the plan. The plausibility gate
+    // is retained on the raw row for diagnostics and for rate aggregates; it
+    // must never remove a person from resident-level planning.
     const streetRaw = Number(row.street_rate) || 0;
     const usableStreet = streetRaw > 0 && row.passes_street_gate ? streetRaw : 0;
     if (usableStreet === 0) excluded.noStreetRate++;

@@ -17,6 +17,7 @@
  *     ceiling is what held them back
  *   • no new rate crosses street unless `allowInhouseAboveStreet` is on
  *   • the recommended street increase stays inside its own ceiling
+ *   • low-but-positive source rates remain in the resident recommendations
  *   • the headline weighted-average increase reconciles to the per-resident
  *     recommendations, recomputed independently from resident-day weights
  *
@@ -333,8 +334,8 @@ function assertGuardrails(title: string, plan: PlanResult) {
   );
 
   // 6. Rate basis. A daily line reported as monthly (or vice versa) is a 30x
-  //    error, and it would show up as an implausible display rate long before
-  //    anyone noticed the label.
+  //    error. Source rates are allowed to be outside normal ranges: a bad or
+  //    unusually low positive rate must not remove its resident from the plan.
   const daily = isDailyRateServiceLine(plan.scope.serviceLine);
   ok(
     `${title}: rate basis is reported as ${daily ? "daily" : "monthly"}`,
@@ -352,16 +353,19 @@ function assertGuardrails(title: string, plan: PlanResult) {
       ? `e.g. room ${badDisplay[0].roomNumber}: display ${badDisplay[0].newRateDisplay} vs monthly ${badDisplay[0].newRateMonthly.toFixed(2)}`
       : undefined,
   );
-  const bandLo = daily ? 20 : 600;
-  const bandHi = daily ? 3000 : 90000;
-  const outOfBand = recs.filter(
-    (r) => r.newRateDisplay < bandLo || r.newRateDisplay > bandHi,
+  const invalidRates = recs.filter(
+    (r) =>
+      !Number.isFinite(r.currentRateMonthly) ||
+      !Number.isFinite(r.newRateMonthly) ||
+      !Number.isFinite(r.newRateDisplay) ||
+      r.currentRateMonthly <= 0 ||
+      r.newRateMonthly < r.currentRateMonthly,
   );
   ok(
-    `${title}: every recommended rate is plausible for a ${daily ? "daily" : "monthly"} line ($${bandLo}–$${bandHi})`,
-    outOfBand.length === 0,
-    outOfBand.length
-      ? `${outOfBand.length} out of band, e.g. room ${outOfBand[0].roomNumber} at ${outOfBand[0].newRateDisplay}`
+    `${title}: every positive source rate remains a finite recommendation, even outside normal ranges`,
+    invalidRates.length === 0,
+    invalidRates.length
+      ? `${invalidRates.length} invalid, e.g. room ${invalidRates[0].roomNumber} at ${invalidRates[0].newRateDisplay}`
       : undefined,
   );
 

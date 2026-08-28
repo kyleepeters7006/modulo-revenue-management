@@ -59,7 +59,7 @@
 - [Census report tie-out](census-tie-out.md) — census capacity is reference-only vs occupancy history; read the division block, resolve columns from data, don't map "With Kingston" divisions.
 - [Scroll anchoring](scroll-anchoring.md) — Chrome already anchors these window-scrolled pages; manual scrollBy compensation double-applies. Real jumps come from imperative scrollTo calls.
 - [Street-rate aggregation](street-rate-aggregation.md) — AVG everywhere now, not mode(); mode() masked rows-vs-distinct-rooms weighting bugs that AVG exposes.
-- [Rate outlier gate](rate-outlier-gate.md) — relative + TWO-level (own median, then portfolio median); level 2 must ignore display filters or drilling in disables it.
+- [Rate outlier gate](rate-outlier-gate.md) — relative two-level gate for aggregates only; never use it to exclude positive-rate residents from in-house planning.
 - [Parity test design](parity-test-design.md) — a test embedding hand-copied production SQL guards nothing; call the exported function and test the filtered paths.
 - [Street-rate quality rules](street-rate-quality.md) — prorated move-in months overwrite street_rate (expected); 2ND OCCUPANT is in payor_type; HC rates are daily; plausibility checks must be relative per location+SL.
 - [room_type normalization fixed](normalized-room-type-unreliable.md) — room-type keywords now beat occupancy style; backfill re-derives from source_room_type (set-based); group_name is branded, never prefix-match it.
