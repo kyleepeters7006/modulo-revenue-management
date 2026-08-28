@@ -1078,7 +1078,9 @@ export function compareRuleDedupOrder(a: any, b: any): number {
 
 /** A rule is eligible for the dedup walk only if it can actually move a rate. */
 export function isDedupEligibleRule(r: any): boolean {
-  return !!r?.isActive && r?.isHistorical !== true && !!r?.action?.adjustmentValue;
+  const lifecycle = r?.lifecycleStatus ?? r?.lifecycle_status;
+  const implemented = lifecycle == null ? true : lifecycle === "implemented";
+  return !!r?.isActive && implemented && r?.isHistorical !== true && !!r?.action?.adjustmentValue;
 }
 
 /**

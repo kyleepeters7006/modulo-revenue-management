@@ -187,6 +187,7 @@ interface SummaryRow extends PerfMetrics {
   ruleName: string;
   category: string;
   isHistorical?: boolean;
+  lifecycleStatus?: "proposed" | "implemented" | "disabled" | "historical";
   suppressedByRules?: Array<{ id: string; name: string }>;
   detail: DetailRow[];
 }
@@ -211,6 +212,22 @@ const fmtDaysFaster = (n: number | null) => {
   if (n > 0) return `${n} days faster`;
   if (n < 0) return `${Math.abs(n)} days slower`;
   return "on pace";
+};
+
+const lifecycleBadge = (row: SummaryRow) => {
+  if (row.isHistorical || row.lifecycleStatus === "historical") {
+    return <Badge variant="secondary" className="text-[10px]">Historical</Badge>;
+  }
+  if (row.lifecycleStatus === "implemented" && row.projected) {
+    return <Badge variant="outline" className="border-sky-500/40 bg-sky-500/10 text-sky-700 text-[10px]">Projected</Badge>;
+  }
+  if (row.lifecycleStatus === "implemented") {
+    return <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-700 text-[10px]">Realized</Badge>;
+  }
+  if (row.lifecycleStatus === "proposed") {
+    return <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-700 text-[10px]">Proposed</Badge>;
+  }
+  return null;
 };
 
 const isoDaysAgo = (days: number) => {
@@ -507,6 +524,7 @@ function buildTableRows({
                 <span className="whitespace-normal text-sm">
                   {r.isHistorical && !/^Historical:/i.test(r.ruleName) ? `Historical: ${r.ruleName}` : r.ruleName}
                 </span>
+                {lifecycleBadge(r)}
                 {r.suppressedByRules && r.suppressedByRules.length > 0 && (
                   <span
                     className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 shrink-0"

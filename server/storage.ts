@@ -231,7 +231,7 @@ export interface IStorage {
   
   // Adjustment Rules methods
   getAdjustmentRules(): Promise<AdjustmentRules[]>;
-  getActiveAdjustmentRules(): Promise<AdjustmentRules[]>;
+  getActiveAdjustmentRules(clientId?: string): Promise<AdjustmentRules[]>;
   createAdjustmentRule(rule: InsertAdjustmentRules): Promise<AdjustmentRules>;
   updateAdjustmentRule(id: string, rule: Partial<InsertAdjustmentRules>): Promise<AdjustmentRules>;
   deleteAdjustmentRule(id: string): Promise<void>;
@@ -2342,13 +2342,15 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(adjustmentRules);
   }
 
-  async getActiveAdjustmentRules(): Promise<AdjustmentRules[]> {
+  async getActiveAdjustmentRules(clientId?: string): Promise<AdjustmentRules[]> {
     // Active = toggled on AND already past its effective date (NULL = effective immediately).
     // Historical records (is_historical=true) document past pricing changes and are never applied.
     return await db.select().from(adjustmentRules).where(
       and(
         eq(adjustmentRules.isActive, true),
         sql`${adjustmentRules.isHistorical} IS NOT TRUE`,
+        sql`(${adjustmentRules.lifecycleStatus} IS NULL OR ${adjustmentRules.lifecycleStatus} = 'implemented')`,
+        ...(clientId ? [sql`(${adjustmentRules.clientId} IS NULL OR ${adjustmentRules.clientId} = ${clientId})`] : []),
         sql`(${adjustmentRules.effectiveDate} IS NULL OR ${adjustmentRules.effectiveDate} <= CURRENT_DATE)`
       )
     );

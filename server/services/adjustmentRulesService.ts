@@ -992,7 +992,8 @@ export async function fetchAndApplyAdjustmentRules(
   units: Array<{ id: string; unit: any; [key: string]: any }>
 ): Promise<Array<{ id: string; ruleAdjustedRate: number | null; appliedRuleName: string | null }>> {
   try {
-    const activeRules = await storage.getActiveAdjustmentRules();
+    const clientId = units.find(u => u.unit?.clientId)?.unit?.clientId || "demo";
+    const activeRules = await storage.getActiveAdjustmentRules(clientId);
 
     if (activeRules.length === 0) {
       return units.map(({ id }) => ({

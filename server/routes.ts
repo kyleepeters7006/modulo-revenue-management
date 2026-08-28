@@ -211,6 +211,35 @@ function setCachedAnalytics(key: string, data: any, ttl?: number): void {
   analyticsCache.set(key, { data, timestamp: Date.now(), ...(ttl !== undefined ? { ttl } : {}) });
 }
 
+type RuleLifecycleStatus = "proposed" | "implemented" | "disabled" | "historical";
+
+// Legacy rows predate the lifecycle columns. Treat them conservatively and
+// consistently everywhere instead of making each caller invent its own rule.
+function getRuleLifecycleStatus(rule: any): RuleLifecycleStatus {
+  if (rule?.isHistorical === true || rule?.is_historical === true) return "historical";
+  const explicit = rule?.lifecycleStatus ?? rule?.lifecycle_status;
+  if (explicit === "proposed" || explicit === "implemented" || explicit === "disabled" || explicit === "historical") {
+    return explicit;
+  }
+  return rule?.isActive ?? rule?.is_active ? "implemented" : "disabled";
+}
+
+function isImplementedRule(rule: any): boolean {
+  return getRuleLifecycleStatus(rule) === "implemented" &&
+    (rule?.isActive ?? rule?.is_active) === true &&
+    !(rule?.isHistorical ?? rule?.is_historical);
+}
+
+async function isRuleAdmin(req: any): Promise<boolean> {
+  const session = req.session as any;
+  if (!session?.userId) return false;
+  const result = await pool.query(
+    `SELECT username FROM users WHERE id = $1 AND client_id = $2 LIMIT 1`,
+    [session.userId, session.clientId || req.clientId || "demo"],
+  );
+  return result.rows.length > 0 && String(result.rows[0].username || "").endsWith("_admin");
+}
+
 // commentaryInflight and commentaryGeneration are imported from ./commentaryCache
 // so pricingJobManager.ts can share the same instances and invalidate them on job completion.
 
@@ -251,8 +280,9 @@ async function findDuplicateRule(
     `SELECT id, name, service_line, service_lines, action
      FROM adjustment_rules
      WHERE (client_id = $1 OR client_id IS NULL)
-       AND is_active = true
+       AND (is_active = true OR lifecycle_status = 'proposed')
        AND is_historical IS NOT TRUE
+       AND (client_id IS NULL OR client_id = $1)
        AND (location_id IS NOT DISTINCT FROM $2)
        AND (action->>'adjustmentType') = $3
        AND ABS(COALESCE((action->>'adjustmentValue')::numeric, 0) - $4::numeric) < 0.001`,
@@ -6517,7 +6547,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           weights: weights ? [weights] : [],
           ranges: ranges ? [ranges] : [],
           guardrails: guardrails || [],
-          activeRules: activeRules.filter((r: any) => r.isActive),
+          activeRules: activeRules.filter((r: any) => isImplementedRule(r)),
           rentRollData: rentRollData || []
         },
         campus as string | undefined,
@@ -6557,7 +6587,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           weights: weights ? [weights] : [],
           ranges: ranges ? [ranges] : [],
           guardrails: guardrails || [],
-          activeRules: activeRules.filter((r: any) => r.isActive),
+          activeRules: activeRules.filter((r: any) => isImplementedRule(r)),
           rentRollData: rentRollData || []
         },
         campus as string | undefined,
@@ -16982,14 +17012,19 @@ Respond in JSON format:
       let rule: any;
       {
         const baseRulePayload = {
+          clientId,
           locationId: locationId || null,
           serviceLine: storeServiceLine,
           serviceLines: storeServiceLines,
           description: parsedRule.description,
           trigger: parsedRule.trigger,
           action: parsedRule.action,
-          isActive: !isHistorical,
+          // New rules are proposals. Historical imports remain historical;
+          // neither state can enter the live pricing set.
+          isActive: false,
           isHistorical: !!isHistorical,
+          lifecycleStatus: isHistorical ? "historical" : "proposed",
+          implementedAt: null,
           effectiveDate: effectiveDate || null,
           createdBy: 'user',
           monthlyImpact: Math.round(monthlyImpact),
@@ -17171,14 +17206,17 @@ Respond in JSON format:
         serviceLine: serviceLines.length === 1 ? serviceLines[0] : null,
         serviceLines: serviceLines.length > 1 ? serviceLines : null,
         locationId: null,
-        isActive: true,
+        isActive: false,
         isHistorical: false,
+        lifecycleStatus: "proposed",
+        implementedAt: null,
       };
       const impact = fromFiltersImpactCtx
         ? computeQualifiedRuleImpact(fromFiltersImpactCtx, fromFiltersRuleObj)
         : { affectedUnits: 0, affectedCampuses: 0, monthlyImpact: 0, annualImpact: 0 };
 
       const rule = await storage.createAdjustmentRule({
+        clientId,
         locationId: null,
         serviceLine: serviceLines.length === 1 ? serviceLines[0] : null,
         serviceLines: serviceLines.length > 1 ? serviceLines : null,
@@ -17186,8 +17224,10 @@ Respond in JSON format:
         description,
         trigger,
         action,
-        isActive: true,
+        isActive: false,
         isHistorical: false,
+        lifecycleStatus: "proposed",
+        implementedAt: null,
         effectiveDate: effectiveDate || null,
         createdBy: 'user',
         notes: typeof notes === 'string' && notes.trim() ? notes.trim() : null,
@@ -17332,13 +17372,16 @@ Respond in JSON format:
           serviceLine: sls.length === 1 ? sls[0] : null,
           serviceLines: sls.length > 1 ? sls : null,
           locationId: importLocationId,
-          isActive: true,
+          isActive: false,
           isHistorical: false,
+          lifecycleStatus: "proposed",
+          implementedAt: null,
         };
         const impact = importBatchImpactCtx
           ? computeQualifiedRuleImpact(importBatchImpactCtx, importRuleObj)
           : { affectedUnits: 0, affectedCampuses: 0, monthlyImpact: 0, annualImpact: 0 };
         const rule = await storage.createAdjustmentRule({
+          clientId,
           locationId: importLocationId,
           serviceLine: sls.length === 1 ? sls[0] : null,
           serviceLines: sls.length > 1 ? sls : null,
@@ -17346,8 +17389,10 @@ Respond in JSON format:
           description: `${g.desc} (imported from Excel — ${g.rowCount} row${g.rowCount === 1 ? '' : 's'})`,
           trigger: parsedRule.trigger,
           action: parsedRule.action,
-          isActive: true,
+          isActive: false,
           isHistorical: false,
+          lifecycleStatus: "proposed",
+          implementedAt: null,
           effectiveDate: null,
           createdBy: 'excel-import',
           monthlyImpact: Math.round(impact.monthlyImpact),
@@ -19001,6 +19046,7 @@ Respond in JSON format:
       });
 
       const rule = await storage.createAdjustmentRule({
+        clientId,
         locationId: locationId || null,
         serviceLine: slList.length === 1 ? slList[0] : null,
         serviceLines: slList.length > 1 ? slList : null,
@@ -19008,7 +19054,9 @@ Respond in JSON format:
         description,
         trigger: parsed.trigger,
         action: parsed.action,
-        isActive: true,
+        isActive: false,
+        lifecycleStatus: "proposed",
+        implementedAt: null,
         createdBy: 'user',
         monthlyImpact: selectedImpact.monthlyImpact ?? 0,
         annualImpact: selectedImpact.annualImpact ?? 0,
@@ -19312,11 +19360,16 @@ Respond in JSON format:
     // Historical records live in the Pricing History view, not the active rules list
     if (includeHistorical !== 'true') {
       conditions.push(sql`${adjustmentRules.isHistorical} IS NOT TRUE`);
+      conditions.push(sql`(${adjustmentRules.clientId} IS NULL OR ${adjustmentRules.clientId} = ${clientId})`);
     } else {
       // Historical rules are client-specific (via their location). Active rules
       // stay global by design; historical ones without a matching location for
       // this client (including orphans with no location) are filtered out.
-      conditions.push(sql`(${adjustmentRules.isHistorical} IS NOT TRUE OR ${adjustmentRules.locationId} IN (SELECT id FROM locations WHERE client_id = ${clientId}))`);
+      conditions.push(sql`(
+        (${adjustmentRules.isHistorical} IS NOT TRUE
+          AND (${adjustmentRules.clientId} IS NULL OR ${adjustmentRules.clientId} = ${clientId}))
+        OR ${adjustmentRules.locationId} IN (SELECT id FROM locations WHERE client_id = ${clientId})
+      )`);
     }
     if (locationId) {
       conditions.push(or(
@@ -21550,6 +21603,81 @@ Return ONLY valid JSON, no markdown fences:
     }
   });
 
+  // Explicit lifecycle transition: a proposal is inert until an authorized
+  // administrator implements it. The UPDATE predicate makes the transition
+  // idempotent and prevents a stale page from re-implementing a disabled or
+  // already-implemented rule.
+  app.post("/api/adjustment-rules/:id/implement", async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const clientId = req.clientId || "demo";
+      if (!(await isRuleAdmin(req))) {
+        return res.status(403).json({ error: "Admin privileges are required to implement a rule" });
+      }
+
+      const candidate = await pool.query(
+        `SELECT * FROM adjustment_rules
+          WHERE id = $1
+            AND (client_id = $2 OR (client_id IS NULL AND location_id IN (
+              SELECT id FROM locations WHERE client_id = $2
+            )))`,
+        [id, clientId],
+      );
+      if (!candidate.rows.length) return res.status(404).json({ error: "Rule not found" });
+      const rule = candidate.rows[0];
+      if (rule.is_historical === true || getRuleLifecycleStatus(rule) === "historical") {
+        return res.status(400).json({ error: "Historical rules cannot be implemented; reselect them first" });
+      }
+      if (getRuleLifecycleStatus(rule) !== "proposed") {
+        return res.status(409).json({
+          error: `Rule is already ${getRuleLifecycleStatus(rule)}`,
+          lifecycleStatus: getRuleLifecycleStatus(rule),
+        });
+      }
+
+      const description = String(rule.description || rule.name || "");
+      const trigger = typeof rule.trigger === "string" ? JSON.parse(rule.trigger) : rule.trigger;
+      const action = typeof rule.action === "string" ? JSON.parse(rule.action) : rule.action;
+      const enforceable = checkRuleEnforceable(description, {
+        name: rule.name,
+        description,
+        trigger,
+        action,
+      });
+      if (!enforceable.ok) {
+        return res.status(400).json({
+          error: "This rule cannot be implemented as written",
+          details: [enforceable.reason],
+        });
+      }
+
+      const updated = await pool.query(
+        `UPDATE adjustment_rules
+            SET lifecycle_status = 'implemented',
+                is_active = true,
+                implemented_at = COALESCE(implemented_at, now()),
+                updated_at = now()
+          WHERE id = $1
+            AND (client_id = $2 OR (client_id IS NULL AND location_id IN (
+              SELECT id FROM locations WHERE client_id = $2
+            )))
+            AND is_historical IS NOT TRUE
+            AND lifecycle_status = 'proposed'
+          RETURNING *`,
+        [id, clientId],
+      );
+      if (!updated.rows.length) {
+        return res.status(409).json({ error: "The rule changed before it could be implemented" });
+      }
+
+      await onRulesChanged(clientId);
+      res.json({ rule: updated.rows[0], lifecycleStatus: "implemented" });
+    } catch (error) {
+      console.error("Error implementing adjustment rule:", error);
+      res.status(500).json({ error: "Failed to implement adjustment rule" });
+    }
+  });
+
   app.patch("/api/adjustment-rules/:id/toggle", async (req: any, res) => {
     try {
       const { id } = req.params;
@@ -21560,9 +21688,16 @@ Return ONLY valid JSON, no markdown fences:
       if (!rule) {
         return res.status(404).json({ error: "Rule not found" });
       }
+      if (getRuleLifecycleStatus(rule) === "proposed") {
+        return res.status(400).json({ error: "Implement this proposed rule before toggling it" });
+      }
+      if (rule.isHistorical) {
+        return res.status(400).json({ error: "Historical rules cannot be toggled" });
+      }
       
       const updated = await storage.updateAdjustmentRule(id, {
         isActive: !rule.isActive,
+        lifecycleStatus: !rule.isActive ? "implemented" : "disabled",
       });
 
       // Clear all cached rule-list variants so every location/service-line
@@ -21663,13 +21798,18 @@ Return ONLY valid JSON, no markdown fences:
       }
 
       const created = await storage.createAdjustmentRule({
+        clientId,
         name: dupe ? `${cleanName} (reselected ${today})` : cleanName,
         description: rule.description || cleanName,
         trigger: rule.trigger as any,
         action: rule.action as any,
         priority: rule.priority ?? 0,
-        isActive: true,
+        // Reselecting historical pricing creates a reviewable rule; the
+        // administrator still explicitly implements it before repricing.
+        isActive: false,
         isHistorical: false,
+        lifecycleStatus: "proposed",
+        implementedAt: null,
         serviceLine: rule.serviceLine ?? null,
         serviceLines: (rule as any).serviceLines ?? null,
         effectiveDate: today,
@@ -21854,7 +21994,7 @@ Return ONLY valid JSON, no markdown fences:
   app.post("/api/adjustment-rules/execute", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const activeRules = await storage.getActiveAdjustmentRules();
+      const activeRules = await storage.getActiveAdjustmentRules(clientId);
       const executionResults = [];
       
       for (const rule of activeRules) {
@@ -22621,6 +22761,12 @@ Return ONLY valid JSON, no markdown fences:
       const params: any[] = [clientId, startDate, endDate];
       let where = `rr.client_id = $1
           AND rr.applied_rule_name IS NOT NULL AND rr.rule_adjusted_rate > 0
+          AND NOT EXISTS (
+            SELECT 1 FROM adjustment_rules proposal
+            WHERE proposal.name = rr.applied_rule_name
+              AND proposal.client_id = rr.client_id
+              AND proposal.lifecycle_status = 'proposed'
+          )
           AND COALESCE(rr.rule_rate_calculated_at, TO_DATE(rr.upload_month || '-01', 'YYYY-MM-DD')) BETWEEN $2 AND $3`;
       if (serviceLine)      { params.push(serviceLine); where += ` AND rr.service_line = $${params.length}`; }
       if (locations.length) { params.push(locations);   where += ` AND rr.location = ANY($${params.length})`; }
@@ -22663,12 +22809,14 @@ Return ONLY valid JSON, no markdown fences:
           GROUP BY rr.service_line, rr.room_type
         `, baseParams),
         pool.query(`
-          SELECT DISTINCT ON (name) id, name, action, trigger, service_line, service_lines, location_id, effective_date, created_at, is_active, priority
+          SELECT DISTINCT ON (name) id, name, action, trigger, service_line, service_lines, location_id, effective_date, created_at, implemented_at, lifecycle_status, is_active, priority
           FROM adjustment_rules
           WHERE is_historical IS NOT TRUE
+            AND (lifecycle_status IS NULL OR lifecycle_status = 'implemented')
+            AND (client_id IS NULL OR client_id = $1)
             AND (
               (location_id IS NOT NULL AND location_id IN (SELECT id FROM locations WHERE client_id = $1))
-              OR (location_id IS NULL AND client_id = $1)
+              OR (location_id IS NULL AND (client_id IS NULL OR client_id = $1))
             )
           ORDER BY name
         `, [clientId]),
@@ -22678,8 +22826,10 @@ Return ONLY valid JSON, no markdown fences:
       // Shared module-level implementation (see computeRuleCategory above).
       const getRuleCategoryFn = computeRuleCategory;
       const categoryMap = new Map<string, string>();
+      const lifecycleMap = new Map<string, string>();
       for (const ar of activeRuleMetaRes.rows) {
         categoryMap.set(ar.name, getRuleCategoryFn(ar.action, ar.trigger, ar.service_line || ''));
+        lifecycleMap.set(ar.name, getRuleLifecycleStatus(ar));
       }
       const baseline = new Map<string, number>();
       for (const b of baseRes.rows) baseline.set(`${b.service_line}|${b.room_type}`, Number(b.avg_dv));
@@ -23288,6 +23438,7 @@ Return ONLY valid JSON, no markdown fences:
         ruleName,
         category: categoryMap.get(ruleName) ?? 'hold',
         isHistorical: histRuleNames.has(ruleName),
+        lifecycleStatus: histRuleNames.has(ruleName) ? "historical" : (lifecycleMap.get(ruleName) ?? "implemented"),
         ...finish(agg, summaryCalc.get(ruleName), histRuleNames.has(ruleName)),
         detail: Array.from(details.get(ruleName)?.entries() || [])
           .map(([gKey, d]) => ({
@@ -23359,6 +23510,7 @@ Return ONLY valid JSON, no markdown fences:
               ruleName: ar.name,
               category: categoryMap.get(ar.name) ?? 'hold',
               isHistorical: false,
+              lifecycleStatus: getRuleLifecycleStatus(ar),
               unitsImpacted: impact.affectedUnits,
               unitsSold: 0,
               avgDaysToSell: null,
@@ -23367,7 +23519,7 @@ Return ONLY valid JSON, no markdown fences:
               monthlyRevenueImpact: impact.monthlyImpact,
               annualRevenueImpact: impact.annualImpact,
               projected: true,
-              dateApplied: effDate,
+              dateApplied: ar.implemented_at ? new Date(ar.implemented_at) : effDate,
               method: 'rate-delta' as const,
               calc: null,
               detail: [],

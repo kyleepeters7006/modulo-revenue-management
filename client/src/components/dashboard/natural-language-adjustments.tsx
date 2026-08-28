@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Mic, MicOff, Sparkles, Play, History, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
+import { Mic, MicOff, Sparkles, Play, History, AlertCircle, CheckCircle2, XCircle, Trash2, Rocket } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface SpeechRecognitionEvent extends Event {
@@ -23,6 +23,8 @@ interface AdjustmentRule {
   name: string;
   description: string;
   isActive: boolean;
+  lifecycleStatus?: 'proposed' | 'implemented' | 'disabled' | 'historical';
+  implementedAt?: string | null;
   lastExecuted?: Date;
   executionCount: number;
   affectedUnits?: number;
@@ -256,8 +258,8 @@ export function NaturalLanguageAdjustments({ locationId, serviceLine }: NaturalL
         const annualImpact = result.volumeAdjustedAnnualImpact || (result.estimatedImpact * 12 * 1.05);
         
         toast({
-          title: "Rule created successfully",
-          description: `"${result.rule.name}" will affect ${result.affectedUnits} units with annual impact of $${annualImpact.toLocaleString()}`,
+          title: "Rule proposed",
+          description: `"${result.rule.name}" is ready for admin review. It will affect ${result.affectedUnits} units with estimated annual impact of $${annualImpact.toLocaleString()} once implemented.`,
         });
         
         // Audio confirmation
@@ -295,6 +297,32 @@ export function NaturalLanguageAdjustments({ locationId, serviceLine }: NaturalL
     } catch (error) {
       toast({
         title: "Failed to update rule",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const implementRule = async (ruleId: string, ruleName: string) => {
+    try {
+      const response = await fetch(`/api/adjustment-rules/${ruleId}/implement`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Failed to implement rule');
+      setRules(rules.map(rule =>
+        rule.id === ruleId
+          ? { ...rule, isActive: true, lifecycleStatus: 'implemented', implementedAt: result.rule?.implemented_at ?? result.rule?.implementedAt }
+          : rule
+      ));
+      toast({
+        title: "Rule implemented",
+        description: `"${ruleName}" is now active and will enter the next pricing run.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Could not implement rule",
+        description: error?.message || "An administrator must implement this rule before it can affect pricing.",
         variant: "destructive",
       });
     }
@@ -428,7 +456,7 @@ export function NaturalLanguageAdjustments({ locationId, serviceLine }: NaturalL
         {/* Active Rules */}
         {rules.length > 0 && (
           <div className="space-y-2">
-            <Label>Active Rules</Label>
+            <Label>Rules</Label>
             <ScrollArea className="h-[200px] rounded-md border p-4">
               <div className="space-y-3">
                 {rules.map((rule) => (
@@ -439,12 +467,20 @@ export function NaturalLanguageAdjustments({ locationId, serviceLine }: NaturalL
                   >
                     <div className="flex-1 space-y-1">
                       <div className="flex items-center gap-2">
-                        {rule.isActive ? (
+                        {rule.lifecycleStatus === 'proposed' ? (
+                          <Rocket className="h-4 w-4 text-amber-500" />
+                        ) : rule.isActive ? (
                           <CheckCircle2 className="h-4 w-4 text-green-500" />
                         ) : (
                           <XCircle className="h-4 w-4 text-muted-foreground" />
                         )}
                         <span className="font-medium text-sm">{rule.name}</span>
+                        <Badge
+                          variant={rule.lifecycleStatus === 'proposed' ? 'outline' : rule.isActive ? 'default' : 'secondary'}
+                          className="text-[10px]"
+                        >
+                          {rule.lifecycleStatus === 'proposed' ? 'Proposed' : rule.isActive ? 'Implemented' : 'Disabled'}
+                        </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">{rule.description}</p>
                       <div className="flex gap-2 mt-2">
@@ -464,12 +500,23 @@ export function NaturalLanguageAdjustments({ locationId, serviceLine }: NaturalL
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Switch
-                        checked={rule.isActive}
-                        onCheckedChange={() => toggleRuleStatus(rule.id)}
-                        aria-label={`Toggle rule ${rule.name}`}
-                        data-testid={`switch-rule-${rule.id}`}
-                      />
+                      {rule.lifecycleStatus === 'proposed' ? (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => implementRule(rule.id, rule.name)}
+                          data-testid={`button-implement-${rule.id}`}
+                        >
+                          <Rocket className="h-3.5 w-3.5 mr-1.5" /> Implement
+                        </Button>
+                      ) : (
+                        <Switch
+                          checked={rule.isActive}
+                          onCheckedChange={() => toggleRuleStatus(rule.id)}
+                          aria-label={`Toggle rule ${rule.name}`}
+                          data-testid={`switch-rule-${rule.id}`}
+                        />
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"

@@ -1008,8 +1008,10 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
         if (data.rule.name) setEditingRuleName(data.rule.name);
       }
       toast({
-        title: isEditing ? 'Rule updated' : applyNow ? 'Rule applied' : 'Rule saved',
-        description: `"${data.rule?.name}" affects ${data.affectedUnits || 0} units`,
+        title: isEditing ? 'Rule updated' : 'Rule proposed',
+        description: isEditing
+          ? `"${data.rule?.name}" was updated`
+          : `"${data.rule?.name}" is ready for admin review and affects ${data.affectedUnits || 0} units once implemented`,
       });
     } catch (err: any) {
       const serverMsg = err?.serverMessage;
@@ -2054,7 +2056,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                         data-testid="button-apply-rule"
                       >
                         <Play className="h-4 w-4" />
-                        Apply Rule
+                        Save &amp; Propose
                       </Button>
                     )}
                     {editingRuleId && (

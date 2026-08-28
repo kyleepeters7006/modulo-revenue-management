@@ -485,8 +485,8 @@ export default function AiRuleGenerator({
       queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"], exact: false });
       onRuleAccepted?.();
       toast({
-        title: "Rule created",
-        description: `"${s.name}" was added to your rules.`,
+        title: "Rule proposed",
+        description: `"${s.name}" was added as a proposal. An administrator must implement it before it affects pricing.`,
       });
     },
     onError: (error: any) => {

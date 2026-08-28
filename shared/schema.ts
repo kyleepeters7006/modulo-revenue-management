@@ -449,6 +449,7 @@ export const insertTargetsAndTrendsSchema = createInsertSchema(targetsAndTrends)
 // Portfolio adjustment rules table
 export const adjustmentRules = pgTable("adjustment_rules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: text("client_id"),
   locationId: varchar("location_id").references(() => locations.id), // NULL = applies to all locations
   serviceLine: text("service_line"), // NULL = applies to all service lines (legacy single)
   serviceLines: text("service_lines").array(), // Multi-SL scope (takes precedence when non-null/non-empty)
@@ -457,6 +458,8 @@ export const adjustmentRules = pgTable("adjustment_rules", {
   trigger: jsonb("trigger").notNull(), // Parsed trigger conditions
   action: jsonb("action").notNull(), // Parsed actions to take
   isActive: boolean("is_active").default(true),
+  lifecycleStatus: text("lifecycle_status").default("implemented"),
+  implementedAt: timestamp("implemented_at"),
   isHistorical: boolean("is_historical").default(false), // true = historical record of a past pricing change; never applied to current rates
   effectiveDate: date("effective_date"), // NULL = effective immediately; otherwise rule only applies on/after this date
   priority: integer("priority").default(0), // Higher priority rules execute first

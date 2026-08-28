@@ -377,6 +377,28 @@ app.use((req, res, next) => {
     log(`[migration] is_historical column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: proposed rules are reviewable but must not enter
+  // pricing until the explicit implementation action is taken. Existing rows
+  // intentionally remain NULL/compatible rather than being backfilled with a
+  // made-up implementation timestamp.
+  try {
+    await db.execute(sql`
+      ALTER TABLE adjustment_rules
+        ADD COLUMN IF NOT EXISTS client_id text
+    `);
+    await db.execute(sql`
+      ALTER TABLE adjustment_rules
+        ADD COLUMN IF NOT EXISTS lifecycle_status text DEFAULT 'implemented'
+    `);
+    await db.execute(sql`
+      ALTER TABLE adjustment_rules
+        ADD COLUMN IF NOT EXISTS implemented_at timestamptz
+    `);
+    log("[migration] adjustment_rules lifecycle columns ensured");
+  } catch (migErr) {
+    log(`[migration] adjustment_rules lifecycle migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Idempotent migration: ensure notes column exists on adjustment_rules
   // (free-form user note shown/edited in the Reference Data rule columns).
   try {

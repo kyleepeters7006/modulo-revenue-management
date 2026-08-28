@@ -1232,8 +1232,8 @@ export default function ReferenceDataTable({
       queryClient.invalidateQueries({ queryKey: ["/api/rule-performance"] });
       onRuleCreated?.();
       toast({
-        title: "Rule created",
-        description: `${result?.rule?.name ?? "New rule"} — est. ${result?.annualImpact != null ? `$${Math.round(result.annualImpact).toLocaleString()}/yr impact` : "impact pending"}`,
+        title: "Rule proposed",
+        description: `${result?.rule?.name ?? "New rule"} is ready for admin review — est. ${result?.annualImpact != null ? `$${Math.round(result.annualImpact).toLocaleString()}/yr impact once implemented` : "impact pending"}`,
       });
     },
     onError: (err: any) => {

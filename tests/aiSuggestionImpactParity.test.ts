@@ -33,7 +33,7 @@ import { ADVERTISED_METRICS } from '../server/services/ruleMetricCatalog';
 
 const BASE = process.env.TEST_BASE_URL || 'http://localhost:5000';
 const CLIENT = 'ptest-ai-impact-parity';
-const USERNAME = 'ptest_ai_impact_parity';
+const USERNAME = 'ptest_ai_impact_parity_admin';
 const PASSWORD = 'ptest-password-1';
 const MONTH = '2026-07';
 
@@ -326,7 +326,8 @@ async function main() {
 
   const stored = await pool.query(
     `SELECT monthly_impact, annual_impact, volume_adjusted_annual_impact,
-            action->'filters'->'location' AS loc_filter, service_lines
+            action->'filters'->'location' AS loc_filter, service_lines,
+            is_active, lifecycle_status, implemented_at
      FROM adjustment_rules WHERE name = $1`,
     [RULE_NAME],
   );
@@ -351,6 +352,17 @@ async function main() {
   ok('the rule carries both service lines',
     Array.isArray(row.service_lines) && row.service_lines.length === 2,
     `service_lines=${JSON.stringify(row.service_lines)}`);
+  ok('accepted AI rules are inactive proposals',
+    row.is_active === false && row.lifecycle_status === 'proposed' && row.implemented_at == null,
+    `is_active=${row.is_active}, lifecycle_status=${row.lifecycle_status}, implemented_at=${row.implemented_at}`);
+  const performanceBefore = await fetch(
+    `${BASE}/api/rule-performance?start=${MONTH}-01&end=${MONTH}-31`,
+    { headers: { Cookie: cookie } },
+  );
+  const performanceBeforeBody = performanceBefore.ok ? await performanceBefore.json() : null;
+  ok('proposals are excluded from Rule Performance',
+    !performanceBeforeBody?.rows?.some((r: any) => r.ruleName === RULE_NAME),
+    `status=${performanceBefore.status}`);
 
   // ── a cached scope whose campuses no longer resolve ──────────────────────
   // The run is still cached, so accept proceeds — but the campus names no
@@ -453,6 +465,33 @@ async function main() {
     apart('and is not the two-campus figure',
       Number(singleRow.monthly_impact), expected.monthlyImpact);
   }
+  const singleId = (await pool.query(
+    `SELECT id FROM adjustment_rules WHERE name = $1`, [singleName])).rows[0]?.id;
+  const implementRes = await fetch(`${BASE}/api/adjustment-rules/${singleId}/implement`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+  });
+  ok('an administrator can implement a proposal',
+    implementRes.status === 200, `got HTTP ${implementRes.status}: ${await implementRes.text()}`);
+  const implementedRow = (await pool.query(
+    `SELECT is_active, lifecycle_status, implemented_at
+       FROM adjustment_rules WHERE id = $1`, [singleId])).rows[0];
+  ok('implementation activates and timestamps the rule',
+    implementedRow?.is_active === true &&
+      implementedRow?.lifecycle_status === 'implemented' &&
+      implementedRow?.implemented_at != null,
+    `row=${JSON.stringify(implementedRow)}`);
+  const disableRes = await fetch(`${BASE}/api/adjustment-rules/${singleId}/toggle`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+  });
+  ok('an implemented rule can be disabled',
+    disableRes.ok, `got HTTP ${disableRes.status}: ${await disableRes.text()}`);
+  const disabledRow = (await pool.query(
+    `SELECT is_active, lifecycle_status FROM adjustment_rules WHERE id = $1`, [singleId])).rows[0];
+  ok('disabling records the disabled lifecycle',
+    disabledRow?.is_active === false && disabledRow?.lifecycle_status === 'disabled',
+    `row=${JSON.stringify(disabledRow)}`);
 
   // ── every advertised metric must survive parse AND scoring ───────────────
   // The prompt teaches a phrase, the parser turns it into a field, the impact

@@ -221,8 +221,7 @@ class PricingJobManager {
     };
     const globalWeights = await storage.getCurrentWeights() || defaultWeights;
     const guardrailsData = await storage.getCurrentGuardrails();
-    const activeRules = await storage.getAdjustmentRules ? 
-      (await storage.getAdjustmentRules()).filter((r: any) => r.isActive) : [];
+    const activeRules = await storage.getActiveAdjustmentRules(clientId);
     
     // 2. Fetch stock market data
     console.log(`[PricingJob ${jobId}] Fetching market data...`);

@@ -751,7 +751,7 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'] });
       onRuleCreated?.();
-      toast({ title: `${vars.pct > 0 ? '+' : ''}${vars.pct}% rule created`, description: `${SL_DISPLAY[vars.serviceLine] || vars.serviceLine} at ${vars.location}` });
+      toast({ title: `${vars.pct > 0 ? '+' : ''}${vars.pct}% rule proposed`, description: `${SL_DISPLAY[vars.serviceLine] || vars.serviceLine} at ${vars.location} — an administrator must implement it before it affects pricing.` });
       setPinnedScatterPoint(null);
     },
     onError: (err: any) => {
