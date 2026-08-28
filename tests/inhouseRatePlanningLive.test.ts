@@ -53,6 +53,7 @@ import {
 import { isDailyRateServiceLine } from "../server/services/rateNormalization";
 import { isBBedRow } from "../shared/bBed";
 import { privatePaySql } from "../shared/payerScope";
+import { classifyRateProduct, rateProductSql } from "../shared/rateProduct";
 
 const PASS = "\x1b[32m✓\x1b[0m";
 const FAIL = "\x1b[31m✗\x1b[0m";
@@ -527,6 +528,61 @@ async function runScope(
   return plan;
 }
 
+/**
+ * The rate-product classifier exists twice — once in JS for resident rows,
+ * once as SQL for the baseline medians. If the two ever disagree, a resident
+ * is measured against a median computed over a DIFFERENT set of rows than the
+ * one they were assigned to, and nothing anywhere raises an error. Only real
+ * rent-roll text can prove the two dialects agree, so the check runs here.
+ */
+async function assertProductClassifierParity(clientId: string) {
+  console.log("\n-- Rate product classifier: SQL twin agrees with JS --");
+  const res = await pool.query<{
+    service_line: string | null;
+    room_number: string | null;
+    room_type: string | null;
+    source_room_type: string | null;
+    sql_product: string;
+  }>(
+    `SELECT rr.service_line, rr.room_number, rr.room_type, rr.source_room_type,
+            ${rateProductSql("rr.")} AS sql_product
+       FROM rent_roll_data rr
+      WHERE rr.client_id = $1
+        AND rr.upload_month = (
+          SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1
+        )`,
+    [clientId],
+  );
+
+  ok("the classifier has real rows to judge", res.rows.length > 0, `${res.rows.length} rows`);
+
+  const mismatches = res.rows.filter(
+    (r) =>
+      classifyRateProduct(r.service_line, r.room_number, r.room_type, r.source_room_type) !==
+      r.sql_product,
+  );
+  ok(
+    "every row classifies identically in SQL and JS",
+    mismatches.length === 0,
+    mismatches
+      .slice(0, 3)
+      .map(
+        (r) =>
+          `${r.service_line} ${r.room_number} "${r.room_type}"/"${r.source_room_type}": sql=${r.sql_product} js=${classifyRateProduct(r.service_line, r.room_number, r.room_type, r.source_room_type)}`,
+      )
+      .join(" | "),
+  );
+
+  // A classifier that puts everything in one bucket would pass parity and
+  // still be useless, so prove the non-base products are actually found.
+  const found = new Set(res.rows.map((r) => r.sql_product));
+  ok(
+    "more than the base product is recognised in real data",
+    found.size > 1,
+    `products seen: ${Array.from(found).join(", ")}`,
+  );
+}
+
 async function main() {
   console.log("\n=== In-House Rate Planning — live-data guardrails ===\n");
 
@@ -561,6 +617,8 @@ async function main() {
     }),
     (plan) => plan.residents.some((r) => r.isCompanionBed),
   );
+
+  await assertProductClassifierParity(clientId);
 
   ok(
     "a monthly service line, a daily-rate service line and a companion-bed campus are all plannable",

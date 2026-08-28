@@ -14,6 +14,10 @@
  * the UI can label it.
  */
 
+import type { RateProduct } from "./rateProduct";
+
+export type { RateProduct };
+
 export type EqualizationStrength = "low" | "medium" | "high";
 
 export type MeasurementMode = "quarterly_yoy";
@@ -89,6 +93,33 @@ export const DEFAULT_ASSUMPTIONS: PlanningAssumptions = {
   maxStreetIncreasePct: 15,
 };
 
+/**
+ * Where a resident's comparison street rate came from.
+ *
+ *   unit                 — the asking rate on that resident's own rent-roll row.
+ *   product_median       — the median asking rate for the same product (second
+ *                          occupant, semi-private, respite, rehab/TCU, or
+ *                          single occupant) AT THAT CAMPUS, used when the row's
+ *                          own rate is missing or implausible for its product.
+ *   service_line_median  — the same median taken across the whole service line,
+ *                          used when the campus prices no such product. Kept
+ *                          distinct from the campus median because a reviewer
+ *                          auditing a ceiling needs to know it came from other
+ *                          buildings, not this one.
+ *   derived_formula      — the configured derived-rate formula applied to the
+ *                          base rate, used when the product is not priced on
+ *                          any row anywhere to measure.
+ *   none                 — no usable rate; the resident is planned with no
+ *                          ceiling, limited only by the configured maximum
+ *                          increase.
+ */
+export type StreetRateSource =
+  | "unit"
+  | "product_median"
+  | "service_line_median"
+  | "derived_formula"
+  | "none";
+
 /** A resident as the solver sees them. */
 export interface PlanningResident {
   /**
@@ -107,7 +138,17 @@ export interface PlanningResident {
   /** ISO date, or null when the source row had no move-in date. */
   moveInDate: string | null;
   currentRateMonthly: number;
+  /**
+   * The street rate this resident is measured against, for the PRODUCT they
+   * occupy — a second-occupant rate for a companion bed, a semi-private rate
+   * for a shared health-care bed, and so on. Never the single-occupancy base
+   * rate unless the resident is in fact a single occupant.
+   */
   streetRateMonthly: number;
+  /** Which product the resident's rate prices. */
+  rateProduct: RateProduct;
+  /** Where `streetRateMonthly` came from. */
+  streetRateSource: StreetRateSource;
   /**
    * Companion ("B bed") rows are excluded from street-rate AVERAGES but they
    * are real people with real in-house rates, so they still receive
@@ -158,6 +199,10 @@ export interface ResidentRecommendation {
   careLevel: string | null;
   moveInDate: string | null;
   isCompanionBed: boolean;
+  /** Which product this resident's rate prices — see `PlanningResident`. */
+  rateProduct: RateProduct;
+  /** Where the comparison street rate came from. */
+  streetRateSource: StreetRateSource;
   currentRateMonthly: number;
   streetRateMonthly: number;
   gapToStreetPct: number;

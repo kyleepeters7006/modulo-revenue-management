@@ -39,6 +39,19 @@ import {
   readInhousePlan,
   writeInhousePlan,
 } from "@/lib/inhousePlanStorage";
+import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
+import type { StreetRateSource } from "@shared/inhousePlanning";
+
+/**
+ * Where a resident's comparison rate came from, said plainly. A ceiling set by
+ * other buildings, or by a formula, is weaker evidence than this unit's own
+ * asking rate, and the badge must not blur the three together.
+ */
+const STREET_SOURCE_NOTE: Partial<Record<StreetRateSource, string>> = {
+  product_median: ", the median for this product at this campus",
+  service_line_median: ", the median for this product across the service line",
+  derived_formula: ", derived from the base rate by the configured formula",
+};
 import {
   AlertTriangle,
   ArrowLeft,
@@ -1538,7 +1551,18 @@ export default function InhouseIncreases() {
                           <td className="px-4 py-2.5 text-muted-foreground">{r.roomType || "—"}</td>
                           <td className="px-4 py-2.5 text-right font-mono">{formatMoney(r.currentRateDisplay)}</td>
                           <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">
-                            {r.streetRateMonthly > 0 ? formatMoney(r.rateBasis === "daily" ? r.streetRateMonthly / (365 / 12) : r.streetRateMonthly) : "—"}
+                            <span className="inline-flex items-center justify-end gap-1.5">
+                              {r.streetRateMonthly > 0 ? formatMoney(r.rateBasis === "daily" ? r.streetRateMonthly / (365 / 12) : r.streetRateMonthly) : "—"}
+                              {r.rateProduct !== "base" && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[11px] font-normal"
+                                  title={`Compared against the ${RATE_PRODUCT_LABEL[r.rateProduct].toLowerCase()} street rate${STREET_SOURCE_NOTE[r.streetRateSource] ?? ""}.`}
+                                >
+                                  {RATE_PRODUCT_LABEL[r.rateProduct]}
+                                </Badge>
+                              )}
+                            </span>
                           </td>
                           <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">
                             {r.streetRateMonthly > 0 ? formatPct(r.gapToStreetPct, 1) : "—"}

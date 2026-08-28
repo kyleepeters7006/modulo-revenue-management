@@ -37,8 +37,11 @@ import {
 } from "../server/services/inhouseRatePlanning/dates";
 import {
   buildResidents,
+  makeProductStreetResolver,
+  type ProductStreetBaselines,
   type RawResidentRow,
 } from "../server/services/inhouseRatePlanning/dataAccess";
+import { classifyRateProduct } from "../shared/rateProduct";
 
 const PASS = "\x1b[32m✓\x1b[0m";
 const FAIL = "\x1b[31m✗\x1b[0m";
@@ -681,6 +684,134 @@ console.log("\n-- 14. Move-out dates decide who is in the plan and how much they
   ok("a failed street gate keeps the resident", noStreet.residents.length === 1);
   near("but zeroes their street rate", noStreet.residents[0].streetRateMonthly, 0, 1e-9);
   ok("and is counted", noStreet.excluded.noStreetRate === 1);
+}
+
+// ── 15. Each resident is measured against their own PRODUCT ────────────────
+//
+// The defect this guards: a companion resident paying $556 against a $3,200
+// villa base median failed the plausibility gate, lost their ceiling entirely
+// and was then planned as if no street rate existed. The comparison must be
+// against the second-occupant rate, which their $556 matches exactly.
+console.log("\n-- 15. Product-matched street comparison --");
+{
+  ok(
+    "a senior-housing /B room number is a second occupant",
+    classifyRateProduct("VIL", "2427/B", "Villa", "Villa") === "second_occupant",
+  );
+  ok(
+    "the same room number in health care is not, since HC writes the bed as a room type",
+    classifyRateProduct("HC", "104/B", "Private", "Private") === "base",
+  );
+  ok(
+    "an HC companion bed type is semi-private",
+    classifyRateProduct("HC", "104", "Companion", "Companion Suite") === "semi_private",
+  );
+  ok(
+    "a raw source room type is read even when normalization collapses it",
+    classifyRateProduct("HC", "104", "Studio", "TCU - Private") === "rehab_tcu",
+  );
+  ok(
+    "a shared short-stay bed takes the LOWER of the two ceilings",
+    classifyRateProduct("HC", "104", "Studio", "TCU - Companion") === "semi_private",
+  );
+  ok(
+    "campus names ending in -ward are not read as ward beds",
+    classifyRateProduct("HC", "104", "Private", "Woodward Private") === "base",
+  );
+
+  const baselines: ProductStreetBaselines = {
+    byLocation: new Map([
+      ["Villa Campus||VIL||second_occupant", 560],
+      ["Villa Campus||VIL||base", 3200],
+    ]),
+    byServiceLine: new Map([
+      ["VIL||second_occupant", 545],
+      ["VIL||base", 3150],
+    ]),
+  };
+  const formulas = [
+    {
+      rateType: "second_occupant" as const,
+      serviceLine: null,
+      percentOfBase: 55,
+      dollarOffset: 0,
+      enabled: true,
+    },
+  ];
+  const resolver = makeProductStreetResolver(baselines, formulas);
+  const horizonStartMs = isoToMs("2027-01-01");
+  const horizonEndMs = isoToMs("2028-01-01");
+  const vil = (over: Partial<RawResidentRow>): RawResidentRow => ({
+    location: "Villa Campus",
+    service_line: "VIL",
+    room_number: "2427",
+    room_type: "Villa",
+    source_room_type: "Villa",
+    care_level: null,
+    payor_type: "PRIVATE PAY",
+    move_in_date: "1/15/2024",
+    move_out_date: null,
+    in_house_rate: 480,
+    street_rate: 556,
+    passes_ih_gate: true,
+    passes_street_gate: true,
+    ...over,
+  });
+
+  // The companion's own rate is plausible FOR A COMPANION even though the
+  // base-median gate rejected it, so it stays as the ceiling.
+  const companion = buildResidents([vil({ room_number: "2427/B", passes_street_gate: false })], {
+    horizonStartMs,
+    horizonEndMs,
+    productStreet: resolver,
+  });
+  ok("the companion keeps a usable ceiling", companion.residents[0].streetRateMonthly > 0);
+  near("and it is their own asking rate", companion.residents[0].streetRateMonthly, 556, 1e-9);
+  ok("reported as coming from the unit", companion.residents[0].streetRateSource === "unit");
+  ok("and classified as a second occupant", companion.residents[0].rateProduct === "second_occupant");
+  ok("nobody is counted as street-rate-less", companion.excluded.noStreetRate === 0);
+
+  // A missing rate falls back to the product median, not the base median.
+  const missing = buildResidents([vil({ room_number: "2428/B", street_rate: 0 })], {
+    horizonStartMs,
+    horizonEndMs,
+    productStreet: resolver,
+  });
+  near("a missing rate falls back to the product median", missing.residents[0].streetRateMonthly, 560, 1e-9);
+  ok("labelled as a median", missing.residents[0].streetRateSource === "product_median");
+
+  // A rate implausible even for the product is replaced, not kept.
+  const junk = buildResidents([vil({ room_number: "2429/B", street_rate: 12 })], {
+    horizonStartMs,
+    horizonEndMs,
+    productStreet: resolver,
+  });
+  near("a rate implausible for the product is replaced", junk.residents[0].streetRateMonthly, 560, 1e-9);
+
+  // With no observed companion rate anywhere, the configured formula prices it.
+  const noProduct = makeProductStreetResolver(
+    {
+      byLocation: new Map([["Villa Campus||VIL||base", 3200]]),
+      byServiceLine: new Map([["VIL||base", 3150]]),
+    },
+    formulas,
+  );
+  const derived = buildResidents([vil({ room_number: "2430/B", street_rate: 0 })], {
+    horizonStartMs,
+    horizonEndMs,
+    productStreet: noProduct,
+  });
+  near("an unpriced product uses the derived formula", derived.residents[0].streetRateMonthly, 1760, 1e-9);
+  ok("labelled as derived", derived.residents[0].streetRateSource === "derived_formula");
+
+  // A base-product resident is unaffected by any of this.
+  const base = buildResidents([vil({ room_number: "2431", street_rate: 3240 })], {
+    horizonStartMs,
+    horizonEndMs,
+    productStreet: resolver,
+  });
+  near("a single occupant keeps their own street rate", base.residents[0].streetRateMonthly, 3240, 1e-9);
+  ok("and stays on the base product", base.residents[0].rateProduct === "base");
 }
 
 console.log("\n=== Summary ===");

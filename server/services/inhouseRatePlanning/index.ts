@@ -15,7 +15,9 @@ import type {
   PlanningAssumptions,
   PlanningResident,
   QuarterRef,
+  RateProduct,
   ResidentRecommendation,
+  StreetRateSource,
 } from "@shared/inhousePlanning";
 import { formatMoney, formatPct } from "@shared/inhousePlanning";
 import { DAYS_PER_MONTH } from "@shared/careRates";
@@ -24,14 +26,19 @@ import {
   buildResidents,
   fetchCurrentStreetRate,
   fetchMonthlyRealizedRates,
+  fetchProductStreetBaselines,
   fetchResidentRows,
   getLatestMonthForScope,
   horizonQuarters,
+  makeProductStreetResolver,
   projectMissingQuarters,
   rollMonthsIntoQuarters,
   type MonthlyRealized,
   type ScopeFilter,
 } from "./dataAccess";
+import { pool } from "../../db";
+import { getDerivedRateFormulas } from "../derivedRateFormulasService";
+import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
 import {
   addMonths,
   addQuarters,
@@ -90,6 +97,10 @@ export interface PlanAudit {
     payorType: string | null;
     moveInDate: string | null;
     isCompanionBed: boolean;
+    /** Which product the street rate below is the asking rate for. */
+    rateProduct: RateProduct;
+    /** Whether that rate came from the unit, a product median or a formula. */
+    streetRateSource: StreetRateSource;
     /** Resident-day weight over the measurement window. */
     weight: number;
     currentRateMonthly: number;
@@ -136,15 +147,21 @@ export async function calculatePlanDetailed(
   // and the plan's first quarter is modelled rather than ignored.
   const anchorMs = monthBoundsMs(addMonths(sourceMonth, 1)).startMs;
 
-  const [rawRows, currentStreetRateMonthly, monthly] = await Promise.all([
-    fetchResidentRows(scope, sourceMonth),
-    fetchCurrentStreetRate(scope, sourceMonth),
-    fetchMonthlyRealizedRates(scope, "2000-01"),
-  ]);
+  const [rawRows, currentStreetRateMonthly, monthly, productBaselines, formulas] =
+    await Promise.all([
+      fetchResidentRows(scope, sourceMonth),
+      fetchCurrentStreetRate(scope, sourceMonth),
+      fetchMonthlyRealizedRates(scope, "2000-01"),
+      fetchProductStreetBaselines(scope, sourceMonth),
+      getDerivedRateFormulas((s, p) => pool.query(s, p), input.clientId),
+    ]);
 
   const { residents, excluded } = buildResidents(rawRows, {
     horizonStartMs: Math.min(anchorMs, horizonStartMs),
     horizonEndMs,
+    // Each resident is measured against the street rate for the product they
+    // actually occupy, not against the single-occupancy base rate.
+    productStreet: makeProductStreetResolver(productBaselines, formulas),
   });
 
   if (residents.length === 0) {
@@ -281,6 +298,8 @@ export async function calculatePlanDetailed(
       careLevel: a.resident.careLevel,
       payorType: a.resident.payorType,
       moveInDate: a.resident.moveInDate,
+      rateProduct: a.resident.rateProduct,
+      streetRateSource: a.resident.streetRateSource,
       isCompanionBed: a.resident.isCompanionBed,
       weight: a.resident.weight,
       currentRateMonthly: a.resident.currentRateMonthly,
@@ -337,6 +356,8 @@ function toRecommendation(
     careLevel: r.careLevel,
     moveInDate: r.moveInDate,
     isCompanionBed: r.isCompanionBed,
+    rateProduct: r.rateProduct,
+    streetRateSource: r.streetRateSource,
     currentRateMonthly: r.currentRateMonthly,
     streetRateMonthly: r.streetRateMonthly,
     gapToStreetPct:
@@ -356,6 +377,31 @@ function toRecommendation(
   };
 }
 
+/**
+ * Say where the comparison rate came from whenever it is not the resident's
+ * own unit. A measured product median and a formula-derived rate are both
+ * legitimate ceilings, but the operator is entitled to know which one is
+ * holding their recommendation down.
+ */
+function streetSourceNote(r: PlanningResident): string | undefined {
+  const product = RATE_PRODUCT_LABEL[r.rateProduct].toLowerCase();
+  switch (r.streetRateSource) {
+    case "product_median":
+      return `This unit has no usable asking rate of its own, so the median ${product} rate at this campus is used instead.`;
+    case "service_line_median":
+      return `No ${product} rate is priced at this campus, so the median across every campus in this service line is used instead.`;
+    case "derived_formula":
+      return `No ${product} rate is priced anywhere in this service line, so the configured ${product} formula is applied to the campus base rate.`;
+    default:
+      return undefined;
+  }
+}
+
+function streetRiseNote(r: PlanningResident, effectiveStreet: number): string | undefined {
+  if (!(effectiveStreet > r.streetRateMonthly)) return undefined;
+  return `Rises to ${formatMoney(effectiveStreet)} once the recommended street increase takes effect, which is the ceiling that applies on the in-house effective date.`;
+}
+
 function explainResident(
   a: ResidentAllocation,
   effectiveStreet: number,
@@ -366,12 +412,11 @@ function explainResident(
   const steps: CalcExplanation["steps"] = [
     { label: "Current in-house rate", value: formatMoney(r.currentRateMonthly) },
     {
-      label: "Street rate for this unit",
+      label: `Street rate — ${RATE_PRODUCT_LABEL[r.rateProduct].toLowerCase()}`,
       value: r.streetRateMonthly > 0 ? formatMoney(r.streetRateMonthly) : "not available",
-      note:
-        effectiveStreet > r.streetRateMonthly
-          ? `Rises to ${formatMoney(effectiveStreet)} once the recommended street increase takes effect, which is the ceiling that applies on the in-house effective date.`
-          : undefined,
+      note: [streetSourceNote(r), streetRiseNote(r, effectiveStreet)]
+        .filter(Boolean)
+        .join(" "),
     },
     {
       label: "Room to street",

@@ -9,13 +9,30 @@ import { pool } from "../../db";
 import { privatePaySql } from "@shared/payerScope";
 import { bBedExclusionSql, isBBedRow } from "@shared/bBed";
 import { DAYS_PER_MONTH } from "@shared/careRates";
+import { RATE_OUTLIER_FLOOR_RATIO } from "@shared/rateOutliers";
+import {
+  classifyRateProduct,
+  derivedTypeForProduct,
+  rateProductSql,
+  type RateProduct,
+} from "@shared/rateProduct";
+import {
+  applyDerivedFormula,
+  resolveFormula,
+  type DerivedRateFormula,
+} from "@shared/derivedRates";
 import { isDailyRateServiceLine } from "../rateNormalization";
 import {
   buildRateBaselineJoin,
   inHouseRateGate,
   streetRateGate,
 } from "../rateBaselineView";
-import type { BaselineQuarter, PlanningResident, QuarterRef } from "@shared/inhousePlanning";
+import type {
+  BaselineQuarter,
+  PlanningResident,
+  QuarterRef,
+  StreetRateSource,
+} from "@shared/inhousePlanning";
 import {
   MS_PER_DAY,
   addQuarters,
@@ -84,6 +101,7 @@ export interface RawResidentRow {
   service_line: string;
   room_number: string;
   room_type: string | null;
+  source_room_type: string | null;
   care_level: string | null;
   payor_type: string | null;
   move_in_date: string | null;
@@ -120,6 +138,7 @@ export async function fetchResidentRows(
             rr.service_line,
             rr.room_number,
             rr.room_type,
+            rr.source_room_type,
             rr.care_level,
             rr.payor_type,
             rr.move_in_date,
@@ -140,11 +159,32 @@ export async function fetchResidentRows(
   return res.rows;
 }
 
+/** What a product street rate resolver hands back for one row. */
+export interface ProductStreetRate {
+  /** Street rate for this row's product, in the row's own units (daily for HC). */
+  rate: number;
+  /** Where it came from, so the resident can say so honestly. */
+  source: Extract<
+    StreetRateSource,
+    "product_median" | "service_line_median" | "derived_formula"
+  >;
+}
+
 export interface ResidentBuildOptions {
   /** Start of the planning horizon, UTC ms — resident-day weights start here. */
   horizonStartMs: number;
   /** End of the planning horizon, UTC ms (exclusive). */
   horizonEndMs: number;
+  /**
+   * The street rate for a row's own PRODUCT — a second-occupant rate for a
+   * companion bed, a semi-private rate for a shared health-care bed, and so
+   * on. See `makeProductStreetResolver`.
+   *
+   * Optional so the solver tests can build residents without a database. When
+   * it is absent the row falls back to the base-median street gate, which is
+   * what this code did before products existed.
+   */
+  productStreet?: (row: RawResidentRow, product: RateProduct) => ProductStreetRate | null;
 }
 
 export interface ResidentBuildResult {
@@ -161,6 +201,16 @@ export interface ResidentBuildResult {
  * move-out date on file, in which case they contribute only the days up to
  * it — a resident who has given notice should not carry the same influence
  * over the average as one who has not.
+ *
+ * ── The street rate a resident is measured against ─────────────────────────
+ * It must be the street rate for the PRODUCT they occupy: a second occupant
+ * against the second-occupant rate, a shared health-care bed against the
+ * semi-private rate, a respite stay against the respite rate. Comparing every
+ * resident against the single-occupancy base rate breaks in both directions —
+ * a villa second occupant pays about a sixth of the base villa rate, so the
+ * base-median plausibility gate threw their real rate away and left them with
+ * no ceiling at all, while a short-stay resident would be judged against a
+ * rate well below what their stay actually asks.
  */
 export function buildResidents(
   rows: RawResidentRow[],
@@ -181,8 +231,35 @@ export function buildResidents(
     // resident's actual rate and must remain in the plan. The plausibility gate
     // is retained on the raw row for diagnostics and for rate aggregates; it
     // must never remove a person from resident-level planning.
+    const product = classifyRateProduct(
+      row.service_line,
+      row.room_number,
+      row.room_type,
+      row.source_room_type,
+    );
+    const productStreet = opts.productStreet?.(row, product) ?? null;
+
+    // Judge the row's own street rate against its OWN product, not against the
+    // single-occupancy base. Without a product rate to judge against, fall back
+    // to the base-median gate the row already carries — permissive beats
+    // discarding a rate we cannot actually prove is wrong.
     const streetRaw = Number(row.street_rate) || 0;
-    const usableStreet = streetRaw > 0 && row.passes_street_gate ? streetRaw : 0;
+    const plausible =
+      productStreet && productStreet.rate > 0
+        ? streetRaw >= RATE_OUTLIER_FLOOR_RATIO * productStreet.rate
+        : row.passes_street_gate;
+
+    let usableStreet = streetRaw > 0 && plausible ? streetRaw : 0;
+    let streetRateSource: StreetRateSource = usableStreet > 0 ? "unit" : "none";
+
+    // The unit's own asking rate is missing or implausible. The product rate is
+    // still a real, product-matched ceiling — far better than planning this
+    // resident with no ceiling at all, which is what "no street rate" means to
+    // the solver.
+    if (usableStreet === 0 && productStreet && productStreet.rate > 0) {
+      usableStreet = productStreet.rate;
+      streetRateSource = productStreet.source;
+    }
     if (usableStreet === 0) excluded.noStreetRate++;
 
     const moveIn = parseFlexibleDate(row.move_in_date);
@@ -210,12 +287,155 @@ export function buildResidents(
       moveInDate: moveIn,
       currentRateMonthly: daily ? rate * DAYS_PER_MONTH : rate,
       streetRateMonthly: daily ? usableStreet * DAYS_PER_MONTH : usableStreet,
+      rateProduct: product,
+      streetRateSource,
       isCompanionBed: isBBedRow(row.service_line, row.room_number),
       weight,
     });
   }
 
   return { residents, excluded };
+}
+
+/**
+ * Median street rate for every location + service line + PRODUCT, plus the
+ * service-line-wide median of the same product as a second level.
+ *
+ * ── Why medians, and why two levels ────────────────────────────────────────
+ * Same reasoning as `rate_baseline_v`: a median is not dragged around by the
+ * very outliers it exists to detect, and a location whose rows are all junk
+ * must still be caught by a yardstick it cannot influence. The difference is
+ * that this one is cut by product, so the reference level for a companion bed
+ * is what companion beds ask, not what private rooms ask.
+ *
+ * The service-line level is deliberately NOT narrowed by `scope.location`.
+ * Filtering the level-2 population to the campus being planned would collapse
+ * the yardstick onto the campus it is supposed to judge — the exact bug the
+ * baseline view was made a view to prevent.
+ *
+ * ── Vacant units count for the base rate, and only for the base rate ───────
+ * Street rate is an ASKING rate and exists on empty units, which are often the
+ * cleanest evidence of what a room lists for. But a VACANT companion bed is
+ * not priced as a second occupant — the whole room is empty, so the row simply
+ * carries the room's own asking rate. On trilogy the villa companion rows read
+ * $3,299 vacant against $509 occupied, and letting the vacant ones into the
+ * median produced a second-occupant "street rate" six times what any second
+ * occupant is actually asked to pay. Non-base products therefore measure
+ * occupied rows only; the base product keeps its vacant evidence.
+ */
+export interface ProductStreetBaselines {
+  /** `location||service_line||product` → median street rate, in stored units. */
+  byLocation: Map<string, number>;
+  /** `service_line||product` → median street rate, in stored units. */
+  byServiceLine: Map<string, number>;
+}
+
+export async function fetchProductStreetBaselines(
+  scope: ScopeFilter,
+  month: string,
+): Promise<ProductStreetBaselines> {
+  const res = await pool.query<{
+    location: string | null;
+    product: string;
+    loc_median: string | null;
+    sl_median: string | null;
+  }>(
+    `WITH scoped AS (
+       SELECT rr.location, ${rateProductSql("rr.")} AS product, rr.street_rate, rr.occupied_yn
+         FROM rent_roll_data rr
+        WHERE rr.client_id = $1
+          AND rr.upload_month = $2
+          AND rr.service_line = $3
+          AND rr.street_rate > 0
+     ),
+     priced AS (
+       SELECT * FROM scoped WHERE product = 'base' OR occupied_yn
+     ),
+     loc AS (
+       SELECT location, product,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY street_rate) AS m
+         FROM priced GROUP BY location, product
+     ),
+     sl AS (
+       SELECT product,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY street_rate) AS m
+         FROM priced GROUP BY product
+     )
+     SELECT l.location, l.product, l.m AS loc_median, s.m AS sl_median
+       FROM loc l
+       LEFT JOIN sl s ON s.product = l.product`,
+    [scope.clientId, month, scope.serviceLine],
+  );
+
+  const byLocation = new Map<string, number>();
+  const byServiceLine = new Map<string, number>();
+  for (const r of res.rows) {
+    const loc = Number(r.loc_median);
+    const sl = Number(r.sl_median);
+    if (Number.isFinite(sl) && sl > 0) {
+      byServiceLine.set(`${scope.serviceLine}||${r.product}`, sl);
+    }
+    if (!Number.isFinite(loc) || loc <= 0) continue;
+    // Level 2: a location median far below the service line's own level is not
+    // a cheap campus, it is a campus whose rows are bad. Use the wider median.
+    const usable =
+      Number.isFinite(sl) && sl > 0 && loc < RATE_OUTLIER_FLOOR_RATIO * sl ? sl : loc;
+    byLocation.set(`${r.location ?? ""}||${scope.serviceLine}||${r.product}`, usable);
+  }
+  return { byLocation, byServiceLine };
+}
+
+/**
+ * Build the per-row product street rate lookup `buildResidents` uses.
+ *
+ * Three sources, in order of how directly they evidence the product:
+ *
+ *   1. the median street rate for that product at that campus,
+ *   2. the median for that product across the service line,
+ *   3. the derived-rate formula the user configured on the Data Management
+ *      page, applied to the campus's own base rate.
+ *
+ * (3) is the only place a derived rate is used, and it is used as a CEILING
+ * for one resident, never fed back into an average — the rule that derived
+ * rates are outputs and never inputs is intact. It matters for a product that
+ * exists in the resident population but has no priced row anywhere to measure,
+ * which is precisely the case the formulas were configured for.
+ *
+ * ── One known approximation, and its bound ─────────────────────────────────
+ * The solver later raises every ceiling by the recommended street increase
+ * (`street x multiplier`). For a derived rate that is `base x pct + offset`,
+ * multiplying the whole thing also scales the flat offset, where the exact
+ * answer would raise only the percentage term. The gap is `offset x (m - 1)` —
+ * a few dollars a month on a five percent rise — and every formula configured
+ * today carries a zero offset, so the gap is currently exactly zero. Carrying
+ * a separate fixed component through the solver, the Excel formulas and the
+ * audit sheet to remove it would cost far more clarity than it buys; if flat
+ * offsets ever come into real use, that is the point to revisit it.
+ */
+export function makeProductStreetResolver(
+  baselines: ProductStreetBaselines,
+  formulas: readonly DerivedRateFormula[],
+): (row: RawResidentRow, product: RateProduct) => ProductStreetRate | null {
+  return (row, product) => {
+    const sl = row.service_line;
+    // The two medians are reported separately: a ceiling set by other
+    // buildings is a weaker piece of evidence than one set by this building,
+    // and an operator auditing a recommendation is entitled to see which.
+    const atCampus = baselines.byLocation.get(`${row.location}||${sl}||${product}`);
+    if (atCampus && atCampus > 0) return { rate: atCampus, source: "product_median" };
+
+    const acrossSl = baselines.byServiceLine.get(`${sl}||${product}`);
+    if (acrossSl && acrossSl > 0) return { rate: acrossSl, source: "service_line_median" };
+
+    const derivedType = derivedTypeForProduct(product);
+    if (!derivedType) return null;
+
+    const base =
+      baselines.byLocation.get(`${row.location}||${sl}||base`) ??
+      baselines.byServiceLine.get(`${sl}||base`);
+    const derived = applyDerivedFormula(base, resolveFormula(formulas, derivedType, sl));
+    return derived && derived > 0 ? { rate: derived, source: "derived_formula" } : null;
+  };
 }
 
 /**

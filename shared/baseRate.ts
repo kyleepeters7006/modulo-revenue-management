@@ -72,29 +72,24 @@
  */
 
 import { isBBedRow } from './bBed';
+import {
+  BED_TYPE_SLS,
+  NON_SINGLE_OCCUPANT_JS,
+  NON_SINGLE_OCCUPANT_SQL,
+  NON_STANDARD_STAY_JS,
+  NON_STANDARD_STAY_SQL,
+} from './rateProduct';
 
 /**
  * Service lines whose companion bed is a ROOM TYPE rather than a suffixed
  * room number. Only these get the second arm of the predicate.
+ *
+ * Re-exported from shared/rateProduct.ts, which owns the keyword patterns and
+ * the finer-grained product classification these predicates are the yes/no
+ * summary of. Two spellings of one rule is already the discipline here; two
+ * COPIES of the keywords would be one too many.
  */
-export const BED_TYPE_SLS: ReadonlySet<string> = new Set(['HC', 'HC/MC']);
-
-/**
- * Room descriptors that mean "this is not one resident in one room".
- * Word-start anchored so "Compan;C Vw" matches but "Accompany" does not;
- * `ward` and `double` are anchored at both ends so the campus names Woodward
- * and Edward survive.
- */
-const NON_SINGLE_OCCUPANT_JS = /\b(compan|semi[-\s]?priv|ward\b|double\b|shared\b)/i;
-const NON_SINGLE_OCCUPANT_SQL = `\\y(compan|semi[-[:space:]]?priv|ward\\y|double\\y|shared\\y)`;
-
-/**
- * Stay types that are priced as their own product rather than as the standard
- * long-stay admission: respite, rehab-to-home, and transitional care (TCU).
- * "almost home" is Trilogy's brand name for a respite programme.
- */
-const NON_STANDARD_STAY_JS = /\b(respite|rehab|tcu\b|almost\s+home)/i;
-const NON_STANDARD_STAY_SQL = `\\y(respite|rehab|tcu\\y|almost[[:space:]]+home)`;
+export { BED_TYPE_SLS };
 
 /**
  * True when an HC/HC-MC row is a companion, semi-private, respite, rehab or

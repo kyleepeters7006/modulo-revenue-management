@@ -24,6 +24,7 @@
 import ExcelJS from "exceljs";
 import type { PlanResult } from "@shared/inhousePlanning";
 import { DAYS_PER_MONTH } from "@shared/careRates";
+import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
 import type { PlanAudit } from "./index";
 import { injectCharts, type ChartSpec } from "../xlsxCharts";
 
@@ -52,6 +53,30 @@ const CONSTRAINT_LABEL: Record<string, string> = {
   street_cap: "Capped at street",
   at_or_above_street: "Already at/above street",
 };
+
+/**
+ * What the street rate in this row is the asking rate FOR, and where it came
+ * from when it is not the resident's own unit. "Single occupant" rows carry no
+ * note; anything else is stated outright so a reviewer can audit the ceiling.
+ */
+function streetBasisLabel(r: {
+  rateProduct: keyof typeof RATE_PRODUCT_LABEL;
+  streetRateSource: string;
+  streetRateMonthly: number;
+}): string {
+  if (r.streetRateMonthly <= 0) return "None available";
+  const product = RATE_PRODUCT_LABEL[r.rateProduct];
+  switch (r.streetRateSource) {
+    case "product_median":
+      return `${product} (campus median)`;
+    case "service_line_median":
+      return `${product} (service-line median)`;
+    case "derived_formula":
+      return `${product} (derived formula)`;
+    default:
+      return product;
+  }
+}
 
 function styleHeaderRow(row: ExcelJS.Row, fill = HEADER_FILL) {
   row.eachCell({ includeEmpty: false }, (cell) => {
@@ -365,6 +390,12 @@ function buildDetailSheet(
     { key: "weight", header: "Resident-day weight", width: 12, fmt: FMT_NUM2 },
     { key: "current", header: "Current rate (monthly)", width: 14, fmt: FMT_MONEY },
     { key: "street", header: "Street rate (monthly)", width: 14, fmt: FMT_MONEY },
+    // The street rate is the asking rate for the PRODUCT this resident
+    // occupies — a second-occupant rate for a companion bed, a semi-private
+    // rate for a shared health-care bed. Without this column a reader has no
+    // way to tell why two residents in the same building face different
+    // ceilings, and would reasonably assume one of them is wrong.
+    { key: "product", header: "Street rate basis", width: 22 },
     { key: "effStreet", header: "Effective street\n= street x multiplier", width: 15, fmt: FMT_MONEY },
     { key: "headroom", header: "Room to street\n= eff street / current - 1", width: 14, fmt: FMT_PCT },
     { key: "shape", header: "Shape\n= (headroom / mean) ^ exponent", width: 13, fmt: FMT_NUM2 },
@@ -442,6 +473,7 @@ function buildDetailSheet(
 
     // ── the derivation, as live formulas ──
     const idx = (key: string) => columns.findIndex((x) => x.key === key) + 1;
+    row.getCell(idx("product")).value = streetBasisLabel(r);
     const setF = (key: string, formula: string) => {
       row.getCell(idx(key)).value = { formula } as ExcelJS.CellFormulaValue;
     };
