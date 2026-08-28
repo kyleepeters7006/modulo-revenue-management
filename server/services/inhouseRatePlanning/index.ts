@@ -574,12 +574,23 @@ function buildWarnings(ctx: {
   residentCount: number;
 }): string[] {
   const warnings: string[] = [];
+  const quarterMonthRanges = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
+  const describeQuarter = (q: BaselineQuarter) =>
+    `${q.label} (${quarterMonthRanges[q.quarter - 1]} ${q.year})`;
+  const [sourceYear, sourceMonthNumber] = ctx.sourceMonth.split("-").map(Number);
+  const sourceMonthLabel =
+    sourceYear && sourceMonthNumber
+      ? `${new Date(Date.UTC(sourceYear, sourceMonthNumber - 1, 1)).toLocaleString("en-US", {
+          month: "short",
+          timeZone: "UTC",
+        })} ${sourceYear}`
+      : ctx.sourceMonth;
 
   const projected = Array.from(ctx.baselineByQuarter.values()).filter((b) => b.basis === "projected");
   const partial = Array.from(ctx.baselineByQuarter.values()).filter((b) => b.basis === "partial");
   if (projected.length > 0) {
     warnings.push(
-      `Prior-year baseline for ${projected.map((p) => p.label).join(", ")} is projected, not measured — there is no rent roll for ${projected.length === 1 ? "that quarter" : "those quarters"}. Growth against ${projected.length === 1 ? "it" : "them"} is an estimate.`,
+      `Prior-year baseline for ${projected.map(describeQuarter).join(", ")} is projected, not measured — the latest rent roll available for this scope is ${sourceMonthLabel}, before ${projected.length === 1 ? "that quarter" : "those quarters"}. Growth against ${projected.length === 1 ? "it" : "them"} is an estimate.`,
     );
   }
   if (partial.length > 0) {
