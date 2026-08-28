@@ -2957,7 +2957,12 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                                   </span>
                                 </div>
                               </td>
-                              <td className="py-2 px-2 text-right text-xs font-semibold text-amber-700 tabular-nums">—</td>
+                              <td className="py-2 px-2 text-right">
+                                <span className="text-xs font-semibold text-amber-700 tabular-nums">—</span>
+                                <span className="block text-[10px] text-gray-400">
+                                  1 campus
+                                </span>
+                              </td>
                               <td className="py-2 px-2 text-right text-xs font-semibold text-amber-700 tabular-nums">
                                 ${mo.override_rate.toLocaleString()}/mo
                               </td>
