@@ -22691,6 +22691,29 @@ Return ONLY valid JSON, no markdown fences:
           mm.set(m, (mm.get(m) || 0) + 1);
         }
       }
+      // Imported event room types do not reliably match rent-roll room types.
+      // Historical move-in win rate therefore uses the authoritative feed at
+      // location + service-line level, where the keys are stable. Aggregate
+      // once here so a rule spanning several room types does not count the
+      // same service-line move-ins repeatedly.
+      const miSeriesByLocationSl = new Map<string, Map<string, number>>();
+      for (const [groupKey, months] of Array.from(miSeries.entries())) {
+        const [location, serviceLine] = groupKey.split('|');
+        const slKey = `${location}|${serviceLine}`;
+        if (!miSeriesByLocationSl.has(slKey)) miSeriesByLocationSl.set(slKey, new Map());
+        const target = miSeriesByLocationSl.get(slKey)!;
+        for (const [month, count] of Array.from(months.entries())) {
+          target.set(month, (target.get(month) || 0) + count);
+        }
+      }
+      const snapshotMonthsByLocationSl = new Map<string, Set<string>>();
+      for (const [groupKey, snapshots] of Array.from(revSeries.entries())) {
+        const [location, serviceLine] = groupKey.split('|');
+        const slKey = `${location}|${serviceLine}`;
+        if (!snapshotMonthsByLocationSl.has(slKey)) snapshotMonthsByLocationSl.set(slKey, new Set());
+        const target = snapshotMonthsByLocationSl.get(slKey)!;
+        for (const snapshot of snapshots) target.add(snapshot.month);
+      }
       // Avg move-ins/month over the same T3 windows the revenue calc uses: the
       // group's snapshot months anchor the observable window (months with zero
       // move-ins count as zero only when a rent roll snapshot exists for them).
@@ -22703,6 +22726,18 @@ Return ONLY valid JSON, no markdown fences:
         const mm = miSeries.get(groupKey);
         const sum = (months: string[]) => months.reduce((s, m) => s + (mm?.get(m) || 0), 0);
         return { before: sum(beforeMonths) / beforeMonths.length, after: sum(afterMonths) / afterMonths.length };
+      };
+      const t3MoveInsForLocationSl = (locationSlKey: string, appliedMonth: string): { before: number; after: number } | null => {
+        const availableMonths = Array.from(snapshotMonthsByLocationSl.get(locationSlKey) || []).sort();
+        const beforeMonths = availableMonths.filter(month => month < appliedMonth).slice(-3);
+        const afterMonths = availableMonths.filter(month => month >= appliedMonth).slice(0, 3);
+        if (beforeMonths.length === 0 || afterMonths.length === 0) return null;
+        const monthlyEvents = miSeriesByLocationSl.get(locationSlKey);
+        const sum = (months: string[]) => months.reduce((total, month) => total + (monthlyEvents?.get(month) || 0), 0);
+        return {
+          before: sum(beforeMonths) / beforeMonths.length,
+          after: sum(afterMonths) / afterMonths.length,
+        };
       };
       // True occupancy % over the T3 "before" window: ALL occupied units ÷ ALL
       // units in the group's snapshots (matched numerator/denominator — never
@@ -23062,16 +23097,18 @@ Return ONLY valid JSON, no markdown fences:
       const newCalc = (): Calc => ({ monthly: 0, occEffect: 0, t3Before: 0, t3After: 0, occBefore: 0, occAfter: 0, miBefore: 0, miAfter: 0, hasMi: false, occPctNum: 0, occPctDen: 0, monthsBefore: 3, monthsAfter: 3, extrapolated: false, hasData: false });
       const summaryCalc = new Map<string, Calc>();
       const detailCalc = new Map<string, Calc>(); // ruleName|groupKey
+      const historicalSummaryMiSeen = new Set<string>(); // rule|location|service-line|month
       for (const [rgKey, rg] of Array.from(ruleGroupWeight.entries())) {
         const sep = rgKey.indexOf('|');
         const rn = rgKey.slice(0, sep);
         const gKey = rgKey.slice(sep + 1);
         const appliedMonth = monthOf(rg.earliestApplied);
-        const t3 = t3For(gKey, appliedMonth, histRuleNames.has(rn));
+        const isHistoricalRule = histRuleNames.has(rn);
+        const t3 = t3For(gKey, appliedMonth, isHistoricalRule);
         if (!t3) { if (!detailCalc.has(rgKey)) detailCalc.set(rgKey, newCalc()); continue; }
         const mi = t3MoveInsFor(gKey, appliedMonth);
         const occPct = t3OccPctBefore(gKey, appliedMonth);
-        const total = (histRuleNames.has(rn) ? groupTotalWeightHist.get(gKey) : groupTotalWeight.get(gKey)) || 1;
+        const total = (isHistoricalRule ? groupTotalWeightHist.get(gKey) : groupTotalWeight.get(gKey)) || 1;
         const frac = rg.weight / total;
         const impact = t3.delta * frac;
         const dc = detailCalc.get(rgKey) || newCalc();
@@ -23087,7 +23124,24 @@ Return ONLY valid JSON, no markdown fences:
         const sc = summaryCalc.get(rn) || newCalc();
         sc.monthly += impact; sc.occEffect += t3.occEffect * frac; sc.t3Before += t3.before * frac; sc.t3After += t3.after * frac;
         sc.occBefore += t3.occBefore; sc.occAfter += t3.occAfter;
-        if (mi) { sc.miBefore += mi.before * frac; sc.miAfter += mi.after * frac; sc.hasMi = true; }
+        if (isHistoricalRule) {
+          const [location, serviceLine] = gKey.split('|');
+          const locationSlKey = `${location}|${serviceLine}`;
+          const seenKey = `${rn}|${locationSlKey}|${appliedMonth}`;
+          if (!historicalSummaryMiSeen.has(seenKey)) {
+            historicalSummaryMiSeen.add(seenKey);
+            const slMoveIns = t3MoveInsForLocationSl(locationSlKey, appliedMonth);
+            if (slMoveIns) {
+              sc.miBefore += slMoveIns.before;
+              sc.miAfter += slMoveIns.after;
+              sc.hasMi = true;
+            }
+          }
+        } else if (mi) {
+          sc.miBefore += mi.before * frac;
+          sc.miAfter += mi.after * frac;
+          sc.hasMi = true;
+        }
         if (occPct != null) { const w = t3.occBefore > 0 ? t3.occBefore : 1; sc.occPctNum += occPct * w; sc.occPctDen += w; }
         sc.monthsBefore = Math.min(sc.hasData ? sc.monthsBefore : 3, t3.monthsBefore);
         sc.monthsAfter = Math.min(sc.hasData ? sc.monthsAfter : 3, t3.monthsAfter);

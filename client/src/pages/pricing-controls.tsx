@@ -516,6 +516,14 @@ export default function PricingControls() {
             selectedLocations={selectedLocations}
             selectedRegions={selectedRegions}
             selectedDivisions={selectedDivisions}
+             beforePricingHistory={
+               <RulePerformanceTable
+                 selectedServiceLine={selectedServiceLine}
+                 selectedRegions={selectedRegions}
+                 selectedDivisions={selectedDivisions}
+                 selectedLocations={selectedLocations}
+               />
+             }
             aiGenerator={(helpers) => {
               designerHelpersRef.current = helpers;
               return (
@@ -534,13 +542,6 @@ export default function PricingControls() {
             }}
           />
           </div>
-
-          <RulePerformanceTable
-            selectedServiceLine={selectedServiceLine}
-            selectedRegions={selectedRegions}
-            selectedDivisions={selectedDivisions}
-            selectedLocations={selectedLocations}
-          />
 
           <GuardrailsEditor 
             locationId={selectedLocationId}

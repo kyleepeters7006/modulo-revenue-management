@@ -820,17 +820,17 @@ export function RulePerformanceTable({
   }, [rows]);
 
   const winRateMoveIns = useMemo(() => {
-    // Same denominator as Revenue: all historical rules with measurable revenue
-    // impact, regardless of whether move-in activity existed. A rule where both
-    // T3 windows are zero (or T3 data is absent) counts as a loss — it did not
-    // increase move-ins. This makes Revenue % and Move-ins % directly comparable.
-    const hist = rows.filter((r) => r.isHistorical && r.monthlyRevenueImpact != null);
+    // Missing before/after event windows are unavailable, not losses. Only rules
+    // with a measurable comparison belong in the move-in win-rate denominator.
+    const hist = rows.filter(
+      (r) =>
+        r.isHistorical &&
+        r.calc?.moveInsT3Before != null &&
+        r.calc?.moveInsT3After != null,
+    );
     if (hist.length === 0) return null;
     const wins = hist.filter(
-      (r) =>
-        r.calc?.moveInsT3Before != null &&
-        r.calc?.moveInsT3After != null &&
-        r.calc.moveInsT3After - r.calc.moveInsT3Before > 0,
+      (r) => r.calc!.moveInsT3After! - r.calc!.moveInsT3Before! > 0,
     ).length;
     return { pct: Math.round((wins / hist.length) * 100), wins, total: hist.length };
   }, [rows]);
@@ -851,6 +851,14 @@ export function RulePerformanceTable({
         return b.dateApplied.localeCompare(a.dateApplied);
       });
   }, [rows]);
+  const winRateRules = useMemo(
+    () => historicalRules.filter((r) =>
+      winRateMode === 'revenue'
+        ? r.monthlyRevenueImpact != null
+        : r.calc?.moveInsT3Before != null && r.calc?.moveInsT3After != null,
+    ),
+    [historicalRules, winRateMode],
+  );
 
   // ── Scattergram data: one point per rule breakdown row ──
   // x = occupancy % before the change
@@ -1127,8 +1135,8 @@ export function RulePerformanceTable({
                 <button
                   className="text-left w-full hover:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-default"
                   data-testid="stat-perf-win-rate"
-                  onClick={() => winRate != null && historicalRules.length > 0 && setWinRateOpen(true)}
-                  disabled={winRate == null || historicalRules.length === 0}
+                  onClick={() => winRate != null && winRateRules.length > 0 && setWinRateOpen(true)}
+                  disabled={winRate == null || winRateRules.length === 0}
                   title={winRate != null ? "Click to see rule-by-rule breakdown" : undefined}
                 >
                   <div className={`text-2xl font-black leading-none tabular-nums ${winRate == null ? "text-muted-foreground" : winRate.pct >= 50 ? "text-emerald-600" : "text-red-600"}`}>
@@ -1568,7 +1576,7 @@ export function RulePerformanceTable({
                 </tr>
               </thead>
               <tbody>
-                {historicalRules.map((r, i) => {
+                {winRateRules.map((r, i) => {
                   const cleanName = r.ruleName.replace(/^Historical:\s*/i, '');
                   let isWin = false, isLoss = false, metricDisplay = '—';
                   if (winRateMode === 'revenue') {

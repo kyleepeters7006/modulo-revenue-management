@@ -474,9 +474,11 @@ interface RuleDesignerProps {
   selectedDivisions?: string[];
   /** Either a ReactNode, or a render function receiving helpers (e.g. to load an AI suggestion into the Natural Language editor). */
   aiGenerator?: React.ReactNode | ((helpers: RuleDesignerHelpers) => React.ReactNode);
+  /** Optional content rendered immediately before Pricing History. */
+  beforePricingHistory?: ReactNode;
 }
 
-export function RuleDesigner({ locationId, serviceLine, locationName, selectedLocations, selectedRegions, selectedDivisions, aiGenerator: aiGeneratorProp }: RuleDesignerProps) {
+export function RuleDesigner({ locationId, serviceLine, locationName, selectedLocations, selectedRegions, selectedDivisions, aiGenerator: aiGeneratorProp, beforePricingHistory }: RuleDesignerProps) {
   const { toast } = useToast();
 
   const [activeTab, setActiveTab] = useState<'ask-ai' | 'structured' | 'ai-generator'>('structured');
@@ -3028,6 +3030,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                 </CollapsibleContent>
               </Card>
             </Collapsible>
+
+            {beforePricingHistory}
 
             {/* ── Pricing History — historical records of past pricing changes ── */}
             <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
