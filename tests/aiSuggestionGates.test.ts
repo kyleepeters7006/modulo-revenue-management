@@ -28,6 +28,7 @@ import {
   describeDiagnostics,
   EMPTY_RUN_MESSAGES,
   REJECTION_LABELS,
+  suggestionImpactRejection,
   OVER_CAP_CODE,
   type SuggestionRejection,
   type SuggestionRejectionCode,
@@ -161,6 +162,25 @@ expectAccepted(
   'in-house increase once the caller opts in',
   { rule: 'Increase in-house rate by 3% for occupied units' },
   WITH_IN_HOUSE,
+);
+
+console.log('\n=== Final impact gate: zero-value cards never reach the operator ===\n');
+
+ok(
+  'zero qualified units are rejected',
+  suggestionImpactRejection({ unitsImpacted: 0, monthlyImpact: 50, annualImpact: 3900 }) === 'zero_qualified_units',
+);
+ok(
+  'positive units with zero monthly impact are rejected',
+  suggestionImpactRejection({ unitsImpacted: 3, monthlyImpact: 0, annualImpact: 100 }) === 'zero_financial_impact',
+);
+ok(
+  'positive units with zero annual impact are rejected',
+  suggestionImpactRejection({ unitsImpacted: 3, monthlyImpact: 10, annualImpact: 0 }) === 'zero_financial_impact',
+);
+ok(
+  'negative financial impact remains actionable',
+  suggestionImpactRejection({ unitsImpacted: 3, monthlyImpact: -10, annualImpact: -780 }) === null,
 );
 
 console.log('\n=== Service-line resolution ===\n');

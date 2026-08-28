@@ -113,6 +113,7 @@ import {
   partitionCandidates,
   summarizeRejections,
   describeDiagnostics,
+  suggestionImpactRejection,
   OVER_CAP_CODE,
   EMPTY_RUN_MESSAGES,
   type SuggestionRejection,
@@ -18720,10 +18721,13 @@ Respond in JSON format:
         // combinations that look promising in aggregate history but have no
         // pricing-eligible units after every trigger, room-type filter, vacancy
         // filter, campus scope, and B-bed exclusion is applied.
-        if (selected.unitsImpacted === 0) {
+        const impactRejection = suggestionImpactRejection(selected);
+        if (impactRejection) {
           rejections.push({
-            code: 'zero_qualified_units',
-            detail: 'The fully qualified impact calculation found no eligible units in scope',
+            code: impactRejection,
+            detail: impactRejection === 'zero_qualified_units'
+              ? 'The fully qualified impact calculation found no eligible units in scope'
+              : 'The fully qualified impact calculation rounded to zero monthly or annual financial impact',
             sentence,
             serviceLines: ruleSLs,
           });
@@ -19154,7 +19158,69 @@ Respond in JSON format:
         [clientId]
       );
       if (!r.rows.length) return res.json(null);
-      res.json({ ...r.rows[0].payload, generatedAt: r.rows[0].created_at });
+      const stored = typeof r.rows[0].payload === 'string'
+        ? JSON.parse(r.rows[0].payload)
+        : (r.rows[0].payload || {});
+      const cachedSuggestions = Array.isArray(stored.suggestions) ? stored.suggestions : [];
+      const kept: any[] = [];
+      const removed: SuggestionRejection[] = [];
+      for (const suggestion of cachedSuggestions) {
+        const code = suggestionImpactRejection(suggestion);
+        if (!code) {
+          kept.push(suggestion);
+          continue;
+        }
+        removed.push({
+          code,
+          detail: code === 'zero_qualified_units'
+            ? 'Cached suggestion has no eligible units'
+            : 'Cached suggestion has no measurable monthly or annual impact',
+          sentence: String(suggestion?.description || suggestion?.ruleDetail || ''),
+          serviceLines: Array.isArray(suggestion?.serviceLines)
+            ? suggestion.serviceLines
+            : String(suggestion?.serviceLine || '').split(',').map((s: string) => s.trim()).filter(Boolean),
+        });
+      }
+
+      let payload = { ...stored, suggestions: kept };
+      if (removed.length) {
+        // Older cached runs predate the final impact gate. Rebuild the visible
+        // tally so restoring one cannot resurrect a zero-value action card or
+        // claim that more suggestions are shown than are actually on screen.
+        const oldDiagnostics = stored.diagnostics || {};
+        const syntheticExisting: SuggestionRejection[] = [];
+        for (const group of Array.isArray(oldDiagnostics.byReason) ? oldDiagnostics.byReason : []) {
+          for (let i = 0; i < Number(group.count || 0); i++) {
+            syntheticExisting.push({
+              code: group.code,
+              detail: 'Previously recorded rejection',
+              sentence: String(group.examples?.[i] || ''),
+              serviceLines: [],
+            });
+          }
+        }
+        const drafted = Math.max(
+          Number(oldDiagnostics.drafted || 0),
+          cachedSuggestions.length + syntheticExisting.filter(x => x.code !== OVER_CAP_CODE).length,
+        );
+        const diagnostics = summarizeRejections(
+          [...syntheticExisting, ...removed],
+          drafted,
+          kept.length,
+        );
+        payload = {
+          ...payload,
+          diagnostics: { ...diagnostics, summary: describeDiagnostics(diagnostics) },
+          context: kept.length
+            ? stored.context
+            : {
+                ...(stored.context || {}),
+                reason: 'all_candidates_rejected',
+                reasonMessage: EMPTY_RUN_MESSAGES.all_candidates_rejected,
+              },
+        };
+      }
+      res.json({ ...payload, generatedAt: r.rows[0].created_at });
     } catch (error) {
       console.error('Error fetching cached AI suggestions:', error);
       res.status(500).json({ error: "Failed to fetch cached suggestions" });

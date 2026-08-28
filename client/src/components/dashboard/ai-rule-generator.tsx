@@ -91,6 +91,16 @@ interface SuggestRunResponse {
   context?: { campus?: string | null; reason?: string | null; reasonMessage?: string | null } | null;
 }
 
+/** Never render a suggestion card whose headline metrics round to zero. */
+function isActionableSuggestion(s: RuleSuggestion): boolean {
+  const units = Number(s.unitsImpacted);
+  const monthly = Number(s.monthlyImpact);
+  const annual = Number(s.annualImpact);
+  return Number.isFinite(units) && units > 0
+    && Number.isFinite(monthly) && Math.round(Math.abs(monthly)) > 0
+    && Number.isFinite(annual) && Math.round(Math.abs(annual)) > 0;
+}
+
 /** A failed run needs to stay on the page; a toast that fades leaves nothing to act on. */
 interface RunFailure {
   title: string;
@@ -246,8 +256,9 @@ export default function AiRuleGenerator({
     // produced nothing at generation time, so a run whose cards were merely
     // accepted or denied away is correctly left unrestored.
     const wasExplainedEmpty = !!lastRun.context?.reason;
-    if (!lastRun.suggestions?.length && !wasExplainedEmpty) return;
-    setSuggestions(lastRun.suggestions ?? []);
+    const actionable = (lastRun.suggestions ?? []).filter(isActionableSuggestion);
+    if (!actionable.length && !wasExplainedEmpty) return;
+    setSuggestions(actionable);
     setGeneratedAt(lastRun.generatedAt ?? null);
     // The cached run was made under whatever filters were active at the time —
     // say which, so restored suggestions are never mistaken for the current scope.
@@ -372,7 +383,7 @@ export default function AiRuleGenerator({
       // A cancelled or superseded run has no claim on the panel any more.
       if (data.__runId !== currentRunRef.current) return;
       currentRunRef.current = null;
-      const list = data.suggestions ?? [];
+      const list = (data.suggestions ?? []).filter(isActionableSuggestion);
       const diag = data.diagnostics ?? null;
       setSuggestions(list);
       setDiagnostics(diag);

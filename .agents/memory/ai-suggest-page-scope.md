@@ -41,4 +41,7 @@ rules.
 
 **How to apply:** reject and attribute zero-qualified-unit drafts after all
 triggers, action filters, page scope, room-type mappings, and B-bed exclusions
-have run. Do not substitute the action-only elasticity unit count.
+have run. Also reject cards whose displayed monthly or annual impact rounds to
+zero. Reapply the same final gate when restoring a cached run, because old
+payloads may predate newer eligibility rules. Do not substitute the action-only
+elasticity unit count.

@@ -47,6 +47,7 @@ export type SuggestionRejectionCode =
   | 'blanket_rule'
   | 'unsupported_target'
   | 'zero_qualified_units'
+  | 'zero_financial_impact'
   | 'over_cap';
 
 /**
@@ -79,8 +80,36 @@ export const REJECTION_LABELS: Record<SuggestionRejectionCode, string> = {
   blanket_rule: 'Would have applied to everything, with no condition or target',
   unsupported_target: 'Changed a rate this run does not allow',
   zero_qualified_units: 'Would not affect any eligible units in the selected scope',
+  zero_financial_impact: 'Would not produce a measurable financial impact',
   over_cap: 'Beyond the 10-rule limit for one run',
 };
+
+/**
+ * Final card-level guard shared by fresh generation and cached-run restoration.
+ * All three headline figures must remain actionable after display rounding.
+ */
+export function suggestionImpactRejection(
+  suggestion: {
+    unitsImpacted?: unknown;
+    monthlyImpact?: unknown;
+    annualImpact?: unknown;
+  },
+): SuggestionRejectionCode | null {
+  const units = Number(suggestion?.unitsImpacted);
+  if (!Number.isFinite(units) || units <= 0) return 'zero_qualified_units';
+
+  const monthly = Number(suggestion?.monthlyImpact);
+  const annual = Number(suggestion?.annualImpact);
+  if (
+    !Number.isFinite(monthly) ||
+    !Number.isFinite(annual) ||
+    Math.round(Math.abs(monthly)) === 0 ||
+    Math.round(Math.abs(annual)) === 0
+  ) {
+    return 'zero_financial_impact';
+  }
+  return null;
+}
 
 export interface SuggestionCandidate {
   rule?: unknown;
