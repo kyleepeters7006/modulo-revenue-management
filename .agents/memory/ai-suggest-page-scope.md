@@ -29,3 +29,16 @@ display bug into a real pricing-scope breach.
 empty result with a reason, never fall through to an unscoped run. Scope
 predicates should accept a location **id or name**, since some sources carry
 only names.
+
+Suggestion cards must also pass the final qualified-unit calculation before
+they are shown. Aggregate occupancy history can indicate vacancy even when the
+only vacant rent-roll rows are non-pricing companion beds, so a plausible draft
+can still have no eligible action population.
+
+**Why:** displaying elasticity beside zero affected units makes an unusable
+draft look actionable and asks the operator to diagnose internal eligibility
+rules.
+
+**How to apply:** reject and attribute zero-qualified-unit drafts after all
+triggers, action filters, page scope, room-type mappings, and B-bed exclusions
+have run. Do not substitute the action-only elasticity unit count.

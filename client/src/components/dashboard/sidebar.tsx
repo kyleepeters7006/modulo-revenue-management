@@ -1,4 +1,5 @@
 import { Home, Upload, DollarSign, MapPin, BarChart3, CreditCard, FileText, Shield, Download } from "lucide-react";
+import { clearInhousePlanStorage } from "@/lib/inhousePlanStorage";
 
 const navigation = [
   { name: "Dashboard", href: "#dashboard", icon: Home, current: true },
@@ -63,7 +64,10 @@ export default function Sidebar() {
             </p>
           </div>
           <button
-            onClick={() => window.location.href = "/api/logout"}
+            onClick={async () => {
+              await clearInhousePlanStorage();
+              window.location.href = "/api/logout";
+            }}
             className="text-xs text-[var(--trilogy-grey)] hover:text-[var(--trilogy-teal)] transition-colors"
             data-testid="button-logout"
           >

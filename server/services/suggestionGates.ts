@@ -46,6 +46,7 @@ export type SuggestionRejectionCode =
   | 'unenforceable'
   | 'blanket_rule'
   | 'unsupported_target'
+  | 'zero_qualified_units'
   | 'over_cap';
 
 /**
@@ -77,6 +78,7 @@ export const REJECTION_LABELS: Record<SuggestionRejectionCode, string> = {
   unenforceable: 'Described a condition the pricing engine cannot enforce',
   blanket_rule: 'Would have applied to everything, with no condition or target',
   unsupported_target: 'Changed a rate this run does not allow',
+  zero_qualified_units: 'Would not affect any eligible units in the selected scope',
   over_cap: 'Beyond the 10-rule limit for one run',
 };
 

@@ -10,7 +10,7 @@
  * unreachable target is shown as unreachable with the smallest change that
  * would fix it — never quietly rounded down to something achievable.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +34,11 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import {
+  clearInhousePlanStorage,
+  readInhousePlan,
+  writeInhousePlan,
+} from "@/lib/inhousePlanStorage";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -382,9 +387,53 @@ interface PlanWithSl { sl: string; plan: PlanResult }
 /** A ResidentRecommendation tagged with the service line it came from. */
 type TaggedResident = ResidentRecommendation & { _sl: string };
 
+/**
+ * Calculated plans are a client-side working result, not an approved plan.
+ * Keep one result per scope so leaving the page does not discard a calculation,
+ * while switching campus or service-line selections never shows another
+ * scope's result.
+ */
+function calculatedPlanScopeKey(locationId: string | null, serviceLines: string[]): string {
+  return `${locationId ?? ALL_CAMPUSES}::${Array.from(new Set(serviceLines)).sort().join(",")}`;
+}
+
+function isStoredPlan(value: unknown): value is PlanWithSl {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { sl?: unknown; plan?: unknown };
+  if (typeof candidate.sl !== "string" || !candidate.plan || typeof candidate.plan !== "object") {
+    return false;
+  }
+  const plan = candidate.plan as Partial<PlanResult>;
+  return (
+    !!plan.scope &&
+    !!plan.assumptions &&
+    !!plan.summary &&
+    Array.isArray(plan.quarters) &&
+    Array.isArray(plan.residents) &&
+    Array.isArray(plan.warnings)
+  );
+}
+
+const ASSUMPTION_KEYS: Array<keyof PlanningAssumptions> = [
+  "rateGrowthTargetPct",
+  "measurementMode",
+  "streetRateEffectiveDate",
+  "inhouseEffectiveDate",
+  "annualTurnoverPct",
+  "minInhouseIncreasePct",
+  "maxInhouseIncreasePct",
+  "equalizationStrength",
+  "allowInhouseAboveStreet",
+  "maxStreetIncreasePct",
+];
+
+function assumptionsMatch(a: PlanningAssumptions, b: PlanningAssumptions): boolean {
+  return ASSUMPTION_KEYS.every((key) => a[key] === b[key]);
+}
+
 export default function InhouseIncreases() {
   const { toast } = useToast();
-  const { isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
 
   const [locationId, setLocationId] = useState<string>(ALL_CAMPUSES);
@@ -405,9 +454,53 @@ export default function InhouseIncreases() {
   const [visibleCount, setVisibleCount] = useState(50);
 
   const scopeLocationId = locationId === ALL_CAMPUSES ? null : locationId;
+  const storageIdentityKey =
+    user?.isAuthenticated && user.id && user.clientId
+      ? `${user.clientId}::${user.id}`
+      : null;
   // When a single line is selected use it; otherwise use the first for assumptions loading.
   const firstLine = serviceLines[0] ?? SERVICE_LINES[0];
   const singleLine = serviceLines.length === 1 ? serviceLines[0] : null;
+  const calculatedPlanKey = useMemo(
+    () => storageIdentityKey
+      ? calculatedPlanScopeKey(scopeLocationId, serviceLines)
+      : null,
+    [scopeLocationId, serviceLines, storageIdentityKey],
+  );
+
+  const previousStorageIdentity = useRef<string | null | undefined>(undefined);
+  const currentStorageIdentity = useRef<string | null>(storageIdentityKey);
+  useEffect(() => {
+    const previous = previousStorageIdentity.current;
+    previousStorageIdentity.current = storageIdentityKey;
+    currentStorageIdentity.current = storageIdentityKey;
+    if (previous !== undefined && previous !== storageIdentityKey) {
+      void clearInhousePlanStorage();
+    }
+  }, [storageIdentityKey]);
+
+  // Calculations are restored only for the active campus + service-line scope.
+  // This runs on initial entry and whenever the operator changes scope; it
+  // never calls the calculator or replaces the stored result.
+  useEffect(() => {
+    let cancelled = false;
+    setPlans(null);
+    setVisibleCount(50);
+    setExpandedResident(null);
+    setExpandedQuarter(null);
+    void readInhousePlan<PlanWithSl[]>(storageIdentityKey, calculatedPlanKey).then((stored) => {
+      if (cancelled) return;
+      const restored = Array.isArray(stored) && stored.every(isStoredPlan) ? stored : null;
+      setPlans(restored);
+      const first = restored?.find((r) => r.plan.feasible) ?? restored?.[0];
+      setExpandedQuarter(first?.plan.bindingQuarterLabel
+        ? `${first.sl}-${first.plan.bindingQuarterLabel}`
+        : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [calculatedPlanKey, storageIdentityKey]);
 
   function toggleServiceLine(sl: string) {
     setServiceLines((prev) => {
@@ -594,6 +687,8 @@ export default function InhouseIncreases() {
   // Run one calculate call per selected service line in parallel and combine.
   const calculate = useMutation({
     mutationFn: async () => {
+      const requestedIdentityKey = storageIdentityKey;
+      const requestedScopeKey = calculatedPlanKey;
       const results = await Promise.all(
         serviceLines.map(async (sl) => {
           const res = await apiRequest("/api/inhouse-planning/calculate", "POST", {
@@ -605,9 +700,18 @@ export default function InhouseIncreases() {
           return { sl, plan } as PlanWithSl;
         }),
       );
-      return results;
+      return { identityKey: requestedIdentityKey, scopeKey: requestedScopeKey, results };
     },
-    onSuccess: (results) => {
+    onSuccess: ({ identityKey, scopeKey, results }) => {
+      // If the operator changed scope while the request was running, retain
+      // the result under its original scope but never render it under the new
+      // one.
+      if (
+        identityKey !== currentStorageIdentity.current ||
+        scopeKey !== calculatedPlanKey ||
+        !identityKey
+      ) return;
+      void writeInhousePlan(identityKey, scopeKey, results);
       setPlans(results);
       setVisibleCount(50);
       setExpandedResident(null);
@@ -616,7 +720,8 @@ export default function InhouseIncreases() {
       setExpandedQuarter(first?.plan.bindingQuarterLabel ?? null);
     },
     onError: (err: Error) => {
-      setPlans(null);
+      // Do not clear the current or stored successful result. A transient
+      // calculation failure must not erase the last plan the operator can use.
       toast({ title: "Could not calculate a plan", description: cleanError(err.message), variant: "destructive" });
     },
   });
@@ -652,8 +757,15 @@ export default function InhouseIncreases() {
   // Apply each plan separately. Server re-calculates and versions each one.
   const applyPlan = useMutation({
     mutationFn: async () => {
+      const currentPlans = plans ?? [];
+      const hasChangedAssumptions = currentPlans.some(
+        ({ sl, plan }) => !assumptionsMatch(plan.assumptions, assumptionsForLine(sl)),
+      );
+      if (hasChangedAssumptions) {
+        throw new Error("These results were calculated with different assumptions. Recalculate the plan before approving it.");
+      }
       const results = await Promise.all(
-        (plans ?? []).map(({ sl }) =>
+        currentPlans.map(({ sl }) =>
           apiRequest("/api/inhouse-planning/apply", "POST", {
             locationId: scopeLocationId,
             serviceLine: sl,
@@ -712,6 +824,10 @@ export default function InhouseIncreases() {
     if (!overrides) return assumptions;
     return { ...assumptions, ...overrides };
   }
+
+  const hasChangedPlanAssumptions = !!plans?.some(
+    ({ sl, plan }) => !assumptionsMatch(plan.assumptions, assumptionsForLine(sl)),
+  );
 
   const rangeError =
     assumptions.minInhouseIncreasePct > assumptions.maxInhouseIncreasePct
@@ -1492,9 +1608,17 @@ export default function InhouseIncreases() {
                   <AlertDescription>Sign in to approve a plan.</AlertDescription>
                 </Alert>
               )}
+              {hasChangedPlanAssumptions && (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertDescription>
+                    The assumptions have changed since this result was calculated. Recalculate the plan before approving it.
+                  </AlertDescription>
+                </Alert>
+              )}
               <Button
                 onClick={() => applyPlan.mutate()}
-                disabled={!anyFeasible || !isAuthenticated || applyPlan.isPending}
+                disabled={!anyFeasible || !isAuthenticated || applyPlan.isPending || hasChangedPlanAssumptions}
                 data-testid="button-apply-plan"
               >
                 {applyPlan.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

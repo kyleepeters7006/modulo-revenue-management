@@ -5,6 +5,7 @@ import inflectLogo from "@assets/Inflect_Logo_-_No_Text_Below_1781618481726.png"
 import { useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
+import { clearInhousePlanStorage } from "@/lib/inhousePlanStorage";
 import LoginModal from "@/components/login-modal";
 import { 
   BarChart3,
@@ -65,7 +66,8 @@ export default function Navigation({ className }: NavigationProps) {
       });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      await clearInhousePlanStorage();
       queryClient.clear();
       window.location.reload();
     },

@@ -117,6 +117,9 @@ async function cleanup() {
     [`${RULE_NAME}%`, CLIENT]);
   await pool.query(`DELETE FROM ai_suggestion_runs WHERE client_id = $1`, [CLIENT]);
   await pool.query(`DELETE FROM ai_suggestion_feedback WHERE client_id = $1`, [CLIENT]);
+  // The running app may asynchronously backfill this table while the fixture is
+  // active, so clear it immediately before removing the referenced locations.
+  await pool.query(`DELETE FROM campus_metrics WHERE client_id = $1`, [CLIENT]);
   await pool.query(`DELETE FROM rent_roll_data WHERE client_id = $1`, [CLIENT]);
   await pool.query(`DELETE FROM locations WHERE client_id = $1`, [CLIENT]);
   await pool.query(`DELETE FROM users WHERE username = $1`, [USERNAME]);
@@ -221,6 +224,33 @@ async function main() {
 
   const scopeIds = [locIds.get(SMALL_A)!, locIds.get(SMALL_B)!];
   const bothSLs = ['AL', 'SL'];
+
+  // The suggestion prompt reads spot occupancy from RTO history. The impact
+  // evaluator must score the same value rather than a conflicting rent-roll
+  // occupancy percentage, or the model can propose a rule that its own card
+  // immediately reports as zero units.
+  console.log('\n── AI prompt and impact engine share authoritative spot occupancy ──');
+  const spotCtx = {
+    ...ctx,
+    trailingOccMap: new Map(ctx.trailingOccMap),
+    metrics: new Map(ctx.metrics),
+  };
+  const smallAId = locIds.get(SMALL_A)!;
+  const studioMetric = { ...spotCtx.metrics.get(`${smallAId}|AL|Studio`)! };
+  studioMetric.occupied = Math.floor(studioMetric.total / 2); // rent roll says ~50%
+  spotCtx.metrics.set(`${smallAId}|AL|Studio`, studioMetric);
+  spotCtx.trailingOccMap.set(`${smallAId}|AL|Studio|spot`, 95); // RTO says 95%
+  const spotRule = parseNaturalLanguageRule(
+    'If room type occupancy is greater than or equal to 90, increase street rate by 5% for occupied Studio units',
+  )!;
+  const spotImpact = computeQualifiedRuleImpact(
+    spotCtx,
+    { action: spotRule.action, trigger: spotRule.trigger, serviceLines: ['AL'], locationId: smallAId },
+    { locationIds: [smallAId] },
+  );
+  ok('current room-type occupancy trigger uses RTO spot value before rent roll',
+    spotImpact.affectedUnits > 0,
+    `RTO spot=95, rent-roll aggregate≈50, affectedUnits=${spotImpact.affectedUnits}`);
 
   // The accept handler persists the rule with the campus scope written into
   // action.filters.location, so score the expectation against that same rule.

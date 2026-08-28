@@ -232,8 +232,12 @@ export function StrategyReportModal({ open, onClose, selectedServiceLine, select
     (r.steadyStateAnnualImpact ?? 0) !== 0;
 
   const allActiveRules = rulesData.filter((r: any) => r.isActive && !r.isHistorical);
-  const rawActiveRules = allActiveRules.filter(hasScopedImpact);
-  const hiddenNoImpactCount = allActiveRules.length - rawActiveRules.length;
+  // Portfolio-wide reports must include every active rule, even when a
+  // conditional rule is dormant right now. Pricing Controls uses that same
+  // definition for its active-rule count. Only a genuinely filtered report
+  // should hide rules that qualify no units inside the selected scope.
+  const rawActiveRules = isScoped ? allActiveRules.filter(hasScopedImpact) : allActiveRules;
+  const hiddenNoImpactCount = isScoped ? allActiveRules.length - rawActiveRules.length : 0;
   // Fraction of the calendar year remaining from today through Dec 31.
   // Used for the "Rest of Year" column: same ramp assumptions as First-Year
   // impact, just prorated to the remaining months of the current year.

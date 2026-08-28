@@ -65,8 +65,9 @@ export interface RuleImpactContext {
   /** Other campus_metrics values the live pricing engine gates on.
    *  Key: `${locId}|${sl}|${metric_name}` (private_pay_pct, inquiry_count). */
   campusMetric: Map<string, number>;
-  /** Trailing-N occupancy % from room_type_occupancy_history.
-   *  Key: `${locId}|${sl}|${rt}|trailing${N}` (sl='' campus-level, rt='' SL-level).
+  /** Spot and trailing-N occupancy % from room_type_occupancy_history.
+   *  Keys: `${locId}|${sl}|${rt}|spot` and `${locId}|${sl}|${rt}|trailing${N}`
+   *  (sl='' campus-level, rt='' SL-level).
    *  Value: weighted avg occ_percent over N most recent months (0–100 scale). */
   trailingOccMap: Map<string, number>;
   /** Reverse RTG lookup: branded group_name → Set of canonical room_type values.
@@ -522,10 +523,11 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
     }
   }
 
-  // ── Trailing occupancy from room_type_occupancy_history ──────────────────
-  // Fetch all history rows for this client in a single query, then compute
-  // rolling averages in memory for windows of 3, 6, and 12 months.
-  // Key format: `${locId}|${sl}|${rt}|trailing${N}` (sl='' → campus, rt='' → SL-level)
+  // ── Occupancy from room_type_occupancy_history ───────────────────────────
+  // Fetch all history rows for this client in a single query, then compute the
+  // latest spot value plus rolling averages for windows of 3, 6, and 12 months.
+  // RTO history is authoritative; rent roll is only the fallback when no RTO
+  // row exists. This must match the metrics shown to the AI suggestion model.
   const trailingOccMap = new Map<string, number>();
   try {
     // Include rows whose location_id is NULL by resolving them via location_name
@@ -578,6 +580,8 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
 
       byRt.forEach((rows, rtKey) => {
         const [locId, sl, rt] = rtKey.split('|');
+        const spot = windowAvg(rows, 1);
+        if (spot !== null) trailingOccMap.set(`${locId}|${sl}|${rt}|spot`, spot);
         for (const w of WINDOWS) {
           const avg = windowAvg(rows, w);
           if (avg !== null) {
@@ -603,7 +607,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
         const [locId, sl] = slKey.split('|');
         // Sort months descending, then for each window take the top-N months and aggregate
         const sortedMonths = Array.from(monthMap.keys()).sort((a: string, b: string) => b.localeCompare(a));
-        for (const w of WINDOWS) {
+        for (const w of [1, ...WINDOWS]) {
           const topMonths = sortedMonths.slice(0, w);
           let occSum = 0, avlSum = 0, pctSum = 0, pctN = 0;
           for (const mk of topMonths) {
@@ -614,9 +618,10 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
             }
           }
           const avg = avlSum > 0 ? (occSum / avlSum) * 100 : (pctN > 0 ? pctSum / pctN : null);
-          if (avg !== null) {
-            trailingOccMap.set(`${locId}|${sl}||trailing${w}`, avg);
-          }
+          if (avg !== null) trailingOccMap.set(
+            w === 1 ? `${locId}|${sl}||spot` : `${locId}|${sl}||trailing${w}`,
+            avg,
+          );
         }
       });
 
@@ -631,7 +636,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
       }
       byCampus.forEach((monthMap, locId) => {
         const sortedMonths = Array.from(monthMap.keys()).sort((a: string, b: string) => b.localeCompare(a));
-        for (const w of WINDOWS) {
+        for (const w of [1, ...WINDOWS]) {
           const topMonths = sortedMonths.slice(0, w);
           let occSum = 0, avlSum = 0, pctSum = 0, pctN = 0;
           for (const mk of topMonths) {
@@ -642,9 +647,10 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
             }
           }
           const avg = avlSum > 0 ? (occSum / avlSum) * 100 : (pctN > 0 ? pctSum / pctN : null);
-          if (avg !== null) {
-            trailingOccMap.set(`${locId}|||trailing${w}`, avg);
-          }
+          if (avg !== null) trailingOccMap.set(
+            w === 1 ? `${locId}|||spot` : `${locId}|||trailing${w}`,
+            avg,
+          );
         }
       });
     } // end if (histRes.rows.length > 0)
@@ -800,14 +806,21 @@ function evalGroupCondition(
   if (OCC_FIELDS.has(field) && Math.abs(value) <= 1) value = value * 100;
 
   if (field === "occupancy" || field === "campus_occupancy") {
+    const spot = ctx.trailingOccMap.get(`${locId}|||spot`);
+    if (spot !== undefined) return cmp(spot, operator, value);
     const g = ctx.metrics.get(locId);
     return cmp(g && g.total ? (g.occupied / g.total) * 100 : null, operator, value);
   }
   if (field === "service_line_occupancy") {
+    const spot = ctx.trailingOccMap.get(`${locId}|${sl}||spot`);
+    if (spot !== undefined) return cmp(spot, operator, value);
     const g = ctx.metrics.get(`${locId}|${sl}`);
     return cmp(g && g.total ? (g.occupied / g.total) * 100 : null, operator, value);
   }
   if (field === "room_type_occupancy") {
+    const normRt = normalizeRoomType(rt);
+    const spot = ctx.trailingOccMap.get(`${locId}|${sl}|${normRt}|spot`);
+    if (spot !== undefined) return cmp(spot, operator, value);
     return cmp(lookupMetric(ctx, locId, sl, rt, "occupancy_pct"), operator, value);
   }
   // ── Trailing-window occupancy variants ──────────────────────────────────

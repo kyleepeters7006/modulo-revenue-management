@@ -18716,6 +18716,20 @@ Respond in JSON format:
           naive: { ...impact, computedForLocationId: locationId || null },
         });
 
+        // Do not offer an action card the operator cannot use. This catches
+        // combinations that look promising in aggregate history but have no
+        // pricing-eligible units after every trigger, room-type filter, vacancy
+        // filter, campus scope, and B-bed exclusion is applied.
+        if (selected.unitsImpacted === 0) {
+          rejections.push({
+            code: 'zero_qualified_units',
+            detail: 'The fully qualified impact calculation found no eligible units in scope',
+            sentence,
+            serviceLines: ruleSLs,
+          });
+          continue;
+        }
+
         suggestions.push({
           suggestionId: randomUUID(),
           name: suggName,
