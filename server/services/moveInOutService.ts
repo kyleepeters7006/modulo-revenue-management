@@ -632,6 +632,80 @@ export async function getMonthlyMoveOutSeriesFromEvents(
   return map;
 }
 
+export interface LatestGroupedMoveInOutCounts {
+  month: string | null;
+  moveIns: Map<string, number>;
+  moveOuts: Map<string, number>;
+}
+
+/**
+ * Latest census-style move-in/out counts keyed by the same grouped
+ * `${location}||${serviceLine}||${roomType}` identity as Reference Data.
+ *
+ * The event workbooks identify the occupied room but generally leave
+ * `room_type` blank. Resolve each event through the spot-month rent roll so
+ * its room type is not lost; the rent-roll match also corrects source service
+ * lines such as event-feed `IL` to the application's `VIL`.
+ */
+export async function getLatestGroupedMoveInOutCounts(
+  clientId: string,
+  spotMonth: string,
+): Promise<LatestGroupedMoveInOutCounts> {
+  const res = await pool.query(`
+    WITH anchor AS (
+      SELECT MAX(SUBSTRING(event_date, 1, 7)) AS month
+      FROM ${MOVE_IN_OUT_ACTIVE_VIEW}
+      WHERE client_id = $1
+        AND counted = true
+        AND SUBSTRING(event_date, 1, 7) <= $2
+    ),
+    resolved AS (
+      SELECT
+        e.location,
+        COALESCE(rr.service_line, e.service_line) AS service_line,
+        COALESCE(rtg.group_name, rr.room_type, e.room_type) AS room_type,
+        e.event_type
+      FROM ${MOVE_IN_OUT_ACTIVE_VIEW} e
+      CROSS JOIN anchor a
+      LEFT JOIN LATERAL (
+        SELECT r.service_line, r.room_type, r.source_room_type
+        FROM rent_roll_data r
+        WHERE r.client_id = e.client_id
+          AND r.upload_month = $2
+          AND r.location = e.location
+          AND e.room_name IS NOT NULL
+          AND UPPER(BTRIM(r.room_number)) = UPPER(BTRIM(e.room_name))
+        ORDER BY (r.service_line = e.service_line) DESC, r.occupied_yn DESC, r.id
+        LIMIT 1
+      ) rr ON TRUE
+      LEFT JOIN room_type_groupings rtg
+        ON rtg.client_id = e.client_id
+       AND rtg.location = e.location
+       AND rtg.service_line = rr.service_line
+       AND rtg.source_room_type = rr.source_room_type
+      WHERE e.client_id = $1
+        AND e.counted = true
+        AND SUBSTRING(e.event_date, 1, 7) = a.month
+    )
+    SELECT location, service_line, room_type, event_type, COUNT(*)::int AS n,
+           (SELECT month FROM anchor) AS month
+    FROM resolved
+    GROUP BY location, service_line, room_type, event_type
+  `, [clientId, spotMonth]);
+
+  const moveIns = new Map<string, number>();
+  const moveOuts = new Map<string, number>();
+  let month: string | null = null;
+  for (const r of res.rows as any[]) {
+    month = r.month ?? month;
+    if (!r.location || !r.service_line || !r.room_type) continue;
+    const key = `${r.location}||${r.service_line}||${r.room_type}`;
+    const target = r.event_type === "move_in" ? moveIns : r.event_type === "move_out" ? moveOuts : null;
+    if (target) target.set(key, (target.get(key) || 0) + (Number(r.n) || 0));
+  }
+  return { month, moveIns, moveOuts };
+}
+
 /**
  * T3 move-ins/month map keyed `${location}||${serviceLine}||${roomType}` from
  * event data, averaged over the given trailing months (YYYY-MM strings).

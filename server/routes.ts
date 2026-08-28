@@ -24056,12 +24056,9 @@ Return ONLY valid JSON, no markdown fences:
       {
         const {
           hasMoveInOutEvents: hasMioEvents,
-          getT3MoveInsMapFromEvents,
-          getMonthlyMoveInSeriesFromEvents,
-          getMonthlyMoveOutSeriesFromEvents,
+          getLatestGroupedMoveInOutCounts,
         } = await import('./services/moveInOutService');
         if (await hasMioEvents(clientId)) {
-          const evMap = await getT3MoveInsMapFromEvents(clientId, t3Months, { serviceLine });
           // Apply location/region/division filters (event map is client-wide)
           let allowedLocs: Set<string> | null = null;
           if (locations.length) {
@@ -24074,52 +24071,24 @@ Return ONLY valid JSON, no markdown fences:
             const lr = await pool.query(`SELECT name FROM locations WHERE ${w}`, p);
             allowedLocs = new Set(lr.rows.map((r: any) => r.name));
           }
-          // Apply room-type groupings so event keys match the grouped
-          // room types used by the reference-data rows (rtg.group_name).
-          const rtgRes = await pool.query(`
-            SELECT DISTINCT rtg.location, rtg.service_line, rr.room_type, rtg.group_name
-            FROM room_type_groupings rtg
-            JOIN rent_roll_data rr
-              ON rr.client_id = rtg.client_id AND rr.location = rtg.location
-             AND rr.service_line = rtg.service_line AND rr.source_room_type = rtg.source_room_type
-            WHERE rtg.client_id = $1
-          `, [clientId]);
-          const rtgMap = new Map<string, string>();
-          for (const r of rtgRes.rows as any[]) {
-            rtgMap.set(`${r.location}||${r.service_line}||${r.room_type}`, r.group_name);
-          }
           // moveMap is built by getGroupedT3MoveInsMap above; no re-assignment needed.
 
-          // Latest-month move-ins & move-outs from the monthly event series.
-          // Event data can lag the rent-roll spot month, so anchor to the latest
-          // event month ≤ spotMonth (same anchoring pattern as inquiries/tours).
-          const [miSeries, moSeries] = await Promise.all([
-            getMonthlyMoveInSeriesFromEvents(clientId, { keySep: '||', allPayers: true }),
-            getMonthlyMoveOutSeriesFromEvents(clientId, { keySep: '||' }),
-          ]);
-          const evMonthSet = new Set<string>();
-          for (const s of [miSeries, moSeries]) {
-            for (const mMap of Array.from(s.values())) {
-              for (const mm of Array.from(mMap.keys())) if (mm <= spotMonth) evMonthSet.add(mm);
-            }
-          }
-          const mioSpotMonth = Array.from(evMonthSet).sort().reverse()[0] ?? spotMonth;
-          const fillLatest = (series: Map<string, Map<string, number>>, target: Map<string, number>) => {
-            for (const [k, mMap] of Array.from(series.entries())) {
+          // Resolve each event through its spot-month room. Event imports usually
+          // have no room_type, so keying the raw series directly makes every
+          // Reference Data room-type lookup miss and display zero.
+          const latest = await getLatestGroupedMoveInOutCounts(clientId, spotMonth);
+          const fillLatest = (source: Map<string, number>, target: Map<string, number>) => {
+            for (const [k, v] of Array.from(source.entries())) {
               const parts = k.split('||');
               if (allowedLocs && !allowedLocs.has(parts[0])) continue;
               if (serviceLine && parts[1] !== serviceLine) continue;
-              const v = mMap.get(mioSpotMonth);
-              if (!v) continue;
-              const grouped = rtgMap.get(k);
-              const key = grouped ? `${parts[0]}||${parts[1]}||${grouped}` : k;
-              target.set(key, (target.get(key) || 0) + v);
+              target.set(k, (target.get(k) || 0) + v);
             }
           };
-          fillLatest(miSeries, miLatestMap);
-          fillLatest(moSeries, moLatestMap);
-          hasMoveInData = true;
-          hasMoveOutData = true;
+          fillLatest(latest.moveIns, miLatestMap);
+          fillLatest(latest.moveOuts, moLatestMap);
+          hasMoveInData = latest.month !== null;
+          hasMoveOutData = latest.month !== null;
         } else {
           // Rent-roll fallback: moveMap already built by getGroupedT3MoveInsMap above.
           // moveRes provides latest-month move-in counts for the miLatestMap display column.
