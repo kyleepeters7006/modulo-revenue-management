@@ -195,8 +195,10 @@ const GROUPS: GroupDef[] = [
     id: "moves",
     label: "Move-Ins / Outs",
     cols: [
-      { key: "moveInsLatest", label: "Ins", type: "int", w: 60, tip: "Move-ins recorded in the most recent month with data (all payers — census counts, not pricing-impact counts)." },
-      { key: "moveOutsLatest", label: "Outs", type: "int", w: 60, tip: "Move-outs recorded in the most recent month with data. Blank when no move-out data source is available." },
+      { key: "moveInsLatest", label: "Ins", type: "num1", w: 60, tip: "Move-ins recorded in the most recent month with data (all payers — census counts, not pricing-impact counts)." },
+      { key: "moveInsVsT3", label: "Δ T3", type: "num1signed", w: 70, tip: "Latest month move-ins minus the trailing 3-month average (count change)." },
+      { key: "moveOutsLatest", label: "Outs", type: "num1", w: 60, tip: "Move-outs recorded in the most recent month with data. Blank when no move-out data source is available." },
+      { key: "moveOutsVsT3", label: "Δ T3", type: "num1signed", w: 70, tip: "Latest month move-outs minus the trailing 3-month average (count change)." },
       { key: "moveNetLatest", label: "Net", type: "num1signed", w: 65, tip: "Move-ins minus move-outs for the most recent month (positive = net gain in residents)." },
     ],
   },
@@ -359,7 +361,7 @@ function campusColsForLevel(level: GroupLevel): ColDef[] {
 // ── client-side aggregation for higher grouping levels ─────────────
 const AGG_SUM_KEYS = [
   "totalUnits", "vacantSpot", "vacantT3", "vacantT12", "hcPrivatePaySpot",
-  "revT3MoveIns", "moveInsLatest", "moveOutsLatest", "moveNetLatest",
+  "revT3MoveIns", "moveInsLatest", "moveInsVsT3", "moveOutsLatest", "moveOutsVsT3", "moveNetLatest",
   "revMonthlyImpact", "revAnnualImpact", "revSteadyStateImpact",
   "elasticityMonthlyImpact", "elasticityAnnualImpact", "elasticitySteadyStateImpact",
   // Applied annual increase: residents covered and their combined monthly

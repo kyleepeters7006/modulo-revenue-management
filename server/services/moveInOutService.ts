@@ -638,6 +638,11 @@ export interface LatestGroupedMoveInOutCounts {
   moveOuts: Map<string, number>;
 }
 
+export interface T3GroupedMoveInOutCounts {
+  moveIns: Map<string, number>;
+  moveOuts: Map<string, number>;
+}
+
 /**
  * Latest census-style move-in/out counts keyed by the same grouped
  * `${location}||${serviceLine}||${roomType}` identity as Reference Data.
@@ -704,6 +709,97 @@ export async function getLatestGroupedMoveInOutCounts(
     if (target) target.set(key, (target.get(key) || 0) + (Number(r.n) || 0));
   }
   return { month, moveIns, moveOuts };
+}
+
+/**
+ * Census-style trailing-month move-in/out averages keyed by the same grouped
+ * `${location}||${serviceLine}||${roomType}` identity as Reference Data.
+ *
+ * Unlike getT3MoveInsMapFromEvents (which is intentionally private-pay-only
+ * for pricing impact), this accessor includes all payers because these columns
+ * describe census movement. Events that omit room_type are resolved through the
+ * spot-month rent roll before room-type grouping is applied.
+ */
+export async function getT3GroupedMoveInOutCounts(
+  clientId: string,
+  t3Months: string[],
+  spotMonth: string,
+): Promise<T3GroupedMoveInOutCounts> {
+  const moveIns = new Map<string, number>();
+  const moveOuts = new Map<string, number>();
+  if (t3Months.length === 0) return { moveIns, moveOuts };
+
+  const res = await pool.query(`
+    WITH spot_rooms_exact AS MATERIALIZED (
+      SELECT DISTINCT ON (
+        location,
+        UPPER(BTRIM(room_number)),
+        service_line
+      )
+        location,
+        UPPER(BTRIM(room_number)) AS room_key,
+        service_line,
+        room_type,
+        source_room_type,
+        occupied_yn,
+        id
+      FROM rent_roll_data
+      WHERE client_id = $1
+        AND upload_month = $3
+        AND room_number IS NOT NULL
+      ORDER BY
+        location,
+        UPPER(BTRIM(room_number)),
+        service_line,
+        occupied_yn DESC,
+        id
+    ),
+    spot_rooms_fallback AS MATERIALIZED (
+      SELECT DISTINCT ON (location, room_key)
+        location,
+        room_key,
+        service_line,
+        room_type,
+        source_room_type
+      FROM spot_rooms_exact
+      ORDER BY location, room_key, occupied_yn DESC, id
+    ),
+    resolved AS (
+      SELECT
+        e.location,
+        COALESCE(exact.service_line, fallback.service_line, e.service_line) AS service_line,
+        COALESCE(rtg.group_name, exact.room_type, fallback.room_type, e.room_type) AS room_type,
+        SUBSTRING(e.event_date, 1, 7) AS mm,
+        e.event_type
+      FROM ${MOVE_IN_OUT_ACTIVE_VIEW} e
+      LEFT JOIN spot_rooms_exact exact
+        ON exact.location = e.location
+       AND exact.room_key = UPPER(BTRIM(e.room_name))
+       AND exact.service_line = e.service_line
+      LEFT JOIN spot_rooms_fallback fallback
+        ON fallback.location = e.location
+       AND fallback.room_key = UPPER(BTRIM(e.room_name))
+      LEFT JOIN room_type_groupings rtg
+        ON rtg.client_id = e.client_id
+       AND rtg.location = e.location
+       AND rtg.service_line = COALESCE(exact.service_line, fallback.service_line)
+       AND rtg.source_room_type = COALESCE(exact.source_room_type, fallback.source_room_type)
+      WHERE e.client_id = $1
+        AND e.counted = true
+        AND SUBSTRING(e.event_date, 1, 7) = ANY($2)
+    )
+    SELECT location, service_line, room_type, event_type, COUNT(*)::float AS n
+    FROM resolved
+    GROUP BY location, service_line, room_type, event_type
+  `, [clientId, t3Months, spotMonth]);
+
+  for (const r of res.rows as any[]) {
+    if (!r.location || !r.service_line || !r.room_type) continue;
+    const key = `${r.location}||${r.service_line}||${r.room_type}`;
+    const target = r.event_type === "move_in" ? moveIns : r.event_type === "move_out" ? moveOuts : null;
+    if (target) target.set(key, (target.get(key) || 0) + Number(r.n) / t3Months.length);
+  }
+  return { moveIns, moveOuts };
 }
 
 /**

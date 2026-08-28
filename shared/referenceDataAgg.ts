@@ -12,7 +12,7 @@
 /** Fields summed across rows when rolling up to a group level. */
 export const AGG_SUM_KEYS: string[] = [
   "totalUnits", "vacantSpot", "vacantT3", "vacantT12", "hcPrivatePaySpot",
-  "revT3MoveIns", "moveInsLatest", "moveOutsLatest", "moveNetLatest",
+  "revT3MoveIns", "moveInsLatest", "moveInsVsT3", "moveOutsLatest", "moveOutsVsT3", "moveNetLatest",
   "revMonthlyImpact", "revAnnualImpact", "elasticityMonthlyImpact", "elasticityAnnualImpact",
 ];
 

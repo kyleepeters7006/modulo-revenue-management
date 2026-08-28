@@ -23792,11 +23792,10 @@ Return ONLY valid JSON, no markdown fences:
             ORDER BY rr.location, rr.room_number, rr.move_in_date, rr.service_line, rr.room_type,
                      ${privatePaySql("rr.payor_type")} DESC, rr.payor_type
           ),
-          valid AS (
+           valid AS (
             SELECT location, service_line, room_type, TO_CHAR(dt,'YYYY-MM') AS mm
             FROM ev
-            WHERE dt IS NOT NULL
-              AND (CASE WHEN service_line IN ('HC','HC/MC') THEN ${privatePaySql("payor_type")} ELSE TRUE END)
+             WHERE dt IS NOT NULL
           )
           SELECT location, service_line, room_type, mm, COUNT(*)::int AS n
           FROM valid WHERE mm = ANY($2)
@@ -24131,12 +24130,15 @@ Return ONLY valid JSON, no markdown fences:
       // (demo rent-roll has move-in dates but no move-out dates → outs/net stay null).
       const miLatestMap = new Map<string, number>();
       const moLatestMap = new Map<string, number>();
+      const miT3Map = new Map<string, number>();
+      const moT3Map = new Map<string, number>();
       let hasMoveInData = false;
       let hasMoveOutData = false;
       {
         const {
           hasMoveInOutEvents: hasMioEvents,
           getLatestGroupedMoveInOutCounts,
+          getT3GroupedMoveInOutCounts,
         } = await import('./services/moveInOutService');
         if (await hasMioEvents(clientId)) {
           // Apply location/region/division filters (event map is client-wide)
@@ -24157,6 +24159,7 @@ Return ONLY valid JSON, no markdown fences:
           // have no room_type, so keying the raw series directly makes every
           // Reference Data room-type lookup miss and display zero.
           const latest = await getLatestGroupedMoveInOutCounts(clientId, spotMonth);
+          const trailing = await getT3GroupedMoveInOutCounts(clientId, t3Months, spotMonth);
           const fillLatest = (source: Map<string, number>, target: Map<string, number>) => {
             for (const [k, v] of Array.from(source.entries())) {
               const parts = k.split('||');
@@ -24167,17 +24170,25 @@ Return ONLY valid JSON, no markdown fences:
           };
           fillLatest(latest.moveIns, miLatestMap);
           fillLatest(latest.moveOuts, moLatestMap);
+          trailing.moveIns.forEach((value, key) => miT3Map.set(key, value));
+          trailing.moveOuts.forEach((value, key) => moT3Map.set(key, value));
           hasMoveInData = latest.month !== null;
           hasMoveOutData = latest.month !== null;
         } else {
-          // Rent-roll fallback: moveMap already built by getGroupedT3MoveInsMap above.
-          // moveRes provides latest-month move-in counts for the miLatestMap display column.
+          // Rent-roll fallback: moveMap already built by getGroupedT3MoveInsMap above
+          // for pricing impact. moveRes provides census-style monthly counts for
+          // both the latest and trailing-three-month display columns.
+          const t3Counts = new Map<string, number>();
           for (const r of moveRes.rows as any[]) {
             const key = `${r.location}||${r.service_line}||${r.room_type}`;
             if (r.mm === spotMonth) {
               miLatestMap.set(key, (miLatestMap.get(key) || 0) + (Number(r.n) || 0));
             }
+            if (t3Months.includes(r.mm)) {
+              t3Counts.set(key, (t3Counts.get(key) || 0) + (Number(r.n) || 0));
+            }
           }
+          t3Counts.forEach((value, key) => miT3Map.set(key, value / t3Months.length));
           hasMoveInData = moveRes.rows.length > 0;
         }
       }
@@ -24500,11 +24511,25 @@ Return ONLY valid JSON, no markdown fences:
           tourVsT3: (tourPrev !== null && tourT3Avg !== null) ? tourPrev - tourT3Avg : null,
           tourVsT12: (tourPrev !== null && tourT12Avg !== null) ? tourPrev - tourT12Avg : null,
           // Move-ins / move-outs (latest month with data; 0 when data source exists but no events)
-          ...((): { moveInsLatest: number|null; moveOutsLatest: number|null; moveNetLatest: number|null } => {
+          ...((): {
+            moveInsLatest: number|null;
+            moveInsVsT3: number|null;
+            moveOutsLatest: number|null;
+            moveOutsVsT3: number|null;
+            moveNetLatest: number|null;
+          } => {
             const key = `${c.campus}||${c.serviceLine}||${c.roomType}`;
             const mi = hasMoveInData ? (miLatestMap.get(key) ?? 0) : null;
             const mo = hasMoveOutData ? (moLatestMap.get(key) ?? 0) : null;
-            return { moveInsLatest: mi, moveOutsLatest: mo, moveNetLatest: (mi !== null && mo !== null) ? mi - mo : null };
+            const miT3 = hasMoveInData ? (miT3Map.get(key) ?? 0) : null;
+            const moT3 = hasMoveOutData ? (moT3Map.get(key) ?? 0) : null;
+            return {
+              moveInsLatest: mi,
+              moveInsVsT3: mi !== null && miT3 !== null ? mi - miT3 : null,
+              moveOutsLatest: mo,
+              moveOutsVsT3: mo !== null && moT3 !== null ? mo - moT3 : null,
+              moveNetLatest: (mi !== null && mo !== null) ? mi - mo : null,
+            };
           })(),
           // Street rates - single occupant
           streetSpot,
