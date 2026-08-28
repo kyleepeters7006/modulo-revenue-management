@@ -183,9 +183,9 @@ export default function PricingControls() {
       <Navigation />
 
       {/* Frog hero banner */}
-      <div className="aspect-[40/3] w-full overflow-hidden">
+      <div className="mx-auto aspect-[40/3] w-full max-w-7xl overflow-hidden px-4 sm:px-6 lg:px-8">
         <img
-          src="/frog-banner.jpg?v=4"
+          src="/frog-banner.jpg?v=5"
           alt=""
           className="h-full w-full object-cover"
         />
