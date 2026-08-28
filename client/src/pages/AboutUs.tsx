@@ -49,15 +49,30 @@ export default function AboutUs() {
 
         {/* ── AI Rule Design ─────────────────────────────────────────────── */}
         <Card className="mb-8 border-[var(--trilogy-teal)]/30 bg-gradient-to-br from-[var(--trilogy-teal)]/5 to-white">
-          <CardHeader>
-            <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
-              <Wand2 className="h-6 w-6 text-[var(--trilogy-teal)]" />
-              AI-Powered Rule Design
-            </CardTitle>
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--trilogy-teal)] mb-2">
+                Built into Pricing Controls
+              </p>
+              <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
+                <Wand2 className="h-6 w-6 text-[var(--trilogy-teal)]" />
+                AI Rule Generator
+              </CardTitle>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLocation("/pricing-controls?scrollTo=rules")}
+              className="border-[var(--trilogy-teal)] text-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/10 shrink-0"
+              data-testid="button-try-ai-rule-generator"
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              Try the AI Rule Generator
+            </Button>
           </CardHeader>
           <CardContent className="space-y-5 text-[var(--trilogy-grey)]">
             <p>
-              Pricing decisions in Modulo are driven by <strong className="text-[var(--trilogy-dark-blue)]">adjustment rules</strong> — structured IF / THEN logic that operators author, review, and control. What makes it different is how those rules are created: describe a strategy in plain English and the AI parses it into a structured rule, ready for review before it ever touches a rate.
+              Modulo includes a built-in <strong className="text-[var(--trilogy-dark-blue)]">AI Rule Generator</strong> that turns a pricing strategy into a reviewable rule. Describe what you want in plain English and the AI creates structured IF / THEN logic with conditions, action, and scope — ready for an operator to review before it ever touches a rate.
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
