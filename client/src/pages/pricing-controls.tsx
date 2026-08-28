@@ -72,10 +72,24 @@ export default function PricingControls() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-scroll to rule designer when navigated from analytics with scrollTo=rules
+  // Deep-link into the requested Rule Designer tab when arriving from another
+  // page. The AI generator needs more than a scroll: it must open the designer
+  // and select the AI Rule Generator tab.
   useEffect(() => {
     const scrollTo = urlParams.get('scrollTo');
-    if (scrollTo === 'rules') {
+    if (scrollTo === 'ai-generator') {
+      const openAiGenerator = () => {
+        if (designerHelpersRef.current) {
+          designerHelpersRef.current.showAiGenerator();
+          return;
+        }
+        // The RuleDesigner render prop may not have captured its helpers yet.
+        // Bring the card into view now and retry after the child has rendered.
+        document.getElementById('rule-designer-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setTimeout(openAiGenerator, 400);
+      };
+      setTimeout(openAiGenerator, 400);
+    } else if (scrollTo === 'rules') {
       const el = document.getElementById('rule-designer-section');
       if (el) {
         setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 400);

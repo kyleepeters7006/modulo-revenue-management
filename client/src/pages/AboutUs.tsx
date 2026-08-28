@@ -62,7 +62,7 @@ export default function AboutUs() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setLocation("/pricing-controls?scrollTo=rules")}
+              onClick={() => setLocation("/pricing-controls?scrollTo=ai-generator")}
               className="border-[var(--trilogy-teal)] text-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal)]/10 shrink-0"
               data-testid="button-try-ai-rule-generator"
             >
@@ -75,23 +75,32 @@ export default function AboutUs() {
               Modulo includes a built-in <strong className="text-[var(--trilogy-dark-blue)]">AI Rule Generator</strong> that turns a pricing strategy into a reviewable rule. Describe what you want in plain English and the AI creates structured IF / THEN logic with conditions, action, and scope — ready for an operator to review before it ever touches a rate.
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="rounded-lg border border-[var(--trilogy-teal)]/30 bg-white p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <Sparkles className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">Ask AI</h4>
+                  <Wand2 className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">Natural Language Rules</h4>
                 </div>
                 <p className="text-sm">
-                  Type a strategy in natural language — <em className="text-[var(--trilogy-dark-blue)]">"Reduce vacant AL rates by $100 after 30 days."</em> The AI parses it into a fully-structured rule with conditions, action, and scope. You review before saving.
+                  Describe a rule in plain English — <em className="text-[var(--trilogy-dark-blue)]">"Reduce vacant AL rates by $100 after 30 days."</em> Modulo translates it into conditions, action, and scope for your review.
                 </p>
               </div>
               <div className="rounded-lg border border-[var(--trilogy-dark-blue)]/20 bg-white p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <SlidersHorizontal className="h-5 w-5 text-[var(--trilogy-dark-blue)]" />
-                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">Structured Builder</h4>
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">Structured Rule Builder</h4>
                 </div>
                 <p className="text-sm">
                   Build conditions explicitly — metric, operator, value, time window — then define the action. Every rule is fully auditable: operators can see exactly which factors moved each rate.
+                </p>
+              </div>
+              <div className="rounded-lg border border-[var(--trilogy-teal)]/30 bg-white p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">AI Rule Generator</h4>
+                </div>
+                <p className="text-sm">
+                  Set revenue-growth targets and let AI propose targeted pricing rules. Review each suggestion's impact, then accept, edit, or deny it — the system learns from every decision.
                 </p>
               </div>
             </div>
