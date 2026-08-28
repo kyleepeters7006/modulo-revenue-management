@@ -88,3 +88,4 @@
 - [Read-time dedup rejected](event-feed-read-path-perf.md) — dedup belongs in a stored flag behind a view; joining a grouped CTE back to its base table invites a nested loop no index rescues.
 - [Per-service-line turnover bands](turnover-plausibility-bands.md) — one portfolio-wide plausibility ceiling cannot judge villas and skilled nursing; the floor catches the quiet error. Warn, never clamp.
 - [Inert inputs from rival state stores](inert-input-state-split.md) — a field bound to the losing side of a `{...shared, ...perKey}` merge ignores typing; per-key defaults are what expose it.
+- [Ultra-wide hero image zoom](ultrawide-hero-image-zoom.md) — object-cover cannot zoom out a standard photo while staying edge-to-edge; use a purpose-built panoramic asset.

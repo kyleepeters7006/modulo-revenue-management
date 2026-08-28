@@ -183,12 +183,11 @@ export default function PricingControls() {
       <Navigation />
 
       {/* Frog hero banner */}
-      <div className="w-full h-20 sm:h-24 overflow-hidden">
+      <div className="aspect-[40/3] w-full overflow-hidden">
         <img
-          src="/frog.jpg"
+          src="/frog-banner.jpg?v=4"
           alt=""
-          className="w-full h-full object-cover"
-          style={{ objectPosition: "35% 62%" }}
+          className="h-full w-full object-cover"
         />
       </div>
 
