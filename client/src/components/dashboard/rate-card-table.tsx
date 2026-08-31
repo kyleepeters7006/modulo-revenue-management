@@ -39,7 +39,7 @@ import { CheckCircle, AlertCircle, Info, Shield, ArrowUpDown, ArrowUp, ArrowDown
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
-import { ManualOverrideHistory } from "./manual-override-history";
+import { ManualOverrideHistory, ManualOverrideHistoryList } from "./manual-override-history";
 import { formatNumber, formatCurrency, formatPercentage, formatRateByServiceLine, convertToDisplayRate, isDailyRateServiceLine } from "@/lib/formatters";
 
 interface RateCardTableProps {
@@ -565,6 +565,7 @@ export default function RateCardTable({
           <CardTitle className="flex items-center justify-between">
             <span>Rate Card & Pricing</span>
             <div className="flex items-center space-x-4">
+              <ManualOverrideHistoryList />
               <Select 
                 value={selectedMonth || rateCardData?.month || ''} 
                 onValueChange={setSelectedMonth}
@@ -1055,10 +1056,40 @@ export default function RateCardTable({
                                 /* Manual override display */
                                 <>
                                   <div className="flex items-center gap-1">
-                                    <span
-                       className="inline-block w-2 h-2 rounded-full bg-amber-400 shrink-0"
-                       title={unit.manualOverrideNote ? `Manual override active — Note: ${unit.manualOverrideNote}` : "Manual override active"}
-                     />
+                                   <TooltipProvider delayDuration={100}>
+                                     <Tooltip>
+                                       <TooltipTrigger asChild>
+                                         <button
+                                           type="button"
+                                           className="inline-flex rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                                           aria-label="Show manual override history"
+                                         >
+                                           <span
+                                             className="inline-block w-2 h-2 rounded-full bg-amber-400 shrink-0"
+                                             title="Manual override active"
+                                           />
+                                         </button>
+                                       </TooltipTrigger>
+                                       <TooltipContent side="top" className="max-w-[240px]">
+                                         <p className="text-xs font-medium">Manual override</p>
+                                         <p className="text-xs text-muted-foreground">
+                                           Last updated: {formatOverrideTimestamp(unit.manualOverrideUpdatedAt) ?? "Date unavailable"}
+                                         </p>
+                                         <p className="text-xs text-muted-foreground">
+                                           Last updated by: {unit.manualOverrideUpdatedByName ?? unit.manualOverrideUpdatedBy ?? unit.manualOverrideCreatedByName ?? unit.manualOverrideCreatedBy ?? "Unknown user"}
+                                         </p>
+                                         <p className="text-xs text-muted-foreground">
+                                           Originally set: {formatOverrideTimestamp(unit.manualOverrideCreatedAt) ?? "Date unavailable"}
+                                         </p>
+                                         <p className="text-xs text-muted-foreground">
+                                           Originally set by: {unit.manualOverrideCreatedByName ?? unit.manualOverrideCreatedBy ?? "Unknown user"}
+                                         </p>
+                                         {unit.manualOverrideNote && (
+                                           <p className="text-xs text-muted-foreground mt-0.5 italic">"{unit.manualOverrideNote}"</p>
+                                         )}
+                                       </TooltipContent>
+                                     </Tooltip>
+                                   </TooltipProvider>
                                     <span className="font-medium text-amber-700">
                                       {formatRateByServiceLine(Math.round(unit.manualOverrideRate), unit.serviceLine)}
                                     </span>
@@ -1343,4 +1374,17 @@ export default function RateCardTable({
     </div>
     </TooltipProvider>
   );
+}
+
+function formatOverrideTimestamp(value: unknown): string | null {
+  if (!value) return null;
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }

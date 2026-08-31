@@ -62,6 +62,10 @@ args = "cancellable-write"
 task = "workflow.run"
 args = "inhouse-rate-plan-export"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "manual-rate-override-audit"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -169,6 +173,17 @@ args = "npx tsx tests/inhouseRatePlanExport.test.ts"
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow]]
+name = "manual-rate-override-audit"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run test:manual-rate-override-audit"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [[ports]]
 localPort = 5000

@@ -11,7 +11,8 @@
     "db:push": "drizzle-kit push",
     "test": "vitest run && node scripts/runScriptTests.mjs",
     "test:vitest": "vitest run",
-    "test:scripts": "node scripts/runScriptTests.mjs"
+    "test:scripts": "node scripts/runScriptTests.mjs",
+    "test:manual-rate-override-audit": "npx tsx tests/manualRateOverrideAudit.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",

@@ -55,7 +55,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { ManualOverrideHistory } from "./manual-override-history";
+import { ManualOverrideHistory, ManualOverrideHistoryList } from "./manual-override-history";
 
 // ── Column metadata ────────────────────────────────────────────────
 type ColType =
@@ -657,6 +657,19 @@ function elasticityStyle(value: any): { text: string; bg: string; label: string 
   if (v > 0.5)   return { text: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50/40 dark:bg-emerald-950/10", label: "Elastic (normal)" };
   if (v >= -0.5) return { text: "text-amber-600 dark:text-amber-400",   bg: "bg-amber-50/60 dark:bg-amber-950/20",   label: "Weak signal" };
   return                { text: "text-rose-600 dark:text-rose-400",     bg: "bg-rose-50/60 dark:bg-rose-950/20",     label: "Counter-intuitive (flag)" };
+}
+
+function formatOverrideTimestamp(value: unknown): string | null {
+  if (!value) return null;
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 interface ReferenceDataResponse {
   rows: Record<string, any>[];
@@ -1847,6 +1860,18 @@ export default function ReferenceDataTable({
                                   ? <p className="text-xs text-muted-foreground">Rule rate was ${Math.round(Number(row.ruleRate)).toLocaleString()}</p>
                                   : <p className="text-xs text-muted-foreground">No rule rate — override sets a floor</p>
                                 }
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Last updated: {formatOverrideTimestamp(row.manualOverrideUpdatedAt) ?? "Date unavailable"}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Last updated by: {row.manualOverrideUpdatedByName ?? row.manualOverrideUpdatedBy ?? row.manualOverrideCreatedByName ?? row.manualOverrideCreatedBy ?? "Unknown user"}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Originally set: {formatOverrideTimestamp(row.manualOverrideCreatedAt) ?? "Date unavailable"}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Originally set by: {row.manualOverrideCreatedByName ?? row.manualOverrideCreatedBy ?? "Unknown user"}
+                                </p>
                                 {row.manualOverrideNote && (
                                   <p className="text-xs text-muted-foreground mt-0.5 italic">"{row.manualOverrideNote}"</p>
                                 )}
@@ -2185,6 +2210,7 @@ export default function ReferenceDataTable({
         )}
       </div>
       <div className="flex items-center gap-2 flex-wrap">
+        <ManualOverrideHistoryList />
         {/* Grouping level toggle */}
         <div className="flex items-center rounded-md border border-border p-0.5" data-testid="refdata-group-toggle">
           {GROUP_LEVELS.map((lv) => (

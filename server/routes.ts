@@ -741,7 +741,11 @@ async function checkAndInitializeDatabase() {
       ALTER TABLE manual_rate_overrides ADD COLUMN IF NOT EXISTS notes text
     `);
     await db.execute(sql`
-      ALTER TABLE manual_rate_overrides ADD COLUMN IF NOT EXISTS created_by text
+      ALTER TABLE manual_rate_overrides
+        ADD COLUMN IF NOT EXISTS created_at timestamp DEFAULT now(),
+        ADD COLUMN IF NOT EXISTS updated_at timestamp DEFAULT now(),
+        ADD COLUMN IF NOT EXISTS created_by text,
+        ADD COLUMN IF NOT EXISTS updated_by text
     `);
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS manual_rate_override_history (
@@ -867,9 +871,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Serve attached assets statically
   app.use('/attached_assets', express.static(path.resolve('attached_assets')));
   
-  // ============================================================================
+  // ----------------------------------------------------------------------------
   // SESSION MIDDLEWARE
-  // ============================================================================
+  // ----------------------------------------------------------------------------
   {
     const sessionLib = await import('express-session');
     const connectPg = (await import('connect-pg-simple')).default;
@@ -893,9 +897,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }));
   }
 
-  // ============================================================================
+  // ----------------------------------------------------------------------------
   // MULTI-TENANT AUTHENTICATION
-  // ============================================================================
+  // ----------------------------------------------------------------------------
 
   // clientId middleware — runs before all data routes
   // Unauthenticated requests default to 'demo' client
@@ -3847,7 +3851,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  /* ============================================================================
+  /* ----------------------------------------------------------------------------
    * DATA IMPORT ENDPOINTS
    * 
    * These endpoints handle bulk data uploads from various sources including:
@@ -3860,7 +3864,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * 
    * IMPORTANT: Most uploads clear existing data before inserting new records.
    * This ensures a clean state but means partial uploads may result in data loss.
-   * ============================================================================ */
+   * ---------------------------------------------------------------------------- */
 
   /**
    * POST /api/upload/unified
@@ -4242,7 +4246,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  /* ============================================================================
+  /* ----------------------------------------------------------------------------
    * PRICING CONFIGURATION ENDPOINTS
    * 
    * These endpoints manage the algorithmic pricing parameters that drive
@@ -4263,7 +4267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * GUARDRAILS:
    * - Prevent recommendations from exceeding min/max bounds
    * - Can be set per room type, service line, or campus
-   * ============================================================================ */
+   * ---------------------------------------------------------------------------- */
 
   // Helper function to format weights response
   const formatWeightsResponse = (weights: any) => ({
@@ -4966,7 +4970,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  /* ============================================================================
+  /* ----------------------------------------------------------------------------
    * COMPETITOR MANAGEMENT ENDPOINTS
    * 
    * Manages competitor property data used for market positioning analysis.
@@ -4975,7 +4979,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * 
    * Data sources: Competitive surveys, market research, manual entry
    * Key fields: name, location (Trilogy campus), roomType, streetRate, rating
-   * ============================================================================ */
+   * ---------------------------------------------------------------------------- */
 
   /**
    * GET /api/competitors
@@ -8546,7 +8550,7 @@ ${campusOccLines.join('\n')}
         originalHeaders.slice(0, 5).forEach(header => {
           console.log(`  ${header}: ${jsonData[0][header]}`);
         });
-        console.log('======================');
+        console.log('----------------------');
       }
 
       // Helper function to get value from row with robust column name matching
@@ -8912,7 +8916,7 @@ ${campusOccLines.join('\n')}
           console.log('Available columns in first row:', Object.keys(jsonData[0]));
         }
       }
-      console.log(`===================================`);
+      console.log(`-----------------------------------`);
       
       // Validate competitor fields were found
       const recordsWithCompRates = processedRecords.filter(r => r.competitorRate > 0).length;
@@ -8927,7 +8931,7 @@ ${campusOccLines.join('\n')}
       if (recordsWithCompRates === 0) {
         console.warn('⚠️ WARNING: No competitor rate data found in CSV. Check column names!');
       }
-      console.log('===================================');
+      console.log('-----------------------------------');
       
       // Import-time street-rate plausibility guard (warn-only): flag campuses
       // whose median street rate moved ~an order of magnitude vs the prior
@@ -9700,7 +9704,7 @@ ${campusOccLines.join('\n')}
     }
   });
 
-  /* ============================================================================
+  /* ----------------------------------------------------------------------------
    * ANALYTICS & OVERVIEW ENDPOINTS
    * 
    * These endpoints power the main dashboard and provide aggregate portfolio metrics.
@@ -9713,7 +9717,7 @@ ${campusOccLines.join('\n')}
    * - Health Care (HC, HC/MC, SMC): B-beds ARE included in counts (both beds count)
    * 
    * All analytics use 5-minute caching to reduce database load from repeated queries.
-   * ============================================================================ */
+   * ---------------------------------------------------------------------------- */
 
   /**
    * GET /api/overview
@@ -12006,12 +12010,37 @@ ${campusOccLines.join('\n')}
       // Attach manual override rates so the rate card can display them
       try {
         const { rows: mroRows } = await pool.query(
-          `SELECT location_name, service_line, room_type, override_rate, notes FROM manual_rate_overrides WHERE client_id = $1`,
+          `SELECT mro.location_name, mro.service_line, mro.room_type, mro.override_rate, mro.notes,
+                  mro.created_at, mro.updated_at, mro.created_by,
+                  creator.username AS created_by_name, mro.updated_by,
+                  updater.username AS updated_by_name
+             FROM manual_rate_overrides mro
+             LEFT JOIN users creator ON creator.id = mro.created_by
+             LEFT JOIN users updater ON updater.id = mro.updated_by
+            WHERE mro.client_id = $1`,
           [clientId]
         );
-        const rcOverrideMap = new Map<string, { rate: number; notes: string | null }>();
+        const rcOverrideMap = new Map<string, {
+          rate: number;
+          notes: string | null;
+          createdAt: string | null;
+          updatedAt: string | null;
+          createdBy: string | null;
+          createdByName: string | null;
+          updatedBy: string | null;
+          updatedByName: string | null;
+        }>();
         for (const o of mroRows) {
-          rcOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, { rate: Number(o.override_rate), notes: o.notes ?? null });
+          rcOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, {
+            rate: Number(o.override_rate),
+            notes: o.notes ?? null,
+            createdAt: o.created_at ?? null,
+            updatedAt: o.updated_at ?? null,
+            createdBy: o.created_by ?? null,
+            createdByName: o.created_by_name ?? null,
+            updatedBy: o.updated_by ?? null,
+            updatedByName: o.updated_by_name ?? null,
+          });
         }
         if (rcOverrideMap.size > 0) {
           unitLevelData = unitLevelData.map((unit: any) => {
@@ -12020,6 +12049,12 @@ ${campusOccLines.join('\n')}
               ...unit,
               manualOverrideRate: ov?.rate ?? null,
               manualOverrideNote: ov?.notes ?? null,
+              manualOverrideCreatedAt: ov?.createdAt ?? null,
+              manualOverrideUpdatedAt: ov?.updatedAt ?? null,
+              manualOverrideCreatedBy: ov?.createdBy ?? null,
+              manualOverrideCreatedByName: ov?.createdByName ?? null,
+              manualOverrideUpdatedBy: ov?.updatedBy ?? null,
+              manualOverrideUpdatedByName: ov?.updatedByName ?? null,
             };
           });
         }
@@ -17303,6 +17338,7 @@ Respond in JSON format:
     try {
       const clientId = req.clientId || req.session?.clientId || 'demo';
       const overrideActor = await getOverrideActor(req, clientId);
+      const overrideUserId = req.session?.userId || null;
       const rows: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
       if (!rows.length) {
         return res.status(400).json({ error: "rows array is required" });
@@ -17344,11 +17380,12 @@ Respond in JSON format:
            ),
            saved AS (
              INSERT INTO manual_rate_overrides
-               (client_id, location_id, location_name, service_line, room_type, override_rate, created_by, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+               (client_id, location_id, location_name, service_line, room_type, override_rate, created_by, updated_by, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
              ON CONFLICT (client_id, location_name, service_line, room_type)
              DO UPDATE SET override_rate = EXCLUDED.override_rate,
                            location_id   = EXCLUDED.location_id,
+                           updated_by    = COALESCE(EXCLUDED.updated_by, manual_rate_overrides.updated_by),
                            updated_at    = now()
              RETURNING id
            )
@@ -17360,7 +17397,7 @@ Respond in JSON format:
                   previous.override_rate, $6, NULL, $7, now()
              FROM saved
              LEFT JOIN previous ON TRUE`,
-          [clientId, locationId, campus, serviceLine, roomType, rate, overrideActor],
+           [clientId, locationId, campus, serviceLine, roomType, rate, overrideUserId, overrideUserId, overrideActor],
         );
         overridesApplied++;
       }
@@ -22206,9 +22243,9 @@ Return ONLY valid JSON, no markdown fences:
     }
   });
 
-  // ============================================
+  // --------------------------------------------
   // IH-TO-STREET VARIANCE METRIC ENDPOINTS
-  // ============================================
+  // --------------------------------------------
 
   /**
    * GET /api/metrics/ih-street-variance
@@ -22373,9 +22410,9 @@ Return ONLY valid JSON, no markdown fences:
     }
   });
 
-  // ============================================
+  // --------------------------------------------
   // CAMPUS METRICS SNAPSHOT (Rule Designer reference data)
-  // ============================================
+  // --------------------------------------------
 
   // GET /api/metrics/campus-snapshot?locationId=xxx
   // Returns all stored campus_metrics rows shaped into a structured snapshot.
@@ -22693,7 +22730,7 @@ Return ONLY valid JSON, no markdown fences:
     }
   });
 
-  // ============================================
+  // --------------------------------------------
   // ── Manual Rate Overrides ──────────────────────────────────────────────────
   // GET  /api/manual-rate-overrides  — list all for current client
   // POST /api/manual-rate-override   — upsert override for a (location, sl, rt) segment
@@ -22704,16 +22741,42 @@ Return ONLY valid JSON, no markdown fences:
     try {
       const clientId: string = req.session?.clientId || 'demo';
       const { rows } = await pool.query(
-        `SELECT id, client_id, location_id, location_name, service_line, room_type, override_rate, notes, created_by, created_at, updated_at
-         FROM manual_rate_overrides
-         WHERE client_id = $1
-         ORDER BY location_name, service_line, room_type`,
+        `SELECT mro.id, mro.client_id, mro.location_id, mro.location_name,
+                mro.service_line, mro.room_type, mro.override_rate, mro.notes,
+                mro.created_at, mro.updated_at, mro.created_by,
+                creator.username AS created_by_name, mro.updated_by,
+                updater.username AS updated_by_name
+           FROM manual_rate_overrides mro
+           LEFT JOIN users creator ON creator.id = mro.created_by
+           LEFT JOIN users updater ON updater.id = mro.updated_by
+          WHERE mro.client_id = $1
+          ORDER BY mro.location_name, mro.service_line, mro.room_type`,
         [clientId]
       );
       res.json(rows);
     } catch (err) {
       console.error('[manual-rate-overrides] GET error:', err);
       res.status(500).json({ error: 'Failed to fetch manual rate overrides' });
+    }
+  });
+
+  // Keep a client-scoped entry point for the complete audit trail, including
+  // overrides that have since been removed from the active override list.
+  app.get("/api/manual-rate-override-history", async (req: any, res) => {
+    try {
+      const clientId: string = req.session?.clientId || 'demo';
+      const { rows } = await pool.query(
+        `SELECT id, override_id, location_id, location_name, service_line, room_type,
+                event_type, previous_rate, new_rate, notes, changed_by, changed_at
+           FROM manual_rate_override_history
+          WHERE client_id = $1
+          ORDER BY changed_at DESC, id DESC`,
+        [clientId],
+      );
+      res.json(rows);
+    } catch (err) {
+      console.error('[manual-rate-overrides] all-history GET error:', err);
+      res.status(500).json({ error: 'Failed to fetch manual rate override history' });
     }
   });
 
@@ -22751,6 +22814,7 @@ Return ONLY valid JSON, no markdown fences:
         return res.status(400).json({ error: 'overrideRate must be a positive number' });
       }
       const actor = await getOverrideActor(req, clientId);
+      const userId = req.session?.userId || null;
       const dbClient = await pool.connect();
       let saved: any;
       try {
@@ -22765,15 +22829,16 @@ Return ONLY valid JSON, no markdown fences:
         const eventType = existing.rows[0] ? 'update' : 'create';
         const result = await dbClient.query(
           `INSERT INTO manual_rate_overrides
-             (client_id, location_id, location_name, service_line, room_type, override_rate, notes, created_by, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+             (client_id, location_id, location_name, service_line, room_type, override_rate, notes, created_by, updated_by, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
            ON CONFLICT (client_id, location_name, service_line, room_type)
            DO UPDATE SET override_rate = EXCLUDED.override_rate,
                          location_id   = EXCLUDED.location_id,
                          notes         = EXCLUDED.notes,
+                         updated_by    = COALESCE(EXCLUDED.updated_by, manual_rate_overrides.updated_by),
                          updated_at    = now()
            RETURNING *`,
-          [clientId, locationId || null, locationName, serviceLine, roomType, rate, notes || null, actor],
+          [clientId, locationId || null, locationName, serviceLine, roomType, rate, notes || null, userId, userId],
         );
         saved = result.rows[0];
         await dbClient.query(
@@ -22797,7 +22862,15 @@ Return ONLY valid JSON, no markdown fences:
       warmRefDataCacheForClient(clientId);
       pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key LIKE $1`, [`pc-commentary:${clientId}:%`])
         .catch((err: any) => console.error('[manual-rate-overrides] commentary cache purge error:', err));
-      res.json(saved);
+      const auditResult = await pool.query(
+        `SELECT mro.*, creator.username AS created_by_name, updater.username AS updated_by_name
+           FROM manual_rate_overrides mro
+           LEFT JOIN users creator ON creator.id = mro.created_by
+           LEFT JOIN users updater ON updater.id = mro.updated_by
+          WHERE mro.id = $1`,
+        [saved.id],
+      );
+      res.json(auditResult.rows[0] || saved);
     } catch (err) {
       console.error('[manual-rate-overrides] POST error:', err);
       res.status(500).json({ error: 'Failed to save manual rate override' });
@@ -23921,7 +23994,7 @@ Return ONLY valid JSON, no markdown fences:
   // GET /api/reference-data?regions=&divisions=&locations=&serviceLine=
   // One row per (Division, Campus, Service Line, Room Type) with Spot/T3/T6/T12
   // metrics computed across the latest 12 upload_months of rent_roll_data.
-  // ============================================
+  // --------------------------------------------
   app.get("/api/reference-data", async (req, res) => {
     try {
       // Allow server-side warm-up requests to specify a client without a session.
@@ -24528,13 +24601,50 @@ Return ONLY valid JSON, no markdown fences:
       }
 
       // Load manual rate overrides for this client (keyed by campus||sl||rt)
-      const manualOverridesRes = await pool.query<{ location_name: string; service_line: string; room_type: string; override_rate: number; notes: string | null }>(
-        `SELECT location_name, service_line, room_type, override_rate, notes FROM manual_rate_overrides WHERE client_id = $1`,
+      const manualOverridesRes = await pool.query<{
+        location_name: string;
+        service_line: string;
+        room_type: string;
+        override_rate: number;
+        notes: string | null;
+        created_at: string | null;
+        updated_at: string | null;
+        created_by: string | null;
+        created_by_name: string | null;
+        updated_by: string | null;
+        updated_by_name: string | null;
+      }>(
+        `SELECT mro.location_name, mro.service_line, mro.room_type, mro.override_rate, mro.notes,
+                mro.created_at, mro.updated_at, mro.created_by,
+                creator.username AS created_by_name, mro.updated_by,
+                updater.username AS updated_by_name
+           FROM manual_rate_overrides mro
+           LEFT JOIN users creator ON creator.id = mro.created_by
+           LEFT JOIN users updater ON updater.id = mro.updated_by
+          WHERE mro.client_id = $1`,
         [clientId]
       );
-      const manualOverrideMap = new Map<string, { rate: number; notes: string | null }>();
+      const manualOverrideMap = new Map<string, {
+        rate: number;
+        notes: string | null;
+        createdAt: string | null;
+        updatedAt: string | null;
+        createdBy: string | null;
+        createdByName: string | null;
+        updatedBy: string | null;
+        updatedByName: string | null;
+      }>();
       for (const o of manualOverridesRes.rows) {
-        manualOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, { rate: Number(o.override_rate), notes: o.notes ?? null });
+        manualOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, {
+          rate: Number(o.override_rate),
+          notes: o.notes ?? null,
+          createdAt: o.created_at ?? null,
+          updatedAt: o.updated_at ?? null,
+          createdBy: o.created_by ?? null,
+          createdByName: o.created_by_name ?? null,
+          updatedBy: o.updated_by ?? null,
+          updatedByName: o.updated_by_name ?? null,
+        });
       }
 
       // ── Applied annual in-house increases ────────────────────────────────
@@ -24850,6 +24960,12 @@ Return ONLY valid JSON, no markdown fences:
           proposedRule: effectiveProposed,
           hasManualOverride: manualRate !== null,
           manualOverrideNote: manualOverrideNote,
+          manualOverrideCreatedAt: manualOverrideEntry?.createdAt ?? null,
+          manualOverrideUpdatedAt: manualOverrideEntry?.updatedAt ?? null,
+          manualOverrideCreatedBy: manualOverrideEntry?.createdBy ?? null,
+          manualOverrideCreatedByName: manualOverrideEntry?.createdByName ?? null,
+          manualOverrideUpdatedBy: manualOverrideEntry?.updatedBy ?? null,
+          manualOverrideUpdatedByName: manualOverrideEntry?.updatedByName ?? null,
           // The rule-calculated rate before any manual override; null when no rule applies.
           // Used by the UI tooltip: "Manual override — rule rate was $X".
           ruleRate: manualRate !== null ? (proposed ?? rulePreviewRate) : null,
@@ -25440,9 +25556,9 @@ Return ONLY valid JSON, no markdown fences:
     }
   });
 
-  // ============================================
+  // --------------------------------------------
   // FLOOR PLANS API ENDPOINTS
-  // ============================================
+  // --------------------------------------------
 
   // Campus Maps endpoints
   app.get("/api/campus-maps/:locationId", async (req, res) => {
@@ -26222,9 +26338,9 @@ Return ONLY valid JSON, no markdown fences:
     }
   });
 
-  // =====================================================
+  // -----------------------------------------------------
   // Data Import Routes for Production Data Migration
-  // =====================================================
+  // -----------------------------------------------------
   
   app.post("/api/import/rent-roll", upload.single("file"), async (req, res) => {
     try {
@@ -27041,9 +27157,9 @@ Return ONLY valid JSON, no markdown fences:
     }
   });
 
-  // ==========================================
+  // ------------------------------------------
   // ML Learning API Endpoints
-  // ==========================================
+  // ------------------------------------------
   
   // Get ML learning statistics for dashboard
   app.get("/api/ml/statistics", async (req, res) => {
