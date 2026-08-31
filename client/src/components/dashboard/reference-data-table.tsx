@@ -55,6 +55,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { ManualOverrideHistory } from "./manual-override-history";
 
 // ── Column metadata ────────────────────────────────────────────────
 type ColType =
@@ -754,6 +755,7 @@ export default function ReferenceDataTable({
       queryClient.invalidateQueries({ queryKey: ['/api/reference-data'] });
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
       queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-overrides'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-override-history'] });
       setOverridePop(null);
       setDeltaPop(null);
     },
@@ -766,6 +768,7 @@ export default function ReferenceDataTable({
       queryClient.invalidateQueries({ queryKey: ['/api/reference-data'] });
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
       queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-overrides'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-override-history'] });
       setOverridePop(null);
     },
   });
@@ -1899,6 +1902,11 @@ export default function ReferenceDataTable({
                               className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none mb-2"
                             />
                             <div className="flex gap-1">
+                              <ManualOverrideHistory
+                                locationName={row.campus}
+                                serviceLine={row.serviceLine}
+                                roomType={row.roomType}
+                              />
                               <Button
                                 size="sm"
                                 className="h-7 flex-1 text-xs"

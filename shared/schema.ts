@@ -617,6 +617,28 @@ export const derivedRateFormulas = pgTable("derived_rate_formulas", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Immutable audit events for live manual rate overrides. The current override
+// is intentionally stored separately so the latest value remains fast to read.
+export const manualRateOverrideHistory = pgTable("manual_rate_override_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull(),
+  overrideId: varchar("override_id"),
+  locationId: varchar("location_id"),
+  locationName: text("location_name").notNull(),
+  serviceLine: text("service_line").notNull(),
+  roomType: text("room_type").notNull(),
+  eventType: text("event_type").notNull(),
+  previousRate: real("previous_rate"),
+  newRate: real("new_rate"),
+  notes: text("notes"),
+  changedBy: text("changed_by"),
+  changedAt: timestamp("changed_at").defaultNow(),
+}, (table) => ({
+  segmentIndex: index("mro_history_segment_idx").on(
+    table.clientId, table.locationName, table.serviceLine, table.roomType, table.changedAt,
+  ),
+}));
+
 // In-House Rate Planning assumptions.
 //
 // Three-tier scope exactly like `guardrails` and `adjustment_ranges`:

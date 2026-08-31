@@ -25,6 +25,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useToast } from '@/hooks/use-toast';
 import { isRuleAdditive, isRuleExclusive, exclusivePriority } from '@shared/ruleStacking';
 import { PERCENT_METRICS, conditionValueIssue } from '@shared/ruleThresholdScales';
+import { ManualOverrideHistory } from './manual-override-history';
 
 interface SpeechRecognitionEvent extends Event {
   results: SpeechRecognitionResultList;
@@ -2969,12 +2970,19 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                                 ${mo.override_rate.toLocaleString()}/mo
                               </td>
                               <td className="py-2 px-2 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <ManualOverrideHistory
+                                    locationName={mo.location_name}
+                                    serviceLine={mo.service_line}
+                                    roomType={mo.room_type}
+                                  />
                                 <button
                                   type="button"
                                   className="text-[10px] text-red-500 hover:text-red-700 underline"
                                   onClick={() => clearManualOverride(mo.location_name, mo.service_line, mo.room_type)}
                                   title="Remove this manual override"
                                 >Remove</button>
+                                </div>
                               </td>
                             </tr>
                           ))}

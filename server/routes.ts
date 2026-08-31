@@ -240,6 +240,24 @@ async function isRuleAdmin(req: any): Promise<boolean> {
   return result.rows.length > 0 && String(result.rows[0].username || "").endsWith("_admin");
 }
 
+async function getOverrideActor(req: any, clientId: string): Promise<string | null> {
+  const userId = req.session?.userId;
+  if (!userId) return null;
+  const result = await pool.query(
+    `SELECT username, email, first_name, last_name
+       FROM users
+      WHERE id = $1 AND client_id = $2
+      LIMIT 1`,
+    [userId, clientId],
+  );
+  const user = result.rows[0];
+  if (!user) return String(userId);
+  return user.username ||
+    user.email ||
+    [user.first_name, user.last_name].filter(Boolean).join(' ') ||
+    String(userId);
+}
+
 // commentaryInflight and commentaryGeneration are imported from ./commentaryCache
 // so pricingJobManager.ts can share the same instances and invalidate them on job completion.
 
@@ -722,6 +740,31 @@ async function checkAndInitializeDatabase() {
     await db.execute(sql`
       ALTER TABLE manual_rate_overrides ADD COLUMN IF NOT EXISTS notes text
     `);
+    await db.execute(sql`
+      ALTER TABLE manual_rate_overrides ADD COLUMN IF NOT EXISTS created_by text
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS manual_rate_override_history (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id varchar NOT NULL,
+        override_id varchar,
+        location_id varchar,
+        location_name text NOT NULL,
+        service_line text NOT NULL,
+        room_type text NOT NULL,
+        event_type text NOT NULL,
+        previous_rate real,
+        new_rate real,
+        notes text,
+        changed_by text,
+        changed_at timestamp DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS mro_history_segment_idx
+      ON manual_rate_override_history (client_id, location_name, service_line, room_type, changed_at DESC)
+    `);
+    console.log('[migration] manual rate override audit history ensured');
 
     const unitCount = await storage.getTotalUnits();
     console.log(`Database has ${unitCount} units`);
@@ -17259,6 +17302,7 @@ Respond in JSON format:
   app.post("/api/reference-data/import-rules", async (req: any, res) => {
     try {
       const clientId = req.clientId || req.session?.clientId || 'demo';
+      const overrideActor = await getOverrideActor(req, clientId);
       const rows: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
       if (!rows.length) {
         return res.status(400).json({ error: "rows array is required" });
@@ -17293,13 +17337,30 @@ Respond in JSON format:
         }
         const locationId = locByName.get(campus.toLowerCase()) ?? null;
         await pool.query(
-          `INSERT INTO manual_rate_overrides (client_id, location_id, location_name, service_line, room_type, override_rate, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, now())
-           ON CONFLICT (client_id, location_name, service_line, room_type)
-           DO UPDATE SET override_rate = EXCLUDED.override_rate,
-                         location_id   = EXCLUDED.location_id,
-                         updated_at    = now()`,
-          [clientId, locationId, campus, serviceLine, roomType, rate]
+          `WITH previous AS MATERIALIZED (
+             SELECT id, override_rate
+               FROM manual_rate_overrides
+              WHERE client_id = $1 AND location_name = $3 AND service_line = $4 AND room_type = $5
+           ),
+           saved AS (
+             INSERT INTO manual_rate_overrides
+               (client_id, location_id, location_name, service_line, room_type, override_rate, created_by, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+             ON CONFLICT (client_id, location_name, service_line, room_type)
+             DO UPDATE SET override_rate = EXCLUDED.override_rate,
+                           location_id   = EXCLUDED.location_id,
+                           updated_at    = now()
+             RETURNING id
+           )
+           INSERT INTO manual_rate_override_history
+             (client_id, override_id, location_id, location_name, service_line, room_type,
+              event_type, previous_rate, new_rate, notes, changed_by, changed_at)
+           SELECT $1, saved.id, $2, $3, $4, $5,
+                  CASE WHEN previous.id IS NULL THEN 'create' ELSE 'update' END,
+                  previous.override_rate, $6, NULL, $7, now()
+             FROM saved
+             LEFT JOIN previous ON TRUE`,
+          [clientId, locationId, campus, serviceLine, roomType, rate, overrideActor],
         );
         overridesApplied++;
       }
@@ -22643,7 +22704,7 @@ Return ONLY valid JSON, no markdown fences:
     try {
       const clientId: string = req.session?.clientId || 'demo';
       const { rows } = await pool.query(
-        `SELECT id, client_id, location_id, location_name, service_line, room_type, override_rate, notes, created_at, updated_at
+        `SELECT id, client_id, location_id, location_name, service_line, room_type, override_rate, notes, created_by, created_at, updated_at
          FROM manual_rate_overrides
          WHERE client_id = $1
          ORDER BY location_name, service_line, room_type`,
@@ -22653,6 +22714,28 @@ Return ONLY valid JSON, no markdown fences:
     } catch (err) {
       console.error('[manual-rate-overrides] GET error:', err);
       res.status(500).json({ error: 'Failed to fetch manual rate overrides' });
+    }
+  });
+
+  app.get("/api/manual-rate-override-history/:locationName/:serviceLine/:roomType", async (req: any, res) => {
+    try {
+      const clientId: string = req.session?.clientId || 'demo';
+      const { locationName, serviceLine, roomType } = req.params;
+      const { rows } = await pool.query(
+        `SELECT id, override_id, location_id, location_name, service_line, room_type,
+                event_type, previous_rate, new_rate, notes, changed_by, changed_at
+           FROM manual_rate_override_history
+          WHERE client_id = $1
+            AND location_name = $2
+            AND service_line = $3
+            AND room_type = $4
+          ORDER BY changed_at DESC, id DESC`,
+        [clientId, locationName, serviceLine, roomType],
+      );
+      res.json(rows);
+    } catch (err) {
+      console.error('[manual-rate-overrides] history GET error:', err);
+      res.status(500).json({ error: 'Failed to fetch manual rate override history' });
     }
   });
 
@@ -22667,24 +22750,54 @@ Return ONLY valid JSON, no markdown fences:
       if (isNaN(rate) || rate <= 0) {
         return res.status(400).json({ error: 'overrideRate must be a positive number' });
       }
-      const { rows } = await pool.query(
-        `INSERT INTO manual_rate_overrides (client_id, location_id, location_name, service_line, room_type, override_rate, notes, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now())
-         ON CONFLICT (client_id, location_name, service_line, room_type)
-         DO UPDATE SET override_rate = EXCLUDED.override_rate,
-                       location_id   = EXCLUDED.location_id,
-                       notes         = EXCLUDED.notes,
-                       updated_at    = now()
-         RETURNING *`,
-        [clientId, locationId || null, locationName, serviceLine, roomType, rate, notes || null]
-      );
+      const actor = await getOverrideActor(req, clientId);
+      const dbClient = await pool.connect();
+      let saved: any;
+      try {
+        await dbClient.query('BEGIN');
+        const existing = await dbClient.query(
+          `SELECT id, override_rate FROM manual_rate_overrides
+            WHERE client_id = $1 AND location_name = $2 AND service_line = $3 AND room_type = $4
+            FOR UPDATE`,
+          [clientId, locationName, serviceLine, roomType],
+        );
+        const previousRate = existing.rows[0] ? Number(existing.rows[0].override_rate) : null;
+        const eventType = existing.rows[0] ? 'update' : 'create';
+        const result = await dbClient.query(
+          `INSERT INTO manual_rate_overrides
+             (client_id, location_id, location_name, service_line, room_type, override_rate, notes, created_by, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+           ON CONFLICT (client_id, location_name, service_line, room_type)
+           DO UPDATE SET override_rate = EXCLUDED.override_rate,
+                         location_id   = EXCLUDED.location_id,
+                         notes         = EXCLUDED.notes,
+                         updated_at    = now()
+           RETURNING *`,
+          [clientId, locationId || null, locationName, serviceLine, roomType, rate, notes || null, actor],
+        );
+        saved = result.rows[0];
+        await dbClient.query(
+          `INSERT INTO manual_rate_override_history
+             (client_id, override_id, location_id, location_name, service_line, room_type,
+              event_type, previous_rate, new_rate, notes, changed_by, changed_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())`,
+          [clientId, saved.id, locationId || null, locationName, serviceLine, roomType,
+            eventType, previousRate, rate, notes || null, actor],
+        );
+        await dbClient.query('COMMIT');
+      } catch (transactionError) {
+        await dbClient.query('ROLLBACK');
+        throw transactionError;
+      } finally {
+        dbClient.release();
+      }
       // Bust the server-side reference-data cache and the AI commentary cache
       // so the next GET reflects the new override immediately (not stale data).
       invalidateRefDataCache();
       warmRefDataCacheForClient(clientId);
       pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key LIKE $1`, [`pc-commentary:${clientId}:%`])
         .catch((err: any) => console.error('[manual-rate-overrides] commentary cache purge error:', err));
-      res.json(rows[0]);
+      res.json(saved);
     } catch (err) {
       console.error('[manual-rate-overrides] POST error:', err);
       res.status(500).json({ error: 'Failed to save manual rate override' });
@@ -22695,11 +22808,40 @@ Return ONLY valid JSON, no markdown fences:
     try {
       const clientId: string = req.session?.clientId || 'demo';
       const { locationName, serviceLine, roomType } = req.params;
-      await pool.query(
-        `DELETE FROM manual_rate_overrides
-         WHERE client_id = $1 AND location_name = $2 AND service_line = $3 AND room_type = $4`,
-        [clientId, locationName, serviceLine, roomType]
-      );
+      const actor = await getOverrideActor(req, clientId);
+      const dbClient = await pool.connect();
+      try {
+        await dbClient.query('BEGIN');
+        const existing = await dbClient.query(
+          `SELECT id, location_id, override_rate, notes
+             FROM manual_rate_overrides
+            WHERE client_id = $1 AND location_name = $2 AND service_line = $3 AND room_type = $4
+            FOR UPDATE`,
+          [clientId, locationName, serviceLine, roomType],
+        );
+        if (existing.rows[0]) {
+          const current = existing.rows[0];
+          await dbClient.query(
+            `INSERT INTO manual_rate_override_history
+               (client_id, override_id, location_id, location_name, service_line, room_type,
+                event_type, previous_rate, new_rate, notes, changed_by, changed_at)
+             VALUES ($1, $2, $3, $4, $5, $6, 'remove', $7, NULL, $8, $9, now())`,
+            [clientId, current.id, current.location_id, locationName, serviceLine, roomType,
+              Number(current.override_rate), current.notes || null, actor],
+          );
+          await dbClient.query(
+            `DELETE FROM manual_rate_overrides
+              WHERE id = $1 AND client_id = $2`,
+            [current.id, clientId],
+          );
+        }
+        await dbClient.query('COMMIT');
+      } catch (transactionError) {
+        await dbClient.query('ROLLBACK');
+        throw transactionError;
+      } finally {
+        dbClient.release();
+      }
       invalidateRefDataCache();
       warmRefDataCacheForClient(clientId);
       pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key LIKE $1`, [`pc-commentary:${clientId}:%`])

@@ -39,6 +39,7 @@ import { CheckCircle, AlertCircle, Info, Shield, ArrowUpDown, ArrowUp, ArrowDown
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import ModuloCalculationDialog from "./modulo-calculation-dialog";
+import { ManualOverrideHistory } from "./manual-override-history";
 import { formatNumber, formatCurrency, formatPercentage, formatRateByServiceLine, convertToDisplayRate, isDailyRateServiceLine } from "@/lib/formatters";
 
 interface RateCardTableProps {
@@ -214,6 +215,7 @@ export default function RateCardTable({
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
       queryClient.invalidateQueries({ queryKey: ['/api/reference-data'] });
       queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-overrides'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-override-history'] });
       setOverrideRC(null);
       toast({ title: 'Manual override saved', description: 'Rate override applied to all units in this segment.' });
     },
@@ -230,6 +232,7 @@ export default function RateCardTable({
       queryClient.invalidateQueries({ queryKey: ['/api/rate-card'] });
       queryClient.invalidateQueries({ queryKey: ['/api/reference-data'] });
       queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-overrides'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-override-history'] });
       toast({ title: 'Override removed' });
     },
     onError: () => toast({ title: 'Failed to remove override', variant: 'destructive' }),
@@ -1214,6 +1217,11 @@ export default function RateCardTable({
                               className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none mb-2"
                             />
                             <div className="flex gap-1">
+                              <ManualOverrideHistory
+                                locationName={unit.location}
+                                serviceLine={unit.serviceLine}
+                                roomType={unit.roomType}
+                              />
                               <Button
                                 size="sm"
                                 className="h-7 flex-1 text-xs"
