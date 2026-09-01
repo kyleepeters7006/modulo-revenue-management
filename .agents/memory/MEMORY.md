@@ -49,6 +49,7 @@
 - [Campus vs SL occupancy](campus-vs-sl-occupancy.md) — combined-SL splitting is only needed for per-service-line output; campus totals just sum occ/avail rows and divide once.
 - [Client workbook reconciliation](workbook-reconciliation.md) — tie-out basis (B-beds, ex-Kingston, AL/SL→SL, HC private-pay IH); totals then match exactly and residuals are real defects.
 - [Leaflet popup constraints](leaflet-popup-constraints.md) — size popups against the map card not the viewport; bindPopup defaults to maxWidth 300 and will clip wide content.
+- [CARTO basemap API key](carto-basemap-api-key.md) — the public raster tiles now show an API-key-required watermark; use a domain-restricted key or another provider.
 - [MC care-rate inheritance](care-level2-mc-inheritance.md) — AL/MC→AL and HC/MC→HC when no care row exists; flag as inherited, never insert client care data.
 - [Competitor care ADJ column](comp-care-adj-column.md) — ADJ is theirs−ours (uniform per room type by construction); the editable cell inverse-writes the survey's raw care rate.
 - [Care rate null vs zero](care-rate-null-vs-zero.md) — three states: never surveyed (~half of rows) / charges nothing / real rate. Never `|| 0` on display; a 0 must clear the plausibility band too.
