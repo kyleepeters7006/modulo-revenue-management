@@ -279,6 +279,7 @@ export interface IStorage {
   // AI Insights persistence
   getAiInsight(clientId: string, location: string, serviceLine: string): Promise<import("@shared/schema").AiInsight | null>;
   upsertAiInsight(clientId: string, location: string, serviceLine: string, content: string): Promise<import("@shared/schema").AiInsight>;
+  updateAiInsightContent(clientId: string, location: string, serviceLine: string, content: string): Promise<import("@shared/schema").AiInsight>;
 
   // Room Type Base Prices
   getRoomTypeBasePrices(): Promise<import("@shared/schema").RoomTypeBasePrice[]>;
@@ -2646,10 +2647,29 @@ export class DatabaseStorage implements IStorage {
       .values({ clientId, location, serviceLine, content, generatedAt: now, updatedAt: now })
       .onConflictDoUpdate({
         target: [aiInsights.clientId, aiInsights.location, aiInsights.serviceLine],
-        set: { content, updatedAt: now },
+        // A rerun is a new analysis, not merely an edit to the previous one.
+        // Keep the cache timestamp aligned with the content shown in the UI.
+        set: { content, generatedAt: now, updatedAt: now },
       })
       .returning();
     return row;
+  }
+
+  async updateAiInsightContent(clientId: string, location: string, serviceLine: string, content: string): Promise<import("@shared/schema").AiInsight> {
+    const { aiInsights } = await import("@shared/schema");
+    const [row] = await db
+      .update(aiInsights)
+      .set({ content, updatedAt: new Date() })
+      .where(and(
+        eq(aiInsights.clientId, clientId),
+        eq(aiInsights.location, location),
+        eq(aiInsights.serviceLine, serviceLine),
+      ))
+      .returning();
+
+    // Editing normally targets an existing cached result. Preserve the same
+    // API contract if a client submits an edit before its first cache read.
+    return row ?? await this.upsertAiInsight(clientId, location, serviceLine, content);
   }
 
   async getRoomTypeBasePrices(): Promise<import("@shared/schema").RoomTypeBasePrice[]> {

@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChevronDown, ChevronUp, X, Building2, TrendingUp, TrendingDown, Minus, Info, Loader2, RefreshCw, Pencil, ExternalLink } from "lucide-react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -175,7 +175,11 @@ export default function CompetitorAnalysis() {
   // Extract unique regions, divisions, and locations - sorted alphabetically
   // Same query key and params as CompetitorForm, so React Query serves both from one
   // cache entry — the header stats cost no extra network request.
-  const { data: competitorsData } = useQuery({
+  const {
+    data: competitorsData,
+    isLoading: isLoadingCompetitors,
+    isError: isCompetitorsError,
+  } = useQuery({
     queryKey: ["/api/competitors", selectedRegions, selectedDivisions, selectedLocations, selectedServiceLines],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -188,6 +192,11 @@ export default function CompetitorAnalysis() {
       if (!response.ok) throw new Error('Failed to fetch competitors');
       return response.json();
     },
+    // Competitor survey data changes through explicit mutations, which
+    // invalidate this query. Avoid refetching the full survey set every time
+    // the user returns to this page within the normal working session.
+    staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
   });
 
   const competitorStats = useMemo(() => {
@@ -316,7 +325,11 @@ export default function CompetitorAnalysis() {
               ].map((stat) => (
                 <div key={stat.label} className="flex items-baseline gap-1.5" data-testid={`stat-${stat.label.toLowerCase().replace(/\s+/g, '-')}`}>
                   <span className={`text-lg font-semibold tabular-nums leading-none ${stat.accent ? 'text-teal-600' : 'text-gray-900'}`}>
-                    {stat.value.toLocaleString()}
+                    {isLoadingCompetitors
+                      ? '—'
+                      : isCompetitorsError
+                        ? '!'
+                        : stat.value.toLocaleString()}
                   </span>
                   <span className="text-xs text-[var(--dashboard-muted)] uppercase tracking-wide">{stat.label}</span>
                   {stat.note && <span className="text-[11px] text-amber-600 ml-1">{stat.note}</span>}

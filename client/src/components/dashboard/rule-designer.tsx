@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { usePortalTooltip } from '@/hooks/usePortalTooltip';
 import { zeroReasonLabel, zeroReasonDetail } from '@/lib/ruleZeroReason';
 import { Button } from '@/components/ui/button';
@@ -322,6 +323,8 @@ interface AdjustmentRule {
   effectiveDate?: string | null;
   createdAt?: string | null;
   isHistorical?: boolean;
+  lifecycleStatus?: 'proposed' | 'implemented' | 'disabled' | 'historical' | null;
+  implementedAt?: string | null;
   locationId?: string | null;
   serviceLine?: string | null;
   category?: string;
@@ -481,6 +484,7 @@ interface RuleDesignerProps {
 
 export function RuleDesigner({ locationId, serviceLine, locationName, selectedLocations, selectedRegions, selectedDivisions, aiGenerator: aiGeneratorProp, beforePricingHistory }: RuleDesignerProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<'ask-ai' | 'structured' | 'ai-generator'>('structured');
   const [designerOpen, setDesignerOpen] = useState(false);
@@ -489,6 +493,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [implementingRuleId, setImplementingRuleId] = useState<string | null>(null);
   const [rules, setRules] = useState<AdjustmentRule[]>([]);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [impactData, setImpactData] = useState<ImpactData | null>(null);
@@ -1251,8 +1256,42 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       const res = await fetch(`/api/adjustment-rules/${ruleId}/toggle`, { method: 'PATCH' });
       if (!res.ok) throw new Error();
       setRules(prev => prev.map(r => r.id === ruleId ? { ...r, isActive: !r.isActive } : r));
+      queryClient.invalidateQueries({ queryKey: ['/api/reference-data'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/rule-performance'], exact: false });
     } catch {
       toast({ title: 'Failed to update rule', variant: 'destructive' });
+    }
+  };
+
+  const implementRule = async (ruleId: string, name: string) => {
+    setImplementingRuleId(ruleId);
+    try {
+      const res = await fetch(`/api/adjustment-rules/${ruleId}/implement`, { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Failed to implement rule');
+      setRules(prev => prev.map(rule => rule.id === ruleId
+        ? {
+            ...rule,
+            isActive: true,
+            lifecycleStatus: 'implemented',
+            implementedAt: body.rule?.implemented_at ?? body.rule?.implementedAt ?? new Date().toISOString(),
+          }
+        : rule));
+      queryClient.invalidateQueries({ queryKey: ['/api/reference-data'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/rule-performance'], exact: false });
+      toast({
+        title: 'Rule implemented',
+        description: `"${name}" is active and Reference Data is refreshing.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Could not implement rule',
+        description: error?.message || 'Admin privileges are required to implement this rule.',
+        variant: 'destructive',
+      });
+    } finally {
+      setImplementingRuleId(null);
     }
   };
 
@@ -1262,6 +1301,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
     try {
       await Promise.all(activeIds.map(id => fetch(`/api/adjustment-rules/${id}/toggle`, { method: 'PATCH' })));
       setRules(prev => prev.map(r => ({ ...r, isActive: false })));
+      queryClient.invalidateQueries({ queryKey: ['/api/reference-data'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/rule-performance'], exact: false });
       toast({ title: 'All rules disabled', description: `${activeIds.length} rule${activeIds.length !== 1 ? 's' : ''} turned off.` });
     } catch {
       toast({ title: 'Failed to disable all rules', variant: 'destructive' });
@@ -1289,6 +1330,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       const res = await fetch(`/api/adjustment-rules/${ruleId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error();
       setRules(prev => prev.filter(r => r.id !== ruleId));
+      queryClient.invalidateQueries({ queryKey: ['/api/reference-data'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/rule-performance'], exact: false });
       toast({ title: 'Rule deleted', description: `"${name}" removed` });
     } catch {
       toast({ title: 'Failed to delete rule', variant: 'destructive' });
@@ -2899,13 +2942,29 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                                   ) : (
                                   <>
                                   <div className="flex items-center justify-end gap-0.5">
-                                    <Switch
-                                      checked={rule.isActive}
-                                      onCheckedChange={() => toggleRule(rule.id)}
-                                      aria-label={`Toggle ${rule.name}`}
-                                      data-testid={`switch-rule-${rule.id}`}
-                                      className="shrink-0 mr-1"
-                                    />
+                                    {rule.lifecycleStatus === 'proposed' ? (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 text-xs gap-1 text-teal-700 border-teal-200 bg-teal-50 hover:bg-teal-100 mr-1"
+                                        disabled={implementingRuleId === rule.id}
+                                        onClick={() => implementRule(rule.id, rule.name)}
+                                        data-testid={`button-implement-${rule.id}`}
+                                      >
+                                        {implementingRuleId === rule.id
+                                          ? <Loader2 className="h-3 w-3 animate-spin" />
+                                          : <Play className="h-3 w-3" />}
+                                        {implementingRuleId === rule.id ? 'Implementing…' : 'Implement'}
+                                      </Button>
+                                    ) : (
+                                      <Switch
+                                        checked={rule.isActive}
+                                        onCheckedChange={() => toggleRule(rule.id)}
+                                        aria-label={`Toggle ${rule.name}`}
+                                        data-testid={`switch-rule-${rule.id}`}
+                                        className="shrink-0 mr-1"
+                                      />
+                                    )}
                                     <Button variant="ghost" size="icon"
                                       className="h-7 w-7 text-gray-400 hover:text-teal-600 hover:bg-teal-50"
                                       onClick={() => setInfoRule(rule)} title="Rule details">

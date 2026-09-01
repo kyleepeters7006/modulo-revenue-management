@@ -27,6 +27,19 @@ interface PortfolioLocation {
   lng: number | null;
   region: string | null;
   division: string | null;
+  stats?: {
+    totalUnits: number;
+    occupancyPct: number | null;
+    occupancySource: string | null;
+    serviceLines: Array<{
+      serviceLine: string;
+      units: number;
+      occupied: number;
+      avgStreetRate: number | null;
+      careLevel2: number | null;
+      careLevel2Inherited?: boolean;
+    }>;
+  };
 }
 
 interface PortfolioLocationsResponse {
@@ -65,7 +78,12 @@ export function CompetitorMap({
   const isAllLocations = selectedLocations.length === 0;
 
   const { data: portfolioLocationsData } = useQuery<PortfolioLocationsResponse>({
-    queryKey: ["/api/locations"],
+    queryKey: ["/api/locations", "map-stats"],
+    queryFn: async () => {
+      const response = await fetch("/api/locations?includeStats=true");
+      if (!response.ok) throw new Error("Failed to fetch portfolio locations");
+      return response.json();
+    },
     enabled: isAllLocations,
   });
 
@@ -646,19 +664,81 @@ export function CompetitorMap({
 
         const addressParts = [loc.address, loc.city, loc.state].filter(Boolean);
         const fullAddress = addressParts.join(', ');
+        const stats = loc.stats;
+        const slRows = stats?.serviceLines || [];
+        const isDailySl = (sl: string) => sl === 'HC' || sl === 'HC/MC';
+        const slLabel = (sl: string) => (sl === 'VIL' ? 'Patio Homes' : sl);
+        const fmtRate = (v: number | null | undefined, sl: string) =>
+          v == null ? '—' : `$${Math.round(v).toLocaleString()}${isDailySl(sl) ? '/day' : '/mo'}`;
+        const nearbyComps = (competitorData.items || []).filter((c: any) =>
+          Number.isFinite(c.lat) && Number.isFinite(c.lng) &&
+          haversineDistance(loc.lat, loc.lng, c.lat, c.lng) <= 30
+        );
+        const nearestMi: number | null = nearbyComps.reduce((min: number | null, c: any) => {
+          const d = Number.isFinite(c.distanceMiles)
+            ? Number(c.distanceMiles)
+            : haversineDistance(loc.lat, loc.lng, c.lat, c.lng);
+          return min == null || d < min ? d : min;
+        }, null as number | null);
+        const subtitleParts = [loc.region, loc.division].filter(Boolean);
 
         const portfolioMarker = window.L.marker([loc.lat, loc.lng], { icon: bluePinIcon })
           .addTo(mapInstanceRef.current);
 
         portfolioMarker.bindPopup(`
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: 220px; max-width: 280px; padding: 0; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.10);">
-            <div style="background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%); color: white; padding: 16px;">
-              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
-                <h3 style="margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.3px; line-height: 1.3;">${loc.name}</h3>
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: ${stats ? '330px' : '220px'}; max-width: ${stats ? '380px' : '280px'}; padding: 0; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.10);">
+            <div style="background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%); color: white; padding: ${stats ? '13px 16px' : '16px'};">
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: ${stats ? '5px' : '6px'};">
+                <h3 style="margin: 0; font-size: ${stats ? '15px' : '15px'}; font-weight: 600; letter-spacing: -0.3px; line-height: 1.3;">${esc(loc.name)}</h3>
                 <span style="background: rgba(255,255,255,0.2); color: white; padding: 3px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0;">PORTFOLIO</span>
               </div>
-              ${fullAddress ? `<p style="margin: 0; font-size: 12px; opacity: 0.85; font-weight: 300;">${fullAddress}</p>` : ''}
+              ${fullAddress ? `<p style="margin: 0; font-size: ${stats ? '11px' : '12px'}; opacity: 0.85; font-weight: 300;">${esc(fullAddress)}</p>` : ''}
+              ${subtitleParts.length ? `<p style="margin: 3px 0 0 0; font-size: 10px; opacity: 0.75; font-weight: 300;">${subtitleParts.map(esc).join(' · ')}</p>` : ''}
             </div>
+            ${stats ? `
+            <div style="padding: 12px 16px 4px 16px;">
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px;">
+                <div style="text-align: center;">
+                  <p style="margin: 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Occupancy</p>
+                  <p style="margin: 3px 0 0 0; font-size: 17px; font-weight: 600; color: #1e293b;">${stats.occupancyPct != null ? `${stats.occupancyPct.toFixed(1)}%` : '—'}</p>
+                </div>
+                <div style="text-align: center; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;">
+                  <p style="margin: 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Units</p>
+                  <p style="margin: 3px 0 0 0; font-size: 17px; font-weight: 600; color: #1e293b;">${Number(stats.totalUnits || 0).toLocaleString()}</p>
+                </div>
+                <div style="text-align: center;">
+                  <p style="margin: 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Competitors</p>
+                  <p style="margin: 3px 0 0 0; font-size: 17px; font-weight: 600; color: #1e293b;">${nearbyComps.length}</p>
+                  <p style="margin: 1px 0 0 0; font-size: 9px; color: #64748b;">${nearestMi != null ? `nearest ${nearestMi.toFixed(1)} mi` : 'within 30 mi'}</p>
+                </div>
+              </div>
+              ${slRows.length ? `
+              <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                <thead>
+                  <tr>
+                    <th style="text-align: left; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Service Line</th>
+                    <th style="text-align: right; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Units</th>
+                    <th style="text-align: right; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Street</th>
+                    <th style="text-align: right; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Care L2</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${slRows.map((s: any) => `
+                  <tr>
+                    <td style="text-align: left; padding: 4px 0; color: #1e293b; font-weight: 500; border-bottom: 1px solid #f1f5f9;">${esc(slLabel(s.serviceLine))}</td>
+                    <td style="text-align: right; padding: 4px 0; color: #475569; border-bottom: 1px solid #f1f5f9;">${Number(s.units) || 0}</td>
+                    <td style="text-align: right; padding: 4px 0; color: #1e293b; font-weight: 600; border-bottom: 1px solid #f1f5f9;">${fmtRate(s.avgStreetRate, s.serviceLine)}</td>
+                    <td style="text-align: right; padding: 4px 0; color: #475569; border-bottom: 1px solid #f1f5f9;">${fmtRate(s.careLevel2, s.serviceLine)}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+              <p style="margin: 6px 0 8px 0; font-size: 9px; color: #94a3b8; line-height: 1.4;">
+                ${stats.occupancySource === 'history' ? 'Occupancy from history' : stats.occupancySource === 'rentroll' ? 'Occupancy from rent roll' : ''}
+                ${stats.occupancySource ? ' · ' : ''}Street rates: service-line avg across all room types · Rates exclude companion (B) beds
+              </p>
+              ` : `<p style="margin: 0 0 12px 0; font-size: 11px; color: #94a3b8;">No rent roll data for this campus in the latest month.</p>`}
+            </div>
+            ` : ''}
           </div>
         `);
       });

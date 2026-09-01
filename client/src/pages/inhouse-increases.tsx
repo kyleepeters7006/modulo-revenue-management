@@ -790,6 +790,10 @@ export default function InhouseIncreases() {
     },
     onSuccess: (results: any[]) => {
       queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/plans"] });
+      // Reference Data is often already mounted in another tab. Refresh both
+      // grouped and unit-detail variants immediately so the newly approved
+      // annual increase appears without a browser reload.
+      queryClient.invalidateQueries({ queryKey: ["/api/reference-data"], exact: false });
       const desc =
         results.length === 1
           ? `Plan v${results[0].version} recorded.`

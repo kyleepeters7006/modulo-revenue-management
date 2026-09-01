@@ -5085,18 +5085,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
                            filters.locations?.length || filters.serviceLines?.length);
       
       filters.clientId = clientId;
+      // These queries are independent. Running them together removes one full
+      // database round trip from the initial page load.
+      const competitorsPromise = hasFilters
+        ? storage.getCompetitorsWithFilters(filters)
+        : storage.getCompetitors(clientId);
+      const [competitorResult, locationData] = await Promise.all([
+        competitorsPromise,
+        storage.getLocations(clientId),
+      ]);
+
       let allCompetitors: any[];
       let usingDistanceFallback = false;
       if (hasFilters) {
-        const result = await storage.getCompetitorsWithFilters(filters);
+        const result = competitorResult as { competitors: any[]; usingDistanceFallback: boolean };
         allCompetitors = result.competitors;
         usingDistanceFallback = result.usingDistanceFallback;
       } else {
-        allCompetitors = await storage.getCompetitors(clientId);
+        allCompetitors = competitorResult as any[];
       }
-      
-      // Get locations for metadata
-      const locationData = await storage.getLocations(clientId);
+
       const locationIdToName = new Map<string, string>();
       locationData.forEach(loc => {
         locationIdToName.set(loc.id, loc.name);
@@ -5565,7 +5573,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/locations", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
-      const cacheKey = `locations:${clientId}`;
+      const includeStats = String(req.query.includeStats || '') === 'true';
+      const cacheKey = `locations:${clientId}:stats=${includeStats ? '1' : '0'}`;
       const cached = getCachedAnalytics(cacheKey);
       if (cached) return res.json(cached);
 
@@ -5592,7 +5601,127 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const divisions = [...new Set(filteredLocations.map(loc => loc.division).filter(Boolean))].sort((a, b) => (a as string).localeCompare(b as string));
       const sortedLocations = [...filteredLocations].sort((a, b) => a.name.localeCompare(b.name));
 
-      const result = { locations: sortedLocations, regions, divisions };
+      // The all-locations competitor map uses this endpoint for its portfolio
+      // pins. Keep those pins as informative as the single-location marker by
+      // optionally attaching the same campus stats used by the map popup. This
+      // is opt-in because the filter dropdowns do not need these aggregates.
+      let locationsWithStats = sortedLocations;
+      if (includeStats && sortedLocations.length > 0) {
+        const locationIds = sortedLocations.map((loc: any) => loc.id);
+        const locationNames = sortedLocations.map((loc: any) => loc.name);
+        const latestMonthSql = `(SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)`;
+        const [slRes, rtoRes, careRes] = await Promise.all([
+          pool.query(`
+            SELECT rr.location_id, rr.location, rr.service_line,
+              COUNT(*) FILTER (WHERE ${slWeightSqlPredicate('rr.')}) AS units,
+              COUNT(*) FILTER (WHERE rr.occupied_yn AND ${slWeightSqlPredicate('rr.')}) AS occupied,
+              ROUND(AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0
+                AND ${streetRateGate('rr.')}
+                AND ${bBedExclusionSql('rr.')}
+              )) AS avg_street_rate
+            FROM rent_roll_data rr
+            ${buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1', monthSql: latestMonthSql })}
+            WHERE rr.client_id = $1
+              AND (rr.location_id::text = ANY($2::text[]) OR rr.location = ANY($3::text[]))
+              AND rr.upload_month = ${latestMonthSql}
+            GROUP BY rr.location_id, rr.location, rr.service_line
+            ORDER BY rr.location, rr.service_line
+          `, [clientId, locationIds, locationNames]),
+          pool.query(`
+            SELECT location_id, location_name,
+              SUM(occ_units) AS occ, SUM(available_units) AS avail
+            FROM room_type_occupancy_history
+            WHERE client_id = $1
+              AND (location_id::text = ANY($2::text[]) OR location_name = ANY($3::text[]))
+              AND (year * 100 + month) = (
+                SELECT MAX(year * 100 + month)
+                FROM room_type_occupancy_history
+                WHERE client_id = $1
+              )
+            GROUP BY location_id, location_name
+          `, [clientId, locationIds, locationNames]),
+          pool.query(`
+            SELECT location_id, service_line, level2_rate
+            FROM care_level_rates
+            WHERE client_id = $1 AND location_id::text = ANY($2::text[])
+          `, [clientId, locationIds]),
+        ]);
+
+        const byLocation = new Map<string, any>();
+        const getLocationStats = (id: unknown, name: unknown) => {
+          const key = String(id || name || '');
+          if (!byLocation.has(key)) {
+            byLocation.set(key, {
+              totalUnits: 0,
+              occupancyPct: null,
+              occupancySource: null,
+              serviceLines: [],
+              _bySl: new Map<string, any>(),
+            });
+          }
+          return byLocation.get(key);
+        };
+
+        for (const row of slRes.rows) {
+          const stats = getLocationStats(row.location_id, row.location);
+          const sl = String(row.service_line);
+          stats._bySl.set(sl, {
+            serviceLine: sl,
+            units: Number(row.units) || 0,
+            occupied: Number(row.occupied) || 0,
+            avgStreetRate: row.avg_street_rate != null ? Number(row.avg_street_rate) : null,
+            careLevel2: null,
+            careLevel2Inherited: false,
+          });
+        }
+        for (const row of careRes.rows) {
+          const stats = getLocationStats(row.location_id, null);
+          const serviceLine = String(row.service_line);
+          const sl = stats._bySl.get(serviceLine);
+          if (sl) {
+            sl.careLevel2 = row.level2_rate != null ? Number(row.level2_rate) : null;
+          }
+        }
+        for (const row of rtoRes.rows) {
+          const stats = getLocationStats(row.location_id, row.location_name);
+          const occ = Number(row.occ ?? 0);
+          const avail = Number(row.avail ?? 0);
+          if (avail > 0) {
+            stats.occupancyPct = Math.round(Math.min(occ / avail, 1) * 1000) / 10;
+            stats.occupancySource = 'history';
+          }
+        }
+
+        for (const loc of sortedLocations as any[]) {
+          const stats = byLocation.get(String(loc.id)) || byLocation.get(String(loc.name));
+          if (!stats) continue;
+          const careBySl = new Map<string, number>();
+          for (const sl of stats._bySl.values()) {
+            if (sl.careLevel2 != null) careBySl.set(sl.serviceLine, sl.careLevel2);
+          }
+          stats.serviceLines = Array.from(stats._bySl.values())
+            .map((sl: any) => {
+              const inherited = resolveCareLevel2(careBySl, sl.serviceLine);
+              return {
+                ...sl,
+                careLevel2: inherited ? inherited.rate : null,
+                careLevel2Inherited: inherited ? inherited.inherited : false,
+              };
+            })
+            .filter((sl: any) => sl.units > 0);
+          stats.totalUnits = stats.serviceLines.reduce((sum: number, sl: any) => sum + sl.units, 0);
+          if (stats.occupancyPct == null && stats.totalUnits > 0) {
+            const occupied = stats.serviceLines.reduce((sum: number, sl: any) => sum + sl.occupied, 0);
+            stats.occupancyPct = Math.round((occupied / stats.totalUnits) * 1000) / 10;
+            stats.occupancySource = 'rentroll';
+          }
+          delete stats._bySl;
+          (loc as any).stats = stats;
+        }
+        locationsWithStats = sortedLocations;
+      }
+
+      const result = { locations: locationsWithStats, regions, divisions };
       setCachedAnalytics(cacheKey, result);
       res.json(result);
     } catch (error) {
@@ -8217,7 +8346,9 @@ ${campusOccLines.join('\n')}
       if (!content) return res.status(400).json({ error: 'content is required' });
       const loc = location || 'all';
       const sl = serviceLine || 'all';
-      const row = await storage.upsertAiInsight(clientId, loc, sl, content);
+      // Preserve the original generation time when a user edits cached content.
+      // A manual edit changes updatedAt, but it is not a new AI run.
+      const row = await storage.updateAiInsightContent(clientId, loc, sl, content);
       res.json({ ok: true, updatedAt: row.updatedAt });
     } catch (error) {
       res.status(500).json({ error: `Failed to save insight: ${error.message}` });
@@ -17392,7 +17523,7 @@ Respond in JSON format:
         volumeAdjustedAnnualImpact: Math.round(impact.annualImpact * 1.05),
       } as any);
 
-      onRulesChanged(clientId);
+      await onRulesChanged(clientId);
       res.json({
         rule,
         affectedUnits: impact.affectedUnits,
@@ -17578,7 +17709,7 @@ Respond in JSON format:
         rulesCreated.push({ name: rule.name, rowCount: g.rowCount, annualImpact: Math.round(impact.annualImpact) });
       }
 
-      if (rulesCreated.length || overridesApplied) onRulesChanged(clientId);
+      if (rulesCreated.length || overridesApplied) await onRulesChanged(clientId);
       res.json({ rulesCreated, overridesApplied, errors });
     } catch (error) {
       console.error('Error importing rules from Excel:', error);
@@ -21771,7 +21902,7 @@ Return ONLY valid JSON, no markdown fences:
         volumeAdjustedAnnualImpact: impact.annualImpact,
       });
 
-      onRulesChanged(clientId);
+      await onRulesChanged(clientId);
       res.json({ rule: { ...updated, ...impact }, affectedUnits: impact.affectedUnits });
     } catch (error) {
       console.error('Error updating adjustment rule:', error);
@@ -21878,7 +22009,7 @@ Return ONLY valid JSON, no markdown fences:
 
       // Clear all cached rule-list variants so every location/service-line
       // filter sees the updated active state immediately (not the stale cache).
-      onRulesChanged(clientId);
+      await onRulesChanged(clientId);
       
       res.json(updated);
     } catch (error) {
@@ -21993,7 +22124,7 @@ Return ONLY valid JSON, no markdown fences:
         createdBy: 'reselect',
       } as any);
 
-      onRulesChanged(clientId);
+      await onRulesChanged(clientId);
       res.json(created);
     } catch (error) {
       console.error('Error reselecting adjustment rule:', error);
@@ -22012,7 +22143,7 @@ Return ONLY valid JSON, no markdown fences:
       const updated = await storage.updateAdjustmentRule(id, {
         action: { ...action, isAdditive: action.isAdditive === false },
       });
-      onRulesChanged(clientId);
+      await onRulesChanged(clientId);
       res.json(updated);
     } catch (error) {
       console.error('Error updating rule additive flag:', error);
@@ -22025,7 +22156,7 @@ Return ONLY valid JSON, no markdown fences:
       const { id } = req.params;
       const clientId = req.clientId || 'demo';
       await storage.deleteAdjustmentRule(id);
-      onRulesChanged(clientId);
+      await onRulesChanged(clientId);
       res.json({ success: true });
     } catch (error) {
       console.error('Error deleting adjustment rule:', error);
