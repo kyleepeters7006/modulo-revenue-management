@@ -9,6 +9,10 @@
  *   TEST_BASE_URL=https://<dev-domain> npx tsx tests/referenceDataAuditWorkbook.test.ts
  */
 import ExcelJS from "exceljs";
+import { rm } from "node:fs/promises";
+import path from "node:path";
+import { pool } from "../server/db";
+import { buildReferenceDataAuditWorkbook } from "../server/services/referenceDataAuditWorkbook";
 
 const PASS = "\x1b[32m✓\x1b[0m";
 const FAIL = "\x1b[31m✗\x1b[0m";
@@ -37,6 +41,153 @@ function collectFormulas(wb: ExcelJS.Workbook): string[] {
     }));
   });
   return formulas;
+}
+
+function cellFormula(ws: ExcelJS.Worksheet | undefined, address: string): string {
+  const value = ws?.getCell(address).value;
+  return isFormula(value) ? value.formula : "";
+}
+
+const SEEDED_CLIENT = "test-reference-data-audit-rule";
+const SEEDED_LOCATION = "Reference Data Audit Rule Campus";
+const SEEDED_RULE = "Reference Data Audit Legacy Trigger";
+
+async function cleanupSeededRuleCase() {
+  await pool.query(
+    `DELETE FROM adjustment_rules
+      WHERE client_id = $1
+         OR location_id IN (SELECT id FROM locations WHERE client_id = $1)`,
+    [SEEDED_CLIENT],
+  );
+  await pool.query(`DELETE FROM rent_roll_data WHERE client_id = $1`, [SEEDED_CLIENT]);
+  await pool.query(`DELETE FROM locations WHERE client_id = $1`, [SEEDED_CLIENT]);
+  await pool.query(`DELETE FROM clients WHERE id = $1`, [SEEDED_CLIENT]);
+}
+
+async function runSeededRuleCase() {
+  let workbookPath: string | undefined;
+  await cleanupSeededRuleCase();
+  try {
+    await pool.query(
+      `INSERT INTO clients (id, name) VALUES ($1, 'Reference Data Audit Rule Test')`,
+      [SEEDED_CLIENT],
+    );
+    const locationResult = await pool.query<{ id: string }>(
+      `INSERT INTO locations (name, client_id, location_code, total_units)
+       VALUES ($1, $2, 'RDAR', 1)
+       RETURNING id`,
+      [SEEDED_LOCATION, SEEDED_CLIENT],
+    );
+    const locationId = locationResult.rows[0].id;
+
+    await pool.query(
+      `INSERT INTO rent_roll_data
+         (client_id, location_id, upload_month, date, location, room_number,
+          room_type, service_line, occupied_yn, size, street_rate, in_house_rate,
+          days_vacant, source_room_type, payor_type)
+       VALUES ($1, $2, '2026-08', '2026-08-01', $3, '101', 'Studio', 'AL',
+               true, 'Studio', 4000, 3900, 0, 'Studio', 'Private Pay')`,
+      [SEEDED_CLIENT, locationId, SEEDED_LOCATION],
+    );
+    const ruleResult = await pool.query<{ id: string }>(
+      `INSERT INTO adjustment_rules
+         (client_id, location_id, service_line, name, description, trigger, action,
+          is_active, is_historical, lifecycle_status, implemented_at, priority, created_by)
+       VALUES ($1, $2, 'AL', $3, $4, $5, $6, true, false, 'implemented',
+               NOW(), 42, 'reference-data-audit-test')
+       RETURNING id`,
+      [
+        SEEDED_CLIENT,
+        locationId,
+        SEEDED_RULE,
+        "Seeded implemented rule with a legacy trigger for audit coverage",
+        JSON.stringify({
+          type: "conditional",
+          condition: { field: "legacy_occupancy_band", operator: ">=", value: 50 },
+        }),
+        JSON.stringify({
+          type: "adjust_rate",
+          target: "street_rate",
+          adjustmentType: "percentage",
+          adjustmentValue: 10,
+          filters: { serviceLine: ["AL"], roomType: ["Studio"], occupancyStatus: "occupied" },
+        }),
+      ],
+    );
+    const ruleId = ruleResult.rows[0].id;
+
+    workbookPath = await buildReferenceDataAuditWorkbook({
+      clientId: SEEDED_CLIENT,
+      generatedBy: "reference-data-audit-test",
+    });
+    const seededWb = new ExcelJS.Workbook();
+    await seededWb.xlsx.readFile(workbookPath);
+
+    const activeRules = seededWb.getWorksheet("Active Rules");
+    const audit = seededWb.getWorksheet("Reference Data Audit");
+    const activeRuleRow = activeRules
+      ? Array.from({ length: activeRules.rowCount }, (_, index) => index + 1)
+        .find(rowNumber => String(activeRules.getCell(rowNumber, 1).value ?? "") === ruleId)
+      : undefined;
+    ok("seeded implemented rule appears in Active Rules", activeRuleRow !== undefined);
+    if (activeRuleRow === undefined || !audit) return;
+
+    const ruleIndex = activeRuleRow - 3;
+    const ruleSheetName = `Rule Audit - ${String(ruleIndex + 1).padStart(2, "0")}`;
+    const ruleAudit = seededWb.getWorksheet(ruleSheetName);
+    ok("matching Rule Audit tab is created", Boolean(ruleAudit), ruleSheetName);
+    if (!ruleAudit) return;
+
+    ok("Active Rules preserves seeded priority", activeRules?.getCell(activeRuleRow, 3).value === 42);
+    ok("Active Rules records location/service-line/room specificity", activeRules?.getCell(activeRuleRow, 4).value === 7);
+    ok(
+      "legacy trigger is clearly marked as not formula-represented",
+      String(activeRules?.getCell(activeRuleRow, 17).value ?? "").includes("Not formula-represented"),
+    );
+    ok(
+      "Reference Data Audit links proposed rate to matching Rule Audit tab",
+      cellFormula(audit, "Y2").includes(`'${ruleSheetName}'!$M2`) &&
+        cellFormula(audit, "Y2").includes(`'${ruleSheetName}'!$J2`) &&
+        !cellFormula(audit, "Y2").includes(`'${ruleSheetName}'!$L2`),
+      cellFormula(audit, "Y2"),
+    );
+    ok(
+      "Rule Audit links identity back to Reference Data Audit",
+      cellFormula(ruleAudit, "B2") === "='Reference Data Audit'!$D$2",
+      cellFormula(ruleAudit, "B2"),
+    );
+
+    const filterFormula = cellFormula(ruleAudit, "F2");
+    ok(
+      "Rule Audit filter formula matches the seeded location, service line, room type, and occupancy",
+      filterFormula.includes(`$A2="${locationId}"`) &&
+        filterFormula.includes('$E2="AL"') &&
+        filterFormula.includes('$F2="Studio"') &&
+        filterFormula.includes("$J2>0"),
+      filterFormula,
+    );
+    const triggerFormula = cellFormula(ruleAudit, "G2");
+    ok(
+      "unsupported legacy trigger produces a non-matching trigger result",
+      triggerFormula.includes('IF(FALSE,"Yes","No")'),
+      triggerFormula,
+    );
+    const adjustedRateFormula = cellFormula(ruleAudit, "J2");
+    ok(
+      "Rule Audit recalculates the adjusted rate from the base rate",
+      adjustedRateFormula.includes('$H2*') && adjustedRateFormula.includes("(1+10/100)"),
+      adjustedRateFormula,
+    );
+    const priorityFormula = cellFormula(ruleAudit, "M2");
+    ok(
+      "Rule Audit priority selection requires both filter and trigger matches",
+      priorityFormula === '=IF(AND($F2="Yes",$G2="Yes"),"Yes","No")',
+      priorityFormula,
+    );
+  } finally {
+    if (workbookPath) await rm(path.dirname(workbookPath), { recursive: true, force: true });
+    await cleanupSeededRuleCase();
+  }
 }
 
 async function main() {
@@ -97,6 +248,8 @@ async function main() {
     tamperedWb.getWorksheet("Read Me")?.getCell("B3").value === wb.getWorksheet("Read Me")?.getCell("B3").value,
   );
 
+  await runSeededRuleCase();
+  await pool.end();
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 }

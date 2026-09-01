@@ -944,7 +944,7 @@ export async function buildReferenceDataAuditWorkbook(
     activeRules.forEach((_, ruleIndex) => {
       const ruleSheetName = `Rule Audit - ${String(ruleIndex + 1).padStart(2, "0")}`;
       const ruleRow = rowNumber;
-      ruleRateRefs.push(`IF(${quoteSheet(ruleSheetName)}!$M${ruleRow}="Yes",${quoteSheet(ruleSheetName)}!$L${ruleRow},"")`);
+      ruleRateRefs.push(`IF(${quoteSheet(ruleSheetName)}!$M${ruleRow}="Yes",${quoteSheet(ruleSheetName)}!$J${ruleRow},"")`);
     });
     const firstRuleRate = ruleRateRefs.reduceRight((fallback, ref) => ref.replace(/,""\)$/, `,${fallback})`), `""`);
     addFormulaCell(row.getCell(25), ruleRateRefs.length ? firstRuleRate : `""`, FMT_MONEY);
