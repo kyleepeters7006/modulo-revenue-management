@@ -92,3 +92,4 @@
 - [Product-matched street comparison](product-matched-street-rate.md) — judge a resident against their own bed product; base-median gates strip companion ceilings, and vacant companion rows carry the room's rate.
 - [Ultra-wide hero image zoom](ultrawide-hero-image-zoom.md) — object-cover cannot zoom out a standard photo while staying edge-to-edge; use a purpose-built panoramic asset.
 - [Rule lifecycle compatibility](rule-lifecycle-compatibility.md) — proposals are inactive and explicit; legacy NULL lifecycle derives from existing active/historical flags.
+- [Large ExcelJS exports](exceljs-large-export-streaming.md) — use streaming writer/temp files; worksheet views must be passed at construction.

@@ -108,6 +108,7 @@ import * as cron from 'node-cron';
 import bcrypt from 'bcryptjs';
 import { parseNaturalLanguageRule, validateParsedRule, generateRuleName, checkRuleEnforceable, supportedTriggerMetrics } from "./naturalLanguageParser";
 import { buildRuleFromStructured } from "./structuredRuleBuilder";
+import { buildReferenceDataAuditWorkbook, REFERENCE_DATA_AUDIT_CONTENT_TYPE, REFERENCE_DATA_AUDIT_FILENAME } from "./services/referenceDataAuditWorkbook";
 import { advertisedMetricsList } from "./services/ruleMetricCatalog";
 import {
   partitionCandidates,
@@ -3848,6 +3849,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Error generating consolidated templates:", err);
       res.status(500).json({ error: "Failed to generate templates" });
+    }
+  });
+
+  // ── Formula-driven Reference Data audit workbook ───────────────────────────
+  // Deliberately uses the session-derived clientId.  Unlike a number of admin
+  // maintenance routes, this download must never accept a tenant selector from
+  // the browser because the workbook contains resident-level source data.
+  app.get("/api/reference-data/audit-workbook", async (req: any, res) => {
+    try {
+      const clientId: string = req.clientId || (req.session as any)?.clientId || "demo";
+      const workbookPath = await buildReferenceDataAuditWorkbook({
+        clientId,
+        generatedBy: (req.session as any)?.username ?? null,
+      });
+      res.setHeader("Content-Type", REFERENCE_DATA_AUDIT_CONTENT_TYPE);
+      res.setHeader("Content-Disposition", `attachment; filename="${REFERENCE_DATA_AUDIT_FILENAME}"`);
+      res.setHeader("Cache-Control", "no-store");
+      res.sendFile(workbookPath, (sendError) => {
+        fs.promises.unlink(workbookPath).catch(() => undefined);
+        fs.promises.rmdir(dirname(workbookPath)).catch(() => undefined);
+        if (sendError && !res.headersSent) {
+          res.status(500).json({ error: "Failed to send Reference Data audit workbook" });
+        }
+      });
+    } catch (err) {
+      console.error("[reference-data-audit-workbook] export error:", err);
+      res.status(500).json({ error: "Failed to generate Reference Data audit workbook" });
     }
   });
 

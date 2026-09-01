@@ -59,6 +59,7 @@ export default function DataManagement() {
   const [uploadHistory, setUploadHistory] = useState<any[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<FileWithDate[]>([]);
   const [periodsDialog, setPeriodsDialog] = useState<{ label: string; periods: string[]; lastUploadAt: string | null } | null>(null);
+  const [isDownloadingAuditWorkbook, setIsDownloadingAuditWorkbook] = useState(false);
   const rentRollFileInputRef = useRef<HTMLInputElement>(null);
   const inquiryFileInputRef = useRef<HTMLInputElement>(null);
   const competitorFileInputRef = useRef<HTMLInputElement>(null);
@@ -174,6 +175,50 @@ export default function DataManagement() {
         variant: "destructive",
       });
     }
+  };
+
+  const handleDownloadReferenceDataAudit = () => {
+    setIsDownloadingAuditWorkbook(true);
+    toast({
+      title: 'Audit Workbook Download Started',
+      description: 'The formula-driven Reference Data audit workbook is being prepared.',
+    });
+    setIsDownloadingAuditWorkbook(false);
+
+    void (async () => {
+      try {
+        const response = await fetch('/api/reference-data/audit-workbook');
+        if (!response.ok) {
+          let message = 'Failed to generate the Reference Data audit workbook.';
+          try {
+            const body = await response.json();
+            message = body.error || message;
+          } catch {
+            // Keep the user-facing error useful even if the server returned HTML.
+          }
+          throw new Error(message);
+        }
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = 'reference_data_audit.xlsx';
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.URL.revokeObjectURL(url);
+      } catch (error) {
+        toast({
+          title: 'Audit Workbook Download Failed',
+          description: error instanceof Error ? error.message : 'Failed to generate the Reference Data audit workbook.',
+          variant: 'destructive',
+        });
+      } finally {
+        // The request is intentionally backgrounded so a large tenant export
+        // does not leave the page control disabled while ExcelJS builds it.
+        setIsDownloadingAuditWorkbook(false);
+      }
+    })();
   };
 
   const rentRollMutation = useMutation({
@@ -1594,6 +1639,33 @@ export default function DataManagement() {
               </Button>
             </CardContent>
           </Card>
+
+           {/* Formula-driven Reference Data audit download */}
+           <Card className="border-indigo-200 bg-indigo-50/40">
+             <CardHeader>
+               <CardTitle>Reference Data Audit Workbook</CardTitle>
+               <CardDescription>
+                 Download a tenant-scoped Excel workbook with upload-shaped source tabs,
+                 formula-linked Reference Data calculations, active-rule audit tabs, and
+                 manual override history.
+               </CardDescription>
+             </CardHeader>
+             <CardContent>
+               <Button
+                 onClick={handleDownloadReferenceDataAudit}
+                 disabled={isDownloadingAuditWorkbook}
+                 className="gap-2"
+                 data-testid="button-download-reference-data-audit"
+               >
+                 {isDownloadingAuditWorkbook ? (
+                   <Loader2 className="h-4 w-4 animate-spin" />
+                 ) : (
+                   <FileSpreadsheet className="h-4 w-4" />
+                 )}
+                 {isDownloadingAuditWorkbook ? 'Building Audit Workbook…' : 'Download Reference Data Audit Workbook'}
+               </Button>
+             </CardContent>
+           </Card>
 
           {/* Upload History */}
           {uploadHistory.length > 0 && (
