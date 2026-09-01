@@ -18,6 +18,7 @@ type OverrideHistoryEntry = {
   new_rate: number | null;
   notes: string | null;
   changed_by: string | null;
+  changed_by_name?: string | null;
   changed_at: string | null;
 };
 
@@ -50,9 +51,9 @@ function HistoryEntry({ entry, showSegment }: { entry: OverrideHistoryEntry; sho
       <p className="text-[11px] text-muted-foreground">
         {formatRate(entry.previous_rate)} → {formatRate(entry.new_rate)}
       </p>
-      {entry.changed_by && (
-        <p className="text-[10px] text-muted-foreground">By {entry.changed_by}</p>
-      )}
+      <p className="text-[10px] text-muted-foreground">
+        By {entry.changed_by_name ?? entry.changed_by ?? "System/import"}
+      </p>
       {entry.notes && (
         <p className="mt-0.5 text-[10px] italic text-muted-foreground">
           “{entry.notes}”

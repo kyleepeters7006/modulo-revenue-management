@@ -769,6 +769,36 @@ async function checkAndInitializeDatabase() {
       CREATE INDEX IF NOT EXISTS mro_history_segment_idx
       ON manual_rate_override_history (client_id, location_name, service_line, room_type, changed_at DESC)
     `);
+    // Audit rows are evidence of what happened. Protect them at the database
+    // layer as well as in the application transactions. Test fixtures may opt
+    // into cleanup explicitly with a transaction-local test setting; the
+    // application never sets that setting.
+    await db.execute(sql`
+      CREATE OR REPLACE FUNCTION prevent_manual_rate_override_history_mutation()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF current_setting('app.manual_rate_override_audit_cleanup', true) = 'test' THEN
+          IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+          END IF;
+          RETURN NEW;
+        END IF;
+        RAISE EXCEPTION 'manual rate override history is append-only';
+      END;
+      $$;
+    `);
+    await db.execute(sql`
+      DROP TRIGGER IF EXISTS manual_rate_override_history_append_only
+      ON manual_rate_override_history
+    `);
+    await db.execute(sql`
+      CREATE TRIGGER manual_rate_override_history_append_only
+      BEFORE UPDATE OR DELETE ON manual_rate_override_history
+      FOR EACH ROW
+      EXECUTE FUNCTION prevent_manual_rate_override_history_mutation()
+    `);
     console.log('[migration] manual rate override audit history ensured');
 
     const unitCount = await storage.getTotalUnits();
@@ -17422,7 +17452,7 @@ Respond in JSON format:
               event_type, previous_rate, new_rate, notes, changed_by, changed_at)
            SELECT $1, saved.id, $2, $3, $4, $5,
                   CASE WHEN previous.id IS NULL THEN 'create' ELSE 'update' END,
-                  previous.override_rate, $6, NULL, $7, now()
+                   previous.override_rate, $6, NULL, $9, now()
              FROM saved
              LEFT JOIN previous ON TRUE`,
            [clientId, locationId, campus, serviceLine, roomType, rate, overrideUserId, overrideUserId, overrideActor],
@@ -22794,11 +22824,14 @@ Return ONLY valid JSON, no markdown fences:
     try {
       const clientId: string = req.session?.clientId || 'demo';
       const { rows } = await pool.query(
-        `SELECT id, override_id, location_id, location_name, service_line, room_type,
-                event_type, previous_rate, new_rate, notes, changed_by, changed_at
-           FROM manual_rate_override_history
-          WHERE client_id = $1
-          ORDER BY changed_at DESC, id DESC`,
+        `SELECT h.id, h.override_id, h.location_id, h.location_name, h.service_line, h.room_type,
+                h.event_type, h.previous_rate, h.new_rate, h.notes, h.changed_by, h.changed_at,
+                COALESCE(actor.username, h.changed_by) AS changed_by_name
+           FROM manual_rate_override_history h
+           LEFT JOIN users actor
+             ON actor.id = h.changed_by OR actor.username = h.changed_by
+          WHERE h.client_id = $1
+          ORDER BY h.changed_at DESC, h.id DESC`,
         [clientId],
       );
       res.json(rows);
@@ -22813,14 +22846,17 @@ Return ONLY valid JSON, no markdown fences:
       const clientId: string = req.session?.clientId || 'demo';
       const { locationName, serviceLine, roomType } = req.params;
       const { rows } = await pool.query(
-        `SELECT id, override_id, location_id, location_name, service_line, room_type,
-                event_type, previous_rate, new_rate, notes, changed_by, changed_at
-           FROM manual_rate_override_history
-          WHERE client_id = $1
-            AND location_name = $2
-            AND service_line = $3
-            AND room_type = $4
-          ORDER BY changed_at DESC, id DESC`,
+        `SELECT h.id, h.override_id, h.location_id, h.location_name, h.service_line, h.room_type,
+                h.event_type, h.previous_rate, h.new_rate, h.notes, h.changed_by, h.changed_at,
+                COALESCE(actor.username, h.changed_by) AS changed_by_name
+           FROM manual_rate_override_history h
+           LEFT JOIN users actor
+             ON actor.id = h.changed_by OR actor.username = h.changed_by
+          WHERE h.client_id = $1
+            AND h.location_name = $2
+            AND h.service_line = $3
+            AND h.room_type = $4
+          ORDER BY h.changed_at DESC, h.id DESC`,
         [clientId, locationName, serviceLine, roomType],
       );
       res.json(rows);

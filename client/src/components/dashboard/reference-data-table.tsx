@@ -1455,6 +1455,7 @@ export default function ReferenceDataTable({
       queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rule-performance"] });
       queryClient.invalidateQueries({ queryKey: ["/api/manual-rate-overrides"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/manual-rate-override-history"] });
       onRuleCreated?.();
     } catch (err: any) {
       toast({ title: "Import failed", description: err?.message ?? "Could not read the file.", variant: "destructive" });

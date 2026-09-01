@@ -66,16 +66,27 @@ async function postOverride(cookie: string, rate: number, notes: string) {
 }
 
 async function cleanup() {
-  await pool.query(
-    `DELETE FROM manual_rate_overrides
-     WHERE client_id = $1 AND location_name = $2 AND service_line = $3 AND room_type = $4`,
-    [CLIENT, locationName, serviceLine, roomType],
-  );
-  await pool.query(
-    `DELETE FROM manual_rate_override_history
-      WHERE client_id = $1 AND location_name = $2 AND service_line = $3 AND room_type = $4`,
-    [CLIENT, locationName, serviceLine, roomType],
-  );
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query("BEGIN");
+    await dbClient.query("SET LOCAL app.manual_rate_override_audit_cleanup = 'test'");
+    await dbClient.query(
+      `DELETE FROM manual_rate_overrides
+       WHERE client_id = $1 AND location_name = $2 AND service_line = $3 AND room_type = $4`,
+      [CLIENT, locationName, serviceLine, roomType],
+    );
+    await dbClient.query(
+      `DELETE FROM manual_rate_override_history
+        WHERE client_id = $1 AND location_name = $2 AND service_line = $3 AND room_type = $4`,
+      [CLIENT, locationName, serviceLine, roomType],
+    );
+    await dbClient.query("COMMIT");
+  } catch (error) {
+    await dbClient.query("ROLLBACK");
+    throw error;
+  } finally {
+    dbClient.release();
+  }
   await pool.query(`DELETE FROM users WHERE username = ANY($1)`, [[USER_A, USER_B]]);
 }
 
@@ -180,6 +191,29 @@ async function main() {
     assert("all-history list retains removed overrides",
       Boolean(removedEntry),
       `could not find remove event for ${locationName} / ${serviceLine} / ${roomType}`);
+
+    let updateRejected = false;
+    let deleteRejected = false;
+    if (removedEntry?.id) {
+      try {
+        await pool.query(
+          `UPDATE manual_rate_override_history SET notes = 'tampered' WHERE id = $1`,
+          [removedEntry.id],
+        );
+      } catch {
+        updateRejected = true;
+      }
+      try {
+        await pool.query(
+          `DELETE FROM manual_rate_override_history WHERE id = $1`,
+          [removedEntry.id],
+        );
+      } catch {
+        deleteRejected = true;
+      }
+    }
+    assert("direct history updates are rejected", updateRejected);
+    assert("direct history deletes are rejected", deleteRejected);
   } finally {
     await cleanup();
     await pool.end();

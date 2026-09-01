@@ -34,8 +34,19 @@ function ok(description: string, condition: boolean, detail = "") {
 }
 
 async function cleanup() {
-  await pool.query(`DELETE FROM manual_rate_override_history WHERE client_id = $1`, [CLIENT]);
-  await pool.query(`DELETE FROM manual_rate_overrides WHERE client_id = $1`, [CLIENT]);
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query("BEGIN");
+    await dbClient.query("SET LOCAL app.manual_rate_override_audit_cleanup = 'test'");
+    await dbClient.query(`DELETE FROM manual_rate_override_history WHERE client_id = $1`, [CLIENT]);
+    await dbClient.query(`DELETE FROM manual_rate_overrides WHERE client_id = $1`, [CLIENT]);
+    await dbClient.query("COMMIT");
+  } catch (error) {
+    await dbClient.query("ROLLBACK");
+    throw error;
+  } finally {
+    dbClient.release();
+  }
   await pool.query(`DELETE FROM locations WHERE client_id = $1`, [CLIENT]);
   await pool.query(`DELETE FROM users WHERE username = $1`, [USERNAME]);
   await pool.query(`DELETE FROM clients WHERE id = $1`, [CLIENT]);
@@ -98,8 +109,12 @@ async function run() {
       WHERE client_id = $1 AND location_name = $2 AND service_line = $3 AND room_type = $4`,
     [CLIENT, LOCATION, SERVICE_LINE, ROOM_TYPE],
   )).rows[0];
+  const creator = (await pool.query(
+    `SELECT id FROM users WHERE username = $1 LIMIT 1`,
+    [USERNAME],
+  )).rows[0];
   ok("the live override changes immediately", Number(currentAfterCreate?.override_rate) === 4250);
-  ok("the live row retains its creator", currentAfterCreate?.created_by === USERNAME);
+  ok("the live row retains its creator", currentAfterCreate?.created_by === creator?.id);
   const createdEvent = (await pool.query(
     `SELECT event_type, previous_rate, new_rate, notes, changed_by, changed_at
        FROM manual_rate_override_history WHERE client_id = $1 ORDER BY changed_at DESC LIMIT 1`,
