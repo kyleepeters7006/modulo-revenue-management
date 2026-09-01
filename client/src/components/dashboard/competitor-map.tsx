@@ -121,12 +121,16 @@ export function CompetitorMap({
           scrollWheelZoom: true
         });
         
-        // Add enhanced tile layer with better styling
-        window.L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-          attribution: '© OpenStreetMap contributors © CARTO',
-          maxZoom: 18,
-          subdomains: 'abcd'
-        }).addTo(mapInstanceRef.current);
+        // Muted satellite imagery gives the map a Google Earth-like context
+        // without washing out the marker and popup panes above it.
+        window.L.tileLayer(
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          {
+            attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+            maxZoom: 19,
+            className: 'competitor-satellite-tiles',
+          },
+        ).addTo(mapInstanceRef.current);
         
         if (!mounted) return;
         
@@ -231,7 +235,8 @@ export function CompetitorMap({
           iconUrl: "/attached_assets/image_1756856984756.png",
           iconSize: [40, 40],
           iconAnchor: [20, 40],
-          popupAnchor: [0, -40]
+          popupAnchor: [0, -40],
+          className: 'competitor-map-marker competitor-map-marker--own',
         });
         
         const currentMarker = window.L.marker([currentProperty.lat, currentProperty.lng], {
@@ -388,7 +393,8 @@ export function CompetitorMap({
           iconUrl: "/attached_assets/image_1756857075316.png",
           iconSize: [parseInt(style.size), parseInt(style.size)],
           iconAnchor: [parseInt(style.size) / 2, parseInt(style.size)],
-          popupAnchor: [0, -parseInt(style.size)]
+          popupAnchor: [0, -parseInt(style.size)],
+          className: 'competitor-map-marker',
         });
         
         const marker = window.L.marker([competitor.lat, competitor.lng], {
@@ -756,6 +762,7 @@ export function CompetitorMap({
         ref={mapRef}
         className="h-96 w-full bg-[var(--dashboard-bg)] border border-[var(--dashboard-border)] rounded-lg relative"
         data-testid="map-container"
+        aria-label="Interactive competitor map"
         style={{ minHeight: '400px', height: '400px' }}
       >
         <div className="absolute inset-0 flex items-center justify-center text-[var(--dashboard-muted)]">
