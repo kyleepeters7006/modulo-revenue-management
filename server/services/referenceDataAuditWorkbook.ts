@@ -467,12 +467,23 @@ function addReadMe(
 export interface BuildReferenceDataAuditWorkbookInput {
   clientId: string;
   generatedBy?: string | null;
+  onProgress?: (progress: ReferenceDataAuditWorkbookProgress) => void;
 }
 
+export type ReferenceDataAuditWorkbookProgress = {
+  percent: number;
+  phase: "loading" | "preparing" | "building" | "finalizing" | "completed";
+  message: string;
+};
 export async function buildReferenceDataAuditWorkbook(
   input: BuildReferenceDataAuditWorkbookInput,
 ): Promise<string> {
-  const { clientId } = input;
+  const { clientId, onProgress } = input;
+  const reportProgress = (percent: number, phase: ReferenceDataAuditWorkbookProgress["phase"], message: string) => {
+    onProgress?.({ percent, phase, message });
+  };
+
+  reportProgress(5, "loading", "Loading the latest audit data…");
   const monthResult = await pool.query<{ m: string }>(
     `SELECT DISTINCT upload_month AS m
        FROM rent_roll_data
@@ -485,6 +496,7 @@ export async function buildReferenceDataAuditWorkbook(
   const latestMonth = months[0] ?? null;
   const firstMonth = months[months.length - 1] ?? null;
   const endMonth = latestMonth ? nextMonth(latestMonth) : null;
+  reportProgress(10, "loading", "Loading the latest 12 months of source data…");
 
   const [
     clientResult,
@@ -624,6 +636,7 @@ export async function buildReferenceDataAuditWorkbook(
       [clientId],
     ),
   ]);
+  reportProgress(27, "preparing", "Preparing workbook source tabs…");
 
   const clientName = clientResult.rows[0]?.name ?? clientId;
   const locationsById = new Map(locationResult.rows.map((row: AnyRow) => [row.id, row]));
@@ -666,6 +679,7 @@ export async function buildReferenceDataAuditWorkbook(
   const locationSheet = addSourceSheet(wb, "Location Data", LOCATION_HEADERS, SOURCE_DESCRIPTIONS["Location Data"], locationRows,
     [28, 14, 14, 14, 18, 30, 16, 8, 10, 12, 12, 22, 22, 22, 22, 22, 22]);
   worksheetRefs.push(locationSheet.ws);
+  reportProgress(34, "building", "Writing location and rent-roll source tabs…");
 
   const rentRows = (rentResult.rows as AnyRow[]).map((row, index) => {
     const isPrivate = isPrivatePayer(row.payor_type);
@@ -696,6 +710,7 @@ export async function buildReferenceDataAuditWorkbook(
   const rentSheet = addSourceSheet(wb, "Rent Roll", RENT_HEADERS, SOURCE_DESCRIPTIONS["Rent Roll"], rentRows,
     [14, 14, 24, 14, 18, 14, 13, 16, 13, 14, 13, 14, 11, 18, 22, 16, 13, 14, 17, 15, 13, 11, 17, 18, 14, 18, 14, 14, 16, 38, 20, 28, 48, 18, 20, 20, 20, 22]);
   worksheetRefs.push(rentSheet.ws);
+  reportProgress(51, "building", "Writing inquiry and competitive survey tabs…");
   const inquiryRows = (inquiryResult.rows as AnyRow[]).map(row => [
     row.upload_month, row.date, row.location, row.inquiry_count, row.region, row.division,
     row.service_line, row.lead_source, row.tour_count, row.conversion_count,
@@ -716,6 +731,7 @@ export async function buildReferenceDataAuditWorkbook(
   const surveySheet = addSourceSheet(wb, "Competitive Survey", SURVEY_HEADERS, SOURCE_DESCRIPTIONS["Competitive Survey"], surveyRows,
     [14, 24, 28, 38, 16, 16, 18, 15, 16, 16, 16, 14, 16, 16, 16, 16, 22, 14, 10, 20, 12, 14, 12, 30, 8]);
   worksheetRefs.push(surveySheet.ws);
+  reportProgress(65, "building", "Writing occupancy and move-in/out tabs…");
 
   const rtoRows = (rtoResult.rows as AnyRow[]).map(row => {
     const month = `${row.year_number}-${String(row.month_number).padStart(2, "0")}`;
@@ -738,6 +754,7 @@ export async function buildReferenceDataAuditWorkbook(
   const moveSheet = addSourceSheet(wb, "Move Ins & Outs", MOVE_HEADERS, SOURCE_DESCRIPTIONS["Move Ins & Outs"], moveRows,
     [14, 28, 18, 16, 14, 18, 20, 16, 30, 12, 14, 14, 12, 38]);
   worksheetRefs.push(moveSheet.ws);
+  reportProgress(76, "building", "Writing overrides and active-rule tabs…");
 
   const historyByKey = new Map<string, AnyRow[]>();
   (overrideHistoryResult.rows as AnyRow[]).forEach(row => {
@@ -828,6 +845,7 @@ export async function buildReferenceDataAuditWorkbook(
     ruleHeaders.map(header => header === "Formula Status" ? "Explicit representation status; unsupported legacy shapes are not silently replayed." : "Implemented active-rule metadata."),
     ruleRows, [38, 34, 10, 12, 38, 28, 22, 18, 18, 18, 42, 42, 16, 22, 16, 34, 62]);
   worksheetRefs.push(activeRuleSheet.ws);
+  reportProgress(84, "building", "Building formula-linked audit rows…");
 
   const auditHeaders = [
     "Location ID", "Division", "Region", "Campus", "Service Line", "Room Type",
@@ -990,6 +1008,7 @@ export async function buildReferenceDataAuditWorkbook(
   auditWs.getColumn(25).numFmt = FMT_MONEY;
   auditWs.getColumn(26).numFmt = FMT_MONEY;
   auditWs.getColumn(27).numFmt = FMT_MONEY;
+  reportProgress(93, "finalizing", "Adding rule audit and calculation notes…");
 
   activeRules.forEach((rule, ruleIndex) => {
     const suffix = String(ruleIndex + 1).padStart(2, "0");
@@ -1096,6 +1115,8 @@ export async function buildReferenceDataAuditWorkbook(
 
   delete (globalThis as any).__auditRentSheet;
   worksheetRefs.forEach(ws => ws.commit?.());
+  reportProgress(98, "finalizing", "Finalizing the XLSX file…");
   await wb.commit();
+  reportProgress(100, "completed", "Audit workbook is ready to download.");
   return workbookFilePath;
 }

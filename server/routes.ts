@@ -123,6 +123,57 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+type ReferenceDataAuditJob = {
+  id: string;
+  clientId: string;
+  status: "queued" | "building" | "completed" | "failed";
+  phase: "queued" | "loading" | "preparing" | "building" | "finalizing" | "completed" | "error";
+  percent: number;
+  message: string;
+  error: string | null;
+  filePath: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+};
+
+const referenceDataAuditJobs = new Map<string, ReferenceDataAuditJob>();
+const activeReferenceDataAuditJobs = new Map<string, string>();
+const REFERENCE_DATA_AUDIT_JOB_TTL_MS = 30 * 60 * 1000;
+
+function referenceDataAuditClientId(req: any): string {
+  return req.clientId || (req.session as any)?.clientId || "demo";
+}
+
+function referenceDataAuditJobResponse(job: ReferenceDataAuditJob) {
+  return {
+    jobId: job.id,
+    status: job.status,
+    phase: job.phase,
+    percent: job.percent,
+    message: job.message,
+    error: job.error,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
+    downloadUrl: job.status === "completed" ? `/api/reference-data/audit-workbook/${job.id}/download` : null,
+  };
+}
+
+function scheduleReferenceDataAuditJobCleanup(jobId: string) {
+  setTimeout(() => {
+    const job = referenceDataAuditJobs.get(jobId);
+    if (!job || (job.status !== "completed" && job.status !== "failed")) return;
+    if (job.filePath) fs.promises.unlink(job.filePath).catch(() => undefined);
+    if (job.filePath) fs.promises.rmdir(dirname(job.filePath)).catch(() => undefined);
+    referenceDataAuditJobs.delete(jobId);
+    if (activeReferenceDataAuditJobs.get(job.clientId) === jobId) {
+      activeReferenceDataAuditJobs.delete(job.clientId);
+    }
+  }, REFERENCE_DATA_AUDIT_JOB_TTL_MS);
+}
+
 import { callClaude, callClaudeThenGPT, callClaudeDetailed, AiTimeoutError, isAbortError } from './aiRouter';
 import { commitIfStillWanted } from './services/cancellableWrite';
 import { 
@@ -3886,9 +3937,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Deliberately uses the session-derived clientId.  Unlike a number of admin
   // maintenance routes, this download must never accept a tenant selector from
   // the browser because the workbook contains resident-level source data.
+  app.post("/api/reference-data/audit-workbook", async (req: any, res) => {
+    const clientId = referenceDataAuditClientId(req);
+    const activeJobId = activeReferenceDataAuditJobs.get(clientId);
+    const activeJob = activeJobId ? referenceDataAuditJobs.get(activeJobId) : null;
+    if (activeJob && (activeJob.status === "queued" || activeJob.status === "building")) {
+      return res.status(202).json(referenceDataAuditJobResponse(activeJob));
+    }
+
+    const job: ReferenceDataAuditJob = {
+      id: randomUUID(),
+      clientId,
+      status: "queued",
+      phase: "queued",
+      percent: 0,
+      message: "Audit workbook is queued for preparation.",
+      error: null,
+      filePath: null,
+      createdAt: new Date().toISOString(),
+      startedAt: null,
+      completedAt: null,
+    };
+    referenceDataAuditJobs.set(job.id, job);
+    activeReferenceDataAuditJobs.set(clientId, job.id);
+
+    void buildReferenceDataAuditWorkbook({
+      clientId,
+      generatedBy: (req.session as any)?.username ?? null,
+      onProgress: ({ percent, phase, message }) => {
+        if (job.status === "queued") {
+          job.status = "building";
+          job.startedAt = new Date().toISOString();
+        }
+        job.phase = phase;
+        job.percent = percent;
+        job.message = message;
+      },
+    }).then((workbookPath) => {
+      job.status = "completed";
+      job.phase = "completed";
+      job.percent = 100;
+      job.message = "Audit workbook is ready to download.";
+      job.filePath = workbookPath;
+      job.completedAt = new Date().toISOString();
+      scheduleReferenceDataAuditJobCleanup(job.id);
+    }).catch((error: any) => {
+      console.error("[reference-data-audit-workbook] background export error:", error);
+      job.status = "failed";
+      job.phase = "error";
+      job.message = "Audit workbook preparation failed.";
+      job.error = error instanceof Error ? error.message : "Failed to generate Reference Data audit workbook";
+      job.completedAt = new Date().toISOString();
+      if (activeReferenceDataAuditJobs.get(clientId) === job.id) {
+        activeReferenceDataAuditJobs.delete(clientId);
+      }
+      scheduleReferenceDataAuditJobCleanup(job.id);
+    });
+
+    return res.status(202).json(referenceDataAuditJobResponse(job));
+  });
+
+  app.get("/api/reference-data/audit-workbook/latest", (req: any, res) => {
+    const clientId = referenceDataAuditClientId(req);
+    const jobs = Array.from(referenceDataAuditJobs.values())
+      .filter(job => job.clientId === clientId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    res.setHeader("Cache-Control", "no-store");
+    return res.json(jobs[0] ? referenceDataAuditJobResponse(jobs[0]) : null);
+  });
+
+  app.get("/api/reference-data/audit-workbook/:jobId", (req: any, res) => {
+    const job = referenceDataAuditJobs.get(req.params.jobId);
+    if (!job || job.clientId !== referenceDataAuditClientId(req)) {
+      return res.status(404).json({ error: "Audit workbook job not found" });
+    }
+    res.setHeader("Cache-Control", "no-store");
+    return res.json(referenceDataAuditJobResponse(job));
+  });
+
+  app.get("/api/reference-data/audit-workbook/:jobId/download", (req: any, res) => {
+    const job = referenceDataAuditJobs.get(req.params.jobId);
+    if (!job || job.clientId !== referenceDataAuditClientId(req)) {
+      return res.status(404).json({ error: "Audit workbook job not found" });
+    }
+    if (job.status !== "completed" || !job.filePath) {
+      return res.status(409).json({ error: job.error || "Audit workbook is not ready yet" });
+    }
+
+    res.setHeader("Content-Type", REFERENCE_DATA_AUDIT_CONTENT_TYPE);
+    res.setHeader("Content-Disposition", `attachment; filename="${REFERENCE_DATA_AUDIT_FILENAME}"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.sendFile(job.filePath, (sendError) => {
+      if (sendError) {
+        job.status = "failed";
+        job.phase = "error";
+        job.message = "Audit workbook transfer failed.";
+        job.error = "Failed to send Reference Data audit workbook";
+        job.completedAt = new Date().toISOString();
+        console.error("[reference-data-audit-workbook] transfer error:", sendError);
+        fs.promises.unlink(job.filePath!).catch(() => undefined);
+        fs.promises.rmdir(dirname(job.filePath!)).catch(() => undefined);
+        job.filePath = null;
+      }
+      if (activeReferenceDataAuditJobs.get(job.clientId) === job.id) {
+        activeReferenceDataAuditJobs.delete(job.clientId);
+      }
+    });
+  });
+
+  // Legacy synchronous endpoint retained for scripts and existing consumers.
   app.get("/api/reference-data/audit-workbook", async (req: any, res) => {
     try {
-      const clientId: string = req.clientId || (req.session as any)?.clientId || "demo";
+      const clientId: string = referenceDataAuditClientId(req);
       const workbookPath = await buildReferenceDataAuditWorkbook({
         clientId,
         generatedBy: (req.session as any)?.username ?? null,

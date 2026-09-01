@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Download, Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, RefreshCw, Clock, CalendarDays, ChevronRight, ChevronDown, ArrowUpCircle } from "lucide-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -60,6 +60,16 @@ export default function DataManagement() {
   const [selectedFiles, setSelectedFiles] = useState<FileWithDate[]>([]);
   const [periodsDialog, setPeriodsDialog] = useState<{ label: string; periods: string[]; lastUploadAt: string | null } | null>(null);
   const [isDownloadingAuditWorkbook, setIsDownloadingAuditWorkbook] = useState(false);
+  const [auditWorkbookJob, setAuditWorkbookJob] = useState<{
+    jobId: string;
+    status: 'queued' | 'building' | 'completed' | 'failed';
+    phase: string;
+    percent: number;
+    message: string;
+    error: string | null;
+    downloadUrl: string | null;
+  } | null>(null);
+  const [auditWorkbookTransferError, setAuditWorkbookTransferError] = useState<string | null>(null);
   const rentRollFileInputRef = useRef<HTMLInputElement>(null);
   const inquiryFileInputRef = useRef<HTMLInputElement>(null);
   const competitorFileInputRef = useRef<HTMLInputElement>(null);
@@ -177,48 +187,107 @@ export default function DataManagement() {
     }
   };
 
-  const handleDownloadReferenceDataAudit = () => {
-    setIsDownloadingAuditWorkbook(true);
-    toast({
-      title: 'Audit Workbook Download Started',
-      description: 'The formula-driven Reference Data audit workbook is being prepared.',
-    });
-    setIsDownloadingAuditWorkbook(false);
-
-    void (async () => {
+  useEffect(() => {
+    if (!auditWorkbookJob || (auditWorkbookJob.status !== 'queued' && auditWorkbookJob.status !== 'building')) return;
+    let cancelled = false;
+    const poll = async () => {
       try {
-        const response = await fetch('/api/reference-data/audit-workbook');
-        if (!response.ok) {
-          let message = 'Failed to generate the Reference Data audit workbook.';
-          try {
-            const body = await response.json();
-            message = body.error || message;
-          } catch {
-            // Keep the user-facing error useful even if the server returned HTML.
-          }
-          throw new Error(message);
-        }
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = 'reference_data_audit.xlsx';
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-        window.URL.revokeObjectURL(url);
+        const response = await fetch(`/api/reference-data/audit-workbook/${auditWorkbookJob.jobId}`);
+        if (!response.ok) throw new Error('Unable to check audit workbook status.');
+        const status = await response.json();
+        if (!cancelled) setAuditWorkbookJob(status);
       } catch (error) {
-        toast({
-          title: 'Audit Workbook Download Failed',
-          description: error instanceof Error ? error.message : 'Failed to generate the Reference Data audit workbook.',
-          variant: 'destructive',
-        });
-      } finally {
-        // The request is intentionally backgrounded so a large tenant export
-        // does not leave the page control disabled while ExcelJS builds it.
-        setIsDownloadingAuditWorkbook(false);
+        if (!cancelled) {
+          setAuditWorkbookTransferError(error instanceof Error ? error.message : 'Unable to check audit workbook status.');
+        }
       }
-    })();
+    };
+    const interval = window.setInterval(poll, 1500);
+    void poll();
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [auditWorkbookJob?.jobId, auditWorkbookJob?.status]);
+
+  useEffect(() => {
+    if (auditWorkbookJob) return;
+    let cancelled = false;
+    void fetch('/api/reference-data/audit-workbook/latest')
+      .then(response => response.ok ? response.json() : null)
+      .then(status => {
+        if (!cancelled && status) setAuditWorkbookJob(status);
+      })
+      .catch(() => {
+        // A missing status is not an export failure; the user can start a new one.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auditWorkbookJob]);
+
+  const downloadReadyAuditWorkbook = async (job: typeof auditWorkbookJob) => {
+    if (!job?.downloadUrl) return;
+    setIsDownloadingAuditWorkbook(true);
+    setAuditWorkbookTransferError(null);
+    try {
+      const response = await fetch(job.downloadUrl);
+      if (!response.ok) {
+        let message = 'Failed to download the completed Reference Data audit workbook.';
+        try {
+          const body = await response.json();
+          message = body.error || message;
+        } catch {
+          // Keep the user-facing error useful even if the server returned HTML.
+        }
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'reference_data_audit.xlsx';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to download the completed Reference Data audit workbook.';
+      setAuditWorkbookTransferError(message);
+      toast({ title: 'Audit Workbook Download Failed', description: message, variant: 'destructive' });
+    } finally {
+      setIsDownloadingAuditWorkbook(false);
+    }
+  };
+
+  const handleDownloadReferenceDataAudit = async () => {
+    setAuditWorkbookTransferError(null);
+    setIsDownloadingAuditWorkbook(true);
+    try {
+      const response = await fetch('/api/reference-data/audit-workbook', { method: 'POST' });
+      if (!response.ok) {
+        let message = 'Failed to queue the Reference Data audit workbook.';
+        try {
+          const body = await response.json();
+          message = body.error || message;
+        } catch {
+          // Keep the user-facing error useful even if the server returned HTML.
+        }
+        throw new Error(message);
+      }
+      const job = await response.json();
+      setAuditWorkbookJob(job);
+      toast({
+        title: 'Audit Workbook Queued',
+        description: 'The workbook is being prepared. This page will show when it is ready.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to queue the Reference Data audit workbook.';
+      setAuditWorkbookTransferError(message);
+      toast({ title: 'Audit Workbook Failed', description: message, variant: 'destructive' });
+    } finally {
+      setIsDownloadingAuditWorkbook(false);
+    }
   };
 
   const rentRollMutation = useMutation({
@@ -1653,17 +1722,58 @@ export default function DataManagement() {
              <CardContent>
                <Button
                  onClick={handleDownloadReferenceDataAudit}
-                 disabled={isDownloadingAuditWorkbook}
+                  disabled={isDownloadingAuditWorkbook || auditWorkbookJob?.status === 'queued' || auditWorkbookJob?.status === 'building'}
                  className="gap-2"
                  data-testid="button-download-reference-data-audit"
                >
-                 {isDownloadingAuditWorkbook ? (
+                  {isDownloadingAuditWorkbook || auditWorkbookJob?.status === 'queued' || auditWorkbookJob?.status === 'building' ? (
                    <Loader2 className="h-4 w-4 animate-spin" />
                  ) : (
                    <FileSpreadsheet className="h-4 w-4" />
                  )}
-                 {isDownloadingAuditWorkbook ? 'Building Audit Workbook…' : 'Download Reference Data Audit Workbook'}
+                  {isDownloadingAuditWorkbook ? 'Queueing Audit Workbook…' :
+                    auditWorkbookJob?.status === 'queued' ? 'Audit Workbook Queued…' :
+                    auditWorkbookJob?.status === 'building' ? 'Building Audit Workbook…' :
+                    'Prepare Reference Data Audit Workbook'}
                </Button>
+                {auditWorkbookJob && (auditWorkbookJob.status === 'queued' || auditWorkbookJob.status === 'building') && (
+                  <div className="mt-4 rounded-md border border-indigo-200 bg-white/70 p-3" data-testid="audit-workbook-progress">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-indigo-950">{auditWorkbookJob.message}</span>
+                      <span className="shrink-0 font-semibold tabular-nums text-indigo-700">{auditWorkbookJob.percent}%</span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-indigo-100">
+                      <div className="h-full rounded-full bg-indigo-600 transition-all duration-500" style={{ width: `${auditWorkbookJob.percent}%` }} />
+                    </div>
+                    <p className="mt-2 text-xs text-indigo-700">You can keep working — the download button will appear when the XLSX is ready.</p>
+                  </div>
+                )}
+                {auditWorkbookJob?.status === 'completed' && (
+                  <Alert className="mt-4 border-green-200 bg-green-50 text-green-900" data-testid="audit-workbook-complete">
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+                      <span>{auditWorkbookJob.message}</span>
+                      <Button type="button" size="sm" onClick={() => void downloadReadyAuditWorkbook(auditWorkbookJob)} disabled={isDownloadingAuditWorkbook} className="gap-2">
+                        {isDownloadingAuditWorkbook ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                        Download XLSX
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {auditWorkbookJob?.status === 'failed' && (
+                  <Alert variant="destructive" className="mt-4" data-testid="audit-workbook-error">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      {auditWorkbookJob.error || auditWorkbookJob.message}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {auditWorkbookTransferError && (
+                  <Alert variant="destructive" className="mt-4" data-testid="audit-workbook-transfer-error">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{auditWorkbookTransferError}</AlertDescription>
+                  </Alert>
+                )}
              </CardContent>
            </Card>
 
