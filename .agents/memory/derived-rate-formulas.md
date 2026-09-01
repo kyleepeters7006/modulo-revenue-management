@@ -8,8 +8,8 @@ description: Non-base rates are computed from the base rate via user-editable fo
 Six non-base products — second occupant, semi-private/companion, respite, rehab/TCU,
 bed hold, couple — are **derived** from the base rate rather than measured independently.
 The user edits `percent of base` and/or a `dollar offset` per type in a Data Management
-panel; scope is portfolio-wide, with a nullable service-line column so per-SL overrides
-can be added later without a migration.
+panel. Policies are service-line aware: an exact service-line row wins, then the
+all-service row, then the built-in default.
 
 ## Derived rates are outputs, never inputs
 
@@ -32,7 +32,8 @@ a wrong number gets billed.
 **A save is the whole policy, not a patch.** Accepting a subset leaves the omitted types
 on their previous values while the caller believes it wrote the complete set — the
 portfolio ends up priced by a mixture of old and new policy with nothing recording which
-was which. Validate that every type is present before writing.
+was which. Validate that every type is present and belongs to one service-line scope
+before writing.
 
 **Pin the transaction to one connection.** Issuing `BEGIN`, the upserts, and `COMMIT`
 through a *pool's* `query` spreads them across arbitrary backends: the BEGIN opens a
@@ -44,9 +45,15 @@ unauthenticated and default to `demo`; a mutation that inherits that default let
 who can reach the server rewrite demo's pricing policy. Take the tenant from the session,
 and 401 when there isn't one.
 
-## Current state
+## Service-line editing
 
-The panel stores policy but **nothing consumes it yet** — the MatrixCare exports still
-emit each bed's own recorded rate. The UI says so explicitly. Wiring the formulas into the
-exports and rate calculation is separate work; if you do it, add an end-to-end test
-proving a saved formula changes an emitted derived rate.
+The compact selector edits one complete service-line policy at a time. A line with no
+saved override displays the all-service policy as inherited; saving materializes the full
+six-formula set for that line. Resetting a line removes only its rows so it inherits again.
+
+**Why:** Service lines use different billing bases and product mixes, so one portfolio-wide
+formula can produce the wrong derived charge even when the arithmetic itself is correct.
+
+**How to apply:** Calculation consumers must load the complete policy and call
+`resolveFormula` with the row's service line. Editor reads may request one resolved scope
+for compact display, but must not discard other saved scopes.

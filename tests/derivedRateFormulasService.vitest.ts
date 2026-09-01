@@ -17,9 +17,13 @@ import {
 } from '../server/services/derivedRateFormulasService';
 import { DERIVED_RATE_TYPES, defaultFormulas } from '../shared/derivedRates';
 
-const fullSet = (overrides: Record<string, Partial<{ percentOfBase: number; dollarOffset: number; enabled: boolean }>> = {}) =>
+const fullSet = (
+  overrides: Record<string, Partial<{ percentOfBase: number; dollarOffset: number; enabled: boolean }>> = {},
+  serviceLine: string | null = null,
+) =>
   DERIVED_RATE_TYPES.map((t) => ({
     rateType: t,
+    serviceLine,
     percentOfBase: 100,
     dollarOffset: 0,
     enabled: true,
@@ -54,6 +58,16 @@ describe('validateFormulaSet', () => {
   it('rejects duplicates', () => {
     const dup = [...fullSet(), { rateType: DERIVED_RATE_TYPES[0], percentOfBase: 50, dollarOffset: 0 }];
     expect(validateFormulaSet(dup).join(' ')).toMatch(/Duplicate/i);
+  });
+
+  it('rejects mixed service-line scopes in one save', () => {
+    const mixed = fullSet();
+    mixed[0].serviceLine = 'HC';
+    expect(validateFormulaSet(mixed).join(' ')).toMatch(/same service line/i);
+  });
+
+  it('rejects an unknown service line', () => {
+    expect(validateFormulaSet(fullSet({}, 'UNKNOWN')).join(' ')).toMatch(/Unknown service line/i);
   });
 
   it('surfaces per-formula validation errors with the type name attached', () => {
@@ -118,6 +132,59 @@ describe('getDerivedRateFormulas', () => {
     );
     expect(rows.find((r) => r.rateType === target)!.isDefault).toBe(false);
   });
+
+  it('prefers a selected service-line row and inherits missing rows from the global policy', async () => {
+    const [specificType, inheritedType] = DERIVED_RATE_TYPES;
+    const rows = await getDerivedRateFormulas(
+      async () => ({
+        rows: [
+          {
+            rate_type: specificType, service_line: 'HC', percent_of_base: 70,
+            dollar_offset: 0, enabled: true, updated_by: 'jo', updated_at: null,
+          },
+          {
+            rate_type: inheritedType, service_line: null, percent_of_base: 83,
+            dollar_offset: 5, enabled: true, updated_by: 'jo', updated_at: null,
+          },
+        ],
+      }),
+      'acme',
+      'HC',
+    );
+
+    expect(rows).toHaveLength(DERIVED_RATE_TYPES.length);
+    expect(rows.find((r) => r.rateType === specificType)).toMatchObject({
+      serviceLine: 'HC',
+      percentOfBase: 70,
+      isInherited: false,
+    });
+    expect(rows.find((r) => r.rateType === inheritedType)).toMatchObject({
+      serviceLine: 'HC',
+      percentOfBase: 83,
+      dollarOffset: 5,
+      isInherited: true,
+    });
+  });
+
+  it('returns global plus service-specific rows when consumers request the full policy', async () => {
+    const target = DERIVED_RATE_TYPES[0];
+    const rows = await getDerivedRateFormulas(
+      async () => ({
+        rows: [{
+          rate_type: target, service_line: 'HC', percent_of_base: 70,
+          dollar_offset: 0, enabled: true, updated_by: null, updated_at: null,
+        }],
+      }),
+      'acme',
+    );
+
+    expect(rows).toHaveLength(DERIVED_RATE_TYPES.length + 1);
+    expect(rows).toContainEqual(expect.objectContaining({
+      rateType: target,
+      serviceLine: 'HC',
+      percentOfBase: 70,
+    }));
+  });
 });
 
 /** Minimal pool fake that records the statements issued on the pinned client. */
@@ -168,5 +235,11 @@ describe('saveDerivedRateFormulas', () => {
     const pool = fakePool();
     await saveDerivedRateFormulas(pool as any, 'acme', fullSet(), null);
     expect(pool.released).toBe(true);
+  });
+
+  it('saves a complete service-line policy independently', async () => {
+    const pool = fakePool();
+    const rows = await saveDerivedRateFormulas(pool as any, 'acme', fullSet({}, 'HC'), 'jo');
+    expect(rows.every((row) => row.serviceLine === 'HC')).toBe(true);
   });
 });

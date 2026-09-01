@@ -20,8 +20,10 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Calculator, ChevronDown, ChevronRight, Info, Loader2, RotateCcw, Save } from "lucide-react";
+import { serviceLineEnum } from "@shared/schema";
 import {
   DERIVED_RATE_TYPE_META,
   applyDerivedFormula,
@@ -37,9 +39,20 @@ interface StoredFormula {
   dollarOffset: number;
   enabled: boolean;
   isDefault: boolean;
+  isInherited?: boolean;
   updatedAt: string | null;
   updatedBy: string | null;
 }
+
+const ALL_SERVICE_LINES = "all";
+const SERVICE_LINE_NAMES: Record<(typeof serviceLineEnum)[number], string> = {
+  AL: "Assisted Living",
+  "AL/MC": "Assisted Living / Memory Care",
+  HC: "Health Center",
+  "HC/MC": "Health Center / Memory Care",
+  SL: "Senior Living",
+  VIL: "Village",
+};
 
 /** Editable draft: numbers are held as strings so a half-typed "-" or "" is
  *  not coerced to 0 under the user's cursor. */
@@ -53,11 +66,14 @@ export default function DerivedRateFormulas() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(true);
+  const [selectedServiceLine, setSelectedServiceLine] = useState(ALL_SERVICE_LINES);
 
   const { data, isLoading } = useQuery<{ formulas: StoredFormula[] }>({
-    queryKey: ["/api/derived-rate-formulas"],
+    queryKey: ["/api/derived-rate-formulas", selectedServiceLine],
     queryFn: async () => {
-      const res = await fetch("/api/derived-rate-formulas");
+      const res = await fetch(
+        `/api/derived-rate-formulas?serviceLine=${encodeURIComponent(selectedServiceLine)}`,
+      );
       if (!res.ok) throw new Error("Failed to load derived rate formulas");
       return res.json();
     },
@@ -119,6 +135,7 @@ export default function DerivedRateFormulas() {
     mutationFn: async () => {
       const formulas = DERIVED_RATE_TYPE_META.map((m) => ({
         rateType: m.type,
+        serviceLine: selectedServiceLine === ALL_SERVICE_LINES ? null : selectedServiceLine,
         percentOfBase: Number(drafts[m.type]?.percentOfBase ?? m.defaultPercentOfBase),
         dollarOffset: Number(drafts[m.type]?.dollarOffset ?? m.defaultDollarOffset),
         enabled: drafts[m.type]?.enabled ?? true,
@@ -135,9 +152,12 @@ export default function DerivedRateFormulas() {
       return res.json();
     },
     onSuccess: (payload: { formulas: StoredFormula[] }) => {
-      queryClient.setQueryData(["/api/derived-rate-formulas"], payload);
+      queryClient.setQueryData(["/api/derived-rate-formulas", selectedServiceLine], payload);
       queryClient.invalidateQueries({ queryKey: ["/api/derived-rate-formulas"] });
-      toast({ title: "Formulas saved", description: "Your derived-rate policy has been updated." });
+      toast({
+        title: "Formulas saved",
+        description: `${selectedServiceLine === ALL_SERVICE_LINES ? "All-service defaults" : selectedServiceLine} updated.`,
+      });
     },
     onError: (e: Error) =>
       toast({ title: "Could not save formulas", description: e.message, variant: "destructive" }),
@@ -145,14 +165,25 @@ export default function DerivedRateFormulas() {
 
   const reset = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/derived-rate-formulas/reset", { method: "POST" });
+      const res = await fetch("/api/derived-rate-formulas/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          serviceLine: selectedServiceLine === ALL_SERVICE_LINES ? null : selectedServiceLine,
+        }),
+      });
       if (!res.ok) throw new Error("Failed to reset");
       return res.json();
     },
     onSuccess: (payload: { formulas: StoredFormula[] }) => {
-      queryClient.setQueryData(["/api/derived-rate-formulas"], payload);
+      queryClient.setQueryData(["/api/derived-rate-formulas", selectedServiceLine], payload);
       queryClient.invalidateQueries({ queryKey: ["/api/derived-rate-formulas"] });
-      toast({ title: "Reset to defaults", description: "Saved formulas were removed." });
+      toast({
+        title: "Reset to defaults",
+        description: selectedServiceLine === ALL_SERVICE_LINES
+          ? "The all-service defaults were restored."
+          : `${selectedServiceLine} now inherits the all-service defaults.`,
+      });
     },
     onError: (e: Error) =>
       toast({ title: "Could not reset", description: e.message, variant: "destructive" }),
@@ -163,6 +194,17 @@ export default function DerivedRateFormulas() {
 
   const setField = (type: string, patch: Partial<Draft>) =>
     setDrafts((prev) => ({ ...prev, [type]: { ...prev[type], ...patch } }));
+
+  const handleServiceLineChange = (value: string) => {
+    if (dirty) {
+      toast({
+        title: "Save or reset your changes first",
+        description: "This prevents edits for one service line from being lost when you switch.",
+      });
+      return;
+    }
+    setSelectedServiceLine(value);
+  };
 
   return (
     <Card data-testid="card-derived-rate-formulas">
@@ -187,7 +229,29 @@ export default function DerivedRateFormulas() {
       </CardHeader>
 
       {!collapsed && <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="space-y-1">
+            <Label htmlFor="derived-service-line" className="text-xs">
+              Service line
+            </Label>
+            <Select value={selectedServiceLine} onValueChange={handleServiceLineChange}>
+              <SelectTrigger
+                id="derived-service-line"
+                className="w-64"
+                data-testid="select-derived-service-line"
+              >
+                <SelectValue placeholder="Select service line" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_SERVICE_LINES}>All service lines (default)</SelectItem>
+                {serviceLineEnum.map((line) => (
+                  <SelectItem key={line} value={line}>
+                    {SERVICE_LINE_NAMES[line]} ({line})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-1">
             <Label htmlFor="derived-preview-base" className="text-xs">
               Preview against a base rate of
@@ -249,6 +313,11 @@ export default function DerivedRateFormulas() {
                       {saved?.isDefault && (
                         <Badge variant="outline" className="text-[10px]">
                           default
+                        </Badge>
+                      )}
+                      {saved?.isInherited && (
+                        <Badge variant="outline" className="text-[10px]">
+                          all-service default
                         </Badge>
                       )}
                     </div>

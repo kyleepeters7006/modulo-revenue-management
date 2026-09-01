@@ -602,8 +602,8 @@ export const competitiveSurveyData = pgTable("competitive_survey_data", {
 // (single-occupant, standard-stay) rate. See shared/derivedRates.ts for the
 // formula semantics and shared/baseRate.ts for what "base" means.
 //
-// serviceLine NULL = portfolio-wide. The column exists so a per-service-line
-// override can be added later without a migration.
+// serviceLine NULL = portfolio-wide; non-null rows override that policy for
+// one service line.
 export const derivedRateFormulas = pgTable("derived_rate_formulas", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   clientId: varchar("client_id").notNull(),

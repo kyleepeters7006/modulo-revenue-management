@@ -81,7 +81,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
 import { getRefDataCache, setRefDataCache, invalidateRefDataCache } from "./refDataCache";
-import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics, uploadHistory, competitorRateJobs } from "@shared/schema";
+import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics, uploadHistory, competitorRateJobs, serviceLineEnum } from "@shared/schema";
 import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import { clampRateWithGuardrails } from "./guardrailsUtil";
@@ -6516,8 +6516,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/derived-rate-formulas", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
+      const rawServiceLine = typeof req.query.serviceLine === 'string' ? req.query.serviceLine : undefined;
+      const serviceLine = rawServiceLine === undefined
+        ? undefined
+        : rawServiceLine === 'all'
+          ? null
+          : rawServiceLine;
+      if (serviceLine !== undefined && serviceLine !== null &&
+          !(serviceLineEnum as readonly string[]).includes(serviceLine)) {
+        return res.status(400).json({ error: 'Unknown service line.' });
+      }
       const { getDerivedRateFormulas } = await import('./services/derivedRateFormulasService');
-      const formulas = await getDerivedRateFormulas((s, p) => pool.query(s, p), clientId);
+      const formulas = await getDerivedRateFormulas((s, p) => pool.query(s, p), clientId, serviceLine);
       // Settings the user just saved must never be served from a cache.
       res.setHeader('Cache-Control', 'no-store');
       res.json({ formulas });
@@ -6571,9 +6581,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const clientId = requireSessionClient(req, res);
       if (!clientId) return;
+      const rawServiceLine = req.body?.serviceLine;
+      const serviceLine = rawServiceLine === undefined || rawServiceLine === null || rawServiceLine === 'all'
+        ? null
+        : rawServiceLine;
+      if (serviceLine !== null &&
+          (typeof serviceLine !== 'string' ||
+           !(serviceLineEnum as readonly string[]).includes(serviceLine))) {
+        return res.status(400).json({ error: 'Unknown service line.' });
+      }
 
       const { resetDerivedRateFormulas } = await import('./services/derivedRateFormulasService');
-      const formulas = await resetDerivedRateFormulas((s, p) => pool.query(s, p), clientId);
+      const formulas = await resetDerivedRateFormulas((s, p) => pool.query(s, p), clientId, serviceLine);
       res.setHeader('Cache-Control', 'no-store');
       res.json({ formulas });
     } catch (err) {

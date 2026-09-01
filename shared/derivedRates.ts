@@ -31,9 +31,8 @@
  * SCOPE
  * -----
  * `serviceLine === null` means the formula applies portfolio-wide. The column
- * exists so a per-service-line override can be added later without a
- * migration; nothing writes a non-null value yet, and `resolveFormula` already
- * prefers the more specific row so that change is additive.
+ * also stores per-service-line overrides. `resolveFormula` prefers the exact
+ * service-line row and falls back to the portfolio-wide policy.
  *
  * A DERIVED RATE IS NEVER AN INPUT
  * --------------------------------

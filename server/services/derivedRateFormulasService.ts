@@ -15,9 +15,10 @@
  *
  * WRITES ARE WHOLE-SET AND TRANSACTIONAL
  * --------------------------------------
- * The panel submits every formula at once, so a save is a single transaction
- * over the full set. A partial save would leave the portfolio priced by a
- * mixture of old and new policy with no way to tell which rows were which.
+ * The panel submits every formula for one service-line scope at once, so a
+ * save is a single transaction over that scope's full set. A partial save
+ * would leave that service line priced by a mixture of old and new policy
+ * with no way to tell which rows were which.
  *
  * The query function is injectable for the same reason it is elsewhere in this
  * codebase: a test that re-implements the SQL it is checking guarantees
@@ -32,6 +33,7 @@ import {
   type DerivedRateFormula,
   type DerivedRateType,
 } from '@shared/derivedRates';
+import { serviceLineEnum } from '@shared/schema';
 
 export type FormulaQueryFn = (sql: string, params?: any[]) => Promise<{ rows: any[] }>;
 
@@ -54,17 +56,21 @@ export interface FormulaPool {
 export interface StoredFormula extends DerivedRateFormula {
   /** True when this row is a built-in default rather than something saved. */
   isDefault: boolean;
+  /** True when a selected service line is showing the portfolio-wide row. */
+  isInherited?: boolean;
   updatedAt: string | null;
   updatedBy: string | null;
 }
 
 /**
- * Every formula for a client: saved rows where they exist, built-in defaults
- * everywhere else, always one row per rate type.
+ * With an explicit scope, returns one resolved row per rate type. With no
+ * scope, returns the complete policy for calculation consumers: global rows
+ * (saved or default) plus every saved service-line override.
  */
 export async function getDerivedRateFormulas(
   query: FormulaQueryFn,
   clientId: string,
+  serviceLine?: string | null,
 ): Promise<StoredFormula[]> {
   let saved: any[] = [];
   try {
@@ -82,33 +88,72 @@ export async function getDerivedRateFormulas(
     saved = [];
   }
 
-  // Only portfolio-wide rows are written today; a future per-service-line row
-  // would be resolved by resolveFormula at the point of use, not here.
-  const savedByType = new Map<string, any>();
+  const savedByScopeAndType = new Map<string, any>();
   for (const r of saved) {
-    if (r.service_line == null) savedByType.set(String(r.rate_type), r);
+    savedByScopeAndType.set(`${r.service_line ?? ''}::${String(r.rate_type)}`, r);
   }
 
-  return defaultFormulas().map((def) => {
-    const row = savedByType.get(def.rateType);
+  const toStored = (
+    def: DerivedRateFormula,
+    row: any,
+    resolvedServiceLine: string | null,
+    isInherited = false,
+  ): StoredFormula => {
     if (!row) {
-      return { ...def, isDefault: true, updatedAt: null, updatedBy: null };
+      return {
+        ...def,
+        serviceLine: resolvedServiceLine,
+        isDefault: true,
+        isInherited,
+        updatedAt: null,
+        updatedBy: null,
+      };
     }
     return {
       rateType: def.rateType,
-      serviceLine: null,
+      serviceLine: resolvedServiceLine,
       percentOfBase: Number(row.percent_of_base),
       dollarOffset: Number(row.dollar_offset),
       enabled: row.enabled !== false,
       isDefault: false,
+      isInherited,
       updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
       updatedBy: row.updated_by ?? null,
     };
-  });
+  };
+
+  const defaults = defaultFormulas();
+  if (serviceLine !== undefined && serviceLine !== null) {
+    return defaults.map((def) => {
+      const exact = savedByScopeAndType.get(`${serviceLine}::${def.rateType}`);
+      const global = savedByScopeAndType.get(`::${def.rateType}`);
+      return toStored(def, exact ?? global, serviceLine, !exact && !!global);
+    });
+  }
+
+  const globalRows = defaults.map((def) =>
+    toStored(def, savedByScopeAndType.get(`::${def.rateType}`), null),
+  );
+  if (serviceLine === null) return globalRows;
+
+  const serviceSpecificRows = saved
+    .filter((row) => row.service_line != null)
+    .sort((a, b) =>
+      String(a.service_line).localeCompare(String(b.service_line))
+      || String(a.rate_type).localeCompare(String(b.rate_type)),
+    )
+    .map((row) => {
+      const def = defaults.find((candidate) => candidate.rateType === row.rate_type);
+      return def ? toStored(def, row, String(row.service_line)) : null;
+    })
+    .filter((row): row is StoredFormula => row !== null);
+
+  return [...globalRows, ...serviceSpecificRows];
 }
 
 export interface SaveFormulaInput {
   rateType: string;
+  serviceLine?: string | null;
   percentOfBase: number;
   dollarOffset: number;
   enabled?: boolean;
@@ -125,27 +170,41 @@ export interface SaveFormulaInput {
 export function validateFormulaSet(input: SaveFormulaInput[]): string[] {
   const errors: string[] = [];
   const seen = new Set<string>();
+  const scopes = new Set<string>();
 
   for (const f of input) {
     if (!isDerivedRateType(f.rateType)) {
       errors.push(`Unknown rate type "${f.rateType}".`);
       continue;
     }
-    if (seen.has(f.rateType)) {
+    const serviceLine = f.serviceLine ?? null;
+    if (serviceLine !== null && !(serviceLineEnum as readonly string[]).includes(serviceLine)) {
+      errors.push(`Unknown service line "${serviceLine}".`);
+    }
+    scopes.add(serviceLine ?? '');
+    const key = `${serviceLine ?? ''}::${f.rateType}`;
+    if (seen.has(key)) {
       errors.push(`Duplicate entry for "${f.rateType}".`);
       continue;
     }
-    seen.add(f.rateType);
+    seen.add(key);
 
     const err = validateFormula({ percentOfBase: f.percentOfBase, dollarOffset: f.dollarOffset });
     if (err) errors.push(`${f.rateType}: ${err}`);
+  }
+
+  if (scopes.size > 1) {
+    errors.push('All formulas in one save must use the same service line.');
   }
 
   // A save is the whole policy, not a patch. Accepting a subset would leave the
   // omitted types on their previous values while the caller believes it has
   // just written the complete set — the portfolio would then be priced by a
   // mixture of old and new policy with nothing recording which was which.
-  const missing = DERIVED_RATE_TYPES.filter((t) => !seen.has(t));
+  const missing = DERIVED_RATE_TYPES.filter((t) => {
+    const scope = input[0]?.serviceLine ?? null;
+    return !seen.has(`${scope ?? ''}::${t}`);
+  });
   if (missing.length) {
     errors.push(`Missing formulas for: ${missing.join(', ')}. A save must include all rate types.`);
   }
@@ -178,14 +237,14 @@ export async function saveDerivedRateFormulas(
       await client.query(
         `INSERT INTO derived_rate_formulas
            (client_id, rate_type, service_line, percent_of_base, dollar_offset, enabled, updated_by, updated_at)
-         VALUES ($1, $2, NULL, $3, $4, $5, $6, now())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now())
          ON CONFLICT (client_id, rate_type, service_line) DO UPDATE
            SET percent_of_base = EXCLUDED.percent_of_base,
                dollar_offset   = EXCLUDED.dollar_offset,
                enabled         = EXCLUDED.enabled,
                updated_by      = EXCLUDED.updated_by,
                updated_at      = now()`,
-        [clientId, f.rateType, f.percentOfBase, f.dollarOffset, f.enabled !== false, updatedBy],
+        [clientId, f.rateType, f.serviceLine ?? null, f.percentOfBase, f.dollarOffset, f.enabled !== false, updatedBy],
       );
     }
     await client.query('COMMIT');
@@ -196,16 +255,21 @@ export async function saveDerivedRateFormulas(
     client.release();
   }
 
-  return getDerivedRateFormulas(pool.query, clientId);
+  return getDerivedRateFormulas(pool.query, clientId, input[0]?.serviceLine ?? null);
 }
 
-/** Reset a client back to the built-in defaults by deleting their saved rows. */
+/** Reset one formula scope back to its built-in/global fallback values. */
 export async function resetDerivedRateFormulas(
   query: FormulaQueryFn,
   clientId: string,
+  serviceLine: string | null = null,
 ): Promise<StoredFormula[]> {
-  await query(`DELETE FROM derived_rate_formulas WHERE client_id = $1`, [clientId]);
-  return getDerivedRateFormulas(query, clientId);
+  if (serviceLine === null) {
+    await query(`DELETE FROM derived_rate_formulas WHERE client_id = $1 AND service_line IS NULL`, [clientId]);
+  } else {
+    await query(`DELETE FROM derived_rate_formulas WHERE client_id = $1 AND service_line = $2`, [clientId, serviceLine]);
+  }
+  return getDerivedRateFormulas(query, clientId, serviceLine);
 }
 
 export { DERIVED_RATE_TYPES, type DerivedRateType };
