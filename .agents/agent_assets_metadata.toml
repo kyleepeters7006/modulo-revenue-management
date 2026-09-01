@@ -6,27 +6,62 @@ id = "2vRWanIEivu93OZBcTxeG"
 uri = "file://modulo-platform-overview.pptx"
 type = "slides"
 title = "Modulo Platform Overview — Slide Deck"
+logical_id = "73549a12-5385-4d10-8d89-e28027e3b901"
 
 [[outputs]]
 id = "8npuvPqeUx_E2ruTVPvr0"
 uri = "file://inquiry_tours_2026_06.csv"
 type = "table"
 title = "Inquiry & Tours Export — June 2026"
+logical_id = "64fb38d2-9039-4bdf-9212-367d563c2b4e"
 
 [[outputs]]
 id = "cag9HKpCtjv9c5MnRktLi"
 uri = "file://inquiry_tours_2026_05.csv"
 type = "table"
 title = "Inquiry & Tours Export — May 2026 (most recent with real data)"
+logical_id = "b2e8475e-dcf9-481f-9ad5-ef4282a68436"
 
 [[outputs]]
 id = "l5w0r1EFZq0HoLnl7oYHk"
 uri = "file://exports/April_2026_Pricing_Reconciliation.xlsx"
 type = "table"
 title = "April 2026 Pricing Reconciliation — 100% Tie-Out"
+logical_id = "7d26def8-f5ff-447e-91e3-9e4aff6be5e1"
 
 [[outputs]]
 id = "r4XFVKyKP5XVeCeoo5SZl"
 uri = "file://exports/July_2026_Pricing_Reconciliation.xlsx"
 type = "table"
 title = "July 2026 Pricing Reconciliation — 100% Tie-Out"
+logical_id = "a72141a9-a3d4-451e-b2eb-9eed3f2feb01"
+
+[[outputs]]
+id = "cOGMQNWy4VaBdEmEW_ajk"
+uri = "file://attached_assets/generated_audio/dynamic-pricing-demo-music.mp3"
+type = "audio"
+title = "dynamic pricing demo music"
+description = "Generated music: Polished modern corporate technology underscore for a 30-second SaaS product demonstration, confident forward motion, warm synth pulse, light percussion, clean and premium, no vocals…"
+logical_id = "b45d3406-18ab-4927-8227-5bb8c3a6685d"
+
+[[outputs]]
+id = "XBRHrE7GPFa6sg7aPtCm9"
+uri = "file://attached_assets/generated_audio/dynamic-pricing-demo-narration.mp3"
+type = "audio"
+title = "dynamic pricing demo narration"
+description = "Text-to-speech audio: Dynamic pricing starts with one connected view of occupancy, market rates, and demand. Compare every community against nearby competitors. Spot opportunities by service line and…"
+logical_id = "011353c3-ae19-4802-bf06-7ed4770c89d9"
+
+[[outputs]]
+id = "ZmE9eoqCgpZvR5A476qVO"
+uri = "file://attached_assets/generated_videos/dynamic-pricing-demo-30s.mp4"
+type = "video"
+title = "Dynamic Pricing Demo — 30 seconds"
+description = "16:9 720p product demonstration with narrated workflow: portfolio insight, competitive context, targeted pricing rules, impact preview, and auditable action."
+logical_id = "44716d6d-1c36-42ce-ab16-424e742ee8ab"
+content_hash = "sha256:e6ced11c97965163c56b621ebefeea2a22d16790214218666e45987692188f25"
+size = 1381814
+mtime_ms = 1788304804475
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/44716d6d-1c36-42ce-ab16-424e742ee8ab/2bdf12b9-05e4-4c09-9c01-37f34f193071"
+storage_version_token = "1788304820583377"
+content_type = "video/mp4"
