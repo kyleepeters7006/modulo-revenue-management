@@ -12070,8 +12070,9 @@ ${campusOccLines.join('\n')}
         const { rows: mroRows } = await pool.query(
           `SELECT mro.location_name, mro.service_line, mro.room_type, mro.override_rate, mro.notes,
                   mro.created_at, mro.updated_at, mro.created_by,
-                  creator.username AS created_by_name, mro.updated_by,
-                  updater.username AS updated_by_name
+                COALESCE(creator.username, mro.created_by, 'Unknown user') AS created_by_name,
+                mro.updated_by,
+                COALESCE(updater.username, mro.updated_by, 'Unknown user') AS updated_by_name
              FROM manual_rate_overrides mro
              LEFT JOIN users creator ON creator.id = mro.created_by
              LEFT JOIN users updater ON updater.id = mro.updated_by
@@ -17452,7 +17453,7 @@ Respond in JSON format:
               event_type, previous_rate, new_rate, notes, changed_by, changed_at)
            SELECT $1, saved.id, $2, $3, $4, $5,
                   CASE WHEN previous.id IS NULL THEN 'create' ELSE 'update' END,
-                   previous.override_rate, $6, NULL, $9, now()
+                  previous.override_rate, $6, NULL, $9, now()
              FROM saved
              LEFT JOIN previous ON TRUE`,
            [clientId, locationId, campus, serviceLine, roomType, rate, overrideUserId, overrideUserId, overrideActor],
@@ -22802,8 +22803,9 @@ Return ONLY valid JSON, no markdown fences:
         `SELECT mro.id, mro.client_id, mro.location_id, mro.location_name,
                 mro.service_line, mro.room_type, mro.override_rate, mro.notes,
                 mro.created_at, mro.updated_at, mro.created_by,
-                creator.username AS created_by_name, mro.updated_by,
-                updater.username AS updated_by_name
+                  COALESCE(creator.username, mro.created_by, 'Unknown user') AS created_by_name,
+                  mro.updated_by,
+                  COALESCE(updater.username, mro.updated_by, 'Unknown user') AS updated_by_name
            FROM manual_rate_overrides mro
            LEFT JOIN users creator ON creator.id = mro.created_by
            LEFT JOIN users updater ON updater.id = mro.updated_by
@@ -22927,7 +22929,9 @@ Return ONLY valid JSON, no markdown fences:
       pool.query(`DELETE FROM ai_commentary_cache WHERE cache_key LIKE $1`, [`pc-commentary:${clientId}:%`])
         .catch((err: any) => console.error('[manual-rate-overrides] commentary cache purge error:', err));
       const auditResult = await pool.query(
-        `SELECT mro.*, creator.username AS created_by_name, updater.username AS updated_by_name
+        `SELECT mro.*,
+                COALESCE(creator.username, mro.created_by, 'Unknown user') AS created_by_name,
+                COALESCE(updater.username, mro.updated_by, 'Unknown user') AS updated_by_name
            FROM manual_rate_overrides mro
            LEFT JOIN users creator ON creator.id = mro.created_by
            LEFT JOIN users updater ON updater.id = mro.updated_by
@@ -24680,8 +24684,9 @@ Return ONLY valid JSON, no markdown fences:
       }>(
         `SELECT mro.location_name, mro.service_line, mro.room_type, mro.override_rate, mro.notes,
                 mro.created_at, mro.updated_at, mro.created_by,
-                creator.username AS created_by_name, mro.updated_by,
-                updater.username AS updated_by_name
+                COALESCE(creator.username, mro.created_by, 'Unknown user') AS created_by_name,
+                mro.updated_by,
+                COALESCE(updater.username, mro.updated_by, 'Unknown user') AS updated_by_name
            FROM manual_rate_overrides mro
            LEFT JOIN users creator ON creator.id = mro.created_by
            LEFT JOIN users updater ON updater.id = mro.updated_by
