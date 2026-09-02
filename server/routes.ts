@@ -101,6 +101,7 @@ import sharp from "sharp";
 import Tesseract from "tesseract.js";
 import express from "express";
 import path from "path";
+import os from "node:os";
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import * as fs from 'fs';
@@ -136,10 +137,13 @@ type ReferenceDataAuditJob = {
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
+  expiresAt: string;
+  generatedBy: string | null;
 };
 
 const referenceDataAuditJobs = new Map<string, ReferenceDataAuditJob>();
 const activeReferenceDataAuditJobs = new Map<string, string>();
+const referenceDataAuditPersistenceChains = new Map<string, Promise<void>>();
 const REFERENCE_DATA_AUDIT_JOB_TTL_MS = 30 * 60 * 1000;
 
 function referenceDataAuditClientId(req: any): string {
@@ -161,17 +165,241 @@ function referenceDataAuditJobResponse(job: ReferenceDataAuditJob) {
   };
 }
 
+function auditJobFromDatabase(row: any): ReferenceDataAuditJob {
+  const iso = (value: unknown): string | null => value ? new Date(String(value)).toISOString() : null;
+  return {
+    id: String(row.id),
+    clientId: String(row.client_id),
+    status: row.status,
+    phase: row.phase,
+    percent: Number(row.percent) || 0,
+    message: String(row.message),
+    error: row.error == null ? null : String(row.error),
+    filePath: row.file_path == null ? null : String(row.file_path),
+    createdAt: iso(row.created_at)!,
+    startedAt: iso(row.started_at),
+    completedAt: iso(row.completed_at),
+    expiresAt: iso(row.expires_at)!,
+    generatedBy: row.generated_by == null ? null : String(row.generated_by),
+  };
+}
+
+async function persistReferenceDataAuditJob(job: ReferenceDataAuditJob): Promise<void> {
+  const previous = referenceDataAuditPersistenceChains.get(job.id) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(() => pool.query(
+    `INSERT INTO reference_data_audit_jobs
+       (id, client_id, status, phase, percent, message, error, file_path,
+        generated_by, created_at, started_at, completed_at, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+     ON CONFLICT (id) DO UPDATE SET
+       status = EXCLUDED.status,
+       phase = EXCLUDED.phase,
+       percent = EXCLUDED.percent,
+       message = EXCLUDED.message,
+       error = EXCLUDED.error,
+       file_path = EXCLUDED.file_path,
+       generated_by = EXCLUDED.generated_by,
+       started_at = EXCLUDED.started_at,
+       completed_at = EXCLUDED.completed_at,
+       expires_at = EXCLUDED.expires_at`,
+    [
+      job.id,
+      job.clientId,
+      job.status,
+      job.phase,
+      job.percent,
+      job.message,
+      job.error,
+      job.filePath,
+      job.generatedBy,
+      job.createdAt,
+      job.startedAt,
+      job.completedAt,
+      job.expiresAt,
+    ],
+  ).then(() => undefined));
+  referenceDataAuditPersistenceChains.set(job.id, current);
+  try {
+    await current;
+  } finally {
+    if (referenceDataAuditPersistenceChains.get(job.id) === current) {
+      referenceDataAuditPersistenceChains.delete(job.id);
+    }
+  }
+}
+
+function persistReferenceDataAuditJobBestEffort(job: ReferenceDataAuditJob): void {
+  void persistReferenceDataAuditJob(job).catch(error => {
+    console.error(`[reference-data-audit-workbook] failed to persist job ${job.id}:`, error);
+  });
+}
+
+async function removeReferenceDataAuditFile(filePath: string | null): Promise<void> {
+  if (!filePath) return;
+  await fs.promises.rm(dirname(filePath), { recursive: true, force: true }).catch(() => undefined);
+}
+
+async function deleteReferenceDataAuditJob(job: ReferenceDataAuditJob): Promise<void> {
+  await removeReferenceDataAuditFile(job.filePath);
+  await pool.query(`DELETE FROM reference_data_audit_jobs WHERE id = $1`, [job.id]);
+  referenceDataAuditJobs.delete(job.id);
+  if (activeReferenceDataAuditJobs.get(job.clientId) === job.id) {
+    activeReferenceDataAuditJobs.delete(job.clientId);
+  }
+}
+
 function scheduleReferenceDataAuditJobCleanup(jobId: string) {
+  const job = referenceDataAuditJobs.get(jobId);
+  const delay = job
+    ? Math.max(0, new Date(job.expiresAt).getTime() - Date.now())
+    : REFERENCE_DATA_AUDIT_JOB_TTL_MS;
   setTimeout(() => {
     const job = referenceDataAuditJobs.get(jobId);
     if (!job || (job.status !== "completed" && job.status !== "failed")) return;
-    if (job.filePath) fs.promises.unlink(job.filePath).catch(() => undefined);
-    if (job.filePath) fs.promises.rmdir(dirname(job.filePath)).catch(() => undefined);
-    referenceDataAuditJobs.delete(jobId);
-    if (activeReferenceDataAuditJobs.get(job.clientId) === jobId) {
+    void deleteReferenceDataAuditJob(job).catch(error => {
+      console.error(`[reference-data-audit-workbook] cleanup failed for job ${jobId}:`, error);
+    });
+  }, delay);
+}
+
+async function cleanupOrphanedReferenceDataAuditFiles(retainedPaths: Set<string>): Promise<void> {
+  const tempRoot = os.tmpdir();
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(tempRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  const cutoff = Date.now() - REFERENCE_DATA_AUDIT_JOB_TTL_MS;
+  await Promise.all(entries
+    .filter(entry => entry.isDirectory() && entry.name.startsWith("reference-data-audit-"))
+    .map(async entry => {
+      const directory = path.join(tempRoot, entry.name);
+      if (Array.from(retainedPaths).some(filePath => dirname(filePath) === directory)) return;
+      try {
+        const stats = await fs.promises.stat(directory);
+        if (stats.mtimeMs < cutoff) {
+          await fs.promises.rm(directory, { recursive: true, force: true });
+        }
+      } catch {
+        // A concurrent export may have removed the directory already.
+      }
+    }));
+}
+
+async function restoreReferenceDataAuditJobs(): Promise<void> {
+  const result = await pool.query(
+    `SELECT id, client_id, status, phase, percent, message, error, file_path,
+            generated_by, created_at, started_at, completed_at, expires_at
+       FROM reference_data_audit_jobs
+      WHERE expires_at > now()
+      ORDER BY created_at DESC`,
+  );
+  const expiredResult = await pool.query(
+    `SELECT id, client_id, file_path
+       FROM reference_data_audit_jobs
+      WHERE expires_at <= now()`,
+  );
+  for (const row of expiredResult.rows) {
+    await removeReferenceDataAuditFile(row.file_path == null ? null : String(row.file_path));
+  }
+  if (expiredResult.rows.length > 0) {
+    await pool.query(`DELETE FROM reference_data_audit_jobs WHERE expires_at <= now()`);
+  }
+
+  const resumableByClient = new Map<string, ReferenceDataAuditJob>();
+  const retainedPaths = new Set<string>();
+  for (const row of result.rows) {
+    const job = auditJobFromDatabase(row);
+    if (job.status === "completed") {
+      if (job.filePath && fs.existsSync(job.filePath)) {
+        referenceDataAuditJobs.set(job.id, job);
+        retainedPaths.add(job.filePath);
+        scheduleReferenceDataAuditJobCleanup(job.id);
+      } else {
+        job.status = "failed";
+        job.phase = "error";
+        job.message = "Audit workbook is no longer available.";
+        job.error = "The workbook file was lost during the server restart. Please prepare a new audit workbook.";
+        job.filePath = null;
+        job.completedAt = new Date().toISOString();
+        referenceDataAuditJobs.set(job.id, job);
+        await persistReferenceDataAuditJob(job);
+        scheduleReferenceDataAuditJobCleanup(job.id);
+      }
+      continue;
+    }
+    if (job.status === "failed") {
+      referenceDataAuditJobs.set(job.id, job);
+      scheduleReferenceDataAuditJobCleanup(job.id);
+      continue;
+    }
+
+    // A process cannot continue the old in-memory promise after a restart.
+    // Put the job back in the queue and run it again so users do not have to
+    // start over manually.
+    job.status = "queued";
+    job.phase = "queued";
+    job.percent = 0;
+    job.message = "Audit workbook was resumed after a server restart.";
+    job.error = null;
+    job.filePath = null;
+    job.startedAt = null;
+    job.completedAt = null;
+    referenceDataAuditJobs.set(job.id, job);
+    const current = resumableByClient.get(job.clientId);
+    if (!current || job.createdAt > current.createdAt) resumableByClient.set(job.clientId, job);
+  }
+
+  await cleanupOrphanedReferenceDataAuditFiles(retainedPaths);
+  for (const job of Array.from(resumableByClient.values())) {
+    activeReferenceDataAuditJobs.set(job.clientId, job.id);
+    await persistReferenceDataAuditJob(job);
+    startReferenceDataAuditJob(job);
+  }
+}
+
+function startReferenceDataAuditJob(job: ReferenceDataAuditJob): void {
+  void buildReferenceDataAuditWorkbook({
+    clientId: job.clientId,
+    generatedBy: job.generatedBy,
+    onProgress: ({ percent, phase, message }) => {
+      if (job.status === "queued") {
+        job.status = "building";
+        job.startedAt = new Date().toISOString();
+      }
+      job.phase = phase;
+      job.percent = percent;
+      job.message = message;
+      persistReferenceDataAuditJobBestEffort(job);
+    },
+  }).then(async (workbookPath) => {
+    job.status = "completed";
+    job.phase = "completed";
+    job.percent = 100;
+    job.message = "Audit workbook is ready to download.";
+    job.filePath = workbookPath;
+    job.completedAt = new Date().toISOString();
+    await persistReferenceDataAuditJob(job);
+    if (activeReferenceDataAuditJobs.get(job.clientId) === job.id) {
       activeReferenceDataAuditJobs.delete(job.clientId);
     }
-  }, REFERENCE_DATA_AUDIT_JOB_TTL_MS);
+    scheduleReferenceDataAuditJobCleanup(job.id);
+  }).catch(async (error: any) => {
+    console.error("[reference-data-audit-workbook] background export error:", error);
+    job.status = "failed";
+    job.phase = "error";
+    job.message = "Audit workbook preparation failed.";
+    job.error = error instanceof Error ? error.message : "Failed to generate Reference Data audit workbook";
+    job.completedAt = new Date().toISOString();
+    if (activeReferenceDataAuditJobs.get(job.clientId) === job.id) {
+      activeReferenceDataAuditJobs.delete(job.clientId);
+    }
+    await persistReferenceDataAuditJob(job).catch(persistError => {
+      console.error(`[reference-data-audit-workbook] failed to persist failed job ${job.id}:`, persistError);
+    });
+    scheduleReferenceDataAuditJobCleanup(job.id);
+  });
 }
 
 import { callClaude, callClaudeThenGPT, callClaudeDetailed, AiTimeoutError, isAbortError } from './aiRouter';
@@ -916,6 +1144,11 @@ async function checkAndInitializeDatabase() {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Initialize database on startup if needed
   await checkAndInitializeDatabase();
+  try {
+    await restoreReferenceDataAuditJobs();
+  } catch (error) {
+    console.error("[reference-data-audit-workbook] failed to restore persisted jobs:", error);
+  }
 
   // Invalidate the reference-data cache on any mutation that changes its inputs.
   // (Async pricing jobs also invalidate on completion — see pricingJobManager.)
@@ -3957,42 +4190,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       createdAt: new Date().toISOString(),
       startedAt: null,
       completedAt: null,
+      expiresAt: new Date(Date.now() + REFERENCE_DATA_AUDIT_JOB_TTL_MS).toISOString(),
+      generatedBy: (req.session as any)?.username ?? null,
     };
+    try {
+      await persistReferenceDataAuditJob(job);
+    } catch (error) {
+      console.error("[reference-data-audit-workbook] failed to queue job:", error);
+      return res.status(500).json({ error: "Failed to queue Reference Data audit workbook" });
+    }
     referenceDataAuditJobs.set(job.id, job);
     activeReferenceDataAuditJobs.set(clientId, job.id);
-
-    void buildReferenceDataAuditWorkbook({
-      clientId,
-      generatedBy: (req.session as any)?.username ?? null,
-      onProgress: ({ percent, phase, message }) => {
-        if (job.status === "queued") {
-          job.status = "building";
-          job.startedAt = new Date().toISOString();
-        }
-        job.phase = phase;
-        job.percent = percent;
-        job.message = message;
-      },
-    }).then((workbookPath) => {
-      job.status = "completed";
-      job.phase = "completed";
-      job.percent = 100;
-      job.message = "Audit workbook is ready to download.";
-      job.filePath = workbookPath;
-      job.completedAt = new Date().toISOString();
-      scheduleReferenceDataAuditJobCleanup(job.id);
-    }).catch((error: any) => {
-      console.error("[reference-data-audit-workbook] background export error:", error);
-      job.status = "failed";
-      job.phase = "error";
-      job.message = "Audit workbook preparation failed.";
-      job.error = error instanceof Error ? error.message : "Failed to generate Reference Data audit workbook";
-      job.completedAt = new Date().toISOString();
-      if (activeReferenceDataAuditJobs.get(clientId) === job.id) {
-        activeReferenceDataAuditJobs.delete(clientId);
-      }
-      scheduleReferenceDataAuditJobCleanup(job.id);
-    });
+    startReferenceDataAuditJob(job);
 
     return res.status(202).json(referenceDataAuditJobResponse(job));
   });
@@ -4023,6 +4232,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (job.status !== "completed" || !job.filePath) {
       return res.status(409).json({ error: job.error || "Audit workbook is not ready yet" });
     }
+    if (!fs.existsSync(job.filePath)) {
+      job.status = "failed";
+      job.phase = "error";
+      job.message = "Audit workbook is no longer available.";
+      job.error = "The workbook file is no longer available. Please prepare a new audit workbook.";
+      job.completedAt = new Date().toISOString();
+      job.filePath = null;
+      persistReferenceDataAuditJobBestEffort(job);
+      if (activeReferenceDataAuditJobs.get(job.clientId) === job.id) {
+        activeReferenceDataAuditJobs.delete(job.clientId);
+      }
+      scheduleReferenceDataAuditJobCleanup(job.id);
+      return res.status(410).json({ error: job.error });
+    }
 
     res.setHeader("Content-Type", REFERENCE_DATA_AUDIT_CONTENT_TYPE);
     res.setHeader("Content-Disposition", `attachment; filename="${REFERENCE_DATA_AUDIT_FILENAME}"`);
@@ -4035,9 +4258,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         job.error = "Failed to send Reference Data audit workbook";
         job.completedAt = new Date().toISOString();
         console.error("[reference-data-audit-workbook] transfer error:", sendError);
-        fs.promises.unlink(job.filePath!).catch(() => undefined);
-        fs.promises.rmdir(dirname(job.filePath!)).catch(() => undefined);
+        void removeReferenceDataAuditFile(job.filePath);
         job.filePath = null;
+        persistReferenceDataAuditJobBestEffort(job);
       }
       if (activeReferenceDataAuditJobs.get(job.clientId) === job.id) {
         activeReferenceDataAuditJobs.delete(job.clientId);
@@ -4057,8 +4280,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.setHeader("Content-Disposition", `attachment; filename="${REFERENCE_DATA_AUDIT_FILENAME}"`);
       res.setHeader("Cache-Control", "no-store");
       res.sendFile(workbookPath, (sendError) => {
-        fs.promises.unlink(workbookPath).catch(() => undefined);
-        fs.promises.rmdir(dirname(workbookPath)).catch(() => undefined);
+        void removeReferenceDataAuditFile(workbookPath);
         if (sendError && !res.headersSent) {
           res.status(500).json({ error: "Failed to send Reference Data audit workbook" });
         }

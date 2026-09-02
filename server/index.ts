@@ -620,6 +620,40 @@ app.use((req, res, next) => {
     log(`[migration] inhouse rate planning migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: persist Reference Data audit workbook job metadata.
+  // The workbook itself remains in a per-job temporary directory, while this
+  // table lets the API recover status after the Node process is restarted.
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS reference_data_audit_jobs (
+        id           varchar PRIMARY KEY,
+        client_id    text NOT NULL,
+        status       text NOT NULL,
+        phase        text NOT NULL,
+        percent      integer NOT NULL DEFAULT 0,
+        message      text NOT NULL,
+        error        text,
+        file_path    text,
+        generated_by text,
+        created_at   timestamptz NOT NULL DEFAULT now(),
+        started_at   timestamptz,
+        completed_at timestamptz,
+        expires_at   timestamptz NOT NULL
+      )
+    `));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS reference_data_audit_jobs_client_created_idx
+        ON reference_data_audit_jobs (client_id, created_at DESC)
+    `));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS reference_data_audit_jobs_expiry_idx
+        ON reference_data_audit_jobs (expires_at)
+    `));
+    log("[migration] reference_data_audit_jobs table ensured");
+  } catch (migErr) {
+    log(`[migration] reference_data_audit_jobs migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   const server = await registerRoutes(app);
 
   // One-time repair: fix stale action.filters.serviceLine on adjustment rules
