@@ -123,3 +123,25 @@ mtime_ms = 1788309395557
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/b2b0679d-a68e-4770-8b90-6d29254b9c54/b24da8d7-9297-4579-9db8-475770831ac2"
 storage_version_token = "1788309419615357"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "I1ZHi-eWsEkjbq_SHI47q"
+uri = "file://attached_assets/generated_audio/dynamic-pricing-demo-british-no-location.mp3"
+type = "audio"
+title = "dynamic pricing British narration no location"
+description = "Text-to-speech audio: Dynamic pricing starts with one connected view of occupancy, rates, and demand. Compare each community against nearby competitors. Use the competitive chart to shape strategy by…"
+logical_id = "1bedb896-295c-4e2a-bbb0-8be1740d7bec"
+
+[[outputs]]
+id = "HDd1F0sP-7JeFhhYOwvu-"
+uri = "file://attached_assets/generated_videos/dynamic-pricing-demo-belmont-zoomed-cursor.mp4"
+type = "video"
+title = "Dynamic Pricing Demo — Zoomed-Out Cursor Cut"
+description = "Revised 30-second 16:9 720p demo. Belmont remains visible in the product screens but is not spoken; each page is zoomed out into a full-page editorial frame with a mouse-path and cursor callout, and the narration finishes before the outro."
+logical_id = "911853b0-a0a9-4d7c-88a3-4c0e4581fb83"
+content_hash = "sha256:ad84656951c5b7b8dad2366bf381bb3052234f808f8f12f7527219301645fea8"
+size = 1231877
+mtime_ms = 1788309668935
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/911853b0-a0a9-4d7c-88a3-4c0e4581fb83/0add3ea5-8995-43b1-86f5-e27e3106b3b6"
+storage_version_token = "1788309694807179"
+content_type = "video/mp4"
