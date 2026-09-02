@@ -53,9 +53,9 @@ console.log('\nSupported metrics land on the right engine field & scale:');
     ['In House to Street Rate var % - Single Occupant', { value: '-5' }, 'ih_street_variance', -5],
     ['Vacant Units/Beds', { operator: 'is greater than', value: '5' }, 'vacant_units', 5],
     ['Total Units/Beds', { operator: 'is greater than', value: '20' }, 'total_units', 20],
-    ['Competitor Rate', { value: '10' }, 'competitor_variance', 10],
+    ['Competitor Rate Variance %', { value: '10' }, 'competitor_variance', 10],
     ['Inquiry and Tour Volume', { value: '3' }, 'inquiry_volume', 3],
-    ['Quality Mix', { value: '40' }, 'quality_mix', 40],
+    ['Private-Pay Mix %', { value: '40' }, 'quality_mix', 40],
   ];
   for (const [metric, over, field, value] of cases) {
     const r = build([cond(metric, over)], act());

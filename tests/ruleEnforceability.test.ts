@@ -202,11 +202,11 @@ vcase('Room Type Occupancy', '85%', false, 'occupancy "85%" accepted');
 vcase('Room Type Occupancy', '0.85', true, 'bare sub-1 occupancy is ambiguous');
 vcase('Room Type Occupancy', '0.85%', false, 'explicit "0.85%" is unambiguous');
 vcase('Room Type Occupancy', '150', true, 'occupancy above 100 rejected');
-vcase('Quality Mix', '120', true, 'quality mix above 100 rejected');
+vcase('Private-Pay Mix %', '120', true, 'private-pay mix above 100 rejected');
 // Variances are percentage-POINT deltas and legitimately exceed ±100.
 vcase('Street Rate to Top Comp Var %', '125', false, 'variance above 100 allowed');
 vcase('Street Rate to Top Comp Var %', '-140', false, 'variance below -100 allowed');
-vcase('Competitor Rate', '110', false, 'competitor variance above 100 allowed');
+vcase('Competitor Rate Variance %', '110', false, 'competitor variance above 100 allowed');
 vcase('In House to Street Rate var % - Single Occupant', '0.5', true, 'IH sub-1 refused: evaluator rescales it');
 vcase('In House to Street Rate var % - Single Occupant', '0.5%', true, 'IH sub-1 refused even with explicit %');
 vcase('In House to Street Rate var % - Single Occupant', '10', false, 'IH "10" accepted');

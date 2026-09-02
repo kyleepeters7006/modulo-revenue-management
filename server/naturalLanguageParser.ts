@@ -323,10 +323,15 @@ const METRIC_TO_FIELD: Array<{ key: string; field: string; rawPct?: boolean }> =
   { key: 'ih to street var',                                    field: 'ih_street_variance', rawPct: true },
   { key: 'ih-street var',                                       field: 'ih_street_variance', rawPct: true },
   { key: 'ih street var',                                       field: 'ih_street_variance', rawPct: true },
-  // Compared against competitor_variance_pct, which is on the 0–100 scale.
+  // Legacy label: this is a variance percentage, not an absolute competitor rate.
+  { key: 'competitor rate variance %',                          field: 'competitor_variance', rawPct: true },
   { key: 'competitor rate',                                     field: 'competitor_variance', rawPct: true },
   { key: 'vacant units/beds',                                   field: 'vacant_units', rawPct: true },
   { key: 'total units/beds',                                    field: 'total_units', rawPct: true },
+  { key: 'total unit count',                                    field: 'total_units', rawPct: true },
+  { key: 'total bed count',                                     field: 'total_units', rawPct: true },
+  { key: 'total units',                                         field: 'total_units', rawPct: true },
+  { key: 'total beds',                                          field: 'total_units', rawPct: true },
   { key: 'days vacant',                                         field: 'days_vacant', rawPct: true },
   // ── Vacant unit COUNT ──────────────────────────────────────────────────
   // Only the slashed column label used to parse, so the plain phrasing the
@@ -350,6 +355,7 @@ const METRIC_TO_FIELD: Array<{ key: string; field: string; rawPct?: boolean }> =
   { key: 'inquiry count',                                       field: 'inquiry_volume', rawPct: true },
   // Compared against private_pay_pct, which is on the 0–100 scale.
   { key: 'quality mix',                                         field: 'quality_mix', rawPct: true },
+  { key: 'private-pay mix',                                     field: 'quality_mix', rawPct: true },
   { key: 'private pay mix',                                     field: 'quality_mix', rawPct: true },
   { key: 'private pay percentage',                              field: 'quality_mix', rawPct: true },
 ];

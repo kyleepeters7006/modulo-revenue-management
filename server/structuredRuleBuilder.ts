@@ -52,12 +52,14 @@ const METRIC_MAP: Record<string, { field: string; scale: 'fraction' | 'raw'; tra
   'room type occupancy':                                  { field: 'room_type_occupancy', scale: 'fraction', trailing: true },
   'street rate to top comp var %':                        { field: 'street_to_comp_var', scale: 'raw' },
   'in house to street rate var % - single occupant':      { field: 'ih_street_variance', scale: 'raw' },
-  'competitor rate':                                      { field: 'competitor_variance', scale: 'raw' },
+  'competitor rate variance %':                           { field: 'competitor_variance', scale: 'raw' },
+  'competitor rate':                                      { field: 'competitor_variance', scale: 'raw' }, // legacy saved payloads
   'vacant units/beds':                                    { field: 'vacant_units', scale: 'raw' },
   'total units/beds':                                     { field: 'total_units', scale: 'raw' },
   'days vacant':                                          { field: 'days_vacant', scale: 'raw' },
   'inquiry and tour volume':                              { field: 'inquiry_volume', scale: 'raw' },
-  'quality mix':                                          { field: 'quality_mix', scale: 'raw' },
+  'private-pay mix %':                                    { field: 'quality_mix', scale: 'raw' },
+  'quality mix':                                          { field: 'quality_mix', scale: 'raw' }, // legacy saved payloads
 };
 
 const OPERATOR_MAP: Record<string, Op> = {

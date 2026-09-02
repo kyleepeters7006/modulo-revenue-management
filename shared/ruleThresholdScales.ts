@@ -23,7 +23,7 @@ const FRACTION_SCALE_LIST = [
 export const FRACTION_SCALE_METRICS = new Set(FRACTION_SCALE_LIST);
 
 /** Percentages with a natural 0–100 ceiling. */
-const BOUNDED_PERCENT_LIST = FRACTION_SCALE_LIST.concat(['Quality Mix']);
+const BOUNDED_PERCENT_LIST = FRACTION_SCALE_LIST.concat(['Private-Pay Mix %']);
 export const BOUNDED_PERCENT_METRICS = new Set(BOUNDED_PERCENT_LIST);
 
 /**
@@ -33,7 +33,7 @@ export const BOUNDED_PERCENT_METRICS = new Set(BOUNDED_PERCENT_LIST);
 const VARIANCE_PERCENT_LIST = [
   'In House to Street Rate var % - Single Occupant',
   'Street Rate to Top Comp Var %',
-  'Competitor Rate',
+  'Competitor Rate Variance %',
 ];
 export const VARIANCE_PERCENT_METRICS = new Set(VARIANCE_PERCENT_LIST);
 

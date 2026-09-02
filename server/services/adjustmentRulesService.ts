@@ -595,6 +595,11 @@ function evaluateSingleCondition(
     return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'vacant_units'));
   }
 
+  // Total unit/bed counts
+  if (field === "total_units" || field === "total_beds") {
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'total_units'));
+  }
+
   // Competitor rate variance %
   if (field === "competitor_rate" || field === "competitor_variance") {
     return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, rt, 'competitor_variance_pct'));
@@ -610,9 +615,13 @@ function evaluateSingleCondition(
     return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'private_pay_pct'));
   }
 
-  // Inquiry volume
+  // Combined inquiry + tour volume. The structured designer deliberately names
+  // this combined demand signal; evaluating inquiries alone made its threshold
+  // disagree with the number users selected it for.
   if (field === "inquiry_volume" || field === "inquiry_tour_volume" || field === "inquiry_count") {
-    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'inquiry_count'));
+    const inquiries = _lookupCampusMetric(clientId, unit.locationId, sl, null, 'inquiry_count');
+    const tours = _lookupCampusMetric(clientId, unit.locationId, sl, null, 'tour_count');
+    return cmpMetric(inquiries == null && tours == null ? null : (inquiries ?? 0) + (tours ?? 0));
   }
   if (field === "tour_count" || field === "tour_volume") {
     return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'tour_count'));

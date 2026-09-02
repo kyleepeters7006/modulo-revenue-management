@@ -522,9 +522,9 @@ async function main() {
       !/\s(and|or)\s/i.test(m.samplePhrase),
       `phrase: ${m.samplePhrase}`);
   }
-  ok('total units is NOT advertised (no evaluator scores it)',
-    !ADVERTISED_METRICS.some(m => m.field === 'total_units'),
-    'total_units parses but neither the impact evaluator nor live pricing scores it');
+  ok('total units is advertised now that both evaluators score it',
+    ADVERTISED_METRICS.some(m => m.field === 'total_units'),
+    'total_units must remain connected to preview and live pricing');
   ok('the prompt advertises the two metrics that used to score zero',
     ADVERTISED_METRICS.some(m => m.field === 'quality_mix')
     && ADVERTISED_METRICS.some(m => m.field === 'inquiry_volume'));
@@ -540,7 +540,7 @@ async function main() {
   // bug it exists to catch.
   await pool.query(
     `INSERT INTO campus_metrics (client_id, location_id, service_line, metric_name, value)
-     VALUES ($1,$2,'AL','private_pay_pct',82), ($1,$2,NULL,'inquiry_count',140)`,
+     VALUES ($1,$2,'AL','private_pay_pct',82), ($1,$2,NULL,'inquiry_count',80), ($1,$2,NULL,'tour_count',60)`,
     [CLIENT, locIds.get(SMALL_A)!],
   );
   const mixCtx = await buildRuleImpactContext(CLIENT);

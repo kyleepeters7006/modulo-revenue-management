@@ -63,8 +63,8 @@ interface CoverageData {
 const METRICS = [
   'Campus Occupancy', 'Service Line Occupancy', 'Room Type Occupancy',
   'Vacant Units/Beds', 'Total Units/Beds',
-  'Competitor Rate', 'Days Vacant',
-  'Inquiry and Tour Volume', 'Quality Mix',
+  'Competitor Rate Variance %', 'Days Vacant',
+  'Inquiry and Tour Volume', 'Private-Pay Mix %',
   'In House to Street Rate var % - Single Occupant',
   'Street Rate to Top Comp Var %',
 ];
@@ -81,7 +81,12 @@ const NEW_METRIC_FIELDS: Record<string, string> = {
   days_to_sell_change: 'Days To Sell Change',
 };
 
-const TIME_PERIODS = ['Current Spot', 'Current Month', 'Trailing 3', 'Trailing 6', 'Trailing 12'];
+const OCCUPANCY_TIME_PERIODS = ['Current Month', 'Trailing 3', 'Trailing 6', 'Trailing 12'];
+const CURRENT_TIME_PERIODS = ['Current Spot'];
+const timePeriodsForMetric = (metric: string) =>
+  ['Campus Occupancy', 'Service Line Occupancy', 'Room Type Occupancy'].includes(metric)
+    ? OCCUPANCY_TIME_PERIODS
+    : CURRENT_TIME_PERIODS;
 const ALL_SERVICE_LINES = ['AL', 'AL/MC', 'IL', 'SL', 'HC', 'HC/MC', 'VIL'] as const;
 
 /* ── Rule Administration table: sorting + per-column filtering ───────────── */
@@ -437,7 +442,7 @@ function computeValidation(conditions: Condition[], action: RuleAction, tab: str
     }
     if (!action.amountValue) msgs.push('Set an amount for the pricing action.');
     if (!action.scope) msgs.push('This rule does not have a target scope.');
-    if (conditions.some(c => c.metric === 'Competitor Rate' || c.metric === 'Street Rate to Top Comp Var %'))
+    if (conditions.some(c => c.metric === 'Competitor Rate Variance %' || c.metric === 'Street Rate to Top Comp Var %'))
       msgs.push('This rule uses competitor data — confirm adjusted competitor rates are available for all campuses.');
     if (action.scope === 'All selected campuses' || !action.scope)
       msgs.push('This rule applies broadly. Confirm before applying.');
@@ -1139,6 +1144,25 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
           return { id: newConditionId(), metric: 'Days Vacant', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
         case 'street_to_comp_var':
           return { id: newConditionId(), metric: 'Street Rate to Top Comp Var %', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+        case 'vacant_units':
+        case 'vacant_beds':
+          return { id: newConditionId(), metric: 'Vacant Units/Beds', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+        case 'total_units':
+        case 'total_beds':
+          return { id: newConditionId(), metric: 'Total Units/Beds', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+        case 'competitor_rate':
+        case 'competitor_variance':
+          return { id: newConditionId(), metric: 'Competitor Rate Variance %', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+        case 'ih_street_variance':
+        case 'street_to_ih_var':
+          return { id: newConditionId(), metric: 'In House to Street Rate var % - Single Occupant', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+        case 'inquiry_volume':
+        case 'inquiry_tour_volume':
+        case 'inquiry_count':
+          return { id: newConditionId(), metric: 'Inquiry and Tour Volume', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+        case 'quality_mix':
+        case 'private_pay':
+          return { id: newConditionId(), metric: 'Private-Pay Mix %', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
         default:
           if (NEW_METRIC_FIELDS[c.field]) {
             return { id: newConditionId(), metric: NEW_METRIC_FIELDS[c.field], timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
@@ -1342,7 +1366,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   const addCondition = () => setConditions(prev => [...prev, defaultCondition()]);
   const removeCondition = (id: string) => setConditions(prev => prev.filter(c => c.id !== id));
   const updateCondition = (id: string, field: keyof Condition, value: string) =>
-    setConditions(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c));
+    setConditions(prev => prev.map(c => {
+      if (c.id !== id) return c;
+      if (field === 'metric') {
+        const periods = timePeriodsForMetric(value);
+        return { ...c, metric: value, timePeriod: periods.includes(c.timePeriod) ? c.timePeriod : periods[0] };
+      }
+      return { ...c, [field]: value };
+    }));
   const duplicateCondition = (id: string) => {
     const idx = conditions.findIndex(c => c.id === id);
     if (idx < 0) return;
@@ -1806,7 +1837,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                                   <SelectValue placeholder="Time Period" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {TIME_PERIODS.map(t => <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>)}
+                                  {timePeriodsForMetric(cond.metric).map(t => <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>)}
                                 </SelectContent>
                               </Select>
                             </div>

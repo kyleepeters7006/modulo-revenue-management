@@ -499,7 +499,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
     `SELECT location_id, service_line, metric_name, value
      FROM campus_metrics
      WHERE client_id = $1
-       AND metric_name IN ('street_to_comp_var_pct', 'private_pay_pct', 'inquiry_count')
+       AND metric_name IN ('street_to_comp_var_pct', 'private_pay_pct', 'inquiry_count', 'tour_count')
        AND room_type IS NULL`,
     [clientId],
   );
@@ -861,6 +861,10 @@ function evalGroupCondition(
     const g = ctx.metrics.get(`${locId}|${sl}`);
     return cmp(g ? g.total - g.occupied : null, operator, value);
   }
+  if (field === "total_units" || field === "total_beds") {
+    const g = ctx.metrics.get(`${locId}|${sl}`);
+    return cmp(g ? g.total : null, operator, value);
+  }
   if (field === "competitor_rate" || field === "competitor_variance" || field === "street_to_comp_var") {
     return cmp(lookupMetric(ctx, locId, sl, rt, "street_to_comp_var_pct"), operator, value);
   }
@@ -890,7 +894,9 @@ function evalGroupCondition(
     return cmp(campusMetricValue(ctx, locId, sl, 'private_pay_pct'), operator, value);
   }
   if (field === "inquiry_volume" || field === "inquiry_tour_volume" || field === "inquiry_count") {
-    return cmp(campusMetricValue(ctx, locId, sl, 'inquiry_count'), operator, value);
+    const inquiries = campusMetricValue(ctx, locId, sl, 'inquiry_count');
+    const tours = campusMetricValue(ctx, locId, sl, 'tour_count');
+    return cmp(inquiries == null && tours == null ? null : (inquiries ?? 0) + (tours ?? 0), operator, value);
   }
   // Anything else cannot be scored here. Returning false matches the rate
   // engine's behaviour for a missing metric, but it is silent — which is why
@@ -915,7 +921,7 @@ export const IMPACT_SCOREABLE_FIELDS: ReadonlySet<string> = new Set([
   'occupancy_trailing3', 'occupancy_trailing6', 'occupancy_trailing12',
   'service_line_occupancy_trailing3', 'service_line_occupancy_trailing6', 'service_line_occupancy_trailing12',
   'room_type_occupancy_trailing3', 'room_type_occupancy_trailing6', 'room_type_occupancy_trailing12',
-  'vacant_units', 'vacant_beds',
+  'vacant_units', 'vacant_beds', 'total_units', 'total_beds',
   'competitor_rate', 'competitor_variance', 'street_to_comp_var',
   'ih_street_variance', 'street_to_ih_var',
   'days_vacant',

@@ -16,10 +16,6 @@
  * `IMPACT_SCOREABLE_FIELDS`. A metric cannot be advertised without proving it
  * survives the whole chain.
  *
- * Deliberately absent: `total_units`. It parses, but NEITHER the impact
- * evaluator nor the live pricing engine scores it, so every rule built on it
- * was dead on arrival. The parser alias is kept so pre-existing rules still
- * parse; it is simply never taught to the model.
  */
 
 export interface AdvertisedMetric {
@@ -95,16 +91,22 @@ export const ADVERTISED_METRICS: readonly AdvertisedMetric[] = [
     grammarExample: '"when vacant units is greater than 5"',
   },
   {
+    label: 'total units',
+    samplePhrase: 'total units is greater than 20',
+    field: 'total_units',
+    grammarExample: '"when total units is greater than 20"',
+  },
+  {
     label: 'inquiry volume',
     samplePhrase: 'inquiry volume is greater than 100',
     field: 'inquiry_volume',
     grammarExample: '"when inquiry volume is greater than 100"',
   },
   {
-    label: 'quality mix (private-pay % of census)',
-    samplePhrase: 'quality mix is greater than 70',
+    label: 'private-pay mix % of census',
+    samplePhrase: 'private pay mix is greater than 70',
     field: 'quality_mix',
-    grammarExample: '"when quality mix is greater than 70"',
+    grammarExample: '"when private pay mix is greater than 70"',
   },
 ];
 

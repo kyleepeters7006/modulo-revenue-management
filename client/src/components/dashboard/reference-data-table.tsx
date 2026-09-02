@@ -204,6 +204,16 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
+    id: "comp",
+    label: "Comp Rates",
+    cols: [
+      { key: "compBase", label: "Base", type: "money", w: 80, tip: "Top competitor's base (unadjusted) rate for this room type." },
+      { key: "compAdjusted", label: "Adjusted", type: "money", w: 80, tip: "Competitor rate after adjusting for care-level and med-management differences." },
+      { key: "compVarDollar", label: "Δ$", type: "moneysigned", w: 75, tip: "Adjusted competitor rate vs your street rate (dollars) — positive means comp is priced above your street rate." },
+      { key: "compVarPct", label: "Δ%", type: "pctfracsigned", w: 65, tip: "Adjusted competitor rate vs your street rate — positive means comp is above your street rate." },
+    ],
+  },
+  {
     id: "inhouse",
     label: "In-House Rates",
     expandable: true,
@@ -226,16 +236,6 @@ const GROUPS: GroupDef[] = [
       { key: "streetSpot", label: "Spot", type: "money", w: 80, tip: "Average published street rate for this room type in the latest month." },
       { key: "streetIncT3", label: "T3 Δ", type: "pctfracsigned", w: 70, tip: "% change of the latest street rate vs the trailing 3-month average." },
       { key: "streetIncT12", label: "T12 Δ", type: "pctfracsigned", w: 70, tip: "% change of the latest street rate vs the trailing 12-month average." },
-    ],
-  },
-  {
-    id: "comp",
-    label: "Comp Rates",
-    cols: [
-      { key: "compBase", label: "Base", type: "money", w: 80, tip: "Top competitor's base (unadjusted) rate for this room type." },
-      { key: "compAdjusted", label: "Adjusted", type: "money", w: 80, tip: "Competitor rate after adjusting for care-level and med-management differences." },
-      { key: "compVarDollar", label: "Δ$", type: "moneysigned", w: 75, tip: "Adjusted competitor rate vs your street rate (dollars) — positive means comp is priced above your street rate." },
-      { key: "compVarPct", label: "Δ%", type: "pctfracsigned", w: 65, tip: "Adjusted competitor rate vs your street rate — positive means comp is above your street rate." },
     ],
   },
   {
@@ -974,7 +974,7 @@ export default function ReferenceDataTable({
     const rules = allRules.filter(r => rows.some(row => (row.ruleRates as any)?.[r.id] != null));
     const allMonths = data?.months ?? [];
 
-    // Build base groups (with rule groups injected after "inhouse")
+    // Build base groups (with rule groups injected after "street")
     let base: GroupDef[];
     if (!rules.length) {
       base = GROUPS;
@@ -991,12 +991,12 @@ export default function ReferenceDataTable({
           tip: `Avg proposed rate for units where the "${r.name}" rule was applied (spot month).`,
         }],
       }));
-      // Inject rule columns after "inhouse", then place the Final Rate group
+      // Inject rule columns after "street", then place the Final Rate group
       // (rules-applied rate + Δ vs current street rate) immediately after the
       // rule columns so the outcome of the rules sits right beside them.
       const proposedGroup = GROUPS.find(g => g.id === "proposed")!;
       const withoutProposed = GROUPS.filter(g => g.id !== "proposed");
-      const insertAt = withoutProposed.findIndex(g => g.id === "inhouse") + 1;
+      const insertAt = withoutProposed.findIndex(g => g.id === "street") + 1;
       base = [
         ...withoutProposed.slice(0, insertAt),
         ...ruleGroups,
