@@ -178,12 +178,76 @@ content_type = "video/mp4"
 id = "XlK62flCozGUQdBPN27IB"
 uri = "file://attached_assets/generated_videos/reconcept/dynamic-pricing-demo-signal-decision-impact.mp4"
 type = "video"
-title = "Dynamic pricing demo — corrected ending"
-description = "Updated 30-second, 1280×720 MP4 with the closing card extended so the video and British narration end together without cutting off."
+title = "Dynamic Pricing — Signal, Decision, Impact (31s)"
+description = "1280x720 MP4, 31.0s. Closing line re-recorded so it resolves downward instead of rising, the voiceover fade moved off the final word, and the end card now holds 1.2s while the music resolves."
 logical_id = "71eeb769-1a39-4774-8a6f-24727f0d5faf"
-content_hash = "sha256:4695ac6f778d64264ad2ae9599d52727ef1d9a1a3e32bbf8ca192aac4fb1cb48"
-size = 1014768
-mtime_ms = 1788313681926
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/71eeb769-1a39-4774-8a6f-24727f0d5faf/c07e58cb-09c8-406c-aeef-071d44201541"
-storage_version_token = "1788313694009296"
+content_hash = "sha256:d0c4afcd1c6cce3246150f4fa323a675d6f8486c1b47ca7ccdbf69dc0cad2780"
+size = 15660936
+mtime_ms = 1788316513361
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/71eeb769-1a39-4774-8a6f-24727f0d5faf/3feba155-93c6-4087-9843-9425f7d590ad"
+storage_version_token = "1788316552072649"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "4iMBCrGOfe_jAbHMn4UvV"
+uri = "file://attached_assets/generated_audio/closer_sam_fragments.mp3"
+type = "audio"
+title = "closer sam_fragments"
+description = "Text-to-speech audio: Smarter pricing. Faster decisions."
+logical_id = "cdf022e6-e501-4509-ba3b-259fc0f36ba6"
+
+[[outputs]]
+id = "litkZfUvBLT1rr8bJgSuM"
+uri = "file://attached_assets/generated_audio/closer_sam_clause.mp3"
+type = "audio"
+title = "closer sam_clause"
+description = "Text-to-speech audio: Smarter pricing means faster decisions."
+logical_id = "64ff3e40-dccd-4f20-9eb7-a52c7cd01679"
+
+[[outputs]]
+id = "WnC2eYQIhwnvfzQJSFh1F"
+uri = "file://attached_assets/generated_audio/closer_dan_clause.mp3"
+type = "audio"
+title = "closer dan clause"
+description = "Text-to-speech audio: Smarter pricing means faster decisions."
+logical_id = "c26ba97f-5f4f-4922-a459-ccfa71e018a4"
+
+[[outputs]]
+id = "1D83tAmmiqjSauTLWYZqP"
+uri = "file://attached_assets/generated_audio/closer_teddy_clause.mp3"
+type = "audio"
+title = "closer teddy clause"
+description = "Text-to-speech audio: Smarter pricing means faster decisions."
+logical_id = "aa91c299-1add-4978-906e-37915421e5fd"
+
+[[outputs]]
+id = "L6FsNiADwSD11dB3VFxnf"
+uri = "file://attached_assets/generated_audio/closer_dan_frag.mp3"
+type = "audio"
+title = "closer dan frag"
+description = "Text-to-speech audio: Smarter pricing. Faster decisions."
+logical_id = "87822ab0-b592-4b18-b61f-b7dcb549297a"
+
+[[outputs]]
+id = "mYwaoMPHsHRE1b2Ytmhzt"
+uri = "file://attached_assets/generated_audio/closer_mark_clause.mp3"
+type = "audio"
+title = "closer mark clause"
+description = "Text-to-speech audio: Smarter pricing means faster decisions."
+logical_id = "b4d9984a-67eb-4730-acea-986d35c1f2d8"
+
+[[outputs]]
+id = "k1M1t4lTqsUseFHZfvS6c"
+uri = "file://attached_assets/generated_audio/closer_teddy_frag.mp3"
+type = "audio"
+title = "closer teddy frag"
+description = "Text-to-speech audio: Smarter pricing. Faster decisions."
+logical_id = "80a98821-af60-4696-a927-8cbffd328489"
+
+[[outputs]]
+id = "ICoxliXqmC9Mm_PTIJa08"
+uri = "file://attached_assets/generated_audio/closer_mark_frag.mp3"
+type = "audio"
+title = "closer mark frag"
+description = "Text-to-speech audio: Smarter pricing. Faster decisions."
+logical_id = "99def2b6-c962-4851-ac4f-665d433bffab"

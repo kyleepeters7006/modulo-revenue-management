@@ -96,9 +96,9 @@ render_closing() {
 drawbox=x=120:y=130:w=1040:h=2:color=${TEAL}@0.75:t=fill,\
 drawbox=x='120+min(t/2.2,1)*1040':y=130:w=2:h=2:color=${GOLD}:t=fill,\
 drawtext=fontfile=${SANS}:text='THE OUTCOME':fontcolor=${TEAL}:fontsize=17:x=120:y=177,\
-drawtext=fontfile=${SERIF}:text='Pricing that can':fontcolor=${INK}:fontsize=55:x=120:y=225,\
-drawtext=fontfile=${SERIF}:text='move with the market.':fontcolor=${INK}:fontsize=55:x=120:y=294,\
-drawtext=fontfile=${SANS}:text='A clear signal in.  A confident decision out.':fontcolor=${MUTED}:fontsize=19:x=120:y=415,\
+drawtext=fontfile=${SERIF}:text='A clearer signal.':fontcolor=${INK}:fontsize=55:x=120:y=225,\
+drawtext=fontfile=${SERIF}:text='Faster decisions.':fontcolor=${GOLD}:fontsize=55:x=120:y=294,\
+drawtext=fontfile=${SANS}:text='Pricing that moves with the market.':fontcolor=${MUTED}:fontsize=19:x=120:y=415,\
 drawtext=fontfile=${SANS}:text='MODULO  /  REVENUE MANAGEMENT':fontcolor=${MUTED}:fontsize=15:x=120:y=650,\
 fade=t=in:st=0:d=0.45:alpha=1,fade=t=out:st=3.0:d=0.6:alpha=1" \
     -an -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p "$out"

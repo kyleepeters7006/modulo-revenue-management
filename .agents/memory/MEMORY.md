@@ -96,3 +96,5 @@
 - [Large ExcelJS exports](exceljs-large-export-streaming.md) — use streaming writer/temp files; worksheet views must be passed at construction.
 - [Manual override attribution](manual-override-attribution.md) — actor columns contain both user IDs and legacy display values; joins must fall back to the stored actor.
 - [Product demo screenshot formatting](video-screenshot-formatting.md) — browser-zoom captures before fitting into a 16:9 card; scaling alone cannot restore cropped UI context.
+- [Product demo film composition](product-demo-film-composition.md) — dense UI screens must dip through black not cross-dissolve; solid caption band; per-axis resize scale for focus rects.
+- [Narration endings that sound cut off](demo-narration-endings.md) — three stacking causes: terminal pitch rise, a fade crossing the last word, no hold after it. Measure F0, don't guess.
