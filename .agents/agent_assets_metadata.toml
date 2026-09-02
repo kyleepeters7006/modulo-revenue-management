@@ -87,3 +87,17 @@ mtime_ms = 1788308229559
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/c35e591a-0a80-48a5-b08c-674e70e71b28/fdb843e4-66eb-4858-96eb-4558a6e3f1a4"
 storage_version_token = "1788308251951326"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "-GG-qLvjK6jAoi4j4j95C"
+uri = "file://attached_assets/generated_videos/dynamic-pricing-demo-30s-enhanced-graphics-v2.mp4"
+type = "video"
+title = "Dynamic Pricing Demo — Enhanced Graphics"
+description = "Final 30-second 16:9 720p cut with enhanced editorial graphics, serif magazine typography, British narration, chapter progress markers, market/portfolio callouts, and a readable competitive-chart highlight in the pricing strategy section."
+logical_id = "eacb8e7b-c026-48db-bbf0-74a1f0026cf9"
+content_hash = "sha256:3aca068151520876bd1d6c5c2942cfb4fce5635d52f29aa373a8fbae58865ef8"
+size = 1377360
+mtime_ms = 1788308604392
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/eacb8e7b-c026-48db-bbf0-74a1f0026cf9/d7c40e9d-0c25-430a-9bd3-25f7a9bf9351"
+storage_version_token = "1788308617131107"
+content_type = "video/mp4"
