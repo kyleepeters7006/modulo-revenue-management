@@ -36,6 +36,16 @@ that were fed to the prompt). A panel that degrades to plain, factual content is
 better than one that goes blank, and it means the failure path is never user-visible as an
 error state.
 
+AI prose must also be constrained by authoritative state after generation. If the scoped
+active-rule list is empty, deterministically replace any wording that implies rates are
+currently being adjusted; historical rate movement is planning context, not proof of an
+implemented rule. Version the cache key when fixing contaminated prompt inputs so fresh
+persistent rows from the old behavior cannot survive the release.
+
+**Why:** a model can turn a historical rate trend into present-tense “rates are adjusted”
+wording even when the prompt says there are no active rules. A valid, non-empty payload can
+therefore still be factually false.
+
 **How to apply:** whenever adding or touching an endpoint that caches model output —
 especially one with a persistent cache table plus stale-while-revalidate. Also check the
 empty-state copy on the client: a message like "add some X to generate insights" is actively

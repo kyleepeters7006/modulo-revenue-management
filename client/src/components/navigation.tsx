@@ -56,7 +56,10 @@ export default function Navigation({ className }: NavigationProps) {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
-  const { isAuthenticated, clientName, isLoading } = useAuth();
+  const { isAuthenticated, clientId, clientName, isLoading } = useAuth();
+  // Inflect is an internal Trilogy resource. Hide it while auth is loading,
+  // for demo visitors, and for every other tenant.
+  const showInflectLink = !isLoading && isAuthenticated && clientId.toLowerCase() === "trilogy";
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
@@ -191,16 +194,19 @@ export default function Navigation({ className }: NavigationProps) {
             </div>
 
             <div className="flex items-center space-x-4 ml-auto">
-              {/* Inflect link */}
-              <a
-                href="https://Inflect.Work"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hidden md:inline-flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors duration-200"
-                title="Inflect"
-              >
-                <img src={inflectLogo} alt="Inflect" className="h-[50px] w-auto rounded-lg" />
-              </a>
+              {/* Inflect is available only to authenticated Trilogy users. */}
+              {showInflectLink && (
+                <a
+                  href="https://Inflect.Work"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hidden md:inline-flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors duration-200"
+                  title="Inflect"
+                  data-testid="link-inflect"
+                >
+                  <img src={inflectLogo} alt="Inflect" className="h-[50px] w-auto rounded-lg" />
+                </a>
+              )}
 
               {/* Auth button - Desktop */}
               {!isLoading && (
