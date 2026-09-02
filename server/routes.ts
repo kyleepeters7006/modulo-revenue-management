@@ -23247,6 +23247,19 @@ Return ONLY valid JSON, no markdown fences:
       for (const u of units) { const k = u.service_line || 'Other'; if (!slMap.has(k)) slMap.set(k, []); slMap.get(k)!.push(u); }
       for (const [sl, g] of slMap) pushGroup(sl, null, g);
 
+      // One weighted SNF payer mix across both skilled-nursing service lines.
+      const snfOccupied = units.filter(u =>
+        (u.service_line === 'HC' || u.service_line === 'HC/MC') && u.occupied_yn
+      );
+      if (snfOccupied.length) {
+        const snfPrivatePayPct = pctOf(
+          snfOccupied.filter(u => isPrivatePayer(u.payor_type)).length,
+          snfOccupied.length,
+        );
+        metrics.push({ sl: 'HC', rt: null, name: 'snf_private_pay_pct', val: snfPrivatePayPct });
+        metrics.push({ sl: 'HC/MC', rt: null, name: 'snf_private_pay_pct', val: snfPrivatePayPct });
+      }
+
       // Per room type
       const rtMap = new Map<string, typeof units>();
       for (const u of units) { const k = u.room_type || 'Other'; if (!rtMap.has(k)) rtMap.set(k, []); rtMap.get(k)!.push(u); }

@@ -891,7 +891,16 @@ function evalGroupCondition(
   // not a zero — `cmp(null, …)` is false, which is also how the live engine
   // behaves when the metric was never computed for that campus.
   if (field === "quality_mix" || field === "private_pay") {
-    return cmp(campusMetricValue(ctx, locId, sl, 'private_pay_pct'), operator, value);
+    if (sl !== 'HC' && sl !== 'HC/MC') return false;
+    const occupiedSnf = ctx.units.filter(u =>
+      u.location_id === locId
+      && (u.service_line === 'HC' || u.service_line === 'HC/MC')
+      && u.occupied_yn
+    );
+    if (!occupiedSnf.length) return false;
+    const privatePayPct = occupiedSnf.filter(u => isPrivatePayer(u.payor_type)).length
+      / occupiedSnf.length * 100;
+    return cmp(privatePayPct, operator, value);
   }
   if (field === "inquiry_volume" || field === "inquiry_count") {
     return cmp(campusMetricValue(ctx, locId, sl, 'inquiry_count'), operator, value);

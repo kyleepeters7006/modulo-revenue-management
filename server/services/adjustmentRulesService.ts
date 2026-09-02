@@ -265,6 +265,21 @@ export async function recalculateAndPreloadCampusMetrics(
     for (const u of units) { const k = u.service_line || 'Other'; if (!slMap.has(k)) slMap.set(k, []); slMap.get(k)!.push(u); }
     slMap.forEach((g, sl) => pushGroup(sl, null, g));
 
+    // SNF private-pay mix is one combined HC family metric. Store the same
+    // weighted value under both member service lines so either HC or HC/MC
+    // units resolve the identical numerator and denominator.
+    const snfOccupied = units.filter(u =>
+      (u.service_line === 'HC' || u.service_line === 'HC/MC') && u.occupied_yn
+    );
+    if (snfOccupied.length) {
+      const snfPrivatePayPct = pctOf(
+        snfOccupied.filter(u => isPrivatePayer(u.payor_type)).length,
+        snfOccupied.length,
+      );
+      metrics.push({ sl: 'HC', rt: null, name: 'snf_private_pay_pct', val: snfPrivatePayPct });
+      metrics.push({ sl: 'HC/MC', rt: null, name: 'snf_private_pay_pct', val: snfPrivatePayPct });
+    }
+
     // Per room type — keyed by SL+RT for SL-scoped lookup
     const slRtMap = new Map<string, typeof units>();
     for (const u of units) {
@@ -610,9 +625,11 @@ function evaluateSingleCondition(
     return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, rt, 'street_to_comp_var_pct'));
   }
 
-  // Quality / payer mix — private pay %
+  // SNF private-pay mix combines HC + HC/MC and can never fire on another
+  // service line, even when the enclosing rule is portfolio-wide.
   if (field === "quality_mix" || field === "private_pay") {
-    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'private_pay_pct'));
+    if (sl !== 'HC' && sl !== 'HC/MC') return false;
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'snf_private_pay_pct'));
   }
 
   // Inquiry volume

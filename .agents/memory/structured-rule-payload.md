@@ -9,7 +9,13 @@ Designer-authored pricing rules travel as a structured JSON payload (conditions,
 
 **How to apply:** any new designer metric, action, or scope must get a structured representation (with the same threshold scales the engine uses) before it is offered in the UI; the designer's option lists deliberately contain only engine-enforceable choices.
 
-Visible labels must describe the actual evaluated value: private-pay percentage is “Private-Pay Mix %”, competitor rate variance is explicitly a percentage variance, and inquiry and tour volume are separate metrics. Only occupancy metrics may expose trailing windows.
+Visible labels must describe the actual evaluated value: SNF payer mix is “SNF Private Pay Mix”, competitor rate variance is explicitly a percentage variance, and inquiry and tour volume are separate metrics. Only occupancy metrics may expose trailing windows.
+
+SNF Private Pay Mix is restricted to the HC family and uses one weighted percentage across occupied HC and HC/MC residents. It must return false for every other service line.
+
+**Why:** HC and HC/MC are two stored labels for the skilled-nursing population; separate percentages or a campus-wide payer mix do not represent the metric users intend.
+
+**How to apply:** selecting this metric should scope the rule to both HC and HC/MC, while the server still enforces the HC-family restriction independently of UI scope.
 
 **Why:** ambiguous labels and a global period picker let users save conditions that either meant something different in the engine or were rejected by the server.
 

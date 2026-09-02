@@ -23,7 +23,7 @@ const FRACTION_SCALE_LIST = [
 export const FRACTION_SCALE_METRICS = new Set(FRACTION_SCALE_LIST);
 
 /** Percentages with a natural 0–100 ceiling. */
-const BOUNDED_PERCENT_LIST = FRACTION_SCALE_LIST.concat(['Private-Pay Mix %']);
+const BOUNDED_PERCENT_LIST = FRACTION_SCALE_LIST.concat(['SNF Private Pay Mix']);
 export const BOUNDED_PERCENT_METRICS = new Set(BOUNDED_PERCENT_LIST);
 
 /**

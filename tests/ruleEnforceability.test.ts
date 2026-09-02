@@ -202,7 +202,7 @@ vcase('Room Type Occupancy', '85%', false, 'occupancy "85%" accepted');
 vcase('Room Type Occupancy', '0.85', true, 'bare sub-1 occupancy is ambiguous');
 vcase('Room Type Occupancy', '0.85%', false, 'explicit "0.85%" is unambiguous');
 vcase('Room Type Occupancy', '150', true, 'occupancy above 100 rejected');
-vcase('Private-Pay Mix %', '120', true, 'private-pay mix above 100 rejected');
+vcase('SNF Private Pay Mix', '120', true, 'SNF private-pay mix above 100 rejected');
 // Variances are percentage-POINT deltas and legitimately exceed ±100.
 vcase('Street Rate to Top Comp Var %', '125', false, 'variance above 100 allowed');
 vcase('Street Rate to Top Comp Var %', '-140', false, 'variance below -100 allowed');

@@ -56,7 +56,7 @@ console.log('\nSupported metrics land on the right engine field & scale:');
     ['Competitor Rate Variance %', { value: '10' }, 'competitor_variance', 10],
     ['Inquiry Volume', { value: '3' }, 'inquiry_volume', 3],
     ['Tour Volume', { value: '3' }, 'tour_volume', 3],
-    ['Private-Pay Mix %', { value: '40' }, 'quality_mix', 40],
+    ['SNF Private Pay Mix', { value: '40' }, 'quality_mix', 40],
   ];
   for (const [metric, over, field, value] of cases) {
     const r = build([cond(metric, over)], act());

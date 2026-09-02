@@ -60,7 +60,8 @@ const METRIC_MAP: Record<string, { field: string; scale: 'fraction' | 'raw'; tra
   'inquiry volume':                                       { field: 'inquiry_volume', scale: 'raw' },
   'tour volume':                                          { field: 'tour_volume', scale: 'raw' },
   'inquiry and tour volume':                              { field: 'inquiry_tour_volume', scale: 'raw' }, // legacy saved payloads
-  'private-pay mix %':                                    { field: 'quality_mix', scale: 'raw' },
+  'snf private pay mix':                                  { field: 'quality_mix', scale: 'raw' },
+  'private-pay mix %':                                    { field: 'quality_mix', scale: 'raw' }, // legacy saved payloads
   'quality mix':                                          { field: 'quality_mix', scale: 'raw' }, // legacy saved payloads
 };
 

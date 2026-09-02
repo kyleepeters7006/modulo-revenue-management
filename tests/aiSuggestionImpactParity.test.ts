@@ -93,6 +93,7 @@ async function seed() {
   // unmistakable in the resulting dollar figure.
   const plan: Array<[string, string, number]> = [
     [SMALL_A, 'AL', 6], [SMALL_A, 'SL', 6],
+    [SMALL_A, 'HC', 2], [SMALL_A, 'HC/MC', 2],
     [SMALL_B, 'AL', 6], [SMALL_B, 'SL', 6],
     [BIG_C, 'AL', 60], [BIG_C, 'SL', 60],
   ];
@@ -109,6 +110,13 @@ async function seed() {
       );
     }
   }
+  // SNF private-pay mix at Small A is 75% across the combined HC + HC/MC
+  // population (3 private-pay residents out of 4 occupied residents).
+  await pool.query(
+    `UPDATE rent_roll_data SET payor_type='Medicaid'
+     WHERE client_id=$1 AND location_id=$2 AND service_line='HC/MC' AND room_number='HC/MC-2'`,
+    [CLIENT, locIds.get(SMALL_A)!],
+  );
 }
 
 async function cleanup() {
@@ -534,32 +542,29 @@ async function main() {
   // membership of a list. A field can be in the set and still be unreachable if
   // the context never loads the value behind it.
   console.log('\n── quality mix, inquiry volume, and tour volume score against real data ──');
-  // Seeded the way production actually stores these: private_pay_pct is broken
-  // out per service line, inquiry_count arrives from the CRM campus-wide with a
-  // NULL service line. Seeding inquiry_count against 'AL' would make this test
+  // Inquiry and tour counts arrive from the CRM campus-wide with a NULL service
+  // line. Seeding inquiry_count against 'AL' would make this test
   // pass while the real column shape scores nothing — which is precisely the
   // bug it exists to catch.
   await pool.query(
     `INSERT INTO campus_metrics (client_id, location_id, service_line, metric_name, value)
-     VALUES ($1,$2,'AL','private_pay_pct',82), ($1,$2,NULL,'inquiry_count',80), ($1,$2,NULL,'tour_count',60)`,
+     VALUES ($1,$2,NULL,'inquiry_count',80), ($1,$2,NULL,'tour_count',60)`,
     [CLIENT, locIds.get(SMALL_A)!],
   );
   const mixCtx = await buildRuleImpactContext(CLIENT);
-  ok('the impact context loads campus_metrics values',
-    mixCtx?.campusMetric.get(`${locIds.get(SMALL_A)!}|AL|private_pay_pct`) === 82,
-    `got: ${mixCtx?.campusMetric.get(`${locIds.get(SMALL_A)!}|AL|private_pay_pct`)}`);
-  for (const [label, sentence, shouldMatch] of [
-    ['quality mix above a threshold it clears', 'If quality mix is greater than 70, increase street rate by 5% for occupied Studio units', true],
-    ['quality mix above a threshold it misses', 'If quality mix is greater than 90, increase street rate by 5% for occupied Studio units', false],
+  for (const [label, sentence, serviceLines, shouldMatch] of [
+    ['SNF mix clears 70% across combined HC family', 'If SNF private pay mix is greater than 70, increase street rate by 5% for occupied Studio units', ['HC', 'HC/MC'], true],
+    ['SNF mix misses 80% across combined HC family', 'If SNF private pay mix is greater than 80, increase street rate by 5% for occupied Studio units', ['HC', 'HC/MC'], false],
+    ['SNF mix never applies to AL', 'If SNF private pay mix is greater than 70, increase street rate by 5% for occupied Studio units', ['AL'], false],
     ['inquiry volume above a threshold it clears', 'If inquiry volume is greater than 70, increase street rate by 5% for occupied Studio units', true],
     ['inquiry volume above a threshold it misses', 'If inquiry volume is greater than 100, increase street rate by 5% for occupied Studio units', false],
     ['tour volume above a threshold it clears', 'If tour volume is greater than 50, increase street rate by 5% for occupied Studio units', true],
     ['tour volume above a threshold it misses', 'If tour volume is greater than 100, increase street rate by 5% for occupied Studio units', false],
-  ] as Array<[string, string, boolean]>) {
+  ].map((row: any[]) => row.length === 3 ? [row[0], row[1], ['AL'], row[2]] : row) as Array<[string, string, string[], boolean]>) {
     const q: any = parseNaturalLanguageRule(sentence);
     const imp = computeQualifiedRuleImpact(
       mixCtx!,
-      { action: q.action, trigger: q.trigger, serviceLines: ['AL'], locationId: locIds.get(SMALL_A)! },
+      { action: q.action, trigger: q.trigger, serviceLines, locationId: locIds.get(SMALL_A)! },
       { locationIds: [locIds.get(SMALL_A)!] },
     );
     ok(`${label} → ${shouldMatch ? 'affects units' : 'affects none'}`,

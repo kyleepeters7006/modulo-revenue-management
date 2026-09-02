@@ -64,7 +64,7 @@ const METRICS = [
   'Campus Occupancy', 'Service Line Occupancy', 'Room Type Occupancy',
   'Vacant Units/Beds', 'Total Units/Beds',
   'Competitor Rate Variance %', 'Days Vacant',
-  'Inquiry Volume', 'Tour Volume', 'Private-Pay Mix %',
+  'Inquiry Volume', 'Tour Volume', 'SNF Private Pay Mix',
   'In House to Street Rate var % - Single Occupant',
   'Street Rate to Top Comp Var %',
 ];
@@ -1169,7 +1169,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
           return { id: newConditionId(), metric: 'Inquiry and Tour Volume', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
         case 'quality_mix':
         case 'private_pay':
-          return { id: newConditionId(), metric: 'Private-Pay Mix %', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+          return { id: newConditionId(), metric: 'SNF Private Pay Mix', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
         default:
           if (NEW_METRIC_FIELDS[c.field]) {
             return { id: newConditionId(), metric: NEW_METRIC_FIELDS[c.field], timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
@@ -1372,7 +1372,11 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   // Condition helpers
   const addCondition = () => setConditions(prev => [...prev, defaultCondition()]);
   const removeCondition = (id: string) => setConditions(prev => prev.filter(c => c.id !== id));
-  const updateCondition = (id: string, field: keyof Condition, value: string) =>
+  const updateCondition = (id: string, field: keyof Condition, value: string) => {
+    if (field === 'metric' && value === 'SNF Private Pay Mix') {
+      if (editingRuleId) setEditingRuleSLs(['HC', 'HC/MC']);
+      else setNewRuleSLs(['HC', 'HC/MC']);
+    }
     setConditions(prev => prev.map(c => {
       if (c.id !== id) return c;
       if (field === 'metric') {
@@ -1381,6 +1385,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       }
       return { ...c, [field]: value };
     }));
+  };
   const duplicateCondition = (id: string) => {
     const idx = conditions.findIndex(c => c.id === id);
     if (idx < 0) return;

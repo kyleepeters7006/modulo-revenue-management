@@ -354,6 +354,8 @@ const METRIC_TO_FIELD: Array<{ key: string; field: string; rawPct?: boolean }> =
   { key: 'tour count',                                          field: 'tour_volume', rawPct: true },
   // Compared against private_pay_pct, which is on the 0–100 scale.
   { key: 'quality mix',                                         field: 'quality_mix', rawPct: true },
+  { key: 'snf private pay mix',                                 field: 'quality_mix', rawPct: true },
+  { key: 'snf private-pay mix',                                 field: 'quality_mix', rawPct: true },
   { key: 'private-pay mix',                                     field: 'quality_mix', rawPct: true },
   { key: 'private pay mix',                                     field: 'quality_mix', rawPct: true },
   { key: 'private pay percentage',                              field: 'quality_mix', rawPct: true },
