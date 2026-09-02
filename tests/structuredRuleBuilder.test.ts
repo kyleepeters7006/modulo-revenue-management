@@ -54,7 +54,8 @@ console.log('\nSupported metrics land on the right engine field & scale:');
     ['Vacant Units/Beds', { operator: 'is greater than', value: '5' }, 'vacant_units', 5],
     ['Total Units/Beds', { operator: 'is greater than', value: '20' }, 'total_units', 20],
     ['Competitor Rate Variance %', { value: '10' }, 'competitor_variance', 10],
-    ['Inquiry and Tour Volume', { value: '3' }, 'inquiry_volume', 3],
+    ['Inquiry Volume', { value: '3' }, 'inquiry_volume', 3],
+    ['Tour Volume', { value: '3' }, 'tour_volume', 3],
     ['Private-Pay Mix %', { value: '40' }, 'quality_mix', 40],
   ];
   for (const [metric, over, field, value] of cases) {

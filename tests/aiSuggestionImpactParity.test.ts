@@ -525,14 +525,15 @@ async function main() {
   ok('total units is advertised now that both evaluators score it',
     ADVERTISED_METRICS.some(m => m.field === 'total_units'),
     'total_units must remain connected to preview and live pricing');
-  ok('the prompt advertises the two metrics that used to score zero',
+  ok('the prompt advertises payer mix and separate inquiry/tour metrics',
     ADVERTISED_METRICS.some(m => m.field === 'quality_mix')
-    && ADVERTISED_METRICS.some(m => m.field === 'inquiry_volume'));
+    && ADVERTISED_METRICS.some(m => m.field === 'inquiry_volume')
+    && ADVERTISED_METRICS.some(m => m.field === 'tour_volume'));
 
   // Scoring the two newly-wired metrics against real context data, not just
   // membership of a list. A field can be in the set and still be unreachable if
   // the context never loads the value behind it.
-  console.log('\n── quality mix and inquiry volume score against real data ──');
+  console.log('\n── quality mix, inquiry volume, and tour volume score against real data ──');
   // Seeded the way production actually stores these: private_pay_pct is broken
   // out per service line, inquiry_count arrives from the CRM campus-wide with a
   // NULL service line. Seeding inquiry_count against 'AL' would make this test
@@ -550,8 +551,10 @@ async function main() {
   for (const [label, sentence, shouldMatch] of [
     ['quality mix above a threshold it clears', 'If quality mix is greater than 70, increase street rate by 5% for occupied Studio units', true],
     ['quality mix above a threshold it misses', 'If quality mix is greater than 90, increase street rate by 5% for occupied Studio units', false],
-    ['inquiry volume above a threshold it clears', 'If inquiry volume is greater than 100, increase street rate by 5% for occupied Studio units', true],
-    ['inquiry volume above a threshold it misses', 'If inquiry volume is greater than 500, increase street rate by 5% for occupied Studio units', false],
+    ['inquiry volume above a threshold it clears', 'If inquiry volume is greater than 70, increase street rate by 5% for occupied Studio units', true],
+    ['inquiry volume above a threshold it misses', 'If inquiry volume is greater than 100, increase street rate by 5% for occupied Studio units', false],
+    ['tour volume above a threshold it clears', 'If tour volume is greater than 50, increase street rate by 5% for occupied Studio units', true],
+    ['tour volume above a threshold it misses', 'If tour volume is greater than 100, increase street rate by 5% for occupied Studio units', false],
   ] as Array<[string, string, boolean]>) {
     const q: any = parseNaturalLanguageRule(sentence);
     const imp = computeQualifiedRuleImpact(

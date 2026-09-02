@@ -57,7 +57,9 @@ const METRIC_MAP: Record<string, { field: string; scale: 'fraction' | 'raw'; tra
   'vacant units/beds':                                    { field: 'vacant_units', scale: 'raw' },
   'total units/beds':                                     { field: 'total_units', scale: 'raw' },
   'days vacant':                                          { field: 'days_vacant', scale: 'raw' },
-  'inquiry and tour volume':                              { field: 'inquiry_volume', scale: 'raw' },
+  'inquiry volume':                                       { field: 'inquiry_volume', scale: 'raw' },
+  'tour volume':                                          { field: 'tour_volume', scale: 'raw' },
+  'inquiry and tour volume':                              { field: 'inquiry_tour_volume', scale: 'raw' }, // legacy saved payloads
   'private-pay mix %':                                    { field: 'quality_mix', scale: 'raw' },
   'quality mix':                                          { field: 'quality_mix', scale: 'raw' }, // legacy saved payloads
 };

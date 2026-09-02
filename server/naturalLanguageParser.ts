@@ -344,15 +344,14 @@ const METRIC_TO_FIELD: Array<{ key: string; field: string; rawPct?: boolean }> =
   { key: 'vacant bed count',                                    field: 'vacant_units', rawPct: true },
   { key: 'vacant units',                                        field: 'vacant_units', rawPct: true },
   { key: 'vacant beds',                                         field: 'vacant_units', rawPct: true },
-  // ── Inquiry volume ─────────────────────────────────────────────────────
-  // The original alias 'inquiry and tour volume' could never parse: the
-  // compound-trigger splitter breaks the sentence on " and " before this table
-  // is consulted, leaving "inquiry" and "tour volume ..." as two fragments that
-  // each match nothing. An alias containing AND or OR is unreachable by
-  // construction — keep these conjunction-free.
-  { key: 'inquiry and tour volume',                             field: 'inquiry_volume', rawPct: true },
+  // ── Demand volume ───────────────────────────────────────────────────────
+  // Keep the combined field for rules created before the designer split this
+  // into two independent metrics. New rules use inquiry_volume or tour_volume.
+  { key: 'inquiry and tour volume',                             field: 'inquiry_tour_volume', rawPct: true },
   { key: 'inquiry volume',                                      field: 'inquiry_volume', rawPct: true },
   { key: 'inquiry count',                                       field: 'inquiry_volume', rawPct: true },
+  { key: 'tour volume',                                         field: 'tour_volume', rawPct: true },
+  { key: 'tour count',                                          field: 'tour_volume', rawPct: true },
   // Compared against private_pay_pct, which is on the 0–100 scale.
   { key: 'quality mix',                                         field: 'quality_mix', rawPct: true },
   { key: 'private-pay mix',                                     field: 'quality_mix', rawPct: true },

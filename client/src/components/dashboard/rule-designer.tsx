@@ -64,7 +64,7 @@ const METRICS = [
   'Campus Occupancy', 'Service Line Occupancy', 'Room Type Occupancy',
   'Vacant Units/Beds', 'Total Units/Beds',
   'Competitor Rate Variance %', 'Days Vacant',
-  'Inquiry and Tour Volume', 'Private-Pay Mix %',
+  'Inquiry Volume', 'Tour Volume', 'Private-Pay Mix %',
   'In House to Street Rate var % - Single Occupant',
   'Street Rate to Top Comp Var %',
 ];
@@ -80,6 +80,9 @@ const NEW_METRIC_FIELDS: Record<string, string> = {
   days_to_sell_after: 'Days To Sell After',
   days_to_sell_change: 'Days To Sell Change',
 };
+// Kept only so an older combined rule can be opened without changing its
+// behavior. It is not offered as a new designer choice.
+const LEGACY_METRIC_LABELS = ['Inquiry and Tour Volume'];
 
 const OCCUPANCY_TIME_PERIODS = ['Current Month', 'Trailing 3', 'Trailing 6', 'Trailing 12'];
 const CURRENT_TIME_PERIODS = ['Current Spot'];
@@ -424,7 +427,7 @@ function computeValidation(conditions: Condition[], action: RuleAction, tab: str
       // Unsupported metrics (e.g. legacy "Revenue Growth Target", "Price Elasticity") are
       // not in METRIC_MAP in structuredRuleBuilder.ts — the server rejects them with a 400.
       // Catch them here so the save button is blocked before the request is even sent.
-      if (c.metric && !METRICS.includes(c.metric)) {
+      if (c.metric && !METRICS.includes(c.metric) && !LEGACY_METRIC_LABELS.includes(c.metric)) {
         msgs.push(`"${c.metric}" is not supported by the pricing engine — select a different metric.`);
         continue; // no point checking scale for an unsupported metric
       }
@@ -1157,8 +1160,12 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
         case 'street_to_ih_var':
           return { id: newConditionId(), metric: 'In House to Street Rate var % - Single Occupant', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
         case 'inquiry_volume':
-        case 'inquiry_tour_volume':
         case 'inquiry_count':
+          return { id: newConditionId(), metric: 'Inquiry Volume', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+        case 'tour_volume':
+        case 'tour_count':
+          return { id: newConditionId(), metric: 'Tour Volume', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+        case 'inquiry_tour_volume':
           return { id: newConditionId(), metric: 'Inquiry and Tour Volume', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
         case 'quality_mix':
         case 'private_pay':
@@ -1814,7 +1821,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                                   The validation message in computeValidation blocks saving until they
                                   pick a supported replacement. */}
                               {(() => {
-                                const metricSupported = !cond.metric || METRICS.includes(cond.metric);
+                                const metricSupported = !cond.metric || METRICS.includes(cond.metric) || LEGACY_METRIC_LABELS.includes(cond.metric);
                                 return (
                                   <Select value={cond.metric} onValueChange={v => updateCondition(cond.id, 'metric', v)}>
                                     <SelectTrigger className={`h-8 text-xs ${!metricSupported ? 'border-amber-400 ring-1 ring-amber-300 text-amber-700' : ''}`}>

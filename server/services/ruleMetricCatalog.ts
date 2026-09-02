@@ -103,6 +103,12 @@ export const ADVERTISED_METRICS: readonly AdvertisedMetric[] = [
     grammarExample: '"when inquiry volume is greater than 100"',
   },
   {
+    label: 'tour volume',
+    samplePhrase: 'tour volume is greater than 50',
+    field: 'tour_volume',
+    grammarExample: '"when tour volume is greater than 50"',
+  },
+  {
     label: 'private-pay mix % of census',
     samplePhrase: 'private pay mix is greater than 70',
     field: 'quality_mix',

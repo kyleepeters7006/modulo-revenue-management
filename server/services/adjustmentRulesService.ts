@@ -615,16 +615,20 @@ function evaluateSingleCondition(
     return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'private_pay_pct'));
   }
 
-  // Combined inquiry + tour volume. The structured designer deliberately names
-  // this combined demand signal; evaluating inquiries alone made its threshold
-  // disagree with the number users selected it for.
-  if (field === "inquiry_volume" || field === "inquiry_tour_volume" || field === "inquiry_count") {
+  // Inquiry volume
+  if (field === "inquiry_volume" || field === "inquiry_count") {
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'inquiry_count'));
+  }
+  // Tour volume
+  if (field === "tour_count" || field === "tour_volume") {
+    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'tour_count'));
+  }
+  // Legacy combined inquiry + tour volume. New structured rules use the two
+  // branches above, but old saved rules must retain their original meaning.
+  if (field === "inquiry_tour_volume") {
     const inquiries = _lookupCampusMetric(clientId, unit.locationId, sl, null, 'inquiry_count');
     const tours = _lookupCampusMetric(clientId, unit.locationId, sl, null, 'tour_count');
     return cmpMetric(inquiries == null && tours == null ? null : (inquiries ?? 0) + (tours ?? 0));
-  }
-  if (field === "tour_count" || field === "tour_volume") {
-    return cmpMetric(_lookupCampusMetric(clientId, unit.locationId, sl, null, 'tour_count'));
   }
 
   // Average days vacant

@@ -9,8 +9,8 @@ Designer-authored pricing rules travel as a structured JSON payload (conditions,
 
 **How to apply:** any new designer metric, action, or scope must get a structured representation (with the same threshold scales the engine uses) before it is offered in the UI; the designer's option lists deliberately contain only engine-enforceable choices.
 
-Visible labels must describe the actual evaluated value: private-pay percentage is “Private-Pay Mix %”, competitor rate variance is explicitly a percentage variance, and combined inquiry/tour volume is the sum of both measures. Only occupancy metrics may expose trailing windows.
+Visible labels must describe the actual evaluated value: private-pay percentage is “Private-Pay Mix %”, competitor rate variance is explicitly a percentage variance, and inquiry and tour volume are separate metrics. Only occupancy metrics may expose trailing windows.
 
 **Why:** ambiguous labels and a global period picker let users save conditions that either meant something different in the engine or were rejected by the server.
 
-**How to apply:** preserve legacy parser aliases and stored field names for old rules, but rehydrate them into the current truthful labels; reset the selected period when switching to a metric that does not support it.
+**How to apply:** preserve legacy parser aliases and stored field names for old rules. Legacy combined inquiry+tour rules retain combined behavior but are not offered for new rules; reset the period when switching to a metric that does not support it.

@@ -893,7 +893,13 @@ function evalGroupCondition(
   if (field === "quality_mix" || field === "private_pay") {
     return cmp(campusMetricValue(ctx, locId, sl, 'private_pay_pct'), operator, value);
   }
-  if (field === "inquiry_volume" || field === "inquiry_tour_volume" || field === "inquiry_count") {
+  if (field === "inquiry_volume" || field === "inquiry_count") {
+    return cmp(campusMetricValue(ctx, locId, sl, 'inquiry_count'), operator, value);
+  }
+  if (field === "tour_volume" || field === "tour_count") {
+    return cmp(campusMetricValue(ctx, locId, sl, 'tour_count'), operator, value);
+  }
+  if (field === "inquiry_tour_volume") {
     const inquiries = campusMetricValue(ctx, locId, sl, 'inquiry_count');
     const tours = campusMetricValue(ctx, locId, sl, 'tour_count');
     return cmp(inquiries == null && tours == null ? null : (inquiries ?? 0) + (tours ?? 0), operator, value);
@@ -926,7 +932,7 @@ export const IMPACT_SCOREABLE_FIELDS: ReadonlySet<string> = new Set([
   'ih_street_variance', 'street_to_ih_var',
   'days_vacant',
   'quality_mix', 'private_pay',
-  'inquiry_volume', 'inquiry_tour_volume', 'inquiry_count',
+  'inquiry_volume', 'tour_volume', 'inquiry_tour_volume', 'inquiry_count', 'tour_count',
 ]);
 
 /** Does the rule's trigger pass for this campus/SL/RT group? */
