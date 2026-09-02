@@ -101,3 +101,25 @@ mtime_ms = 1788308604392
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/eacb8e7b-c026-48db-bbf0-74a1f0026cf9/d7c40e9d-0c25-430a-9bd3-25f7a9bf9351"
 storage_version_token = "1788308617131107"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "D5w3EVaNHD-bDXH4ExqB6"
+uri = "file://attached_assets/generated_audio/dynamic-pricing-demo-narration-british-short.mp3"
+type = "audio"
+title = "Belmont dynamic pricing British narration"
+description = "Text-to-speech audio: Dynamic pricing starts with one connected view of occupancy, rates, and demand. Compare Belmont against nearby competitors. Use the competitive chart to shape strategy by servic…"
+logical_id = "520c2c68-59d5-4e09-a606-728e88cdeec6"
+
+[[outputs]]
+id = "J-7N6qqxkhkyaEWPWhIVD"
+uri = "file://attached_assets/generated_videos/dynamic-pricing-demo-belmont-final.mp4"
+type = "video"
+title = "Dynamic Pricing Demo — Belmont Final Cut"
+description = "Corrected 30-second 16:9 720p demo using Belmont - 519 throughout. British narration now ends at 26.8 seconds, leaving a clean music-and-visual outro instead of cutting off."
+logical_id = "b2b0679d-a68e-4770-8b90-6d29254b9c54"
+content_hash = "sha256:60160f1fc12724b6bfe141f01659c8e18fdaa6373a0f4f20fd76b67346a66ae5"
+size = 1338539
+mtime_ms = 1788309395557
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/b2b0679d-a68e-4770-8b90-6d29254b9c54/b24da8d7-9297-4579-9db8-475770831ac2"
+storage_version_token = "1788309419615357"
+content_type = "video/mp4"
