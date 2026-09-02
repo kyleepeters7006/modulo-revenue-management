@@ -1141,9 +1141,69 @@ async function checkAndInitializeDatabase() {
   }
 }
 
+/**
+ * Ensure the Heritage tenant exists independently of the one-time seed route.
+ *
+ * The client partition is safe to create without a password so the tenant can
+ * remain empty until Heritage data is imported. The administrator account is
+ * only provisioned when its password is present in Replit Secrets.
+ */
+async function ensureHeritageTenant() {
+  const clientId = 'heritage';
+  const username = 'heritage_admin';
+
+  await db.execute(sql`
+    INSERT INTO clients (id, name)
+    VALUES (${clientId}, ${'Heritage Communities'})
+    ON CONFLICT (id) DO UPDATE SET name = ${'Heritage Communities'}
+  `);
+
+  const password = process.env.HERITAGE_PASSWORD;
+  if (!password) {
+    console.warn('[auth] HERITAGE_PASSWORD is not configured; Heritage tenant created without an administrator account.');
+    return;
+  }
+
+  const existingRows = await db
+    .select({
+      id: users.id,
+      clientId: users.clientId,
+      passwordHash: users.passwordHash,
+    })
+    .from(users)
+    .where(eq(users.username, username))
+    .limit(1);
+  const existing = existingRows[0];
+  const passwordMatches = existing?.passwordHash
+    ? await bcrypt.compare(password, existing.passwordHash)
+    : false;
+
+  if (existing?.clientId === clientId && passwordMatches) {
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  await db.execute(sql`
+    INSERT INTO users (id, username, password_hash, client_id, first_name, last_name)
+    VALUES (gen_random_uuid(), ${username}, ${passwordHash}, ${clientId}, ${'Heritage'}, ${'Admin'})
+    ON CONFLICT (username) DO UPDATE SET
+      password_hash = ${passwordHash},
+      client_id = ${clientId},
+      first_name = ${'Heritage'},
+      last_name = ${'Admin'},
+      updated_at = now()
+  `);
+  console.log('[auth] Heritage administrator account provisioned.');
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Initialize database on startup if needed
   await checkAndInitializeDatabase();
+  try {
+    await ensureHeritageTenant();
+  } catch (error) {
+    console.error('[auth] Failed to provision Heritage tenant:', error);
+  }
   try {
     await restoreReferenceDataAuditJobs();
   } catch (error) {
@@ -1311,12 +1371,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     try {
-      // Upsert the 4 client environments
+      // Upsert the client environments
       const clientDefs = [
         { id: 'demo', name: 'Demo' },
         { id: 'trilogy', name: 'Trilogy Health Services' },
         { id: 'glm', name: 'Great Lakes Management' },
         { id: 'ssmg', name: 'Senior Solutions Management Group' },
+        { id: 'heritage', name: 'Heritage Communities' },
       ];
       for (const c of clientDefs) {
         await db.execute(sql`INSERT INTO clients (id, name) VALUES (${c.id}, ${c.name}) ON CONFLICT (id) DO UPDATE SET name = ${c.name}`);
@@ -1327,6 +1388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { username: 'trilogy_admin', password: process.env.TRILOGY_PASSWORD!, clientId: 'trilogy', firstName: 'Trilogy', lastName: 'Admin' },
         { username: 'glm_admin', password: process.env.GLM_PASSWORD!, clientId: 'glm', firstName: 'GLM', lastName: 'Admin' },
         { username: 'ssmg_admin', password: process.env.SSMG_PASSWORD!, clientId: 'ssmg', firstName: 'SSMG', lastName: 'Admin' },
+        { username: 'heritage_admin', password: process.env.HERITAGE_PASSWORD!, clientId: 'heritage', firstName: 'Heritage', lastName: 'Admin' },
       ];
       for (const u of userDefs) {
         if (!u.password) continue;

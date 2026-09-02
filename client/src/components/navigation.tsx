@@ -205,14 +205,23 @@ export default function Navigation({ className }: NavigationProps) {
               {/* Auth button - Desktop */}
               {!isLoading && (
                 isAuthenticated ? (
-                  <button
-                    onClick={() => logoutMutation.mutate()}
-                    className="hidden md:inline-flex items-center px-3 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors duration-200"
-                    data-testid="link-logout"
-                  >
-                    <LogOut className="h-4 w-4 mr-2" />
-                    Logout
-                  </button>
+                  <>
+                    <span
+                      className="hidden lg:inline-flex max-w-44 truncate rounded-full bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-600"
+                      title={clientName}
+                      data-testid="text-tenant-name"
+                    >
+                      {clientName}
+                    </span>
+                    <button
+                      onClick={() => logoutMutation.mutate()}
+                      className="hidden md:inline-flex items-center px-3 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors duration-200"
+                      data-testid="link-logout"
+                    >
+                      <LogOut className="h-4 w-4 mr-2" />
+                      Logout
+                    </button>
+                  </>
                 ) : (
                   <button
                     onClick={() => setShowLoginModal(true)}

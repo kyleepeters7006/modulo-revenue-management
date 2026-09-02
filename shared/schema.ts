@@ -30,7 +30,7 @@ export const sessions = pgTable(
 
 // Multi-tenant client environments
 export const clients = pgTable("clients", {
-  id: varchar("id").primaryKey(), // slug: 'demo', 'trilogy', 'glm', 'ssmg'
+  id: varchar("id").primaryKey(), // slug: 'demo', 'trilogy', 'glm', 'ssmg', 'heritage'
   name: text("name").notNull(), // Display name
   createdAt: timestamp("created_at").defaultNow(),
 });
