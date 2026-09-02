@@ -194,9 +194,9 @@ test("batch: only matching units get adjusted", () => {
     action: { type: "adjust_rate", adjustmentType: "percentage", adjustmentValue: 3 } as any,
   });
   const units = [
-    { id: "u1", unit: vacantALUnit,   moduloSuggestedRate: 4000 },
-    { id: "u2", unit: occupiedALUnit, moduloSuggestedRate: 4000 },
-    { id: "u3", unit: vacantMCUnit,   moduloSuggestedRate: 4000 },
+    { id: "u1", unit: { ...vacantALUnit, streetRate: 4000 },   moduloSuggestedRate: 3500 },
+    { id: "u2", unit: { ...occupiedALUnit, streetRate: 4000 }, moduloSuggestedRate: 3500 },
+    { id: "u3", unit: { ...vacantMCUnit, streetRate: 4000 },   moduloSuggestedRate: 3500 },
   ];
   const results = applyAdjustmentRulesToBatch(units, [rule]);
   const u1 = results.find(r => r.id === "u1")!;
@@ -205,6 +205,23 @@ test("batch: only matching units get adjusted", () => {
   expect(u1.ruleAdjustedRate).toBe(4120); // 4000 * 1.03
   expect(u2.ruleAdjustedRate).toBeNull();
   expect(u3.ruleAdjustedRate).toBeNull();
+});
+
+test("batch applies rules to Street Rate, never the legacy Modulo suggestion", () => {
+  const rule = makeRule({
+    name: "Increase 1%",
+    trigger: { type: "immediate" } as any,
+    action: { type: "adjust_rate", adjustmentType: "percentage", adjustmentValue: 1 } as any,
+  });
+  const [result] = applyAdjustmentRulesToBatch([
+    {
+      id: "anderson-1723",
+      unit: { ...vacantALUnit, streetRate: 2819 },
+      moduloSuggestedRate: 2543,
+    },
+  ], [rule]);
+
+  expect(result.ruleAdjustedRate).toBe(2847); // round(2819 * 1.01), not round(2543 * 1.01)
 });
 
 test("stacks three rules correctly", () => {

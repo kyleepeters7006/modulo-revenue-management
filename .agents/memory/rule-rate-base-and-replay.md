@@ -1,25 +1,24 @@
 ---
 name: Rule-adjusted rate base, and why client-side replays fail
-description: What the pricing engine actually does between the street rate and the served rule-adjusted rate, and why no UI may re-derive it in the browser.
+description: Street Rate is the rule engine base; explains why no UI may re-derive a saved multi-rule result in the browser.
 ---
 
-## The rule-adjusted rate is NOT street rate × rule adjustment
+## Street Rate is the rule base
 
-The engine applies adjustment rules to `moduloSuggestedRate ?? streetRate` — the retired
-signal/modulo calculation is still alive as the **base** the rules multiply, even though it
-was retired as the served proposed rate. It then rounds at *every* step and finally clamps
-the result against guardrails (defaults: min −5%, max +15%) measured against the street rate.
+Street-rate adjustment rules start from the unit's published Street Rate. The retired
+Modulo suggestion is analysis-only and must never feed a rule calculation. The engine
+rounds at every stacked step and finally clamps the result against guardrails measured
+against the same Street Rate.
 
-So a unit with a single "+5%" rule routinely does not show +5% off its street rate:
-street 314 → modulo base 333 → ×1.05 → **350** (+11.5% vs street), and it can even land
-*below* the street rate when the modulo base is lower.
+A unit with Street Rate 2,819 and one +1% rule therefore produces 2,847 before
+guardrails. It must not inherit a lower legacy Modulo suggestion.
 
-**Why:** three separate transformations sit between the two numbers (different base,
-per-step rounding, guardrail clamp), and only the endpoints are persisted.
+**Why:** users define rules as Street Rate changes. Using the legacy Modulo suggestion
+made positive rules appear as net decreases and contradicted the rule designer's impact
+calculation.
 
-**How to apply:** any surface that explains a served rate must display the engine's own
-saved numbers. If it needs to show arithmetic that reconciles, it must show the base rate
-the rules actually applied to — the street rate will not add up.
+**How to apply:** every live rule-execution path must pass Street Rate as the initial
+rate. Modulo remains available for analysis/comparison only.
 
 ## Never replay the rule chain client-side
 

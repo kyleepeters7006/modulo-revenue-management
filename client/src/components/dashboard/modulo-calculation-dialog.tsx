@@ -15,7 +15,7 @@ interface ModuloCalculationDialogProps {
   /** The unit's street rate. */
   currentRate: number;
   children: React.ReactNode;
-  /** The rate the rules were applied to, as recorded by the last pricing run. */
+  /** The Street Rate that the rules were applied to. */
   baseRate?: number | null;
   /** The served rate after adjustment rules. */
   ruleAdjustedRate?: number | null;
@@ -33,8 +33,8 @@ interface ModuloCalculationDialogProps {
  * replayed the rule chain client-side and compared the result against the saved rate,
  * warning that "rules have changed" whenever the two disagreed — which was almost
  * always, because the replay could not reproduce what the engine does (the engine
- * applies rules to the base rate from the pricing run rather than the street rate,
- * rounds at every step, and then clamps the result against guardrails). The dialog
+ * applies specificity and cycle suppression, rounds at every step, and then clamps
+ * the result against guardrails). The dialog
  * now reports the engine's own numbers and describes the rules behind them.
  *
  * Caveat worth knowing: the engine records applied rules by NAME, not by id, and keeps
@@ -413,13 +413,10 @@ export default function ModuloCalculationDialog({
                   );
                 })}
 
-                {showBaseRate && (
-                  <p className="text-[11px] text-muted-foreground pt-1 flex items-center gap-1.5">
-                    <ArrowRight className="h-3 w-3 shrink-0" />
-                    Rules were applied to the base rate of {fmt(baseRate!)} from the last pricing run, which is why the
-                    net change from the street rate differs from each rule's own adjustment.
-                  </p>
-                )}
+                <p className="text-[11px] text-muted-foreground pt-1 flex items-center gap-1.5">
+                  <ArrowRight className="h-3 w-3 shrink-0" />
+                  Street-rate rules start from the published Street Rate. Multiple matching rules may stack before guardrails are applied.
+                </p>
               </CardContent>
             </Card>
           )}

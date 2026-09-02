@@ -1123,7 +1123,7 @@ export default function RateCardTable({
                               <ModuloCalculationDialog
                                 roomType={unit.roomType}
                                 currentRate={unit.streetRate}
-                                baseRate={unit.moduloSuggestedRate}
+                                baseRate={unit.streetRate}
                                 ruleAdjustedRate={unit.ruleAdjustedRate}
                                 appliedRuleName={unit.appliedRuleName}
                                 serviceLine={unit.serviceLine}

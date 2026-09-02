@@ -972,8 +972,10 @@ export function applyAdjustmentRulesToBatch(
 ): Array<{ id: string; ruleAdjustedRate: number | null; appliedRuleName: string | null }> {
   return units.map((entry) => {
     const { id, unit } = entry;
-    const baseRate: number =
-      entry.moduloSuggestedRate ?? unit?.streetRate ?? unit?.street_rate ?? 0;
+    // Street-rate rules are defined as adjustments to the published Street
+    // Rate. The legacy Modulo suggestion is an analysis output only and must
+    // never become the starting point for a rule calculation.
+    const baseRate: number = unit?.streetRate ?? unit?.street_rate ?? 0;
     const adjustment = applyAdjustmentRulesToUnit(unit, baseRate, activeRules);
     return {
       id,
