@@ -65,3 +65,25 @@ mtime_ms = 1788304804475
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/44716d6d-1c36-42ce-ab16-424e742ee8ab/2bdf12b9-05e4-4c09-9c01-37f34f193071"
 storage_version_token = "1788304820583377"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "Oco_qwtvbaWE7K1PRnkju"
+uri = "file://attached_assets/generated_audio/dynamic-pricing-demo-narration-british.mp3"
+type = "audio"
+title = "dynamic pricing demo British narration"
+description = "Text-to-speech audio: Dynamic pricing starts with one connected view of occupancy, market rates, and demand. Compare every community against nearby competitors. Then use the competitive chart to shap…"
+logical_id = "0e99e3bc-be66-458a-885e-ef58a486acd8"
+
+[[outputs]]
+id = "vxyZ2u9b9y0vLJYd9vtEp"
+uri = "file://attached_assets/generated_videos/dynamic-pricing-demo-30s-british-editorial.mp4"
+type = "video"
+title = "Dynamic Pricing Demo — British Editorial Cut"
+description = "Revised 30-second 16:9 720p demo with British narration, magazine-style serif typography, stronger visual framing, and a competitive-chart callout in the pricing-controls strategy section."
+logical_id = "c35e591a-0a80-48a5-b08c-674e70e71b28"
+content_hash = "sha256:6f841e4e22831d193c58d56f7c460d5a40dd53f7e634d153cc345498dbdb431d"
+size = 1380151
+mtime_ms = 1788308229559
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/c35e591a-0a80-48a5-b08c-674e70e71b28/fdb843e4-66eb-4858-96eb-4558a6e3f1a4"
+storage_version_token = "1788308251951326"
+content_type = "video/mp4"
