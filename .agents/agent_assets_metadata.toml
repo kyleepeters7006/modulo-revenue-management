@@ -159,3 +159,17 @@ mtime_ms = 1788310236672
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/a4c20483-b290-4129-9c27-4cd291eaa867/30f22347-be75-4856-aa51-c915d57923ae"
 storage_version_token = "1788310245833822"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "HPlg6Ag9g0_Kry2KlEpoq"
+uri = "file://attached_assets/generated_videos/dynamic-pricing-demo-visual-upgrade.mp4"
+type = "video"
+title = "Dynamic Pricing Demo — Visual Upgrade"
+description = "Upgraded 30-second 16:9 720p cut with cleaner screen-card formatting, stronger contrast, full screenshot containment, and an animated cursor following the highlighted trace in each scene."
+logical_id = "00c6e848-6ced-409a-a862-b4cdcc89cc12"
+content_hash = "sha256:8b919d4a5c52650b8f15f5e60deddbdfa0943421bd6b986de6d6c961f676706a"
+size = 1260702
+mtime_ms = 1788310921480
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/00c6e848-6ced-409a-a862-b4cdcc89cc12/2c5eee3c-45cb-47ca-9f95-9a4eb0a9d8ac"
+storage_version_token = "1788310931629532"
+content_type = "video/mp4"

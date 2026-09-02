@@ -95,3 +95,4 @@
 - [Rule lifecycle compatibility](rule-lifecycle-compatibility.md) — proposals are inactive and explicit; legacy NULL lifecycle derives from existing active/historical flags.
 - [Large ExcelJS exports](exceljs-large-export-streaming.md) — use streaming writer/temp files; worksheet views must be passed at construction.
 - [Manual override attribution](manual-override-attribution.md) — actor columns contain both user IDs and legacy display values; joins must fall back to the stored actor.
+- [Product demo screenshot formatting](video-screenshot-formatting.md) — browser-zoom captures before fitting into a 16:9 card; scaling alone cannot restore cropped UI context.
