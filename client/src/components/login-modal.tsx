@@ -4,7 +4,7 @@ import { queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { LogIn, Loader2 } from "lucide-react";
 
 interface LoginModalProps {
@@ -48,12 +48,14 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent aria-describedby="login-modal-desc" className="sm:max-w-md bg-white dark:bg-[var(--dashboard-surface)] border border-gray-200 dark:border-[var(--dashboard-border)]">
+      <DialogContent className="sm:max-w-md bg-white dark:bg-[var(--dashboard-surface)] border border-gray-200 dark:border-[var(--dashboard-border)]">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold text-[var(--trilogy-dark-blue)]">
             Client Login
           </DialogTitle>
-          <p className="text-sm text-gray-500 sr-only" id="login-modal-desc">Enter your credentials to access your client environment.</p>
+          <DialogDescription className="sr-only">
+            Enter your credentials to access your client environment.
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 pt-2">
