@@ -145,3 +145,17 @@ mtime_ms = 1788309668935
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/911853b0-a0a9-4d7c-88a3-4c0e4581fb83/0add3ea5-8995-43b1-86f5-e27e3106b3b6"
 storage_version_token = "1788309694807179"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "HsgVG2c7zmMXdsrAbqf1-"
+uri = "file://attached_assets/generated_videos/dynamic-pricing-demo-formatting-final.mp4"
+type = "video"
+title = "Dynamic Pricing Demo — Clean Formatting Cut"
+description = "Final 30-second 16:9 720p cut with fully contained page screenshots, consistent framing and margins, minimal chapter bars, and cursor-trace visuals. Product screens are not covered by the editorial layout."
+logical_id = "a4c20483-b290-4129-9c27-4cd291eaa867"
+content_hash = "sha256:e0ac66350416cdcf90718d566f3b1401bf167da8e22e9a6241a5ef5d58ac8bb0"
+size = 1213393
+mtime_ms = 1788310236672
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/a4c20483-b290-4129-9c27-4cd291eaa867/30f22347-be75-4856-aa51-c915d57923ae"
+storage_version_token = "1788310245833822"
+content_type = "video/mp4"
