@@ -137,6 +137,9 @@ ffmpeg -hide_banner -loglevel error -y \
 NARRATION="$ROOT/attached_assets/generated_audio/dynamic-pricing-demo-british-no-location.mp3"
 MUSIC="$ROOT/attached_assets/generated_audio/dynamic-pricing-demo-music.mp3"
 FINAL="$OUT_DIR/dynamic-pricing-demo-signal-decision-impact.mp4"
+CAPTIONED="$OUT_DIR/dynamic-pricing-demo-signal-decision-impact-captioned.mp4"
+CAPTION_SRT="$TMP_DIR/dynamic-pricing-demo-signal-decision-impact-captioned.srt"
+CAPTION_ASS="$TMP_DIR/dynamic-pricing-demo-signal-decision-impact-captioned.ass"
 
 ffmpeg -hide_banner -loglevel error -y \
   -i "$TMP_DIR/visual.mp4" \
@@ -151,3 +154,86 @@ ffmpeg -hide_banner -loglevel error -y \
 
 echo "Rendered: $FINAL"
 ffprobe -v error -show_entries format=duration:stream=width,height,codec_name -of default=nw=1 "$FINAL"
+
+# Captions are deliberately rendered after the finished cut. This keeps the original
+# presentation export unchanged while making a second, burn-in export for muted playback.
+# Product scenes have only a narrow editorial band above the screen, so their captions
+# replace the small explanatory body line there; title and closing cards use their
+# unused lower frame instead.
+cat > "$CAPTION_SRT" <<'EOF'
+1
+00:00:00,000 --> 00:00:03,400
+Dynamic pricing starts with one connected
+view of occupancy, rates, and demand.
+
+2
+00:00:03,400 --> 00:00:05,000
+Dynamic pricing starts with one connected
+view of occupancy, rates, and demand.
+
+3
+00:00:05,000 --> 00:00:08,000
+Compare each community against
+nearby competitors.
+
+4
+00:00:08,000 --> 00:00:13,000
+Use the competitive chart to shape strategy
+by service line and room type.
+
+5
+00:00:13,000 --> 00:00:19,000
+Build a targeted rule, preview unit, and
+revenue impact, then implement with confidence.
+
+6
+00:00:19,000 --> 00:00:23,000
+Recommendations flow into reference
+data and the rate card.
+
+7
+00:00:23,000 --> 00:00:26,200
+A clear, auditable path from insight to action.
+
+8
+00:00:26,200 --> 00:00:30,000
+Smarter pricing. Faster decisions.
+EOF
+
+# ASS lets the two editorial regions use different positions without changing the
+# underlying video geometry. The SRT is retained in tmp as the timing source/audit
+# record, while the visible burn-in keeps playback reliable across video players.
+cat > "$CAPTION_ASS" <<'EOF'
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Editorial,DejaVu Sans,17,&H00F5F7F6,&H00F5F7F6,&H00071722,&H40071722,0,0,0,0,100,100,0,0,3,6,0,8,30,30,3,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:03.40,Editorial,,0,0,0,,{\an8\pos(640,530)}Dynamic pricing starts with one connected\Nview of occupancy, rates, and demand.
+Dialogue: 0,0:00:03.40,0:00:05.00,Editorial,,0,0,0,,{\an8\pos(640,83)}Dynamic pricing starts with one connected\Nview of occupancy, rates, and demand.
+Dialogue: 0,0:00:05.00,0:00:08.00,Editorial,,0,0,0,,{\an8\pos(640,83)}Compare each community against\Nnearby competitors.
+Dialogue: 0,0:00:08.00,0:00:13.00,Editorial,,0,0,0,,{\an8\pos(640,83)}Use the competitive chart to shape strategy\Nby service line and room type.
+Dialogue: 0,0:00:13.00,0:00:19.00,Editorial,,0,0,0,,{\an8\pos(640,83)}Build a targeted rule, preview unit, and\Nrevenue impact, then implement with confidence.
+Dialogue: 0,00:00:19.00,0:00:23.00,Editorial,,0,0,0,,{\an8\pos(640,83)}Recommendations flow into reference\Ndata and the rate card.
+Dialogue: 0,00:00:23.00,0:00:26.20,Editorial,,0,0,0,,{\an8\pos(640,83)}A clear, auditable path from insight to action.
+Dialogue: 0,00:00:26.20,0:00:30.00,Editorial,,0,0,0,,{\an8\pos(640,530)}Smarter pricing. Faster decisions.
+EOF
+
+ffmpeg -hide_banner -loglevel error -y \
+  -i "$FINAL" \
+  -vf "subtitles=$CAPTION_ASS" \
+  -map 0:v -map 0:a? \
+  -t 30 \
+  -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p \
+  -c:a copy \
+  -movflags +faststart "$CAPTIONED"
+
+echo "Rendered: $CAPTIONED"
+ffprobe -v error -show_entries format=duration:stream=index,width,height,codec_name,codec_type:stream_tags=language,title -of default=nw=1 "$CAPTIONED"

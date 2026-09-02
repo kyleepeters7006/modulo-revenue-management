@@ -1,0 +1,20 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Editorial,DejaVu Sans,17,&H00F5F7F6,&H00F5F7F6,&H00071722,&H40071722,0,0,0,0,100,100,0,0,3,6,0,8,30,30,3,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:03.40,Editorial,,0,0,0,,{\an8\pos(640,530)}Dynamic pricing starts with one connected\Nview of occupancy, rates, and demand.
+Dialogue: 0,0:00:03.40,0:00:05.00,Editorial,,0,0,0,,{\an8\pos(640,83)}Dynamic pricing starts with one connected\Nview of occupancy, rates, and demand.
+Dialogue: 0,0:00:05.00,0:00:08.00,Editorial,,0,0,0,,{\an8\pos(640,83)}Compare each community against\Nnearby competitors.
+Dialogue: 0,0:00:08.00,0:00:13.00,Editorial,,0,0,0,,{\an8\pos(640,83)}Use the competitive chart to shape strategy\Nby service line and room type.
+Dialogue: 0,0:00:13.00,0:00:19.00,Editorial,,0,0,0,,{\an8\pos(640,83)}Build a targeted rule, preview unit, and\Nrevenue impact, then implement with confidence.
+Dialogue: 0,00:00:19.00,0:00:23.00,Editorial,,0,0,0,,{\an8\pos(640,83)}Recommendations flow into reference\Ndata and the rate card.
+Dialogue: 0,00:00:23.00,0:00:26.20,Editorial,,0,0,0,,{\an8\pos(640,83)}A clear, auditable path from insight to action.
+Dialogue: 0,00:00:26.20,0:00:30.00,Editorial,,0,0,0,,{\an8\pos(640,530)}Smarter pricing. Faster decisions.

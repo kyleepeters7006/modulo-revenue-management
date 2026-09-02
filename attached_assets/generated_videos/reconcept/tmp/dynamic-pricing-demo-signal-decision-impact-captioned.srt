@@ -1,0 +1,37 @@
+1
+00:00:00,000 --> 00:00:03,400
+Dynamic pricing starts with one connected
+view of occupancy, rates, and demand.
+
+2
+00:00:03,400 --> 00:00:05,000
+Dynamic pricing starts with one connected
+view of occupancy, rates, and demand.
+
+3
+00:00:05,000 --> 00:00:08,000
+Compare each community against
+nearby competitors.
+
+4
+00:00:08,000 --> 00:00:13,000
+Use the competitive chart to shape strategy
+by service line and room type.
+
+5
+00:00:13,000 --> 00:00:19,000
+Build a targeted rule, preview unit, and
+revenue impact, then implement with confidence.
+
+6
+00:00:19,000 --> 00:00:23,000
+Recommendations flow into reference
+data and the rate card.
+
+7
+00:00:23,000 --> 00:00:26,200
+A clear, auditable path from insight to action.
+
+8
+00:00:26,200 --> 00:00:30,000
+Smarter pricing. Faster decisions.
