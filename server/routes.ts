@@ -27989,6 +27989,86 @@ Return ONLY valid JSON, no markdown fences:
       res.status(500).json({ error: 'Export failed' });
     }
   });
+
+  // Professional rate card PDF — one published row per campus / service line /
+  // room type, with enabled derived-rate formulas resolved for each service line.
+  app.get('/api/export/rate-card-pdf', async (req: any, res) => {
+    try {
+      const clientId = req.clientId || 'demo';
+      const regionFilters = Array.isArray(req.query.regions)
+        ? req.query.regions
+        : (req.query.regions ? [req.query.regions] : []);
+      const divisionFilters = Array.isArray(req.query.divisions)
+        ? req.query.divisions
+        : (req.query.divisions ? [req.query.divisions] : []);
+      const locationFilters = Array.isArray(req.query.locations)
+        ? req.query.locations
+        : (req.query.locations ? [req.query.locations] : []);
+      const serviceLineFilter = typeof req.query.serviceLine === 'string' && req.query.serviceLine !== 'All'
+        ? req.query.serviceLine
+        : null;
+
+      const { resolveLatestUploadMonth, getEffectiveRateUnits } = await import('./services/exportRateService');
+      const targetMonth = await resolveLatestUploadMonth(clientId);
+      if (!targetMonth) {
+        return res.status(404).json({ error: 'No rate data is available for this client.' });
+      }
+
+      let campusNames: string[] | undefined;
+      if (regionFilters.length || divisionFilters.length || locationFilters.length) {
+        const campusConditions: SQL[] = [eq(locations.clientId, clientId)];
+        if (regionFilters.length) campusConditions.push(inArray(locations.region, regionFilters));
+        if (divisionFilters.length) campusConditions.push(inArray(locations.division, divisionFilters));
+        if (locationFilters.length) campusConditions.push(inArray(locations.name, locationFilters));
+        const campusRows = await db
+          .select({ name: locations.name })
+          .from(locations)
+          .where(and(...campusConditions));
+        campusNames = campusRows.map((row) => row.name);
+        if (campusNames.length === 0) {
+          return res.status(404).json({ error: 'No campuses match the selected filters.' });
+        }
+      }
+
+      const [{ units }, formulaModule] = await Promise.all([
+        getEffectiveRateUnits(clientId, { campusNames }),
+        import('./services/derivedRateFormulasService'),
+      ]);
+      const formulas = await formulaModule.getDerivedRateFormulas(
+        (query, params) => pool.query(query, params),
+        clientId,
+      );
+      const filteredUnits = serviceLineFilter
+        ? units.filter((unit) => unit.serviceLine === serviceLineFilter)
+        : units;
+      if (filteredUnits.length === 0) {
+        return res.status(404).json({ error: 'No rate data matches the selected filters.' });
+      }
+
+      const scopeParts = [
+        regionFilters.length ? `${regionFilters.length} region${regionFilters.length === 1 ? '' : 's'}` : null,
+        divisionFilters.length ? `${divisionFilters.length} division${divisionFilters.length === 1 ? '' : 's'}` : null,
+        campusNames?.length ? `${campusNames.length} campus${campusNames.length === 1 ? '' : 'es'}` : 'All campuses',
+        serviceLineFilter ? `Service line: ${serviceLineFilter}` : 'All service lines',
+      ].filter(Boolean);
+      const { generateRateCardPdf } = await import('./rateCardPdf');
+      const pdf = await generateRateCardPdf(filteredUnits, formulas, {
+        companyName: 'Trilogy Health Services',
+        uploadMonth: targetMonth,
+        scopeLabel: scopeParts.join('  •  '),
+      });
+      const filename = `Trilogy_Rate_Card_${targetMonth}_${new Date().toISOString().slice(0, 10)}.pdf`;
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', String(pdf.length));
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(pdf);
+    } catch (error) {
+      console.error('Rate card PDF export error:', error);
+      res.status(500).json({ error: 'Failed to create the rate card PDF.' });
+    }
+  });
   
   // AI Floor Plan Auto-Mapping (simplified grid-based approach)
   app.post("/api/campus-maps/:campusId/auto-map", async (req, res) => {

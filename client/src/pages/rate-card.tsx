@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { ChevronDown, X, Download, Calculator } from "lucide-react";
+import { ChevronDown, X, Download, Calculator, FileText } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -50,6 +50,7 @@ export default function RateCard() {
   );
   const [selectedUnit, setSelectedUnit] = useState<string | null>(urlUnit); // Track selected unit
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [jobProgress, setJobProgress] = useState<{
     percentage: number;
@@ -263,6 +264,49 @@ export default function RateCard() {
     }
   };
 
+  const handlePdfExport = async () => {
+    try {
+      setIsExportingPdf(true);
+      const params = new URLSearchParams();
+      selectedRegions.forEach(region => params.append('regions', region));
+      selectedDivisions.forEach(division => params.append('divisions', division));
+      selectedLocations.forEach(location => params.append('locations', location));
+      if (selectedServiceLine !== 'All') params.set('serviceLine', selectedServiceLine);
+
+      const response = await fetch(`/api/export/rate-card-pdf?${params.toString()}`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'PDF export failed');
+      }
+
+      const contentDisposition = response.headers.get('Content-Disposition');
+      const filename = /filename="([^"]+)"/.exec(contentDisposition || '')?.[1] || 'Trilogy_Rate_Card.pdf';
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "PDF Ready",
+        description: `Professional rate card downloaded as ${filename}`,
+      });
+    } catch (error) {
+      console.error('PDF export error:', error);
+      toast({
+        title: "PDF Export Failed",
+        description: error instanceof Error ? error.message : "Failed to create the rate card PDF.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
@@ -279,16 +323,28 @@ export default function RateCard() {
               </p>
             </div>
             <div className="flex flex-col gap-2">
-              <Button 
-                onClick={handleExport}
-                disabled={isExporting}
-                variant="outline"
-                className="flex items-center gap-2 self-start sm:self-auto"
-                data-testid="button-export-rate-card"
-              >
-                <Download className="h-4 w-4" />
-                {isExporting ? 'Exporting...' : 'Export to CSV'}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={handlePdfExport}
+                  disabled={isExportingPdf}
+                  variant="default"
+                  className="flex items-center gap-2"
+                  data-testid="button-export-rate-card-pdf"
+                >
+                  <FileText className="h-4 w-4" />
+                  {isExportingPdf ? 'Creating PDF...' : 'Create Rate Card PDF'}
+                </Button>
+                <Button
+                  onClick={handleExport}
+                  disabled={isExporting}
+                  variant="outline"
+                  className="flex items-center gap-2"
+                  data-testid="button-export-rate-card"
+                >
+                  <Download className="h-4 w-4" />
+                  {isExporting ? 'Exporting...' : 'Export to CSV'}
+                </Button>
+              </div>
               {jobProgress && (
                 <div className="p-4 bg-blue-50 border border-blue-200 rounded-md">
                   <div className="flex justify-between mb-2">
