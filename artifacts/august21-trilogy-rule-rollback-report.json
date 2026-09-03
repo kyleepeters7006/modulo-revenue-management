@@ -1,9 +1,12 @@
 {
-  "generatedAt": "2026-09-03T17:55:16.439Z",
+  "generatedAt": "2026-09-03T19:15:11.357Z",
   "mode": "apply",
   "clientId": "trilogy",
   "targetRows": 0,
   "restoredRows": 0,
+  "rollbackAlreadyApplied": true,
+  "verifiedHistoricalTargetRows": 1213,
+  "verifiedHistoricalRestoredRows": 1213,
   "disabledRules": 3,
   "ruleNames": [
     "Decrease 3% - One Bedroom when SL occupancy < 80% +1 more",
@@ -13,5 +16,6 @@
   "remainingTargetRows": 0,
   "rulesEligible": false,
   "prechangeReport": "Existing pre-change snapshot retained",
+  "reconciledSnapshot": "artifacts/august21-trilogy-rule-rollback-reconciled.csv",
   "cacheRefresh": "Application restarted after the transactional rollback to clear in-memory analytics caches."
 }
