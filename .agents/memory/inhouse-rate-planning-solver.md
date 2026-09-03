@@ -3,6 +3,23 @@ name: In-house rate planning solver
 description: Non-obvious traps in the joint street/in-house rate solver — bisection tolerance, guardrail direction, zero-vs-missing weights, and untestable baselines.
 ---
 
+## Use only base-rate rows and standardize prior periods to today's unit mix
+
+In-house planning uses single-occupant, standard-stay base-rate rows only. Each
+historical month's realized rate must be mix-standardized: measure historical
+versus current rates on the same location+room keys, then apply that relationship
+to today's full base-rate planning average before quarters are rolled up.
+
+**Why:** blending companion, semi-private, respite, rehab, or TCU products creates
+a rate no product actually sells. Even after excluding them, comparing a changing
+historical occupancy mix against today's full population can manufacture YoY
+growth or shortfall unrelated to pricing.
+
+**How to apply:** use the shared base-rate predicate for current residents,
+current Street Rate, and historical realized rates. Match historical rows to the
+current base cohort and normalize each month to today's mix before calculating
+quarterly YoY growth.
+
 ## Solve against the target exactly; apply the reporting tolerance only afterwards
 
 A bisection that searches for "the smallest increase that clears the target" must

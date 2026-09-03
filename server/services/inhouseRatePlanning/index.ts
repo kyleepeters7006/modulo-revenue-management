@@ -47,7 +47,12 @@ import {
   quarterEndMs,
   quarterStartMs,
 } from "./dates";
-import { EQUALIZATION_EXPONENT, solvePlan, type ResidentAllocation } from "./solver";
+import {
+  EQUALIZATION_EXPONENT,
+  residentDayWeightedAverageRate,
+  solvePlan,
+  type ResidentAllocation,
+} from "./solver";
 
 export * from "./dates";
 export * from "./solver";
@@ -147,11 +152,10 @@ export async function calculatePlanDetailed(
   // and the plan's first quarter is modelled rather than ignored.
   const anchorMs = monthBoundsMs(addMonths(sourceMonth, 1)).startMs;
 
-  const [rawRows, currentStreetRateMonthly, monthly, productBaselines, formulas] =
+  const [rawRows, currentStreetRateMonthly, productBaselines, formulas] =
     await Promise.all([
       fetchResidentRows(scope, sourceMonth),
       fetchCurrentStreetRate(scope, sourceMonth),
-      fetchMonthlyRealizedRates(scope, "2000-01"),
       fetchProductStreetBaselines(scope, sourceMonth),
       getDerivedRateFormulas((s, p) => pool.query(s, p), input.clientId),
     ]);
@@ -159,8 +163,8 @@ export async function calculatePlanDetailed(
   const { residents, excluded } = buildResidents(rawRows, {
     horizonStartMs: Math.min(anchorMs, horizonStartMs),
     horizonEndMs,
-    // Each resident is measured against the street rate for the product they
-    // actually occupy, not against the single-occupancy base rate.
+    // The SQL population is base-rate-only; resolve the matching base-product
+    // Street Rate for fallback and ceiling diagnostics.
     productStreet: makeProductStreetResolver(productBaselines, formulas),
   });
 
@@ -170,9 +174,35 @@ export async function calculatePlanDetailed(
     );
   }
 
+  // Standardize every historical month to today's exact base-rate unit mix.
+  // For each month, compare historical and current rates on the same rooms,
+  // then apply that measured relationship to today's full planning average.
+  // This preserves true price movement without letting occupancy/mix changes
+  // manufacture a gain or shortfall.
+  const unitMixByKey = new Map<string, number>();
+  for (const resident of residents) {
+    unitMixByKey.set(
+      `${resident.location ?? ""}\x1f${resident.roomNumber ?? ""}`,
+      resident.currentRateMonthly,
+    );
+  }
+  const monthly = await fetchMonthlyRealizedRates(
+    scope,
+    "2000-01",
+    Array.from(unitMixByKey, ([key, currentRateMonthly]) => ({ key, currentRateMonthly })),
+  );
+  const currentPlanningAverage = residentDayWeightedAverageRate(residents);
+  const mixStandardizedMonthly = monthly.map((m) => ({
+    ...m,
+    rateMonthly:
+      (m.currentMixRateMonthly ?? 0) > 0
+        ? m.rateMonthly * (currentPlanningAverage / m.currentMixRateMonthly!)
+        : m.rateMonthly,
+  }));
+
   // Prior-year quarters are what the horizon is judged against.
   const priorYearQuarters = quarters.map((q) => addQuarters(q, -4));
-  const knownQuarters = rollMonthsIntoQuarters(monthly);
+  const knownQuarters = rollMonthsIntoQuarters(mixStandardizedMonthly);
   const { baselines, quarterlyGrowthPct } = projectMissingQuarters(
     knownQuarters,
     priorYearQuarters,

@@ -7,7 +7,8 @@
  */
 import { pool } from "../../db";
 import { privatePaySql } from "@shared/payerScope";
-import { bBedExclusionSql, isBBedRow } from "@shared/bBed";
+import { isBBedRow } from "@shared/bBed";
+import { baseRateExclusionSql } from "@shared/baseRate";
 import { DAYS_PER_MONTH } from "@shared/careRates";
 import { RATE_OUTLIER_FLOOR_RATIO } from "@shared/rateOutliers";
 import {
@@ -153,7 +154,8 @@ export async function fetchResidentRows(
         AND rr.upload_month = $2
         AND rr.service_line = $3
         AND rr.occupied_yn = true
-        AND ${privatePaySql("rr.payor_type")}${locSql}`,
+         AND ${privatePaySql("rr.payor_type")}
+         AND ${baseRateExclusionSql("rr.")}${locSql}`,
     params,
   );
   return res.rows;
@@ -466,7 +468,7 @@ export async function fetchCurrentStreetRate(
         AND rr.service_line = $3
         AND rr.street_rate > 0
         AND ${privatePaySql("rr.payor_type")}
-        AND ${bBedExclusionSql("rr.")}
+         AND ${baseRateExclusionSql("rr.")}
         AND ${streetRateGate()}${locSql}`,
     params,
   );
@@ -477,6 +479,8 @@ export interface MonthlyRealized {
   month: string;
   rateMonthly: number;
   residentDays: number;
+  /** Current rate for the exact same unit rows, weighted by historical resident-days. */
+  currentMixRateMonthly?: number;
 }
 
 /**
@@ -494,6 +498,7 @@ export interface MonthlyRealized {
 export async function fetchMonthlyRealizedRates(
   scope: ScopeFilter,
   fromMonth: string,
+  unitMix?: Array<{ key: string; currentRateMonthly: number }>,
 ): Promise<MonthlyRealized[]> {
   const params: any[] = [scope.clientId, scope.serviceLine, fromMonth];
   let locSql = "";
@@ -502,30 +507,53 @@ export async function fetchMonthlyRealizedRates(
     locSql = ` AND rr.location = $${params.length}`;
   }
 
-  // The baseline join correlates on the row's own month: this query spans
-  // every month of history for the client, so there is no single month to
-  // push down.
-  const join = buildRateBaselineJoin({ rr: "rr.", clientSql: "$1" });
-
   const monthStart = `to_date(rr.upload_month || '-01', 'YYYY-MM-DD')`;
   const monthEndExcl = `(${monthStart} + INTERVAL '1 month')`;
   const stayStart = `GREATEST(${monthStart}, COALESCE(${dateExpr("rr.move_in_date")}, ${monthStart}))`;
   const stayEnd = `LEAST(${monthEndExcl}, COALESCE(${dateExpr("rr.move_out_date")} + 1, ${monthEndExcl}))`;
   const days = `GREATEST(0, EXTRACT(EPOCH FROM (${stayEnd} - ${stayStart})) / 86400.0)`;
 
-  const res = await pool.query<{ month: string; revenue: string; days: string }>(
+  let unitMixJoin = "";
+  let currentMixRevenueSql = "NULL::double precision";
+  if (unitMix?.length) {
+    params.push(unitMix.map((u) => u.key));
+    const keysParam = params.length;
+    params.push(unitMix.map((u) => u.currentRateMonthly));
+    const ratesParam = params.length;
+    unitMixJoin = `
+       JOIN unnest($${keysParam}::text[], $${ratesParam}::double precision[])
+         AS mix(unit_key, current_rate_monthly)
+         ON mix.unit_key =
+            (COALESCE(rr.location, '') || E'\\x1f' || COALESCE(rr.room_number, ''))`;
+    currentMixRevenueSql = `SUM(mix.current_rate_monthly * (${days}))`;
+  }
+
+  // The baseline join correlates on the row's own month: this query spans
+  // every month of history for the client, so there is no single month to
+  // push down.
+  const join = buildRateBaselineJoin({ rr: "rr.", clientSql: "$1" });
+
+  const res = await pool.query<{
+    month: string;
+    revenue: string;
+    current_mix_revenue: string | null;
+    days: string;
+  }>(
     `SELECT rr.upload_month AS month,
             SUM(${monthlyRateExpr("rr.in_house_rate")} * (${days})) AS revenue,
+            ${currentMixRevenueSql} AS current_mix_revenue,
             SUM(${days}) AS days
        FROM rent_roll_data rr
        ${join}
+       ${unitMixJoin}
       WHERE rr.client_id = $1
         AND rr.service_line = $2
         AND rr.upload_month >= $3
         AND rr.occupied_yn = true
         AND rr.in_house_rate > 0
         AND ${privatePaySql("rr.payor_type")}
-        AND ${inHouseRateGate()}${locSql}
+         AND ${baseRateExclusionSql("rr.")}
+         AND ${inHouseRateGate()}${locSql}
       GROUP BY rr.upload_month
       ORDER BY rr.upload_month`,
     params,
@@ -536,6 +564,10 @@ export async function fetchMonthlyRealizedRates(
       month: r.month,
       residentDays: Number(r.days) || 0,
       rateMonthly: Number(r.days) > 0 ? Number(r.revenue) / Number(r.days) : 0,
+      currentMixRateMonthly:
+        Number(r.days) > 0 && r.current_mix_revenue != null
+          ? Number(r.current_mix_revenue) / Number(r.days)
+          : undefined,
     }))
     .filter((m) => m.residentDays > 0 && m.rateMonthly > 0);
 }

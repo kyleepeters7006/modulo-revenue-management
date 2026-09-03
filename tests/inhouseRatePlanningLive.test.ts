@@ -51,7 +51,7 @@ import {
   quarterStartMs,
 } from "../server/services/inhouseRatePlanning/dates";
 import { isDailyRateServiceLine } from "../server/services/rateNormalization";
-import { isBBedRow } from "../shared/bBed";
+import { baseRateExclusionSql } from "../shared/baseRate";
 import { privatePaySql } from "../shared/payerScope";
 import { classifyRateProduct, rateProductSql } from "../shared/rateProduct";
 
@@ -119,20 +119,17 @@ async function largestClient(): Promise<string | null> {
  *
  * @param byCampus false ranks whole service lines (portfolio scope); true
  *                 ranks campus + service line pairs.
- * @param companionOnly restrict the count to companion B-bed rows.
  */
 async function candidateScopes(
   clientId: string,
   serviceLines: string[],
-  opts: { byCampus: boolean; companionOnly?: boolean },
+  opts: { byCampus: boolean },
 ): Promise<Candidate[]> {
   const scopeCols = opts.byCampus ? "rr.location, rr.service_line" : "rr.service_line";
   const latestKey = opts.byCampus ? "location, service_line" : "service_line";
   const joinOn = opts.byCampus
     ? "l.location = rr.location AND l.service_line = rr.service_line"
     : "l.service_line = rr.service_line";
-  const companionSql = opts.companionOnly ? "AND rr.room_number ~* '/[B-Zb-z]$'" : "";
-
   const res = await pool.query<{ location: string | null; service_line: string }>(
     `WITH latest AS (
        SELECT ${latestKey}, MAX(upload_month) AS month
@@ -150,7 +147,7 @@ async function candidateScopes(
         AND rr.service_line = ANY($2)
         AND rr.in_house_rate > 0
         AND ${privatePaySql("rr.payor_type")}
-        ${companionSql}
+        AND ${baseRateExclusionSql("rr.")}
       GROUP BY ${scopeCols}
       ORDER BY COUNT(*) DESC
       LIMIT 12`,
@@ -593,7 +590,7 @@ async function main() {
   }
   console.log(`Client under test: ${clientId}\n`);
 
-  // Three scopes are REQUIRED. Each is resolved by actually building a plan,
+  // Both billing bases are REQUIRED. Each is resolved by actually building a plan,
   // so "the data no longer supports this scope" fails the run instead of
   // quietly shrinking what the suite covers.
   const monthlyScope = await resolveScope(
@@ -608,25 +605,15 @@ async function main() {
     "daily basis",
     await candidateScopes(clientId, ["HC", "HC/MC"], { byCampus: true }),
   );
-  const companionScope = await resolveScope(
-    clientId,
-    "companion beds",
-    await candidateScopes(clientId, ["AL", "AL/MC", "SL", "VIL"], {
-      byCampus: true,
-      companionOnly: true,
-    }),
-    (plan) => plan.residents.some((r) => r.isCompanionBed),
-  );
-
   await assertProductClassifierParity(clientId);
 
   ok(
-    "a monthly service line, a daily-rate service line and a companion-bed campus are all plannable",
-    !!monthlyScope && !!dailyScope && !!companionScope,
-    `monthly=${monthlyScope?.label ?? "none"} daily=${dailyScope?.label ?? "none"} companion=${companionScope?.label ?? "none"}`,
+    "a monthly service line and a daily-rate service line are plannable",
+    !!monthlyScope && !!dailyScope,
+    `monthly=${monthlyScope?.label ?? "none"} daily=${dailyScope?.label ?? "none"}`,
   );
 
-  const scopes = [monthlyScope, dailyScope, companionScope].filter(
+  const scopes = [monthlyScope, dailyScope].filter(
     (s): s is Scope => s !== null,
   );
 
@@ -636,6 +623,10 @@ async function main() {
     // Default operator settings: 0–8%, may not exceed street.
     const base = await runScope(scope, "default", {});
     if (!base) continue;
+    ok(
+      `${scope.label}: only single-occupant standard-stay base rates enter the plan`,
+      base.residents.every((r) => r.rateProduct === "base" && !r.isCompanionBed),
+    );
 
     // A non-zero minimum, which must still not push anyone through street.
     await runScope(scope, "min 2% / max 5%", {
@@ -661,39 +652,6 @@ async function main() {
     await runScope(scope, "above-street allowed", { allowInhouseAboveStreet: true });
   }
 
-  // Companion beds must actually be IN the plan — the whole point of that
-  // scope. Excluding them from street averages must not exclude the people.
-  if (companionScope) {
-    const title = companionScope.label;
-    const plan = companionScope.prefetched;
-    const companions = plan.residents.filter((r) => r.isCompanionBed);
-    ok(
-      `${title}: companion-bed residents are in the plan, not filtered out`,
-      companions.length > 0,
-      `${companions.length} of ${plan.residents.length}`,
-    );
-    ok(
-      `${title}: companion flag matches the room-number convention`,
-      plan.residents.every(
-        (r) => r.isCompanionBed === isBBedRow(companionScope!.serviceLine, r.roomNumber),
-      ),
-    );
-    ok(
-      `${title}: companion residents obey the same guardrails`,
-      companions.every(
-        (r) =>
-          r.increasePct >= -EPS_PCT &&
-          r.increasePct <= plan.assumptions.maxInhouseIncreasePct + EPS_PCT &&
-          (r.streetRateMonthly <= 0 ||
-            r.newRateMonthly <=
-              Math.max(
-                r.streetRateMonthly * streetMultiplierAtInhouse(plan),
-                r.currentRateMonthly,
-              ) +
-                EPS_MONEY),
-      ),
-    );
-  }
 }
 
 main()
