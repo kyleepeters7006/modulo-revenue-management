@@ -109,14 +109,15 @@ export default function AboutUs() {
               <p className="text-sm font-medium text-[var(--trilogy-dark-blue)] mb-2">Rules can trigger on any combination of:</p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-[var(--trilogy-grey)]">
                 {[
-                  "Occupancy — campus, SL, or room type",
-                  "Vacant units & days vacant",
-                  "Competitor rate variance",
-                  "Price elasticity",
-                  "Days-to-sell before / after",
-                  "Inquiry & tour volume",
-                  "Revenue growth target",
-                  "Season / time of year",
+                  "Occupancy — campus, service line, or room type",
+                  "Trailing occupancy trends — 3, 6, or 12 months",
+                  "Vacant units / beds & days vacant",
+                  "Total units / beds",
+                  "Street rate to top competitor variance",
+                  "In-house to street rate variance",
+                  "Inquiry volume",
+                  "Tour volume",
+                  "SNF private pay mix",
                 ].map(t => (
                   <div key={t} className="flex items-start gap-1.5">
                     <ChevronRight className="h-3 w-3 text-[var(--trilogy-teal)] mt-0.5 shrink-0" />
