@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ZoomIn, ZoomOut, RotateCcw, Save, Edit3, Trash2, Plus, Pentagon, Circle } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw, Save, Edit3, Trash2, Plus, Pentagon, Circle, RectangleHorizontal } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -27,6 +29,8 @@ interface UnitShape {
   points?: Point[];
   status: 'available' | 'occupied';
   serviceLine: string;
+  showRoomNumber?: boolean;
+  showBedLetter?: boolean;
 }
 
 interface SimplifiedFloorPlanViewerProps {
@@ -39,6 +43,22 @@ interface SimplifiedFloorPlanViewerProps {
 const DEFAULT_RADIUS = 2.5;
 const MIN_RADIUS = 1;
 const MAX_RADIUS = 8;
+const DEFAULT_RECTANGLE_HALF_WIDTH = 3.5;
+const DEFAULT_RECTANGLE_HALF_HEIGHT = 1.6;
+
+function getMarkerLabel(shape: UnitShape): string {
+  const raw = String(shape.roomNumber ?? '').trim();
+  const match = raw.match(/^(.*?)(?:\s*\/\s*([A-Za-z]+))$/);
+  const roomNumber = match?.[1]?.trim() || raw;
+  const bedLetter = match?.[2]?.trim() || '';
+  const showRoomNumber = shape.showRoomNumber !== false;
+  const showBedLetter = shape.showBedLetter !== false;
+
+  if (showRoomNumber && showBedLetter) return bedLetter ? `${roomNumber}/${bedLetter}` : roomNumber;
+  if (showRoomNumber) return roomNumber;
+  if (showBedLetter) return bedLetter;
+  return '';
+}
 
 export default function SimplifiedFloorPlanViewer({ 
   campusMap, 
@@ -54,6 +74,9 @@ export default function SimplifiedFloorPlanViewer({
   const [isAddingMode, setIsAddingMode] = useState(false);
   const [showUnplacedUnits, setShowUnplacedUnits] = useState(false);
   const [lastClickPosition, setLastClickPosition] = useState<Point | null>(null);
+  const [placementShape, setPlacementShape] = useState<'circle' | 'rectangle'>('circle');
+  const [placementShowRoomNumber, setPlacementShowRoomNumber] = useState(true);
+  const [placementShowBedLetter, setPlacementShowBedLetter] = useState(true);
   
   const [dragState, setDragState] = useState<{
     type: 'move' | 'resize' | 'vertex' | null;
@@ -141,17 +164,31 @@ export default function SimplifiedFloorPlanViewer({
   const handlePlaceUnit = (unitId: string, x: number, y: number) => {
     const unit = units.find(u => u.id === unitId);
     if (!unit) return;
-    
+
+    const center = {
+      x: Math.max(5, Math.min(95, x)),
+      y: Math.max(5, Math.min(95, y)),
+    };
+    const rectanglePoints: Point[] = [
+      { x: center.x - DEFAULT_RECTANGLE_HALF_WIDTH, y: center.y - DEFAULT_RECTANGLE_HALF_HEIGHT },
+      { x: center.x + DEFAULT_RECTANGLE_HALF_WIDTH, y: center.y - DEFAULT_RECTANGLE_HALF_HEIGHT },
+      { x: center.x + DEFAULT_RECTANGLE_HALF_WIDTH, y: center.y + DEFAULT_RECTANGLE_HALF_HEIGHT },
+      { x: center.x - DEFAULT_RECTANGLE_HALF_WIDTH, y: center.y + DEFAULT_RECTANGLE_HALF_HEIGHT },
+    ];
+
     setUnitShapes(prev => ({
       ...prev,
       [unitId]: {
         id: unitId,
         roomNumber: unit.roomNumber,
-        type: 'circle',
-        center: { x: Math.max(5, Math.min(95, x)), y: Math.max(5, Math.min(95, y)) },
-        radius: DEFAULT_RADIUS,
+        type: placementShape === 'rectangle' ? 'polygon' : 'circle',
+        center,
+        radius: placementShape === 'circle' ? DEFAULT_RADIUS : undefined,
+        points: placementShape === 'rectangle' ? rectanglePoints : undefined,
         status: unit.occupiedYN ? 'occupied' : 'available',
-        serviceLine: unit.serviceLine
+        serviceLine: unit.serviceLine,
+        showRoomNumber: placementShowRoomNumber,
+        showBedLetter: placementShowBedLetter,
       }
     }));
     
@@ -551,7 +588,7 @@ export default function SimplifiedFloorPlanViewer({
               className="font-semibold text-gray-900 text-center leading-tight"
               style={{ fontSize: `${Math.max(8, Math.min(12, sizePx / 3))}px` }}
             >
-              {shape.roomNumber}
+              {getMarkerLabel(shape)}
             </span>
           </div>
 
@@ -649,7 +686,7 @@ export default function SimplifiedFloorPlanViewer({
             className="font-semibold fill-gray-900 pointer-events-none select-none"
             style={{ fontSize: '0.9px' }}
           >
-            {shape.roomNumber}
+            {getMarkerLabel(shape)}
           </text>
 
           {isEditMode && !isAddingMode && isSelected && shape.points.map((point, index) => (
@@ -963,7 +1000,59 @@ export default function SimplifiedFloorPlanViewer({
           <SheetHeader>
             <SheetTitle>Select Unit to Place</SheetTitle>
           </SheetHeader>
-          <ScrollArea className="h-[calc(100vh-100px)] mt-4">
+          <div className="mt-4 rounded-lg border bg-slate-50 p-3 space-y-4" data-testid="unit-placement-options">
+            <div>
+              <Label className="text-xs font-semibold text-slate-700">Marker shape</Label>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={placementShape === 'circle' ? 'default' : 'outline'}
+                  className="justify-center gap-2"
+                  onClick={() => setPlacementShape('circle')}
+                  data-testid="placement-shape-circle"
+                >
+                  <Circle className="h-4 w-4" />
+                  Circle
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={placementShape === 'rectangle' ? 'default' : 'outline'}
+                  className="justify-center gap-2"
+                  onClick={() => setPlacementShape('rectangle')}
+                  data-testid="placement-shape-rectangle"
+                >
+                  <RectangleHorizontal className="h-4 w-4" />
+                  Rectangle
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-4">
+                <Label htmlFor="show-room-number" className="text-sm cursor-pointer">Include room number</Label>
+                <Switch
+                  id="show-room-number"
+                  checked={placementShowRoomNumber}
+                  onCheckedChange={setPlacementShowRoomNumber}
+                  data-testid="placement-show-room-number"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <Label htmlFor="show-bed-letter" className="text-sm cursor-pointer">Include bed letter</Label>
+                <Switch
+                  id="show-bed-letter"
+                  checked={placementShowBedLetter}
+                  onCheckedChange={setPlacementShowBedLetter}
+                  data-testid="placement-show-bed-letter"
+                />
+              </div>
+              {!placementShowRoomNumber && !placementShowBedLetter && (
+                <p className="text-xs text-slate-500">The marker will be shown without text.</p>
+              )}
+            </div>
+          </div>
+          <ScrollArea className="h-[calc(100vh-315px)] mt-4">
             <div className="space-y-2 pr-4">
               {unplacedUnits.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center py-8">
