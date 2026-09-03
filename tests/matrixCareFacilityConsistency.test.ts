@@ -20,6 +20,9 @@
 import { transformToMatrixCareFormat } from '../server/matrixCareExport';
 import { resolveMatrixCareFacility } from '../server/services/matrixCareFacility';
 import type { FacilityLocation } from '../server/services/matrixCareFacility';
+import { campusMapping } from '../server/campusMapping';
+import path from 'node:path';
+import XLSX from 'xlsx';
 
 const PASS = '\x1b[32m✓\x1b[0m';
 const FAIL = '\x1b[31m✗\x1b[0m';
@@ -323,10 +326,56 @@ console.log('\n=== 6. HC/MC resolves under the HC facility record ===\n');
 }
 
 // ---------------------------------------------------------------------------
-// Test 7 — harmless punctuation/spacing differences still reach the static,
+// Test 7 — SL prefers its own identity, then uses the authoritative AL identity
+// when MatrixCare has no separate SL/IL facility record.
+// ---------------------------------------------------------------------------
+console.log('\n=== 7. SL uses an explicit identity or the combined AL facility ===\n');
+
+{
+  const explicitSl = resolveMatrixCareFacility(MAPPED_LOCATION as FacilityLocation, 'SL');
+  assert('SL prefers the explicit IL/SL FacilityName', explicitSl.name, MAPPED_LOCATION.matrixCareNameIL);
+  assert('SL prefers the explicit IL/SL customerId', explicitSl.customerId, MAPPED_LOCATION.customerFacilityIdIL);
+
+  const combinedSeniorLiving: FacilityLocation = {
+    name: 'Combined Senior Living',
+    matrixCareNameHC: null,
+    matrixCareNameAL: 'Combined Senior Living AL',
+    matrixCareNameIL: null,
+    customerFacilityIdHC: null,
+    customerFacilityIdAL: '14-0999-AL',
+    customerFacilityIdIL: null,
+  };
+  const combinedSl = resolveMatrixCareFacility(combinedSeniorLiving, 'SL');
+  assert('SL uses the complete AL FacilityName when no SL/IL identity exists', combinedSl.name, 'Combined Senior Living AL');
+  assert('SL uses the complete AL customerId when no SL/IL identity exists', combinedSl.customerId, '14-0999-AL');
+  assert('SL using a confirmed AL identity is reported as mapped', combinedSl.mapped, true);
+
+  const dualIdentitySl = resolveMatrixCareFacility({
+    name: 'Harrodsburg-2187',
+    matrixCareNameHC: 'The Willows at Harrodsburg HC',
+    matrixCareNameAL: 'The Willows at Harrodsburg AL',
+    matrixCareNameIL: 'The Willows at Harrodsburg Villas IL',
+    customerFacilityIdHC: '14-0187-HC',
+    customerFacilityIdAL: '14-0187-AL',
+    customerFacilityIdIL: '14-7187-IL',
+  }, 'SL');
+  assert(
+    'Authoritative SL FacilityName wins over a populated IL/Villas location field',
+    dualIdentitySl.name,
+    'The Willows at Harrodsburg SL',
+  );
+  assert(
+    'Authoritative SL customer id wins over a populated IL/Villas location field',
+    dualIdentitySl.customerId,
+    '14-0187-SL',
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Test 8 — harmless punctuation/spacing differences still reach the static,
 // authoritative campus mapping.
 // ---------------------------------------------------------------------------
-console.log('\n=== 7. KeyStats aliases resolve through normalized names ===\n');
+console.log('\n=== 8. KeyStats aliases resolve through normalized names ===\n');
 
 {
   const spacedAlias: FacilityLocation = {
@@ -342,6 +391,147 @@ console.log('\n=== 7. KeyStats aliases resolve through normalized names ===\n');
   assert('Spaced Batesville alias uses the authoritative MatrixCare name', result.name, 'St. Andrews Health Campus HC');
   assert('Spaced Batesville alias uses the authoritative customer facility id', result.customerId, '18-0120-HC');
   assert('Spaced Batesville alias is reported as mapped', result.mapped, true);
+
+  for (const alias of ['Mt Washington - 176', 'Mt Washington-176']) {
+    const location: FacilityLocation = {
+      name: alias,
+      matrixCareNameHC: null,
+      matrixCareNameAL: null,
+      matrixCareNameIL: null,
+      customerFacilityIdHC: null,
+      customerFacilityIdAL: null,
+      customerFacilityIdIL: null,
+    };
+    const hc = resolveMatrixCareFacility(location, 'HC');
+    const al = resolveMatrixCareFacility(location, 'AL');
+    assert(`${alias}: split alias resolves authoritative HC name`, hc.name, 'Sanders Ridge Health Campus HC');
+    assert(`${alias}: split alias resolves authoritative HC id`, hc.customerId, '14-0176-HC');
+    assert(`${alias}: split alias resolves authoritative AL name`, al.name, 'Sanders Ridge Health Campus AL');
+    assert(`${alias}: split alias resolves authoritative AL id`, al.customerId, '14-0176-AL');
+    assert(`${alias}: split HC/AL identities are both mapped`, hc.mapped && al.mapped, true);
+  }
+
+  const legacyMuncie: FacilityLocation = {
+    name: 'Muncie 18128',
+    matrixCareNameHC: null,
+    matrixCareNameAL: null,
+    matrixCareNameIL: null,
+    customerFacilityIdHC: null,
+    customerFacilityIdAL: null,
+    customerFacilityIdIL: null,
+  };
+  assert(
+    'Muncie Legacy alias inherits the campus HC identity',
+    resolveMatrixCareFacility(legacyMuncie, 'HC').customerId,
+    '18-0128-HC',
+  );
+  assert(
+    'Muncie Legacy alias keeps its own authoritative AL identity',
+    resolveMatrixCareFacility(legacyMuncie, 'AL').customerId,
+    '18-7128-AL',
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Test 9 — every complete row in the authoritative workbook resolves exactly.
+// ---------------------------------------------------------------------------
+console.log('\n=== 9. Authoritative workbook has complete exact resolver coverage ===\n');
+
+{
+  const workbookPath = path.resolve(
+    process.cwd(),
+    'attached_assets/0_Matrix_Location_vs_KeyStats_Location_1788464152590.xlsx',
+  );
+  const workbook = XLSX.readFile(workbookPath);
+  const sourceSheet = workbook.Sheets['Sheet1'];
+  const sourceRows = XLSX.utils.sheet_to_json<unknown[]>(sourceSheet, { header: 1, raw: true });
+  const mismatches: string[] = [];
+  let authoritativeRows = 0;
+
+  for (const row of sourceRows.slice(1)) {
+    const customerId = row[1] == null ? '' : String(row[1]).trim();
+    const keyStatsName = row[3] == null ? '' : String(row[3]).trim();
+    const facilityName = row[4] == null ? '' : String(row[4]).trim();
+    if (!customerId || !keyStatsName || !facilityName) continue;
+
+    const idServiceLine = customerId.match(/-(HC|AL|IL|SL)$/i)?.[1];
+    const nameServiceLine = facilityName.match(/ (HC|AL|IL|SL)$/i)?.[1];
+    const serviceLine = (idServiceLine || nameServiceLine || '').toUpperCase();
+    if (!serviceLine) {
+      mismatches.push(`${keyStatsName}: cannot classify ${facilityName} / ${customerId}`);
+      continue;
+    }
+
+    authoritativeRows++;
+    const resolved = resolveMatrixCareFacility({
+      name: keyStatsName,
+      matrixCareNameHC: null,
+      matrixCareNameAL: null,
+      matrixCareNameIL: null,
+      customerFacilityIdHC: null,
+      customerFacilityIdAL: null,
+      customerFacilityIdIL: null,
+    }, serviceLine);
+
+    if (!resolved.mapped || resolved.name !== facilityName || resolved.customerId !== customerId) {
+      mismatches.push(
+        `${keyStatsName}/${serviceLine}: expected ${facilityName} / ${customerId}, ` +
+        `got ${resolved.name} / ${resolved.customerId} (mapped=${resolved.mapped})`,
+      );
+    }
+  }
+
+  if (mismatches.length) {
+    console.log(mismatches.slice(0, 20).map(m => `    ${m}`).join('\n'));
+  }
+  assert('All complete workbook rows are exercised', authoritativeRows, 347);
+  assert('Every authoritative workbook row resolves to its exact facility identity', mismatches.length, 0);
+  assert('Workbook rows are consolidated by stable campus code', campusMapping.length, 160);
+
+  const incompleteCanonicalMappings: string[] = [];
+  const aliasOwnerCodes = new Map<string, Set<string>>();
+  for (const mapping of campusMapping) {
+    for (const campusName of [mapping.keyStatsName, ...(mapping.aliases ?? [])]) {
+      const normalized = campusName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const ownerCodes = aliasOwnerCodes.get(normalized) ?? new Set<string>();
+      ownerCodes.add(mapping.locationCode);
+      aliasOwnerCodes.set(normalized, ownerCodes);
+    }
+  }
+  for (const mapping of campusMapping) {
+    for (const serviceLine of ['HC', 'AL', 'IL', 'SL'] as const) {
+      const expectedName = mapping[`matrixCareName${serviceLine}`];
+      const expectedId = mapping[`customerFacilityId${serviceLine}`];
+      if (!expectedName || !expectedId) continue;
+
+      for (const campusName of [mapping.keyStatsName, ...(mapping.aliases ?? [])]) {
+        const normalizedCampusName = campusName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        if ((aliasOwnerCodes.get(normalizedCampusName)?.size ?? 0) > 1) {
+          // A corrected display name can be attached to more than one stable
+          // campus code in the source (Goshen MW - 124 is the known case).
+          // Exact source-row checks above remain authoritative for those rows.
+          continue;
+        }
+        const resolved = resolveMatrixCareFacility({
+          name: campusName,
+          matrixCareNameHC: null,
+          matrixCareNameAL: null,
+          matrixCareNameIL: null,
+          customerFacilityIdHC: null,
+          customerFacilityIdAL: null,
+          customerFacilityIdIL: null,
+        }, serviceLine);
+        if (!resolved.mapped) {
+          incompleteCanonicalMappings.push(`${campusName}/${serviceLine}`);
+        }
+      }
+    }
+  }
+  assert(
+    'Every linked campus alias resolves all inherited service-line identities without fallback',
+    incompleteCanonicalMappings.length,
+    0,
+  );
 }
 
 // ---------------------------------------------------------------------------

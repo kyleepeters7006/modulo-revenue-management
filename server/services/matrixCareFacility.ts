@@ -86,6 +86,7 @@ export function resolveMatrixCareFacility(
   location: FacilityLocation,
   serviceLine: string
 ): ResolvedFacility {
+  const normalizedServiceLine = (serviceLine || '').toUpperCase();
   const group = serviceLineToFacilityGroup(serviceLine);
   // Village units bill under the assisted-living facility record.
   const lookupGroup: 'HC' | 'AL' | 'IL' = group === 'VIL' ? 'AL' : group;
@@ -100,12 +101,48 @@ export function resolveMatrixCareFacility(
     name       = location.matrixCareNameAL     || getMatrixCareNameFromKeyStats(location.name, 'AL');
     customerId = location.customerFacilityIdAL || getCustomerFacilityId(location.name, 'AL');
   } else {
-    name       = location.matrixCareNameIL     || getMatrixCareNameFromKeyStats(location.name, 'IL');
-    customerId = location.customerFacilityIdIL || getCustomerFacilityId(location.name, 'IL');
+    const authoritativeSLName = normalizedServiceLine === 'SL'
+      ? getMatrixCareNameFromKeyStats(location.name, 'SL')
+      : undefined;
+    const authoritativeSLId = normalizedServiceLine === 'SL'
+      ? getCustomerFacilityId(location.name, 'SL')
+      : undefined;
+
+    // A few campuses have separate SL and IL/Villas MatrixCare facilities even
+    // though the locations table has only one shared IL slot. An exact SL pair
+    // from the authoritative source must therefore win over that shared slot.
+    if (authoritativeSLName && authoritativeSLId) {
+      name = authoritativeSLName;
+      customerId = authoritativeSLId;
+    } else {
+      name = location.matrixCareNameIL
+        || getMatrixCareNameFromKeyStats(location.name, 'IL');
+      customerId = location.customerFacilityIdIL
+        || getCustomerFacilityId(location.name, 'IL');
+    }
   }
 
   if (name && customerId) {
     return { name, customerId, mapped: true };
+  }
+
+  // Some combined senior-living campuses have SL rent-roll rows but only one
+  // authoritative MatrixCare facility record, stored as AL. Prefer an explicit
+  // SL/IL mapping when present; otherwise use the complete AL identity rather
+  // than inventing an IL facility that does not exist in the source mapping.
+  if (normalizedServiceLine === 'SL') {
+    const seniorLivingName =
+      location.matrixCareNameAL || getMatrixCareNameFromKeyStats(location.name, 'AL');
+    const seniorLivingCustomerId =
+      location.customerFacilityIdAL || getCustomerFacilityId(location.name, 'AL');
+
+    if (seniorLivingName && seniorLivingCustomerId) {
+      return {
+        name: seniorLivingName,
+        customerId: seniorLivingCustomerId,
+        mapped: true,
+      };
+    }
   }
 
   const locCode = location.name.replace(/[^A-Z0-9]/gi, '').substring(0, 6).toUpperCase();

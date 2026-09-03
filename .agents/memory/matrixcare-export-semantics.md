@@ -5,6 +5,18 @@ description: Field semantics of the MatrixCare Corporate Room Charges and Specia
 
 # MatrixCare export semantics
 
+## Authoritative facility coverage must survive database state
+
+A facility-mapping repair is not complete when only the current location rows are fixed.
+Keep an authoritative mapping source available to the resolver.
+
+**Why:** database-only repairs can disappear after resets, imports, or environment changes,
+and one shared database slot can represent campuses that actually have separate SL and IL
+facility identities.
+
+**How to apply:** an exact authoritative service-line identity outranks a shared database
+field; only fall back to a shared identity when no exact identity exists.
+
 ## Every exporter reads through one rate service
 
 Exports must be scoped to **one client** and **one upload month** (the newest), and must
@@ -51,6 +63,21 @@ still producing a file MatrixCare can reject.
 
 **How to apply:** location imports must persist all MatrixCare name/id columns from the
 published template and preserve existing values when an optional cell is blank.
+
+
+## Combined senior-living campuses may share the AL facility identity
+
+For an `SL` rent-roll row, prefer an explicit SL/IL MatrixCare identity. When the
+authoritative facility mapping has no separate SL/IL record but does contain a complete AL
+name and customer facility id, resolve the SL row to that confirmed AL identity.
+
+**Why:** some combined senior-living campuses have both AL and SL rows in the rent roll but
+only one MatrixCare facility record. Deriving a fake IL identity creates export warnings and
+an identifier MatrixCare does not recognize.
+
+**How to apply:** never overwrite an explicit SL/IL mapping with AL. Only use AL when both
+its authoritative name and customer facility id are present; otherwise keep the existing
+unmapped fallback and warning.
 
 ## Billing frequency must be classified in one place
 
