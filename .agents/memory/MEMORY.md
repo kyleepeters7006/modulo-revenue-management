@@ -29,7 +29,7 @@
 - [Rule save visibility](rule-save-visibility.md) — purgeRuleCaches must be awaited BEFORE res.json(); GET /api/adjustment-rules needs Cache-Control: no-store; frontend should optimistically prepend new rule to state.
 - [RT-specific comp benchmark](rt-specific-comp-benchmark.md) — benchmarkForRT() gives room-type-specific comp; SL-level blending distorts variance for mixed-price RTs; compVarMap now keyed campus||sl||rt with SL fallback.
 - [Comp benchmark client_id + AL/MC type](comp-benchmark-client-id.md) — survey rows were once all client_id=NULL; NULL-tolerant predicate still worth keeping; AL/MC mapping depends on what each client's import actually produced.
-- [DATABASE_URL vs NEON_DATABASE_URL](db-url-distinction.md) — server uses DATABASE_URL; NEON_DATABASE_URL is a different incomplete DB; always use DATABASE_URL for manual node queries.
+- [Dev vs production database URLs](db-url-distinction.md) — runtime DATABASE_URL is environment-scoped; the manual production-sync secret can become stale or point at a disabled endpoint.
 - [room_type_groupings branded names](rtg-branded-names.md) — group_name has branded values like "Legacy Lane - Studio"; breaks ILIKE 'studio%' filter; use rr.room_type directly in competitive-position endpoint.
 - [`dark:` variants always on](dark-variant-always-on.md) — App.tsx wraps everything in `.dark`; literal dark palette colours paint a translucent wash. Sticky cells must be opaque in every branch.
 - [Tooltips in scrollable dialogs](dialog-tooltip-portal.md) — portal to body + viewport-clamp, never flip above/below; two identically-titled bubble maps exist, fix both.

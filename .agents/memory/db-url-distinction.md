@@ -1,6 +1,6 @@
 ---
-name: DATABASE_URL vs NEON_DATABASE_URL
-description: The server uses DATABASE_URL; NEON_DATABASE_URL is a different, incomplete database — never use it for manual testing.
+name: Development vs production database URLs
+description: Replit injects environment-specific DATABASE_URL values; manually stored production connection strings can become stale or disabled.
 ---
 
 ## Rule
@@ -13,3 +13,9 @@ Always use `DATABASE_URL` (not `NEON_DATABASE_URL`) when running manual node.js 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 ```
 Never `process.env.NEON_DATABASE_URL` for server-behavior verification.
+
+Replit gives the editor and published app separate managed databases; each runtime receives its own environment-scoped `DATABASE_URL`. The editor cannot infer the published database URL from its own `DATABASE_URL`.
+
+**Why:** The admin data-sync feature relies on a separately copied production connection string. That URL once remained present while its Neon endpoint had been disabled, so the first production command failed before any data was changed.
+
+**How to apply:** Any development-to-production sync must preflight the production connection with a read-only query before truncating, stop on every `psql`/pipeline error, and give an actionable stale-endpoint message. Refresh the sync secret from Database → Production → Settings; never substitute the editor's `DATABASE_URL`.

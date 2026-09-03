@@ -38,6 +38,12 @@ interface PortfolioLocation {
       avgStreetRate: number | null;
       careLevel2: number | null;
       careLevel2Inherited?: boolean;
+       topCompName?: string | null;
+       topCompBaseRate?: number | null;
+       topCompAdjustment?: number | null;
+       topCompAdjustedRate?: number | null;
+       topCompVariance?: number | null;
+       topCompVariancePct?: number | null;
     }>;
   };
 }
@@ -274,6 +280,14 @@ export function CompetitorMap({
         const slLabel = (sl: string) => (sl === 'VIL' ? 'Patio Homes' : sl);
         const fmtRate = (v: number | null | undefined, sl: string) =>
           v == null ? '—' : `$${Math.round(v).toLocaleString()}${isDailySl(sl) ? '/day' : '/mo'}`;
+        const fmtSignedRate = (v: number | null | undefined, sl: string) => {
+          if (v == null) return '—';
+          const rounded = Math.round(v);
+          if (rounded === 0) return '$0';
+          return `${rounded > 0 ? '+' : '−'}$${Math.abs(rounded).toLocaleString()}${isDailySl(sl) ? '/day' : '/mo'}`;
+        };
+        const varianceColor = (v: number | null | undefined) =>
+          v == null ? '#94a3b8' : v > 0 ? '#059669' : v < 0 ? '#dc2626' : '#64748b';
 
         // Tracked competitors near this campus, using the same 30-mile rule that
         // decides which competitor pins get drawn, so the count matches the map.
@@ -291,7 +305,7 @@ export function CompetitorMap({
         const subtitleParts = [currentLocation.region, currentLocation.division].filter(Boolean);
 
         currentMarker.bindPopup(`
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: ${stats ? '330px' : '280px'}; max-width: ${stats ? '380px' : '340px'}; padding: 0; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.08);">
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: ${stats ? '560px' : '280px'}; max-width: ${stats ? '600px' : '340px'}; padding: 0; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.08);">
           <!-- Header with gradient background -->
           <div style="background: linear-gradient(135deg, #0071e3 0%, #005bb5 100%); color: white; padding: ${stats ? '13px 16px' : '20px'}; position: relative;">
             <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: ${stats ? '5px' : '8px'};">
@@ -320,28 +334,39 @@ export function CompetitorMap({
               </div>
             </div>
             ${slRows.length ? `
-            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+            <div style="overflow-x: auto;">
+            <table style="width: 100%; min-width: 540px; border-collapse: collapse; font-size: 10px;">
               <thead>
                 <tr>
                   <th style="text-align: left; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Service Line</th>
-                  <th style="text-align: right; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Units</th>
-                  <th style="text-align: right; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Street</th>
-                  <th style="text-align: right; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Care L2</th>
+                  <th style="text-align: right; padding: 0 0 5px 5px; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Units</th>
+                  <th style="text-align: right; padding: 0 0 5px 5px; font-size: 9px; color: #2563eb; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; border-bottom: 1px solid #e2e8f0;">Our Rate</th>
+                  <th style="text-align: right; padding: 0 0 5px 5px; font-size: 9px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Top Base</th>
+                  <th style="text-align: right; padding: 0 0 5px 5px; font-size: 9px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Top Adj</th>
+                  <th style="text-align: right; padding: 0 0 5px 5px; font-size: 9px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Top Rate</th>
+                  <th style="text-align: right; padding: 0 0 5px 5px; font-size: 9px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Var to Us</th>
                 </tr>
               </thead>
               <tbody>
                 ${slRows.map((s: any) => `
                 <tr>
-                  <td style="text-align: left; padding: 4px 0; color: #1e293b; font-weight: 500; border-bottom: 1px solid #f1f5f9;">${esc(slLabel(s.serviceLine))}</td>
-                  <td style="text-align: right; padding: 4px 0; color: #475569; border-bottom: 1px solid #f1f5f9;">${Number(s.units) || 0}</td>
-                  <td style="text-align: right; padding: 4px 0; color: #1e293b; font-weight: 600; border-bottom: 1px solid #f1f5f9;">${fmtRate(s.avgStreetRate, s.serviceLine)}</td>
-                  <td style="text-align: right; padding: 4px 0; color: #475569; border-bottom: 1px solid #f1f5f9;">${fmtRate(s.careLevel2, s.serviceLine)}</td>
+                  <td style="text-align: left; padding: 5px 0; color: #1e293b; font-weight: 600; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">
+                    ${esc(slLabel(s.serviceLine))}
+                    ${s.topCompName ? `<span style="display:block; max-width:100px; overflow:hidden; text-overflow:ellipsis; color:#94a3b8; font-size:8px; font-weight:400;" title="${esc(s.topCompName)}">${esc(s.topCompName)}</span>` : ''}
+                  </td>
+                  <td style="text-align: right; padding: 5px 0 5px 5px; color: #475569; border-bottom: 1px solid #f1f5f9;">${Number(s.units) || 0}</td>
+                  <td style="text-align: right; padding: 5px 0 5px 5px; color: #1d4ed8; font-weight: 700; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtRate(s.avgStreetRate, s.serviceLine)}</td>
+                  <td style="text-align: right; padding: 5px 0 5px 5px; color: #475569; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtRate(s.topCompBaseRate, s.serviceLine)}</td>
+                  <td style="text-align: right; padding: 5px 0 5px 5px; color: #475569; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtSignedRate(s.topCompAdjustment, s.serviceLine)}</td>
+                  <td style="text-align: right; padding: 5px 0 5px 5px; color: #1e293b; font-weight: 700; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtRate(s.topCompAdjustedRate, s.serviceLine)}</td>
+                  <td style="text-align: right; padding: 5px 0 5px 5px; color: ${varianceColor(s.topCompVariance)}; font-weight: 700; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtSignedRate(s.topCompVariance, s.serviceLine)}</td>
                 </tr>`).join('')}
               </tbody>
             </table>
+            </div>
             <p style="margin: 6px 0 8px 0; font-size: 9px; color: #94a3b8; line-height: 1.4;">
               ${stats.occupancySource === 'history' ? 'Occupancy from history' : stats.occupancySource === 'rentroll' ? 'Occupancy from rent roll' : ''}
-              ${stats.occupancySource ? ' · ' : ''}Street rates: service-line avg across all room types · Rates exclude companion (B) beds
+              ${stats.occupancySource ? ' · ' : ''}Top comp selected by configured weight · Our Rate uses Studio where available (all-room fallback for Patio Homes / no Studio) · Top Rate = Base + Adj · Var to Us = Top Rate − Our Rate
             </p>
             ` : `<p style="margin: 0 0 12px 0; font-size: 11px; color: #94a3b8;">No rent roll data for this campus in the latest month.</p>`}
           </div>
@@ -352,7 +377,7 @@ export function CompetitorMap({
         // can produce a popup taller than the viewport. maxHeight makes Leaflet
         // scroll the content instead of letting it clip off the bottom.
         maxHeight: 340,
-        maxWidth: 380,
+        maxWidth: 600,
       });
       } // End of if block for currentLocation check
 
@@ -651,6 +676,11 @@ export function CompetitorMap({
 
       validPortfolioLocations.forEach((loc) => {
         if (!mounted) return;
+        // validPortfolioLocations is filtered above, but Number.isFinite does
+        // not narrow nullable fields for TypeScript. Capture concrete numbers
+        // once so every downstream distance calculation uses the same values.
+        const locLat = Number(loc.lat);
+        const locLng = Number(loc.lng);
         const bluePinIcon = window.L.divIcon({
           className: '',
           html: `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
@@ -670,23 +700,31 @@ export function CompetitorMap({
         const slLabel = (sl: string) => (sl === 'VIL' ? 'Patio Homes' : sl);
         const fmtRate = (v: number | null | undefined, sl: string) =>
           v == null ? '—' : `$${Math.round(v).toLocaleString()}${isDailySl(sl) ? '/day' : '/mo'}`;
+        const fmtSignedRate = (v: number | null | undefined, sl: string) => {
+          if (v == null) return '—';
+          const rounded = Math.round(v);
+          if (rounded === 0) return '$0';
+          return `${rounded > 0 ? '+' : '−'}$${Math.abs(rounded).toLocaleString()}${isDailySl(sl) ? '/day' : '/mo'}`;
+        };
+        const topVarianceColor = (v: number | null | undefined) =>
+          v == null ? '#94a3b8' : v > 0 ? '#059669' : v < 0 ? '#dc2626' : '#64748b';
         const nearbyComps = (competitorData.items || []).filter((c: any) =>
           Number.isFinite(c.lat) && Number.isFinite(c.lng) &&
-          haversineDistance(loc.lat, loc.lng, c.lat, c.lng) <= 30
+          haversineDistance(locLat, locLng, c.lat, c.lng) <= 30
         );
         const nearestMi: number | null = nearbyComps.reduce((min: number | null, c: any) => {
           const d = Number.isFinite(c.distanceMiles)
             ? Number(c.distanceMiles)
-            : haversineDistance(loc.lat, loc.lng, c.lat, c.lng);
+            : haversineDistance(locLat, locLng, c.lat, c.lng);
           return min == null || d < min ? d : min;
         }, null as number | null);
         const subtitleParts = [loc.region, loc.division].filter(Boolean);
 
-        const portfolioMarker = window.L.marker([loc.lat, loc.lng], { icon: bluePinIcon })
+        const portfolioMarker = window.L.marker([locLat, locLng], { icon: bluePinIcon })
           .addTo(mapInstanceRef.current);
 
         portfolioMarker.bindPopup(`
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: ${stats ? '330px' : '220px'}; max-width: ${stats ? '380px' : '280px'}; padding: 0; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.10);">
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: ${stats ? '560px' : '220px'}; max-width: ${stats ? '600px' : '280px'}; padding: 0; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.10);">
             <div style="background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%); color: white; padding: ${stats ? '13px 16px' : '16px'};">
               <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: ${stats ? '5px' : '6px'};">
                 <h3 style="margin: 0; font-size: ${stats ? '15px' : '15px'}; font-weight: 600; letter-spacing: -0.3px; line-height: 1.3;">${esc(loc.name)}</h3>
@@ -713,34 +751,48 @@ export function CompetitorMap({
                 </div>
               </div>
               ${slRows.length ? `
-              <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+              <div style="overflow-x: auto;">
+              <table style="width: 100%; min-width: 540px; border-collapse: collapse; font-size: 10px;">
                 <thead>
                   <tr>
                     <th style="text-align: left; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Service Line</th>
-                    <th style="text-align: right; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Units</th>
-                    <th style="text-align: right; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Street</th>
-                    <th style="text-align: right; padding: 0 0 5px 0; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Care L2</th>
+                    <th style="text-align: right; padding: 0 0 5px 5px; font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Units</th>
+                    <th style="text-align: right; padding: 0 0 5px 5px; font-size: 9px; color: #2563eb; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; border-bottom: 1px solid #e2e8f0;">Our Rate</th>
+                    <th style="text-align: right; padding: 0 0 5px 5px; font-size: 9px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Top Base</th>
+                    <th style="text-align: right; padding: 0 0 5px 5px; font-size: 9px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Top Adj</th>
+                    <th style="text-align: right; padding: 0 0 5px 5px; font-size: 9px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Top Rate</th>
+                    <th style="text-align: right; padding: 0 0 5px 5px; font-size: 9px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; border-bottom: 1px solid #e2e8f0;">Var to Us</th>
                   </tr>
                 </thead>
                 <tbody>
                   ${slRows.map((s: any) => `
                   <tr>
-                    <td style="text-align: left; padding: 4px 0; color: #1e293b; font-weight: 500; border-bottom: 1px solid #f1f5f9;">${esc(slLabel(s.serviceLine))}</td>
-                    <td style="text-align: right; padding: 4px 0; color: #475569; border-bottom: 1px solid #f1f5f9;">${Number(s.units) || 0}</td>
-                    <td style="text-align: right; padding: 4px 0; color: #1e293b; font-weight: 600; border-bottom: 1px solid #f1f5f9;">${fmtRate(s.avgStreetRate, s.serviceLine)}</td>
-                    <td style="text-align: right; padding: 4px 0; color: #475569; border-bottom: 1px solid #f1f5f9;">${fmtRate(s.careLevel2, s.serviceLine)}</td>
+                    <td style="text-align: left; padding: 5px 0; color: #1e293b; font-weight: 600; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">
+                      ${esc(slLabel(s.serviceLine))}
+                      ${s.topCompName ? `<span style="display:block; max-width:100px; overflow:hidden; text-overflow:ellipsis; color:#94a3b8; font-size:8px; font-weight:400;" title="${esc(s.topCompName)}">${esc(s.topCompName)}</span>` : ''}
+                    </td>
+                    <td style="text-align: right; padding: 5px 0 5px 5px; color: #475569; border-bottom: 1px solid #f1f5f9;">${Number(s.units) || 0}</td>
+                    <td style="text-align: right; padding: 5px 0 5px 5px; color: #1d4ed8; font-weight: 700; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtRate(s.avgStreetRate, s.serviceLine)}</td>
+                    <td style="text-align: right; padding: 5px 0 5px 5px; color: #475569; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtRate(s.topCompBaseRate, s.serviceLine)}</td>
+                    <td style="text-align: right; padding: 5px 0 5px 5px; color: #475569; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtSignedRate(s.topCompAdjustment, s.serviceLine)}</td>
+                    <td style="text-align: right; padding: 5px 0 5px 5px; color: #1e293b; font-weight: 700; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtRate(s.topCompAdjustedRate, s.serviceLine)}</td>
+                    <td style="text-align: right; padding: 5px 0 5px 5px; color: ${topVarianceColor(s.topCompVariance)}; font-weight: 700; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${fmtSignedRate(s.topCompVariance, s.serviceLine)}</td>
                   </tr>`).join('')}
                 </tbody>
               </table>
+              </div>
               <p style="margin: 6px 0 8px 0; font-size: 9px; color: #94a3b8; line-height: 1.4;">
                 ${stats.occupancySource === 'history' ? 'Occupancy from history' : stats.occupancySource === 'rentroll' ? 'Occupancy from rent roll' : ''}
-                ${stats.occupancySource ? ' · ' : ''}Street rates: service-line avg across all room types · Rates exclude companion (B) beds
+                ${stats.occupancySource ? ' · ' : ''}Top comp selected by configured weight · Our Rate uses Studio where available (all-room fallback for Patio Homes / no Studio) · Top Rate = Base + Adj · Var to Us = Top Rate − Our Rate
               </p>
               ` : `<p style="margin: 0 0 12px 0; font-size: 11px; color: #94a3b8;">No rent roll data for this campus in the latest month.</p>`}
             </div>
             ` : ''}
           </div>
-        `);
+        `, {
+          maxWidth: stats ? 600 : 280,
+          maxHeight: 340,
+        });
       });
 
       console.log(`Added ${validCompItems.length + (currentLocation ? 1 : 0)} markers to map` + (isAllLocations ? ` + ${validPortfolioLocations.length} portfolio pins` : ''));

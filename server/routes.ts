@@ -1555,17 +1555,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const env = { ...process.env, DEV_URL: devUrl, PROD_URL: prodUrl };
 
+      // Preflight the target before any destructive operation. A stale Neon
+      // endpoint can be disabled while its URL remains in the workspace secret;
+      // fail clearly here instead of making the first visible operation a
+      // TRUNCATE.
+      console.log(`[sync-to-production] Checking production database connectivity…`);
+      await execAsync(`psql "$PROD_URL" -v ON_ERROR_STOP=1 -t -c "SELECT 1;"`, {
+        env,
+        shell: '/bin/bash',
+        timeout: 30_000,
+      });
+
       // Step 1: Truncate all sync tables on prod (CASCADE clears derived/computed dependents)
       const truncateSQL = `TRUNCATE ${SYNC_TABLES.join(', ')} CASCADE;`;
       console.log(`[sync-to-production] Truncating tables in prod…`);
-      await execAsync(`psql "$PROD_URL" -c "${truncateSQL}"`, { env, shell: '/bin/bash' });
+      await execAsync(`psql "$PROD_URL" -v ON_ERROR_STOP=1 -c "${truncateSQL}"`, {
+        env,
+        shell: '/bin/bash',
+        timeout: 120_000,
+      });
 
       // Step 2: Dump data from dev and stream into prod.
       //         pg_dump with multiple -t flags emits tables in FK-dependency order.
       const tableFlags = SYNC_TABLES.map(t => `-t ${t}`).join(' ');
       console.log(`[sync-to-production] Copying data from dev to prod…`);
       const { stderr } = await execAsync(
-        `pg_dump --data-only --no-acl --no-owner ${tableFlags} "$DEV_URL" | psql "$PROD_URL"`,
+        `set -o pipefail; pg_dump --data-only --no-acl --no-owner ${tableFlags} "$DEV_URL" | psql "$PROD_URL" -v ON_ERROR_STOP=1`,
         { env, shell: '/bin/bash', maxBuffer: 1024 * 1024 * 1024, timeout: 600_000 }
       );
       if (stderr && !stderr.includes('COPY') && !stderr.includes('SET')) {
@@ -1592,7 +1607,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ success: true, tables: rowCounts, durationSeconds, totalRows });
     } catch (e: any) {
-      console.error('[sync-to-production] error:', e);
+      const errorText = [e?.message, e?.stderr, e?.stdout].filter(Boolean).join('\n');
+      if (/endpoint has been disabled/i.test(errorText)) {
+        console.error('[sync-to-production] production endpoint is disabled; no sync data was copied');
+        return res.status(503).json({
+          code: 'PRODUCTION_DATABASE_DISABLED',
+          error: 'The configured production database endpoint is disabled. In Replit, open Database → Production → Settings, copy the current connection string into the NEON_DATABASE_URL secret, restart this workflow, and retry. No production data was changed.',
+        });
+      }
+      console.error('[sync-to-production] error:', errorText.slice(0, 2000));
       res.status(500).json({ error: e.message || 'Sync failed' });
     }
   });
@@ -5633,7 +5656,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // only matters when attributing a combined row to an individual service line.
       if (currentLocation) {
         try {
-          const [slRes, rtoRes, careRes] = await Promise.all([
+          const [slRes, rtoRes, careRes, topCompBenchmark] = await Promise.all([
             pool.query(`
               SELECT rr.service_line,
                 COUNT(*) FILTER (WHERE ${slWeightSqlPredicate('rr.')}) AS units,
@@ -5641,7 +5664,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 ROUND(AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0
                   AND ${streetRateGate('rr.')}
                   AND ${bBedExclusionSql('rr.')}
-                )) AS avg_street_rate
+                )) AS avg_street_rate,
+                ROUND(AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0
+                  AND rr.room_type ILIKE 'studio%'
+                  AND ${streetRateGate('rr.')}
+                  AND ${bBedExclusionSql('rr.')}
+                )) AS avg_studio_rate
               FROM rent_roll_data rr
               ${buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1', monthSql: '(SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)' })}
               WHERE rr.client_id = $1
@@ -5664,6 +5692,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               FROM care_level_rates
               WHERE client_id = $1 AND location_id = $2
             `, [clientId, currentLocation.id]),
+            loadStudioCompBenchmark(pool, clientId),
           ]);
 
           const careBySl = new Map<string, number>();
@@ -5675,13 +5704,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const serviceLines = slRes.rows.map((r: any) => {
             const sl = String(r.service_line);
             const resolvedCare = resolveCareLevel2(careBySl, sl);
+            const allRoomRate = r.avg_street_rate != null ? Number(r.avg_street_rate) : 0;
+            const studioRate = r.avg_studio_rate != null ? Number(r.avg_studio_rate) : 0;
+            const comparisonRate = pickComparisonRate(sl, studioRate, allRoomRate);
+            const ourStreetRate = comparisonRate > 0 ? comparisonRate : null;
+            const topComp = topCompBenchmark.benchmarkFor(currentLocation.name, sl);
+            const topCompVariance = topComp && ourStreetRate != null
+              ? topComp.topAdjusted - ourStreetRate
+              : null;
             return {
               serviceLine: sl,
               units: Number(r.units) || 0,
               occupied: Number(r.occupied) || 0,
-              avgStreetRate: r.avg_street_rate != null ? Number(r.avg_street_rate) : null,
+              avgStreetRate: ourStreetRate,
               careLevel2: resolvedCare ? resolvedCare.rate : null,
               careLevel2Inherited: resolvedCare ? resolvedCare.inherited : false,
+              topCompName: topComp?.topName ?? null,
+              topCompBaseRate: topComp?.topBase ?? null,
+              topCompAdjustment: topComp?.topCareAdj ?? null,
+              topCompAdjustedRate: topComp?.topAdjusted ?? null,
+              topCompVariance,
+              topCompVariancePct: topCompVariance != null && ourStreetRate
+                ? (topCompVariance / ourStreetRate) * 100
+                : null,
             };
           }).filter((s: any) => s.units > 0);
 
@@ -6018,7 +6063,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const clientId = req.clientId || 'demo';
       const includeStats = String(req.query.includeStats || '') === 'true';
-      const cacheKey = `locations:${clientId}:stats=${includeStats ? '1' : '0'}`;
+      const cacheKey = `locations:${clientId}:stats=${includeStats ? 'top-comp-v1' : '0'}`;
       const cached = getCachedAnalytics(cacheKey);
       if (cached) return res.json(cached);
 
@@ -6041,8 +6086,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       
       // Extract unique regions and divisions — all sorted alphabetically
-      const regions = [...new Set(filteredLocations.map(loc => loc.region).filter(Boolean))].sort((a, b) => (a as string).localeCompare(b as string));
-      const divisions = [...new Set(filteredLocations.map(loc => loc.division).filter(Boolean))].sort((a, b) => (a as string).localeCompare(b as string));
+      const regions = Array.from(new Set(
+        filteredLocations.map(loc => loc.region).filter((value): value is string => Boolean(value)),
+      )).sort((a, b) => a.localeCompare(b));
+      const divisions = Array.from(new Set(
+        filteredLocations.map(loc => loc.division).filter((value): value is string => Boolean(value)),
+      )).sort((a, b) => a.localeCompare(b));
       const sortedLocations = [...filteredLocations].sort((a, b) => a.name.localeCompare(b.name));
 
       // The all-locations competitor map uses this endpoint for its portfolio
@@ -6054,7 +6103,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const locationIds = sortedLocations.map((loc: any) => loc.id);
         const locationNames = sortedLocations.map((loc: any) => loc.name);
         const latestMonthSql = `(SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1)`;
-        const [slRes, rtoRes, careRes] = await Promise.all([
+        const [slRes, rtoRes, careRes, topCompBenchmark] = await Promise.all([
           pool.query(`
             SELECT rr.location_id, rr.location, rr.service_line,
               COUNT(*) FILTER (WHERE ${slWeightSqlPredicate('rr.')}) AS units,
@@ -6062,7 +6111,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
               ROUND(AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0
                 AND ${streetRateGate('rr.')}
                 AND ${bBedExclusionSql('rr.')}
-              )) AS avg_street_rate
+              )) AS avg_street_rate,
+              ROUND(AVG(rr.street_rate) FILTER (WHERE rr.street_rate > 0
+                AND rr.room_type ILIKE 'studio%'
+                AND ${streetRateGate('rr.')}
+                AND ${bBedExclusionSql('rr.')}
+              )) AS avg_studio_rate
             FROM rent_roll_data rr
             ${buildRateBaselineJoin({ rr: 'rr.', clientSql: '$1', monthSql: latestMonthSql })}
             WHERE rr.client_id = $1
@@ -6089,6 +6143,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             FROM care_level_rates
             WHERE client_id = $1 AND location_id::text = ANY($2::text[])
           `, [clientId, locationIds]),
+          loadStudioCompBenchmark(pool, clientId),
         ]);
 
         const byLocation = new Map<string, any>();
@@ -6109,11 +6164,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         for (const row of slRes.rows) {
           const stats = getLocationStats(row.location_id, row.location);
           const sl = String(row.service_line);
+          const allRoomRate = row.avg_street_rate != null ? Number(row.avg_street_rate) : 0;
+          const studioRate = row.avg_studio_rate != null ? Number(row.avg_studio_rate) : 0;
+          const comparisonRate = pickComparisonRate(sl, studioRate, allRoomRate);
           stats._bySl.set(sl, {
             serviceLine: sl,
             units: Number(row.units) || 0,
             occupied: Number(row.occupied) || 0,
-            avgStreetRate: row.avg_street_rate != null ? Number(row.avg_street_rate) : null,
+            avgStreetRate: comparisonRate > 0 ? comparisonRate : null,
             careLevel2: null,
             careLevel2Inherited: false,
           });
@@ -6146,10 +6204,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           stats.serviceLines = Array.from(stats._bySl.values())
             .map((sl: any) => {
               const inherited = resolveCareLevel2(careBySl, sl.serviceLine);
+              const topComp = topCompBenchmark.benchmarkFor(loc.name, sl.serviceLine);
+              const topCompVariance = topComp && sl.avgStreetRate != null
+                ? topComp.topAdjusted - sl.avgStreetRate
+                : null;
               return {
                 ...sl,
                 careLevel2: inherited ? inherited.rate : null,
                 careLevel2Inherited: inherited ? inherited.inherited : false,
+                topCompName: topComp?.topName ?? null,
+                topCompBaseRate: topComp?.topBase ?? null,
+                topCompAdjustment: topComp?.topCareAdj ?? null,
+                topCompAdjustedRate: topComp?.topAdjusted ?? null,
+                topCompVariance,
+                topCompVariancePct: topCompVariance != null && sl.avgStreetRate
+                  ? (topCompVariance / sl.avgStreetRate) * 100
+                  : null,
               };
             })
             .filter((sl: any) => sl.units > 0);
