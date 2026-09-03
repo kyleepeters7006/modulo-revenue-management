@@ -934,7 +934,7 @@ export default function RateCardTable({
                       </TableHead>
                     )}
 
-                    <TableHead>Applied Rules</TableHead>
+                    {!showNewRateOnly && <TableHead>Applied Rules</TableHead>}
 
                     {/* Rules Rate — sort + range filter */}
                     <TableHead
@@ -943,7 +943,7 @@ export default function RateCardTable({
                       data-testid="sort-modulo"
                     >
                       <div className="flex items-center gap-0.5">
-                        Rules Rate
+                        {showNewRateOnly ? 'Rate' : 'Rules Rate'}
                         <SortIcon column="modulo" />
                         <Popover>
                           <PopoverTrigger asChild>
@@ -952,7 +952,9 @@ export default function RateCardTable({
                             </button>
                           </PopoverTrigger>
                           <PopoverContent className="w-44 p-3" align="start" onClick={e => e.stopPropagation()}>
-                            <p className="text-xs font-semibold mb-2 text-slate-600">Filter Rules Rate</p>
+                            <p className="text-xs font-semibold mb-2 text-slate-600">
+                              Filter {showNewRateOnly ? 'Rate' : 'Rules Rate'}
+                            </p>
                             <div className="space-y-1.5">
                               <Input placeholder="Min ($)" type="number" value={columnFilters.rulesRateMin} onChange={e => { setColumnFilters(p => ({ ...p, rulesRateMin: e.target.value })); setCurrentPage(1); }} className="h-7 text-sm" />
                               <Input placeholder="Max ($)" type="number" value={columnFilters.rulesRateMax} onChange={e => { setColumnFilters(p => ({ ...p, rulesRateMax: e.target.value })); setCurrentPage(1); }} className="h-7 text-sm" />
@@ -1040,15 +1042,17 @@ export default function RateCardTable({
                       {!showNewRateOnly && (
                         <TableCell>{formatRateByServiceLine(Math.round(unit.streetRate || 0), unit.serviceLine)}</TableCell>
                       )}
-                      <TableCell>
-                        {unit.appliedRuleName ? (
-                          <Badge variant="default" className="text-xs bg-green-600">
-                            {unit.appliedRuleName}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">-</span>
-                        )}
-                      </TableCell>
+                      {!showNewRateOnly && (
+                        <TableCell>
+                          {unit.appliedRuleName ? (
+                            <Badge variant="default" className="text-xs bg-green-600">
+                              {unit.appliedRuleName}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">-</span>
+                          )}
+                        </TableCell>
+                      )}
                       <TableCell>
                         <div className="flex items-center gap-1 group">
                         {(unit.ruleAdjustedRate || unit.manualOverrideRate || (showNewRateOnly && unit.streetRate)) ? (
