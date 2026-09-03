@@ -670,11 +670,12 @@ async function checkScope(scope: { clientId: string; serviceLine: string; label:
     );
   }
 
-  // Changing lambda must actually move the sheet — proof the chain is live and
-  // not a set of pasted constants that merely look like formulas.
+  // Lowering lambda must actually move the sheet — proof the chain is live and
+  // not a set of pasted constants that merely look like formulas. Increasing
+  // it is not a valid probe when every movable resident already sits at max.
   const bumped = new ExcelJS.Workbook();
   await bumped.xlsx.load(buffer as any);
-  bumped.getWorksheet("Plan summary")!.getCell(`B${lambdaRow}`).value = audit.lambda + 0.01;
+  bumped.getWorksheet("Plan summary")!.getCell(`B${lambdaRow}`).value = audit.lambda * 0.5;
   const ev2 = new Evaluator(bumped);
   const before = num(ev.cell("Resident detail", `${cIncrease}${firstDataRow}`));
   const after = num(ev2.cell("Resident detail", `${cIncrease}${firstDataRow}`));
@@ -688,7 +689,7 @@ async function checkScope(scope: { clientId: string; serviceLine: string; label:
     );
   });
   ok(
-    "changing lambda recalculates the sheet (formulas are live, not pasted values)",
+    "lowering lambda recalculates the sheet (formulas are live, not pasted values)",
     anyMoved,
     `first resident ${before} -> ${after}`,
   );

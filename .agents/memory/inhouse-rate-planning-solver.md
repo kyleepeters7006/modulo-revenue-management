@@ -20,6 +20,20 @@ current Street Rate, and historical realized rates. Match historical rows to the
 current base cohort and normalize each month to today's mix before calculating
 quarterly YoY growth.
 
+## The configured increase is a range ceiling, not a flat increase
+
+Resident increases vary within the configured minimum-to-maximum range based on
+each resident's variance to Street Rate. The maximum (for example, 9%) is an
+individual ceiling, not a percentage applied uniformly to every resident.
+
+**Why:** the product owner explicitly rejected applying the maximum to every
+in-house resident. Residents farther below Street Rate should receive larger
+increases, while residents near Street Rate receive less and may be capped by it.
+
+**How to apply:** preserve the equalization curve and per-resident Street Rate
+headroom. Do not reinterpret the maximum as a guaranteed portfolio average or
+as a flat increase.
+
 ## Solve against the target exactly; apply the reporting tolerance only afterwards
 
 A bisection that searches for "the smallest increase that clears the target" must
