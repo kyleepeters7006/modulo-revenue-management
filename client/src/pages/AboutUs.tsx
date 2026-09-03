@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import {
   Linkedin, FileText, ArrowLeft, BookOpen, ChevronRight,
   Sparkles, Brain, TrendingUp, Target, Activity, Wand2,
-  SlidersHorizontal, BarChart3, Zap,
+  SlidersHorizontal, BarChart3, Zap, CheckCircle2, ArrowRight,
+  Database, Calculator, ShieldCheck,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -11,8 +12,8 @@ export default function AboutUs() {
   const [, setLocation] = useLocation();
 
   return (
-    <div className="min-h-screen bg-[var(--dashboard-bg)] p-8">
-      <div className="max-w-5xl mx-auto">
+    <div className="min-h-screen bg-[var(--dashboard-bg)] p-4 sm:p-6 md:p-8">
+      <div className="max-w-6xl mx-auto">
 
         {/* Back */}
         <div className="mb-8">
@@ -28,23 +29,73 @@ export default function AboutUs() {
         </div>
 
         {/* Hero */}
-        <div className="text-center mb-14">
-          <div className="flex justify-center mb-6">
-            {/* Keep this lockup in sync with the dashboard header (overview.tsx):
-                same asset, square, rounded-3xl. */}
+        <div className="relative overflow-hidden rounded-3xl border border-[var(--trilogy-teal)]/20 bg-gradient-to-br from-white via-white to-[var(--trilogy-teal)]/10 shadow-sm mb-10">
+          <div className="absolute -right-24 -top-28 h-72 w-72 rounded-full bg-[var(--trilogy-teal)]/10 blur-3xl" aria-hidden="true" />
+          <div className="relative grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6 md:gap-10 items-center p-6 sm:p-8 md:p-10">
             <img
               src="/attached_assets/modulo_flat_blue_1786491120146.png"
               alt="Modulo Revenue Management"
-              className="mx-auto object-contain rounded-3xl"
-              style={{ height: '260px', width: '260px', display: 'block' }}
+              className="mx-auto object-contain rounded-3xl w-44 h-44 sm:w-52 sm:h-52 md:w-[220px] md:h-[220px]"
             />
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--trilogy-teal)]/25 bg-[var(--trilogy-teal)]/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--trilogy-teal)] mb-4">
+                <Sparkles className="h-3.5 w-3.5" />
+                Operator-led revenue management
+              </div>
+              <h1 className="text-4xl sm:text-5xl font-light tracking-tight text-[var(--trilogy-dark-blue)] mb-4">
+                About Modulo
+              </h1>
+              <p className="text-lg sm:text-xl leading-relaxed text-[var(--trilogy-grey)] max-w-3xl">
+                Modulo turns the signals already inside a senior housing portfolio into pricing decisions people can understand, challenge, and trust.
+              </p>
+              <div className="mt-5 flex flex-wrap gap-2 text-xs font-medium text-[var(--trilogy-dark-blue)]">
+                {["Clear inputs", "Reviewable rules", "Measured outcomes"].map(label => (
+                  <span key={label} className="inline-flex items-center gap-1.5 rounded-full bg-white/80 border border-[var(--trilogy-dark-blue)]/10 px-3 py-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-[var(--trilogy-teal)]" />
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </div>
           </div>
-          <h1 className="text-4xl font-light text-[var(--trilogy-dark-blue)] mb-3">
-            About Modulo
-          </h1>
-          <p className="text-lg text-[var(--trilogy-grey)] max-w-2xl mx-auto">
-            AI-designed pricing rules and machine learning for senior housing — turning market signals into auditable, operator-controlled rate decisions.
-          </p>
+          <div className="relative grid grid-cols-1 sm:grid-cols-3 border-t border-[var(--trilogy-teal)]/15 bg-white/60">
+            {[
+              { value: "One view", label: "for market, occupancy, and rate signals" },
+              { value: "Every unit", label: "gets a traceable pricing decision" },
+              { value: "Your rules", label: "stay in control of the outcome" },
+            ].map(({ value, label }, index) => (
+              <div key={value} className={`px-6 py-4 ${index > 0 ? "border-t sm:border-t-0 sm:border-l border-[var(--trilogy-teal)]/15" : ""}`}>
+                <p className="text-sm font-semibold text-[var(--trilogy-dark-blue)]">{value}</p>
+                <p className="text-xs text-[var(--trilogy-grey)] mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Why Modulo */}
+        <div className="mb-10">
+          <div className="max-w-3xl mb-5">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--trilogy-teal)] mb-2">Why it exists</p>
+            <h2 className="text-3xl font-light text-[var(--trilogy-dark-blue)] mb-2">Pricing is a decision, not a black box.</h2>
+            <p className="text-[var(--trilogy-grey)] leading-relaxed">
+              Senior housing pricing sits at the intersection of local market movement, unit-level detail, and operating judgment. Modulo brings those pieces together so teams can move with the market without losing the context behind every rate.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[
+              { icon: Database, title: "See the full signal", body: "Occupancy, vacancy, in-house rates, competitor positioning, and resident outcomes are considered together instead of in separate spreadsheets." },
+              { icon: Calculator, title: "Make the math explicit", body: "Rules show their conditions, action, scope, and expected impact. Teams can inspect the calculation before approving a change." },
+              { icon: ShieldCheck, title: "Keep judgment in the loop", body: "Guardrails and operator review protect the portfolio. Automation handles repetition; people set the strategy." },
+            ].map(({ icon: Icon, title, body }) => (
+              <div key={title} className="rounded-2xl border border-[var(--trilogy-grey)]/20 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--trilogy-teal)]/10">
+                  <Icon className="h-5 w-5 text-[var(--trilogy-teal)]" />
+                </div>
+                <h3 className="font-semibold text-[var(--trilogy-dark-blue)] mb-1.5">{title}</h3>
+                <p className="text-sm leading-relaxed text-[var(--trilogy-grey)]">{body}</p>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* ── AI Rule Design ─────────────────────────────────────────────── */}
@@ -97,10 +148,10 @@ export default function AboutUs() {
               <div className="rounded-lg border border-[var(--trilogy-teal)]/30 bg-white p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <Sparkles className="h-5 w-5 text-[var(--trilogy-teal)]" />
-                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">AI Rule Generator</h4>
+                  <h4 className="font-semibold text-[var(--trilogy-dark-blue)]">Targeted Revenue Actions</h4>
                 </div>
                 <p className="text-sm">
-                  Set revenue-growth targets and let AI propose targeted pricing rules. Review each suggestion's impact, then accept, edit, or deny it — the system learns from every decision.
+                   Set a revenue-growth target and let AI propose targeted pricing rules. Review each suggestion's impact, then accept, edit, or deny it — the system learns from every decision.
                 </p>
               </div>
             </div>
@@ -114,10 +165,12 @@ export default function AboutUs() {
                   "Vacant units / beds & days vacant",
                   "Total units / beds",
                   "Street rate to top competitor variance",
+                   "Street rate to average competitor variance",
                   "In-house to street rate variance",
                   "Inquiry volume",
                   "Tour volume",
                   "SNF private pay mix",
+                   "Room attributes: location, size, view, renovation, amenity",
                 ].map(t => (
                   <div key={t} className="flex items-start gap-1.5">
                     <ChevronRight className="h-3 w-3 text-[var(--trilogy-teal)] mt-0.5 shrink-0" />
@@ -234,8 +287,8 @@ export default function AboutUs() {
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-widest text-[var(--trilogy-teal)] mb-1">Deep Dive</p>
                   <h3 className="text-xl font-semibold text-[var(--trilogy-dark-blue)]">Pricing Algorithm Documentation</h3>
-                  <p className="text-sm text-[var(--trilogy-grey)] mt-1">
-                    How the pricing engine works · Rule Designer &amp; Guardrails · AI suggestions · Elasticity &amp; revenue tracking
+                   <p className="text-sm text-[var(--trilogy-grey)] mt-1">
+                     How the pricing engine works · worked rule examples · AI suggestions · guardrails · revenue tracking
                   </p>
                 </div>
               </div>
