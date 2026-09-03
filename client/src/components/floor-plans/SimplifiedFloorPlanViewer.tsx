@@ -65,7 +65,15 @@ export default function SimplifiedFloorPlanViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
-  const unplacedUnits = units.filter(unit => !unitShapes[unit.id]);
+  const unplacedUnits = units
+    .filter(unit => !unitShapes[unit.id])
+    .sort((a, b) =>
+      String(a.roomNumber ?? '').localeCompare(
+        String(b.roomNumber ?? ''),
+        undefined,
+        { numeric: true, sensitivity: 'base' },
+      ),
+    );
   const placedUnits = units.filter(unit => unitShapes[unit.id]);
 
   useEffect(() => {
