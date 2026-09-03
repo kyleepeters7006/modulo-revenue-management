@@ -7,6 +7,8 @@
  * the footer is drawn.
  */
 import { describe, expect, it, vi } from "vitest";
+import express from "express";
+import { request as httpRequest } from "node:http";
 import { inflateSync } from "node:zlib";
 import {
   DERIVED_RATE_TYPE_META,
@@ -30,17 +32,24 @@ type RentRollFixture = {
 };
 
 const { fakeDb, configureDb } = vi.hoisted(() => {
-  let selectCalls = 0;
   let rentRollRows: RentRollFixture[] = [];
+  let campusRows: Array<{ name: string }> = [];
   let overrideRows: Array<Record<string, unknown>> = [];
 
   const db = {
-    select: () => {
-      const call = selectCalls++;
+    select: (fields?: Record<string, unknown>) => {
+      const selectedField = fields ? Object.keys(fields)[0] : undefined;
       return {
-        from: () => ({
-          where: async () => call === 0 ? [{ m: "2026-08" }] : rentRollRows,
-        }),
+        from: () => {
+          const rows: any[] = selectedField === "m"
+            ? [{ m: "2026-08" }]
+            : selectedField === "name"
+              ? campusRows
+              : rentRollRows;
+          return Object.assign([...rows], {
+            where: async () => rows,
+          });
+        },
       };
     },
     execute: async () => ({ rows: overrideRows }),
@@ -51,18 +60,26 @@ const { fakeDb, configureDb } = vi.hoisted(() => {
     configureDb: (
       nextRentRollRows: RentRollFixture[],
       nextOverrideRows: Array<Record<string, unknown>>,
+      nextCampusRows?: Array<{ name: string }>,
     ) => {
-      selectCalls = 0;
       rentRollRows = nextRentRollRows;
       overrideRows = nextOverrideRows;
+      campusRows = nextCampusRows ?? Array.from(
+        new Set(nextRentRollRows.map((row) => row.location)),
+        (name) => ({ name }),
+      );
     },
   };
 });
 
 vi.mock("../server/db", () => ({ db: fakeDb }));
+vi.mock("../server/services/derivedRateFormulasService", () => ({
+  getDerivedRateFormulas: vi.fn(async () => []),
+}));
 
 import { generateRateCardPdf } from "../server/rateCardPdf";
 import { getEffectiveRateUnits } from "../server/services/exportRateService";
+import { registerRateCardPdfRoute } from "../server/routes";
 
 function rentRollRow(
   overrides: Partial<RentRollFixture> & Pick<RentRollFixture, "id" | "location" | "serviceLine" | "roomType">,
@@ -130,6 +147,45 @@ function expectPdfIsValidAndBounded(pdf: Buffer): void {
   expect(pdf.toString("latin1").endsWith("%%EOF\n")).toBe(true);
   expect(pageCount(pdf)).toBeGreaterThan(0);
   expect(pageCount(pdf)).toBeLessThanOrEqual(6);
+}
+
+async function requestRateCardPdf(query: Record<string, string>): Promise<{
+  status: number;
+  headers: Record<string, string | string[] | undefined>;
+  body: Buffer;
+}> {
+  const app = express();
+  registerRateCardPdfRoute(app);
+  const server = app.listen(0);
+
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Could not determine test server address");
+    }
+    const path = `/api/export/rate-card-pdf?${new URLSearchParams(query).toString()}`;
+    return await new Promise((resolve, reject) => {
+      const request = httpRequest({
+        hostname: "127.0.0.1",
+        port: address.port,
+        path,
+        method: "GET",
+      }, (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("end", () => resolve({
+          status: response.statusCode ?? 0,
+          headers: response.headers,
+          body: Buffer.concat(chunks),
+        }));
+        response.on("error", reject);
+      });
+      request.on("error", reject);
+      request.end();
+    });
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
 }
 
 const rows: RentRollFixture[] = [
@@ -309,5 +365,53 @@ describe("rate-card PDF export", () => {
     expect(text).toContain("HC Rental Rates");
     expect(text).toContain("$1,600 / mo.");
     expect(text).toContain("$3,000 / day");
+  });
+
+  it("delivers a filtered PDF through the download route", async () => {
+    configureDb(rows, overrides, [{ name: "Campus A" }]);
+
+    const response = await requestRateCardPdf({
+      locations: "Campus A",
+      serviceLine: "AL",
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toMatch(/^application\/pdf\b/);
+    expect(response.headers["content-disposition"]).toMatch(
+      /^attachment; filename="Trilogy_Rate_Card_2026-08_\d{4}-\d{2}-\d{2}\.pdf"$/,
+    );
+    expect(response.headers["content-length"]).toBe(String(response.body.length));
+
+    expectPdfIsValidAndBounded(response.body);
+    const text = pdfText(response.body);
+    expect(text).toContain("Campus A");
+    expect(text).not.toContain("Campus B");
+    expect(text).toContain("AL Rental Rates");
+    expect(text).not.toContain("HC Rental Rates");
+  });
+
+  it("returns 404 when the campus or service-line filter has no matches", async () => {
+    configureDb(rows, overrides, []);
+    const missingCampus = await requestRateCardPdf({
+      locations: "Missing Campus",
+      serviceLine: "AL",
+    });
+
+    expect(missingCampus.status).toBe(404);
+    expect(missingCampus.headers["content-type"]).toMatch(/^application\/json\b/);
+    expect(JSON.parse(missingCampus.body.toString())).toEqual({
+      error: "No campuses match the selected filters.",
+    });
+
+    configureDb(rows, overrides, [{ name: "Campus A" }]);
+    const missingServiceLine = await requestRateCardPdf({
+      locations: "Campus A",
+      serviceLine: "Unknown service line",
+    });
+
+    expect(missingServiceLine.status).toBe(404);
+    expect(JSON.parse(missingServiceLine.body.toString())).toEqual({
+      error: "No rate data matches the selected filters.",
+    });
   });
 });
