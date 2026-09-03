@@ -16,12 +16,16 @@ import {
   Mic, MicOff, Sparkles, Play, CheckCircle2,
   Trash2, Plus, ChevronDown, Copy, Pencil, TrendingDown, TrendingUp, AlertTriangle, StickyNote,
   Info, Eye, Save, X, Wand2, Download, SlidersHorizontal, Layers, History, FileBarChart, PowerOff,
-  Filter, ArrowUp, ArrowDown, ChevronsUpDown, Building2, Loader2, Search, Maximize2, Minimize2
+  Filter, ArrowUp, ArrowDown, ChevronsUpDown, Building2, Loader2, Search, Maximize2, Minimize2, Upload
 } from 'lucide-react';
 import { HistoryReportModal } from '@/components/dashboard/pricing-reports';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle
 } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
 import { isRuleAdditive, isRuleExclusive, exclusivePriority } from '@shared/ruleStacking';
@@ -588,6 +592,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   const [summaryOpen, setSummaryOpen] = useState(true);
   const [rulesExpanded, setRulesExpanded] = useState(false);
   const [rulesFullscreen, setRulesFullscreen] = useState(false);
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [publishingRules, setPublishingRules] = useState(false);
   // Bubble-map hover tooltip. It is portalled onto document.body and clamped to
   // the viewport rather than placed inside the dialog — see usePortalTooltip for
   // why in-dialog placement cannot keep this card fully visible.
@@ -1342,6 +1348,40 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       });
     } finally {
       setImplementingRuleId(null);
+    }
+  };
+
+  const publishActiveRules = async () => {
+    setPublishingRules(true);
+    try {
+      const res = await fetch('/api/adjustment-rules/publish', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Failed to publish Street Rates');
+
+      setPublishDialogOpen(false);
+      await fetchRules();
+      if (historyOpen) await fetchHistory();
+      queryClient.invalidateQueries({ queryKey: ['/api/reference-data'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/rate-card'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/rule-performance'], exact: false });
+      toast({
+        title: 'Street Rates published',
+        description: `${body.updatedUnits?.toLocaleString?.() ?? body.updatedUnits} rates updated and ${body.historicalRules} rule${body.historicalRules === 1 ? '' : 's'} added to Pricing History.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Publish failed',
+        description: error?.message || 'Street Rates were not changed.',
+        variant: 'destructive',
+      });
+    } finally {
+      setPublishingRules(false);
     }
   };
 
@@ -2406,14 +2446,26 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                         <CheckCircle2 className="h-4 w-4 text-teal-600 shrink-0" />
                         <span className="text-base font-semibold text-gray-900">Rule Administration</span>
                         {activeCount > 0
-                          ? <span className="inline-flex items-center rounded-full bg-green-100 text-green-800 border border-green-200 px-2 py-0.5 text-xs font-medium">{activeCount} active</span>
-                          : <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-500 border border-gray-200 px-2 py-0.5 text-xs font-medium">none active</span>
+                          ? <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 text-xs font-medium">{activeCount} proposed</span>
+                          : <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-500 border border-gray-200 px-2 py-0.5 text-xs font-medium">none proposed</span>
                         }
                         {disabledRules.length > 0 && (
                           <span className="inline-flex items-center rounded-full bg-gray-100 text-gray-500 border border-gray-200 px-2 py-0.5 text-xs font-medium">{disabledRules.length} off</span>
                         )}
                       </div>
                       <div className="flex items-center gap-1.5">
+                        {activeRules.length > 0 && (
+                          <Button
+                            variant="default" size="sm"
+                            className="h-7 text-xs gap-1.5 bg-teal-600 hover:bg-teal-700"
+                            onClick={e => { e.stopPropagation(); setPublishDialogOpen(true); }}
+                            title="Publish all proposed rates to Street Rates"
+                            data-testid="button-publish-active-rules"
+                          >
+                            <Upload className="h-3 w-3" />
+                            Publish
+                          </Button>
+                        )}
                         {activeRules.length > 0 && (
                           <Button
                             variant="outline" size="sm"
@@ -2457,7 +2509,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                       </div>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      Select rules to apply during the next pricing round. Impact reflects expected new admissions
+                      Review proposed rates, then publish them to update Street Rates and move the rules to Pricing History. Impact reflects expected new admissions
                       {(locationId || serviceLine)
                         ? ` filtered to ${locationName || 'selected location'}${serviceLine ? ` · ${serviceLine}` : ''}.`
                         : ' across all campuses.'}
@@ -3135,7 +3187,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                             <tr className="border-t-2 border-gray-200 bg-gray-50">
                               <td className="py-2.5 px-2" />
                               <td className="py-2.5 px-2 text-xs font-semibold text-gray-700" colSpan={3}>
-                                Totals — {activeCount} active rule{activeCount > 1 ? 's' : ''}
+                                Totals — {activeCount} proposed rule{activeCount > 1 ? 's' : ''}
                                 {hasOverlap && <span className="font-normal text-gray-400 ml-1">(exclusive overlap removed)</span>}
                               </td>
                               <td className="py-2.5 px-2 text-right text-sm font-semibold text-gray-900 tabular-nums">
@@ -3188,6 +3240,40 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                 </CollapsibleContent>
               </Card>
             </Collapsible>
+
+            <AlertDialog open={publishDialogOpen} onOpenChange={open => !publishingRules && setPublishDialogOpen(open)}>
+              <AlertDialogContent data-testid="dialog-publish-rules-warning">
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-amber-500" />
+                    Publish proposed Street Rates?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="space-y-3">
+                    <span className="block">
+                      This portfolio-wide action will permanently replace Street Rates for every unit affected by all current proposed rules.
+                    </span>
+                    <span className="block rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                      After publishing, these rules will be disabled, removed from the proposed list, and added to Pricing History. This action cannot be undone from Rule Administration.
+                    </span>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={publishingRules}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={publishingRules}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      publishActiveRules();
+                    }}
+                    className="bg-teal-600 hover:bg-teal-700"
+                    data-testid="button-confirm-publish-rules"
+                  >
+                    {publishingRules ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                    {publishingRules ? 'Publishing…' : 'Publish Street Rates'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
 
             {beforePricingHistory}
 

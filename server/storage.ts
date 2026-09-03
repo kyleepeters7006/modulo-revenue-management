@@ -88,7 +88,7 @@ import {
   type InsertRevenueGrowthTarget
 } from "@shared/schema";
 import { compareRoomTypes } from "@shared/roomTypes";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { eq, and, asc, desc, sql, isNull, inArray, or } from "drizzle-orm";
 import { calculateAttributedPrice, ensureCacheInitialized } from "./pricingOrchestrator";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
@@ -126,7 +126,13 @@ export interface IStorage {
   createRentRollData(data: InsertRentRollData): Promise<RentRollData>;
   uploadRentRollData(month: string, data: any[], clientId: string): Promise<void>;
   bulkInsertRentRollData(data: any[]): Promise<void>;
-  bulkUpdateModuloRates(updates: Array<{ id: string; moduloSuggestedRate: number; moduloCalculationDetails: string }>): Promise<void>;
+  bulkUpdateModuloRates(updates: Array<{
+    id: string;
+    moduloSuggestedRate: number;
+    moduloCalculationDetails: string;
+    ruleAdjustedRate?: number | null;
+    appliedRuleName?: string | null;
+  }>, clientId?: string): Promise<void>;
   bulkUpdateAIRates(updates: Array<{ id: string; aiSuggestedRate: number; aiCalculationDetails: string }>): Promise<void>;
   clearRentRollData(): Promise<void>;
   clearRentRollDataByLocation(location: string): Promise<void>;
@@ -784,14 +790,46 @@ export class DatabaseStorage implements IStorage {
     moduloCalculationDetails: string;
     ruleAdjustedRate?: number | null;
     appliedRuleName?: string | null;
-  }>): Promise<void> {
+  }>, clientId?: string): Promise<void> {
+    // Coordinate the final write with rule publishing. A pricing job may have
+    // calculated rule rates before Publish archived the rules; after waiting
+    // for the same lock, clear that stale payload when no live rule remains.
+    const fenceConnection = clientId ? await pool.connect() : null;
+    let safeUpdates = updates;
+    if (fenceConnection) {
+      await fenceConnection.query("BEGIN");
+      await fenceConnection.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        [`publish-rules:${clientId}`],
+      );
+      const liveRules = await fenceConnection.query(
+        `SELECT 1
+           FROM adjustment_rules
+          WHERE (client_id = $1 OR client_id IS NULL)
+            AND is_active = true
+            AND is_historical IS NOT TRUE
+            AND (lifecycle_status IS NULL OR lifecycle_status = 'implemented')
+            AND (effective_date IS NULL OR effective_date <= CURRENT_DATE)
+          LIMIT 1`,
+        [clientId],
+      );
+      if (liveRules.rowCount === 0 && updates.some((update) => update.ruleAdjustedRate !== undefined)) {
+        safeUpdates = updates.map((update) => ({
+          ...update,
+          ruleAdjustedRate: null,
+          appliedRuleName: null,
+        }));
+      }
+    }
+
+    try {
     // Optimized bulk update using single SQL query with CASE statements
     // Process in batches of 500 for optimal performance
     const batchSize = 500;
-    const totalBatches = Math.ceil(updates.length / batchSize);
+    const totalBatches = Math.ceil(safeUpdates.length / batchSize);
     
-    for (let i = 0; i < updates.length; i += batchSize) {
-      const batch = updates.slice(i, i + batchSize);
+    for (let i = 0; i < safeUpdates.length; i += batchSize) {
+      const batch = safeUpdates.slice(i, i + batchSize);
       const batchNumber = Math.floor(i / batchSize) + 1;
       
       if (batch.length === 0) continue;
@@ -854,6 +892,13 @@ export class DatabaseStorage implements IStorage {
       `);
       
       console.log(`Updated Modulo batch ${batchNumber}/${totalBatches} (${batch.length} units) - ${Math.round((batchNumber/totalBatches) * 100)}% complete`);
+    }
+      if (fenceConnection) await fenceConnection.query("COMMIT");
+    } catch (error) {
+      if (fenceConnection) await fenceConnection.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      fenceConnection?.release();
     }
   }
 

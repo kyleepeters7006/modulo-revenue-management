@@ -809,7 +809,7 @@ export async function generateModuloOptimized(req: any, res: any) {
     
     // Step 6: Perform optimized bulk database update with adjustment rules
     console.log(`Starting bulk database update with Modulo rates and adjustment rules...`);
-    await storage.bulkUpdateModuloRates(finalUpdates);
+    await storage.bulkUpdateModuloRates(finalUpdates, clientId);
     
     console.log('Regenerating rate card...');
     await storage.generateRateCard(targetMonth);

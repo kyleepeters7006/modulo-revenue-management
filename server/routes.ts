@@ -663,6 +663,7 @@ function purgeRuleCaches(clientId: string): Promise<void> {
   // Scoping the purge to one clientId leaves other clients' caches stale.
   const prefixes = [
     `adj-rules:`,               // purge rule LIST for every client
+    `adj-rules-history:`,       // historical list uses a separate hyphenated prefix
     `rule-strategy-analysis:${clientId}`,
     `adj-rules-combined:${clientId}`,
     `pc-commentary:${clientId}`,
@@ -1062,6 +1063,40 @@ async function checkAndInitializeDatabase() {
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS mro_history_segment_idx
       ON manual_rate_override_history (client_id, location_name, service_line, room_type, changed_at DESC)
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS rule_publish_history (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id varchar NOT NULL,
+        upload_month text NOT NULL,
+        rule_ids jsonb NOT NULL,
+        units_affected integer NOT NULL,
+        changes_snapshot jsonb NOT NULL,
+        published_by text,
+        published_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS rule_publish_history_client_date_idx
+      ON rule_publish_history (client_id, published_at DESC)
+    `);
+    await db.execute(sql`
+      CREATE OR REPLACE FUNCTION prevent_rule_publish_history_mutation()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        RAISE EXCEPTION 'rule_publish_history is immutable';
+      END;
+      $$
+    `);
+    await db.execute(sql`
+      DROP TRIGGER IF EXISTS rule_publish_history_immutable ON rule_publish_history
+    `);
+    await db.execute(sql`
+      CREATE TRIGGER rule_publish_history_immutable
+      BEFORE UPDATE OR DELETE ON rule_publish_history
+      FOR EACH ROW EXECUTE FUNCTION prevent_rule_publish_history_mutation()
     `);
     // Audit rows are evidence of what happened. Protect them at the database
     // layer as well as in the application transactions. Test fixtures may opt
@@ -13708,7 +13743,7 @@ ${campusOccLines.join('\n')}
       
       // Perform bulk update in batches with adjustment rules
       console.log(`Starting bulk database update with Modulo rates and adjustment rules...`);
-      await storage.bulkUpdateModuloRates(finalUpdates);
+      await storage.bulkUpdateModuloRates(finalUpdates, clientId);
 
       // Purge the AI commentary cache so Strategy Overview reflects the new rule
       // rates immediately rather than serving the previous narrative for up to 10 min.
@@ -22706,6 +22741,249 @@ Return ONLY valid JSON, no markdown fences:
     } catch (error) {
       console.error('Error updating adjustment rule:', error);
       res.status(500).json({ error: "Failed to update adjustment rule" });
+    }
+  });
+
+  /**
+   * Publish every currently active rule into the latest rent-roll snapshot.
+   *
+   * Implementation makes a proposal eligible for rule calculation. Publishing
+   * commits freshly calculated Rules Rates to Street Rates, removes the rules
+   * from the live engine, and moves those records into Pricing History.
+   */
+  app.post("/api/adjustment-rules/publish", async (req: any, res) => {
+    const clientId = req.clientId || "demo";
+    if (!(await isRuleAdmin(req))) {
+      return res.status(403).json({ error: "Admin privileges are required to publish Street Rates" });
+    }
+    if (req.body?.confirm !== true) {
+      return res.status(400).json({ error: "Publishing Street Rates requires explicit confirmation" });
+    }
+
+    const connection = await pool.connect();
+    try {
+      await connection.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+      await connection.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1))",
+        [`publish-rules:${clientId}`],
+      );
+
+      // New rules are tenant-owned. Legacy portfolio rules have client_id=NULL;
+      // publishing claims those records for the authenticated client as they
+      // move to history, eliminating their global scope going forward.
+      const lockedRules = await connection.query(
+        `SELECT id
+           FROM adjustment_rules
+          WHERE (client_id = $1 OR client_id IS NULL)
+            AND is_active = true
+            AND is_historical IS NOT TRUE
+            AND (lifecycle_status IS NULL OR lifecycle_status = 'implemented')
+            AND (effective_date IS NULL OR effective_date <= CURRENT_DATE)
+          FOR UPDATE`,
+        [clientId],
+      );
+      const activeRuleIds = lockedRules.rows.map((row: any) => String(row.id));
+      if (activeRuleIds.length === 0) {
+        await connection.query("ROLLBACK");
+        return res.status(409).json({ error: "There are no client-owned active rules to publish" });
+      }
+
+      const activeIdSet = new Set(activeRuleIds);
+      const activeRules = (await storage.getActiveAdjustmentRules(clientId))
+        .filter((rule) => activeIdSet.has(rule.id) && (rule.clientId === clientId || rule.clientId == null));
+      if (activeRules.length !== activeRuleIds.length) {
+        await connection.query("ROLLBACK");
+        return res.status(409).json({
+          error: "The active rules changed before publishing began. Refresh and try again.",
+        });
+      }
+
+      const latestMonthResult = await connection.query(
+        `SELECT MAX(upload_month) AS upload_month
+           FROM rent_roll_data
+          WHERE client_id = $1`,
+        [clientId],
+      );
+      const uploadMonth = latestMonthResult.rows[0]?.upload_month as string | null;
+      if (!uploadMonth) {
+        await connection.query("ROLLBACK");
+        return res.status(404).json({ error: "No rent-roll data is available to publish" });
+      }
+
+      const unitResult = await connection.query(
+        `SELECT *
+           FROM rent_roll_data
+          WHERE client_id = $1 AND upload_month = $2
+          FOR UPDATE`,
+        [clientId, uploadMonth],
+      );
+      const units = unitResult.rows.map((row: any) => ({
+        ...row,
+        clientId: row.client_id,
+        locationId: row.location_id,
+        uploadMonth: row.upload_month,
+        serviceLine: row.service_line,
+        roomType: row.room_type,
+        roomNumber: row.room_number,
+        streetRate: row.street_rate,
+        occupiedYN: row.occupied_yn,
+        daysVacant: row.days_vacant,
+      }));
+
+      const { fetchAndApplyAdjustmentRules } = await import("./services/adjustmentRulesService");
+      const calculated = await fetchAndApplyAdjustmentRules(
+        units.map((unit: any) => ({ id: unit.id, unit })),
+        activeRules,
+      );
+      const calculatedById = new Map(calculated.map((row) => [row.id, row]));
+      const publishable = units.flatMap((unit: any) => {
+        const result = calculatedById.get(unit.id);
+        const newRate = result?.ruleAdjustedRate;
+        if (!result?.appliedRuleName || newRate == null || !Number.isFinite(newRate) || newRate <= 0) {
+          return [];
+        }
+        return [{
+          id: unit.id,
+          oldRate: Number(unit.streetRate) || 0,
+          newRate,
+          roomNumber: unit.roomNumber,
+          location: unit.location,
+          serviceLine: unit.serviceLine,
+          roomType: unit.roomType,
+          appliedRuleName: result.appliedRuleName,
+        }];
+      });
+      if (publishable.length === 0) {
+        await connection.query("ROLLBACK");
+        return res.status(409).json({
+          error: "The active rules do not currently produce a publishable Street Rate for any unit",
+        });
+      }
+
+      // A new active rule could have been inserted while the locked rules were
+      // being evaluated. Re-read the set and abort unless it is still exact.
+      const currentRules = await connection.query(
+        `SELECT id
+           FROM adjustment_rules
+          WHERE (client_id = $1 OR client_id IS NULL)
+            AND is_active = true
+            AND is_historical IS NOT TRUE
+            AND (lifecycle_status IS NULL OR lifecycle_status = 'implemented')
+            AND (effective_date IS NULL OR effective_date <= CURRENT_DATE)`,
+        [clientId],
+      );
+      const currentRuleIds = currentRules.rows.map((row: any) => String(row.id)).sort();
+      const expectedRuleIds = [...activeRuleIds].sort();
+      if (currentRuleIds.length !== activeRuleIds.length ||
+          currentRuleIds.some((id: string, index: number) => id !== expectedRuleIds[index])) {
+        await connection.query("ROLLBACK");
+        return res.status(409).json({
+          error: "The active rules changed while rates were being calculated. Review them and publish again.",
+        });
+      }
+
+      const rateUpdate = await connection.query(
+        `UPDATE rent_roll_data AS rr
+            SET street_rate = published.new_rate,
+                rule_adjusted_rate = NULL,
+                applied_rule_name = NULL,
+                rule_rate_calculated_at = NULL
+           FROM jsonb_to_recordset($1::jsonb)
+                AS published(id varchar, new_rate double precision)
+          WHERE rr.id = published.id
+            AND rr.client_id = $2
+            AND rr.upload_month = $3`,
+        [JSON.stringify(publishable.map(({ id, newRate }) => ({ id, new_rate: newRate }))), clientId, uploadMonth],
+      );
+      if (rateUpdate.rowCount !== publishable.length) {
+        throw new Error(
+          `Publish row-count mismatch: planned ${publishable.length}, updated ${rateUpdate.rowCount ?? 0}`,
+        );
+      }
+
+      // No active rule remains after publish, so no latest-month row may retain
+      // stale rule lineage from a previous calculation.
+      await connection.query(
+        `UPDATE rent_roll_data
+            SET rule_adjusted_rate = NULL,
+                applied_rule_name = NULL,
+                rule_rate_calculated_at = NULL
+          WHERE client_id = $1 AND upload_month = $2
+            AND (rule_adjusted_rate IS NOT NULL OR applied_rule_name IS NOT NULL OR rule_rate_calculated_at IS NOT NULL)`,
+        [clientId, uploadMonth],
+      );
+
+      // The disabled lifecycle is retained for audit while is_historical moves
+      // the same immutable records into the Pricing History section.
+      const ruleUpdate = await connection.query(
+        `UPDATE adjustment_rules
+            SET is_active = false,
+                lifecycle_status = 'disabled',
+                is_historical = true,
+                client_id = $2,
+                effective_date = CURRENT_DATE,
+                last_executed = now(),
+                execution_count = COALESCE(execution_count, 0) + 1,
+                updated_at = now()
+          WHERE id = ANY($1::varchar[]) AND (client_id = $2 OR client_id IS NULL)`,
+        [activeRuleIds, clientId],
+      );
+      if (ruleUpdate.rowCount !== activeRuleIds.length) {
+        throw new Error(
+          `Publish rule-count mismatch: planned ${activeRuleIds.length}, archived ${ruleUpdate.rowCount ?? 0}`,
+        );
+      }
+
+      const changed = publishable.filter((row) => Math.abs(row.newRate - row.oldRate) >= 0.01);
+      await connection.query(
+        `INSERT INTO rule_publish_history
+          (client_id, upload_month, rule_ids, units_affected, changes_snapshot, published_by)
+         VALUES ($1, $2, $3::jsonb, $4, $5::jsonb, $6)`,
+        [
+          clientId,
+          uploadMonth,
+          JSON.stringify(activeRuleIds),
+          changed.length,
+          JSON.stringify(publishable.map((row) => ({
+            unitId: row.id,
+            location: row.location,
+            roomNumber: row.roomNumber,
+            serviceLine: row.serviceLine,
+            roomType: row.roomType,
+            oldRate: row.oldRate,
+            newRate: row.newRate,
+            appliedRuleName: row.appliedRuleName,
+          }))),
+          (req.session as any)?.userId ?? null,
+        ],
+      );
+
+      await connection.query("COMMIT");
+      // Do not regenerate the legacy rate_card cache here: that table has no
+      // client key, so deleting/rebuilding a shared month from one tenant's
+      // publish would corrupt other tenants. The authoritative rent-roll rows
+      // are committed above; invalidate dependent reads without starting a
+      // second pricing write.
+      await purgeRuleCaches(clientId);
+
+      res.json({
+        success: true,
+        uploadMonth,
+        publishedRules: activeRuleIds.length,
+        updatedUnits: changed.length,
+        historicalRules: activeRuleIds.length,
+      });
+    } catch (error) {
+      await connection.query("ROLLBACK").catch(() => {});
+      console.error("Error publishing adjustment rules:", error);
+      if ((error as any)?.code === "40001") {
+        return res.status(409).json({
+          error: "Rules changed while publishing. No rates were changed; review and publish again.",
+        });
+      }
+      res.status(500).json({ error: "Failed to publish Street Rates" });
+    } finally {
+      connection.release();
     }
   });
 

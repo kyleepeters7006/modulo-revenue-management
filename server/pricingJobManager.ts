@@ -763,7 +763,7 @@ class PricingJobManager {
       // Bulk update database with all results
       console.log(`[PricingJob ${jobId}] Updating database with ${finalUpdates.length} pricing calculations...`);
       if (finalUpdates.length > 0) {
-        await storage.bulkUpdateModuloRates(finalUpdates);
+        await storage.bulkUpdateModuloRates(finalUpdates, jobClientId_);
       }
       
       // Regenerate rate card

@@ -99,3 +99,4 @@
 - [Product demo film composition](product-demo-film-composition.md) — dense UI screens must dip through black not cross-dissolve; solid caption band; per-axis resize scale for focus rects.
 - [Narration endings that sound cut off](demo-narration-endings.md) — three stacking causes: terminal pitch rise, a fade crossing the last word, no hold after it. Measure F0, don't guess.
 - [PDFKit footer pagination](pdfkit-footer-pagination.md) — footer text below the printable margin silently adds overflow pages; reserve footer space and draw inside margins.
+- [Rule publishing safety](rule-publishing-safety.md) — publish is serialized, audited, and tenant-scoped; claim legacy global rules once and never rebuild the unscoped rate-card cache.

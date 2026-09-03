@@ -1046,11 +1046,14 @@ export function applyAdjustmentRulesToBatch(
  * evaluating any rules, so metric-based conditions always have data.
  */
 export async function fetchAndApplyAdjustmentRules(
-  units: Array<{ id: string; unit: any; [key: string]: any }>
+  units: Array<{ id: string; unit: any; [key: string]: any }>,
+  activeRulesOverride?: AdjustmentRules[],
 ): Promise<Array<{ id: string; ruleAdjustedRate: number | null; appliedRuleName: string | null }>> {
   try {
     const clientId = units.find(u => u.unit?.clientId)?.unit?.clientId || "demo";
-    const activeRules = await storage.getActiveAdjustmentRules(clientId);
+    // Publish passes the exact client-owned rule rows it locked in its
+    // transaction. Normal pricing runs continue loading the live active set.
+    const activeRules = activeRulesOverride ?? await storage.getActiveAdjustmentRules(clientId);
 
     if (activeRules.length === 0) {
       return units.map(({ id }) => ({
