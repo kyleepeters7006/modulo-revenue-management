@@ -340,6 +340,10 @@ export default function RateCardTable({
 
   const units = rateCardData?.units || [];
   const summary = rateCardData?.summary || [];
+  const getDisplayedNewRate = (unit: any): number | null =>
+    showNewRateOnly
+      ? (unit.manualOverrideRate ?? unit.ruleAdjustedRate ?? unit.streetRate ?? null)
+      : (unit.ruleAdjustedRate ?? null);
 
   // Derive unique filter option values from data
   const uniqueRoomTypes = useMemo(() => {
@@ -412,12 +416,12 @@ export default function RateCardTable({
   }
   if (columnFilters.rulesRateMin !== '') {
     filteredUnits = filteredUnits.filter((u: any) =>
-      (u.ruleAdjustedRate || 0) >= parseFloat(columnFilters.rulesRateMin)
+      (getDisplayedNewRate(u) || 0) >= parseFloat(columnFilters.rulesRateMin)
     );
   }
   if (columnFilters.rulesRateMax !== '') {
     filteredUnits = filteredUnits.filter((u: any) =>
-      (u.ruleAdjustedRate || 0) <= parseFloat(columnFilters.rulesRateMax)
+      (getDisplayedNewRate(u) || 0) <= parseFloat(columnFilters.rulesRateMax)
     );
   }
   
@@ -517,8 +521,8 @@ export default function RateCardTable({
           bVal = b.streetRate || 0;
           break;
         case 'modulo':
-          aVal = a.ruleAdjustedRate || 0;
-          bVal = b.ruleAdjustedRate || 0;
+          aVal = getDisplayedNewRate(a) || 0;
+          bVal = getDisplayedNewRate(b) || 0;
           break;
         case 'competitor':
           aVal = a.competitorFinalRate || 0;
@@ -658,7 +662,7 @@ export default function RateCardTable({
                   <TableHead>Service Line</TableHead>
                   <TableHead>Occupancy</TableHead>
                   {!showNewRateOnly && <TableHead>Avg Street Rate</TableHead>}
-                  <TableHead>Avg Rules Rate</TableHead>
+                  <TableHead>{showNewRateOnly ? 'Avg New Rate' : 'Avg Rules Rate'}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -691,10 +695,10 @@ export default function RateCardTable({
                           </TableCell>
                         )}
                         <TableCell>
-                          {row.averageRuleRate
+                          {(row.averageRuleRate ?? (showNewRateOnly ? row.averageStreetRate : null)) != null
                             ? (isTotal
-                                ? formatRateByServiceLine(Math.round(row.averageRuleRate), 'AL')
-                                : formatRateByServiceLine(Math.round(row.averageRuleRate), row.serviceLine))
+                                ? formatRateByServiceLine(Math.round(row.averageRuleRate ?? row.averageStreetRate), 'AL')
+                                : formatRateByServiceLine(Math.round(row.averageRuleRate ?? row.averageStreetRate), row.serviceLine))
                             : '-'}
                         </TableCell>
                       </TableRow>
@@ -1047,7 +1051,7 @@ export default function RateCardTable({
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1 group">
-                        {(unit.ruleAdjustedRate || unit.manualOverrideRate) ? (
+                        {(unit.ruleAdjustedRate || unit.manualOverrideRate || (showNewRateOnly && unit.streetRate)) ? (
                           <div className="flex items-center space-x-2 flex-1">
                             <div className="flex flex-col">
                               {unit.manualOverrideRate ? (
@@ -1116,7 +1120,7 @@ export default function RateCardTable({
                                     disabled={rcClearOverride.isPending}
                                   >Remove override</button>
                                 </>
-                              ) : (
+                              ) : unit.ruleAdjustedRate ? (
                               <>
                               <ModuloCalculationDialog
                                 roomType={unit.roomType}
@@ -1180,19 +1184,25 @@ export default function RateCardTable({
                                 return null;
                               })()}
                               </>
+                              ) : (
+                                <span className="font-medium text-slate-700">
+                                  {formatRateByServiceLine(Math.round(unit.streetRate || 0), unit.serviceLine)}
+                                </span>
                               )}
                             </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => acceptSuggestionsMutation.mutate({
-                                unitIds: [unit.id],
-                                type: 'modulo'
-                              })}
-                              data-testid={`button-accept-modulo-${unit.roomNumber}`}
-                            >
-                              <CheckCircle className="h-3 w-3" />
-                            </Button>
+                            {(!showNewRateOnly || unit.ruleAdjustedRate) && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => acceptSuggestionsMutation.mutate({
+                                  unitIds: [unit.id],
+                                  type: 'modulo'
+                                })}
+                                data-testid={`button-accept-modulo-${unit.roomNumber}`}
+                              >
+                                <CheckCircle className="h-3 w-3" />
+                              </Button>
+                            )}
                           </div>
                         ) : (
                           <span className="text-muted-foreground text-xs flex-1">—</span>
