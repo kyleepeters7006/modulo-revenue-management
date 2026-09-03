@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { CheckCircle, AlertCircle, Info, Shield, ArrowUpDown, ArrowUp, ArrowDown, Maximize2, Minimize2, Filter, X, Pencil, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -65,6 +66,7 @@ export default function RateCardTable({
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showNewRateOnly, setShowNewRateOnly] = useState(false);
   const [columnFilters, setColumnFilters] = useState<{
     location: string;
     unit: string;
@@ -616,34 +618,24 @@ export default function RateCardTable({
                 </div>
               )}
 
-              {/* Bulk Accept Actions */}
+              {/* Rate display options */}
               <div className="overflow-x-auto -mx-1 px-1">
                 <div className="flex items-center gap-4 pt-2 border-t min-w-max">
-                <span className="text-sm font-medium text-muted-foreground">Apply to All Units:</span>
-                <Button
-                  onClick={() => {
-                    const unitsWithModulo = filteredUnits.filter((u: any) => u.ruleAdjustedRate);
-                    if (unitsWithModulo.length === 0) {
-                      toast({ 
-                        title: "No Rules Rates available", 
-                        description: "Create rules in Pricing Controls to generate rate recommendations.",
-                        variant: "destructive"
-                      });
-                      return;
-                    }
-                    acceptSuggestionsMutation.mutate({
-                      unitIds: unitsWithModulo.map((u: any) => u.id),
-                      type: 'rule'
-                    });
-                  }}
-                  disabled={acceptSuggestionsMutation.isPending}
-                  variant="secondary"
-                  size="sm"
-                  data-testid="button-accept-all-modulo"
-                >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Accept All Rules Rate ({filteredUnits.filter((u: any) => u.ruleAdjustedRate).length})
-                </Button>
+                  <span className="text-sm font-medium text-muted-foreground">Display:</span>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="show-new-rate-only"
+                      checked={showNewRateOnly}
+                      onCheckedChange={setShowNewRateOnly}
+                      data-testid="switch-show-new-rate-only"
+                    />
+                    <label
+                      htmlFor="show-new-rate-only"
+                      className="text-sm font-medium cursor-pointer select-none"
+                    >
+                      Show New Rate Only
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -665,7 +657,7 @@ export default function RateCardTable({
                 <TableRow>
                   <TableHead>Service Line</TableHead>
                   <TableHead>Occupancy</TableHead>
-                  <TableHead>Avg Street Rate</TableHead>
+                  {!showNewRateOnly && <TableHead>Avg Street Rate</TableHead>}
                   <TableHead>Avg Rules Rate</TableHead>
                 </TableRow>
               </TableHeader>
@@ -691,11 +683,13 @@ export default function RateCardTable({
                             <span className="text-base font-bold">({formatPercentage(occPct)})</span>
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          {isTotal
-                            ? formatRateByServiceLine(Math.round(row.averageStreetRate || 0), 'AL')
-                            : formatRateByServiceLine(Math.round(row.averageStreetRate || 0), row.serviceLine)}
-                        </TableCell>
+                        {!showNewRateOnly && (
+                          <TableCell>
+                            {isTotal
+                              ? formatRateByServiceLine(Math.round(row.averageStreetRate || 0), 'AL')
+                              : formatRateByServiceLine(Math.round(row.averageStreetRate || 0), row.serviceLine)}
+                          </TableCell>
+                        )}
                         <TableCell>
                           {row.averageRuleRate
                             ? (isTotal
@@ -907,32 +901,34 @@ export default function RateCardTable({
                       </div>
                     </TableHead>
 
-                    {/* Street Rate — sort + range filter */}
-                    <TableHead
-                      className="cursor-pointer hover:bg-slate-50 select-none"
-                      onClick={() => handleSort('streetRate')}
-                      data-testid="sort-street-rate"
-                    >
-                      <div className="flex items-center gap-0.5">
-                        Street Rate
-                        <SortIcon column="streetRate" />
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <button onClick={e => e.stopPropagation()} className={`p-0.5 rounded hover:bg-slate-200 transition-colors ${(columnFilters.streetRateMin || columnFilters.streetRateMax) ? 'text-teal-600' : 'text-slate-400'}`}>
-                              <Filter className="w-3 h-3" />
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-44 p-3" align="start" onClick={e => e.stopPropagation()}>
-                            <p className="text-xs font-semibold mb-2 text-slate-600">Filter Street Rate</p>
-                            <div className="space-y-1.5">
-                              <Input placeholder="Min ($)" type="number" value={columnFilters.streetRateMin} onChange={e => { setColumnFilters(p => ({ ...p, streetRateMin: e.target.value })); setCurrentPage(1); }} className="h-7 text-sm" />
-                              <Input placeholder="Max ($)" type="number" value={columnFilters.streetRateMax} onChange={e => { setColumnFilters(p => ({ ...p, streetRateMax: e.target.value })); setCurrentPage(1); }} className="h-7 text-sm" />
-                            </div>
-                            {(columnFilters.streetRateMin || columnFilters.streetRateMax) && <button onClick={() => setColumnFilters(p => ({ ...p, streetRateMin: '', streetRateMax: '' }))} className="mt-2 text-xs text-teal-600 hover:underline flex items-center gap-1"><X className="w-3 h-3" />Clear</button>}
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                    </TableHead>
+                    {!showNewRateOnly && (
+                      /* Street Rate — sort + range filter */
+                      <TableHead
+                        className="cursor-pointer hover:bg-slate-50 select-none"
+                        onClick={() => handleSort('streetRate')}
+                        data-testid="sort-street-rate"
+                      >
+                        <div className="flex items-center gap-0.5">
+                          Street Rate
+                          <SortIcon column="streetRate" />
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button onClick={e => e.stopPropagation()} className={`p-0.5 rounded hover:bg-slate-200 transition-colors ${(columnFilters.streetRateMin || columnFilters.streetRateMax) ? 'text-teal-600' : 'text-slate-400'}`}>
+                                <Filter className="w-3 h-3" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-44 p-3" align="start" onClick={e => e.stopPropagation()}>
+                              <p className="text-xs font-semibold mb-2 text-slate-600">Filter Street Rate</p>
+                              <div className="space-y-1.5">
+                                <Input placeholder="Min ($)" type="number" value={columnFilters.streetRateMin} onChange={e => { setColumnFilters(p => ({ ...p, streetRateMin: e.target.value })); setCurrentPage(1); }} className="h-7 text-sm" />
+                                <Input placeholder="Max ($)" type="number" value={columnFilters.streetRateMax} onChange={e => { setColumnFilters(p => ({ ...p, streetRateMax: e.target.value })); setCurrentPage(1); }} className="h-7 text-sm" />
+                              </div>
+                              {(columnFilters.streetRateMin || columnFilters.streetRateMax) && <button onClick={() => setColumnFilters(p => ({ ...p, streetRateMin: '', streetRateMax: '' }))} className="mt-2 text-xs text-teal-600 hover:underline flex items-center gap-1"><X className="w-3 h-3" />Clear</button>}
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      </TableHead>
+                    )}
 
                     <TableHead>Applied Rules</TableHead>
 
@@ -1037,7 +1033,9 @@ export default function RateCardTable({
                           {unit.occupiedYN ? "Occupied" : `Vacant ${unit.daysVacant}d`}
                         </Badge>
                       </TableCell>
-                      <TableCell>{formatRateByServiceLine(Math.round(unit.streetRate || 0), unit.serviceLine)}</TableCell>
+                      {!showNewRateOnly && (
+                        <TableCell>{formatRateByServiceLine(Math.round(unit.streetRate || 0), unit.serviceLine)}</TableCell>
+                      )}
                       <TableCell>
                         {unit.appliedRuleName ? (
                           <Badge variant="default" className="text-xs bg-green-600">
@@ -1093,13 +1091,13 @@ export default function RateCardTable({
                                     <span className="font-medium text-amber-700">
                                       {formatRateByServiceLine(Math.round(unit.manualOverrideRate), unit.serviceLine)}
                                     </span>
-                                    {unit.streetRate && (
+                                     {!showNewRateOnly && unit.streetRate && (
                                       <span className="text-xs text-gray-400 ml-0.5">
                                         (Street: {formatRateByServiceLine(Math.round(unit.streetRate), unit.serviceLine)})
                                       </span>
                                     )}
                                   </div>
-                                  {unit.streetRate ? (() => {
+                                   {!showNewRateOnly && unit.streetRate ? (() => {
                                     const isDailyRate = isDailyRateServiceLine(unit.serviceLine);
                                     const displayFinal = convertToDisplayRate(unit.manualOverrideRate, unit.serviceLine) || 0;
                                     const displayBase  = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
@@ -1137,7 +1135,7 @@ export default function RateCardTable({
                                 >
                                   <span>
                                     {formatRateByServiceLine(Math.round(unit.ruleAdjustedRate), unit.serviceLine)}
-                                    {unit.ruleAdjustedRate && unit.streetRate && (
+                                     {!showNewRateOnly && unit.ruleAdjustedRate && unit.streetRate && (
                                       <span className="text-xs text-gray-500 ml-1">
                                         (Street Rate: {formatRateByServiceLine(Math.round(unit.streetRate), unit.serviceLine)})
                                       </span>
@@ -1167,7 +1165,7 @@ export default function RateCardTable({
                               </ModuloCalculationDialog>
                               {(() => {
                                 const isDailyRate = isDailyRateServiceLine(unit.serviceLine);
-                                if (unit.ruleAdjustedRate && unit.streetRate) {
+                                 if (!showNewRateOnly && unit.ruleAdjustedRate && unit.streetRate) {
                                   // Rule applied: show the rule's impact vs the Street Rate baseline
                                   const displayFinal = convertToDisplayRate(unit.ruleAdjustedRate, unit.serviceLine) || 0;
                                   const displayBase  = convertToDisplayRate(unit.streetRate, unit.serviceLine) || 0;
