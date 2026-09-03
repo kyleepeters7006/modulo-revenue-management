@@ -121,6 +121,19 @@ import {
   type SuggestionRejection,
   type EmptyRunReason,
 } from "./services/suggestionGates";
+import {
+  PRODUCTION_SYNC_CLEAR_TABLES,
+  PRODUCTION_SYNC_REPLACE_TABLES,
+  PRODUCTION_SYNC_TABLES,
+  assertAllowedProductionSyncArchive,
+  assertManagedPostgresCliEnvironment,
+  createProductionSyncAuth,
+  postProductionSyncArchive,
+  receiveSyncArchive,
+  sha256File,
+  verifyProductionSyncAuth,
+  type ProductionSyncAuth,
+} from "./services/productionDataSync";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -145,6 +158,7 @@ const referenceDataAuditJobs = new Map<string, ReferenceDataAuditJob>();
 const activeReferenceDataAuditJobs = new Map<string, string>();
 const referenceDataAuditPersistenceChains = new Map<string, Promise<void>>();
 const REFERENCE_DATA_AUDIT_JOB_TTL_MS = 30 * 60 * 1000;
+let productionSyncInProgress = false;
 
 function referenceDataAuditClientId(req: any): string {
   return req.clientId || (req.session as any)?.clientId || "demo";
@@ -1501,7 +1515,187 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // POST /api/admin/sync-to-production — copy upload tables from dev (DATABASE_URL) to prod (NEON_DATABASE_URL)
+  // The sender runs in development and streams a signed custom-format dump to
+  // this production-only receiver. Production restores through its own managed
+  // DATABASE_URL, so no externally reachable production DB URL is required.
+  app.post('/api/admin/receive-production-sync', async (req: any, res) => {
+    if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_PRODUCTION_SYNC_RECEIVER !== 'true') {
+      return res.status(404).json({ error: 'Production sync receiver is not available in development' });
+    }
+    if (productionSyncInProgress) {
+      return res.status(409).json({ error: 'Another production sync is already running' });
+    }
+    if (!String(req.headers['content-type'] || '').toLowerCase().startsWith('application/octet-stream')) {
+      return res.status(415).json({ error: 'Production sync requires an octet-stream archive' });
+    }
+
+    const syncSecret = process.env.PRODUCTION_SYNC_HMAC_SECRET;
+    if (!syncSecret || Buffer.byteLength(syncSecret, 'utf8') < 32) {
+      return res.status(503).json({ error: 'Production sync authentication is not configured' });
+    }
+    const contentLength = req.headers['content-length'];
+    const syncSize = req.headers['x-sync-size'];
+    if (
+      typeof contentLength !== 'string'
+      || typeof syncSize !== 'string'
+      || contentLength !== syncSize
+      || !/^\d+$/.test(contentLength)
+    ) {
+      return res.status(400).json({ error: 'Production sync size headers are missing or ambiguous' });
+    }
+    const auth: ProductionSyncAuth = {
+      timestamp: Number(req.headers['x-sync-timestamp']),
+      nonce: String(req.headers['x-sync-nonce'] || ''),
+      size: Number(syncSize),
+      sha256: String(req.headers['x-sync-sha256'] || ''),
+      signature: String(req.headers['x-sync-signature'] || ''),
+    };
+    const authResult = verifyProductionSyncAuth(syncSecret, auth);
+    if (!authResult.ok) {
+      return res.status(401).json({ error: authResult.error });
+    }
+    const startTime = Date.now();
+    productionSyncInProgress = true;
+    let tempDir: string | null = null;
+
+    try {
+      const nonceClaim = await pool.query(
+        `INSERT INTO production_sync_nonces (nonce, archive_sha256, archive_size)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (nonce) DO NOTHING
+         RETURNING nonce`,
+        [auth.nonce, auth.sha256.toLowerCase(), auth.size],
+      );
+      if (nonceClaim.rowCount !== 1) {
+        return res.status(409).json({ error: 'This production sync request has already been used' });
+      }
+
+      tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'modulo-production-sync-'));
+      const archivePath = path.join(tempDir, 'sync.dump');
+      const received = await receiveSyncArchive(req, archivePath, auth.size);
+      if (received.size !== auth.size || received.sha256 !== auth.sha256.toLowerCase()) {
+        return res.status(400).json({ error: 'Production sync archive failed integrity validation' });
+      }
+
+      const { exec, execFile } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const execAsync = promisify(exec);
+      const execFileAsync = promisify(execFile);
+      const { stdout: archiveList } = await execFileAsync('pg_restore', ['--list', archivePath], {
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      assertAllowedProductionSyncArchive(archiveList);
+      assertManagedPostgresCliEnvironment();
+
+      const truncateSQL = `TRUNCATE ${PRODUCTION_SYNC_CLEAR_TABLES.map((table) => `public.${table}`).join(', ')};`;
+      const tableFlags = PRODUCTION_SYNC_TABLES.map((table) => `--table=public.${table}`).join(' ');
+      const tempTableSQL = PRODUCTION_SYNC_TABLES
+        .map((table) => `CREATE TEMP TABLE sync_${table} (LIKE public.${table} INCLUDING DEFAULTS) ON COMMIT DROP;`)
+        .join('\n');
+      const insertReplacementSQL = PRODUCTION_SYNC_REPLACE_TABLES
+        .map((table) => `INSERT INTO public.${table} SELECT * FROM pg_temp.sync_${table};`)
+        .join('\n');
+      const allowedCopyPattern = PRODUCTION_SYNC_TABLES.join('|');
+      const applySQL = `
+        DO $sync$
+        DECLARE
+          column_list text;
+          update_list text;
+        BEGIN
+          SELECT
+            string_agg(format('%I', attname), ', ' ORDER BY attnum),
+            string_agg(format('%I = EXCLUDED.%I', attname, attname), ', ' ORDER BY attnum)
+              FILTER (WHERE attname <> 'id')
+          INTO column_list, update_list
+          FROM pg_attribute
+          WHERE attrelid = 'public.locations'::regclass
+            AND attnum > 0
+            AND NOT attisdropped
+            AND attgenerated = '';
+          EXECUTE format(
+            'INSERT INTO public.locations (%s) SELECT %s FROM pg_temp.sync_locations ON CONFLICT (id) DO UPDATE SET %s',
+            column_list,
+            column_list,
+            update_list
+          );
+        END
+        $sync$;
+        CREATE TEMP TABLE preserved_rule_log_links ON COMMIT DROP AS
+          SELECT id, rule_id FROM public.adjustment_rule_log WHERE rule_id IS NOT NULL;
+        CREATE TEMP TABLE preserved_polygon_links ON COMMIT DROP AS
+          SELECT id, rent_roll_data_id FROM public.unit_polygons WHERE rent_roll_data_id IS NOT NULL;
+        UPDATE public.adjustment_rule_log SET rule_id = NULL WHERE rule_id IS NOT NULL;
+        UPDATE public.unit_polygons SET rent_roll_data_id = NULL WHERE rent_roll_data_id IS NOT NULL;
+        ${truncateSQL}
+        ${insertReplacementSQL}
+        UPDATE public.adjustment_rule_log log
+          SET rule_id = links.rule_id
+          FROM preserved_rule_log_links links
+          JOIN public.adjustment_rules rule ON rule.id = links.rule_id
+          WHERE log.id = links.id;
+        UPDATE public.unit_polygons polygon
+          SET rent_roll_data_id = links.rent_roll_data_id
+          FROM preserved_polygon_links links
+          JOIN public.rent_roll_data rent_roll ON rent_roll.id = links.rent_roll_data_id
+          WHERE polygon.id = links.id;
+      `;
+      const restoreCommand = `
+        set -o pipefail
+        {
+          printf "%s\\n" "BEGIN;" "SET LOCAL lock_timeout = '30s';" "SET LOCAL statement_timeout = '15min';" "SELECT pg_advisory_xact_lock(hashtext('modulo-production-data-sync'));" "$SYNC_TEMP_TABLE_SQL"
+          pg_restore --data-only --no-owner --no-acl ${tableFlags} --file=- "$SYNC_ARCHIVE" |
+            awk '/^COPY / { if ($0 !~ /^COPY public\\.(${allowedCopyPattern}) /) exit 42; sub(/^COPY public\\./, "COPY pg_temp.sync_"); copies++ } { print } END { if (copies != ${PRODUCTION_SYNC_TABLES.length}) exit 43 }'
+          pipeline_status=("\${PIPESTATUS[@]}")
+          restore_status="\${pipeline_status[0]}"
+          transform_status="\${pipeline_status[1]}"
+          if [ "$restore_status" -eq 0 ] && [ "$transform_status" -eq 0 ]; then
+            printf "%s\\n" "$SYNC_APPLY_SQL" "COMMIT;"
+            exit 0
+          else
+            printf "%s\\n" "ROLLBACK;"
+            if [ "$restore_status" -ne 0 ]; then exit "$restore_status"; else exit "$transform_status"; fi
+          fi
+        } | psql -v ON_ERROR_STOP=1
+      `;
+      await execAsync(restoreCommand, {
+        shell: '/bin/bash',
+        env: {
+          ...process.env,
+          SYNC_ARCHIVE: archivePath,
+          SYNC_TEMP_TABLE_SQL: tempTableSQL,
+          SYNC_APPLY_SQL: applySQL,
+        },
+        maxBuffer: 20 * 1024 * 1024,
+        timeout: 15 * 60 * 1000,
+      });
+
+      const rowCounts: Record<string, number> = {};
+      const countSQL = PRODUCTION_SYNC_TABLES
+        .map((table) => `SELECT '${table}' AS table_name, COUNT(*)::bigint AS row_count FROM ${table}`)
+        .join(' UNION ALL ');
+      const countResult = await pool.query(countSQL);
+      for (const row of countResult.rows) rowCounts[String(row.table_name)] = Number(row.row_count) || 0;
+      const durationSeconds = Math.round((Date.now() - startTime) / 1000);
+      const totalRows = Object.values(rowCounts).reduce((sum, count) => sum + count, 0);
+      console.log(`[receive-production-sync] nonce=${auth.nonce} hash=${auth.sha256.slice(0, 12)} size=${auth.size} completed in ${durationSeconds}s — ${totalRows.toLocaleString()} rows`);
+      return res.json({ success: true, tables: rowCounts, durationSeconds, totalRows });
+    } catch (error: any) {
+      console.error('[receive-production-sync] failed:', String(error?.message || error).slice(0, 2000));
+      if (error?.code === '42P01') {
+        return res.status(503).json({
+          error: 'The production sync schema is not ready. Publish the latest version to apply it, then retry.',
+        });
+      }
+      return res.status(500).json({ error: 'Production rejected the data sync; existing data was preserved' });
+    } finally {
+      productionSyncInProgress = false;
+      if (tempDir) await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await pool.query(`DELETE FROM production_sync_nonces WHERE used_at < NOW() - INTERVAL '1 day'`).catch(() => {});
+    }
+  });
+
+  // POST /api/admin/sync-to-production — export approved upload/config tables
+  // from development and send them to the published app's authenticated receiver.
   // Auth: x-seed-secret header OR logged-in admin session.
   app.post('/api/admin/sync-to-production', async (req: any, res) => {
     const seedSecret = req.headers['x-seed-secret'];
@@ -1516,107 +1710,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    const prodUrl = process.env.NEON_DATABASE_URL;
-    const devUrl = process.env.DATABASE_URL;
-    if (!prodUrl) {
-      return res.status(500).json({ error: 'NEON_DATABASE_URL is not set — production database URL is required' });
+    const productionAppUrl = process.env.PRODUCTION_APP_URL;
+    const syncSecret = process.env.PRODUCTION_SYNC_HMAC_SECRET;
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(400).json({ error: 'Start production sync from the development app, not the published app' });
     }
-    if (prodUrl === devUrl) {
-      return res.status(400).json({ error: 'Dev and production database URLs are identical — sync aborted to prevent data loss' });
+    if (!productionAppUrl) {
+      return res.status(500).json({ error: 'PRODUCTION_APP_URL is not configured' });
     }
-
-    // Tables to sync, in FK-safe load order (parents before children).
-    // TRUNCATE uses CASCADE so dependent computed/cached tables are also cleared in prod.
-    const SYNC_TABLES = [
-      'locations',
-      'room_type_groupings',
-      'care_level_rates',
-      'adjustment_rules',
-      'rent_roll_data',
-      'rent_roll_history',
-      'competitive_survey_data',
-      'room_type_occupancy_history',
-      'move_in_out_events',
-      'guardrails',
-      'pricing_weights',
-      'targets_and_trends',
-      'assumptions',
-      'manual_rate_overrides',
-      'upload_history',
-    ];
+    if (!syncSecret || Buffer.byteLength(syncSecret, 'utf8') < 32) {
+      return res.status(500).json({ error: 'Production sync authentication is not configured' });
+    }
 
     const startTime = Date.now();
-    console.log(`[sync-to-production] Starting sync of ${SYNC_TABLES.length} tables`);
+    console.log(`[sync-to-production] Starting signed export of ${PRODUCTION_SYNC_TABLES.length} tables`);
+    let tempDir: string | null = null;
 
     try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execAsync = promisify(exec);
-
-      const env = { ...process.env, DEV_URL: devUrl, PROD_URL: prodUrl };
-
-      // Preflight the target before any destructive operation. A stale Neon
-      // endpoint can be disabled while its URL remains in the workspace secret;
-      // fail clearly here instead of making the first visible operation a
-      // TRUNCATE.
-      console.log(`[sync-to-production] Checking production database connectivity…`);
-      await execAsync(`psql "$PROD_URL" -v ON_ERROR_STOP=1 -t -c "SELECT 1;"`, {
-        env,
-        shell: '/bin/bash',
-        timeout: 30_000,
+      tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'modulo-development-sync-'));
+      const archivePath = path.join(tempDir, 'sync.dump');
+      const { execFile } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const execFileAsync = promisify(execFile);
+      assertManagedPostgresCliEnvironment();
+      const tableArgs = PRODUCTION_SYNC_TABLES.flatMap((table) => ['--table', table]);
+      await execFileAsync('pg_dump', [
+        '--format=custom',
+        '--compress=9',
+        '--data-only',
+        '--no-acl',
+        '--no-owner',
+        ...PRODUCTION_SYNC_TABLES.flatMap((table) => ['--table', `public.${table}`]),
+        '--file',
+        archivePath,
+      ], {
+        env: process.env,
+        maxBuffer: 20 * 1024 * 1024,
+        timeout: 10 * 60 * 1000,
       });
+      await fs.promises.chmod(archivePath, 0o600);
 
-      // Step 1: Truncate all sync tables on prod (CASCADE clears derived/computed dependents)
-      const truncateSQL = `TRUNCATE ${SYNC_TABLES.join(', ')} CASCADE;`;
-      console.log(`[sync-to-production] Truncating tables in prod…`);
-      await execAsync(`psql "$PROD_URL" -v ON_ERROR_STOP=1 -c "${truncateSQL}"`, {
-        env,
-        shell: '/bin/bash',
-        timeout: 120_000,
-      });
-
-      // Step 2: Dump data from dev and stream into prod.
-      //         pg_dump with multiple -t flags emits tables in FK-dependency order.
-      const tableFlags = SYNC_TABLES.map(t => `-t ${t}`).join(' ');
-      console.log(`[sync-to-production] Copying data from dev to prod…`);
-      const { stderr } = await execAsync(
-        `set -o pipefail; pg_dump --data-only --no-acl --no-owner ${tableFlags} "$DEV_URL" | psql "$PROD_URL" -v ON_ERROR_STOP=1`,
-        { env, shell: '/bin/bash', maxBuffer: 1024 * 1024 * 1024, timeout: 600_000 }
-      );
-      if (stderr && !stderr.includes('COPY') && !stderr.includes('SET')) {
-        console.warn(`[sync-to-production] pg_dump stderr:`, stderr.slice(0, 500));
+      const archiveStats = await fs.promises.stat(archivePath);
+      const archiveHash = await sha256File(archivePath);
+      const auth = createProductionSyncAuth(syncSecret, archiveStats.size, archiveHash);
+      const response = await postProductionSyncArchive(productionAppUrl, archivePath, auth);
+      let responseBody: any = null;
+      try {
+        responseBody = JSON.parse(response.body);
+      } catch {
+        // A previous deployment without the receiver returns its normal HTML 404.
       }
-
-      // Step 3: Query row counts from prod to confirm the transfer.
-      const rowCounts: Record<string, number> = {};
-      for (const table of SYNC_TABLES) {
-        try {
-          const { stdout } = await execAsync(
-            `psql "$PROD_URL" -t -c "SELECT COUNT(*) FROM ${table};"`,
-            { env, shell: '/bin/bash' }
-          );
-          rowCounts[table] = parseInt(stdout.trim(), 10) || 0;
-        } catch {
-          rowCounts[table] = -1;
-        }
-      }
-
-      const durationSeconds = Math.round((Date.now() - startTime) / 1000);
-      const totalRows = Object.values(rowCounts).reduce((a, b) => a + Math.max(b, 0), 0);
-      console.log(`[sync-to-production] Done in ${durationSeconds}s — ${totalRows.toLocaleString()} rows across ${SYNC_TABLES.length} tables`);
-
-      res.json({ success: true, tables: rowCounts, durationSeconds, totalRows });
-    } catch (e: any) {
-      const errorText = [e?.message, e?.stderr, e?.stdout].filter(Boolean).join('\n');
-      if (/endpoint has been disabled/i.test(errorText)) {
-        console.error('[sync-to-production] production endpoint is disabled; no sync data was copied');
+      if (response.statusCode === 404) {
         return res.status(503).json({
-          code: 'PRODUCTION_DATABASE_DISABLED',
-          error: 'The configured production database endpoint is disabled. In Replit, open Database → Production → Settings, copy the current connection string into the NEON_DATABASE_URL secret, restart this workflow, and retry. No production data was changed.',
+          error: 'The published app does not have the secure sync receiver yet. Publish the latest version, then retry.',
         });
       }
-      console.error('[sync-to-production] error:', errorText.slice(0, 2000));
-      res.status(500).json({ error: e.message || 'Sync failed' });
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return res.status(response.statusCode >= 400 && response.statusCode < 600 ? response.statusCode : 502).json({
+          error: responseBody?.error || `Published app rejected the sync (HTTP ${response.statusCode})`,
+        });
+      }
+      const durationSeconds = Math.round((Date.now() - startTime) / 1000);
+      console.log(`[sync-to-production] Published app accepted sync in ${durationSeconds}s`);
+      return res.json({ ...responseBody, durationSeconds });
+    } catch (e: any) {
+      console.error('[sync-to-production] error:', String(e?.message || e).slice(0, 2000));
+      return res.status(500).json({ error: 'Failed to prepare or transfer the production sync archive' });
+    } finally {
+      if (tempDir) await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
   });
 

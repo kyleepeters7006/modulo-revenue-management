@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Maximize2 } from "lucide-react";
+import { MapPin, Maximize2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -62,6 +62,7 @@ export function CompetitorMap({
 }: CompetitorMapProps = {}) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const { clientShortName } = useAuth();
   
   // Build query params for filtering
@@ -92,6 +93,24 @@ export function CompetitorMap({
     },
     enabled: isAllLocations,
   });
+
+  // Leaflet measures its container when it is created. The container grows
+  // when the card enters expanded mode, so ask Leaflet to recalculate after
+  // the browser has committed the new dimensions.
+  useEffect(() => {
+    if (!isExpanded) return;
+    const refreshMapSize = window.setTimeout(() => {
+      mapInstanceRef.current?.invalidateSize?.({ pan: false });
+    }, 0);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsExpanded(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.clearTimeout(refreshMapSize);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isExpanded]);
 
   useEffect(() => {
     let mounted = true;
@@ -544,9 +563,9 @@ export function CompetitorMap({
         ].filter(Boolean) as string[];
 
         marker.bindPopup(`
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: ${slBreakdown.length ? '360px' : '300px'}; max-width: ${slBreakdown.length ? '420px' : '340px'}; padding: 0; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.08);">
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; width: min(${slBreakdown.length ? '420px' : '340px'}, calc(100vw - 88px)); min-width: 0; max-width: calc(100vw - 88px); padding: 0; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.08);">
             <!-- Header with gradient background -->
-            <div style="background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: white; padding: 13px 16px; position: relative;">
+            <div style="background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: white; padding: 13px 50px 13px 16px; position: relative;">
               <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 5px;">
                 <h3 style="margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.5px; line-height: 1.3;">${esc(competitor.name)}</h3>
                 <span style="background: rgba(255,255,255,0.2); color: white; padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0;">COMPETITOR</span>
@@ -661,6 +680,8 @@ export function CompetitorMap({
           // and action buttons, which is taller than the card.
           maxWidth: slBreakdown.length ? 420 : 340,
           maxHeight: 340,
+          closeButton: true,
+          autoPanPadding: [30, 30],
         });
       });
       
@@ -724,8 +745,8 @@ export function CompetitorMap({
           .addTo(mapInstanceRef.current);
 
         portfolioMarker.bindPopup(`
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-width: ${stats ? '560px' : '220px'}; max-width: ${stats ? '600px' : '280px'}; padding: 0; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.10);">
-            <div style="background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%); color: white; padding: ${stats ? '13px 16px' : '16px'};">
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; width: min(${stats ? '560px' : '280px'}, calc(100vw - 88px)); min-width: 0; max-width: calc(100vw - 88px); padding: 0; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.10);">
+            <div style="background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%); color: white; padding: ${stats ? '13px 50px 13px 16px' : '16px 50px 16px 16px'};">
               <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: ${stats ? '5px' : '6px'};">
                 <h3 style="margin: 0; font-size: ${stats ? '15px' : '15px'}; font-weight: 600; letter-spacing: -0.3px; line-height: 1.3;">${esc(loc.name)}</h3>
                 <span style="background: rgba(255,255,255,0.2); color: white; padding: 3px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0;">PORTFOLIO</span>
@@ -790,8 +811,10 @@ export function CompetitorMap({
             ` : ''}
           </div>
         `, {
-          maxWidth: stats ? 600 : 280,
-          maxHeight: 340,
+          maxWidth: stats ? 560 : 280,
+          maxHeight: 300,
+          closeButton: true,
+          autoPanPadding: [30, 30],
         });
       });
 
@@ -847,7 +870,14 @@ export function CompetitorMap({
   }
 
   return (
-    <div className="dashboard-card">
+    <div
+      className={isExpanded
+        ? "fixed inset-2 sm:inset-4 z-[1000] flex max-h-[calc(100vh-1rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-2xl sm:max-h-[calc(100vh-2rem)]"
+        : "dashboard-card"}
+      role={isExpanded ? "dialog" : undefined}
+      aria-modal={isExpanded ? true : undefined}
+      aria-label={isExpanded ? "Expanded competitor map" : undefined}
+    >
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-lg font-semibold text-[var(--dashboard-text)]" data-testid="text-map-title">
@@ -884,8 +914,11 @@ export function CompetitorMap({
             size="icon"
             className="text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-[var(--dashboard-bg)]"
             data-testid="button-map-fullscreen"
+            onClick={() => setIsExpanded((expanded) => !expanded)}
+            aria-label={isExpanded ? "Close expanded competitor map" : "Expand competitor map"}
+            title={isExpanded ? "Close expanded map" : "Expand map"}
           >
-            <Maximize2 className="h-5 w-5" />
+            {isExpanded ? <X className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
           </Button>
         </div>
       </div>
@@ -895,7 +928,11 @@ export function CompetitorMap({
         className="h-96 w-full bg-[var(--dashboard-bg)] border border-[var(--dashboard-border)] rounded-lg relative"
         data-testid="map-container"
         aria-label="Interactive competitor map"
-        style={{ minHeight: '400px', height: '400px' }}
+        style={{
+          minHeight: isExpanded ? '240px' : '400px',
+          height: isExpanded ? 'calc(100vh - 150px)' : '400px',
+          flex: isExpanded ? '1 1 auto' : undefined,
+        }}
       >
         <div className="absolute inset-0 flex items-center justify-center text-[var(--dashboard-muted)]">
           <div className="text-center">

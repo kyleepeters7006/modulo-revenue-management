@@ -842,6 +842,23 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
     negativeImpact:    effectiveRulesForTotal.filter((r: any) => (r.annualImpact || 0) < 0).reduce((s: number, r: any) => s + r.annualImpact, 0),
     totalSteadyState:  effectiveRulesForTotal.reduce((s: number, r: any) => s + (r.steadyStateAnnualImpact ?? r.annualImpact ?? 0), 0),
   }), [effectiveRulesForTotal]);
+  // An active conditional rule can legitimately have no current impact when
+  // its trigger is not met. Present that state explicitly instead of showing
+  // "+$0", which reads like a broken positive-dollar calculation.
+  const hasAnyCurrentRuleImpact = useMemo(
+    () => effectiveRulesForTotal.some((r: any) =>
+      Math.abs(Number(r.annualImpact) || 0) >= 0.5
+      || Math.abs(Number(r.steadyStateAnnualImpact) || 0) >= 0.5
+    ),
+    [effectiveRulesForTotal],
+  );
+  const currentlyQualifyingUnits = useMemo(
+    () => effectiveRulesForTotal.reduce(
+      (sum: number, r: any) => sum + Math.max(0, Number(r.affectedUnits) || 0),
+      0,
+    ),
+    [effectiveRulesForTotal],
+  );
 
   const fmtImpact = (v: number, sign = true) => {
     const abs = Math.abs(v);
@@ -1143,10 +1160,19 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
                 <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400">First-Year Rule Impact</p>
                 <Info className="h-2.5 w-2.5 text-slate-300 group-hover:text-teal-400 transition-colors" />
               </div>
-              <p className={`text-3xl font-black leading-none tracking-tight ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                {fmtImpact(totalAnnualImpact)}
+              <p className={`font-black leading-none tracking-tight ${
+                hasAnyCurrentRuleImpact
+                  ? `text-3xl ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`
+                  : 'text-xl text-slate-500'
+              }`}>
+                {hasAnyCurrentRuleImpact ? fmtImpact(totalAnnualImpact) : 'No Current Impact'}
               </p>
-              {totalSteadyState !== totalAnnualImpact && (
+              {!hasAnyCurrentRuleImpact && (
+                <p className="text-[11px] font-semibold text-slate-400 mt-1">
+                  {currentlyQualifyingUnits.toLocaleString()} units currently qualify
+                </p>
+              )}
+              {hasAnyCurrentRuleImpact && totalSteadyState !== totalAnnualImpact && (
                 <p className="text-[11px] font-semibold text-slate-400 mt-0.5">
                   {fmtImpact(totalSteadyState)}/yr fully ramped
                 </p>
@@ -1180,8 +1206,19 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
               <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-lg">
                 <div className="text-center">
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">First-Year Net Impact</p>
-                  <p className={`text-2xl font-black ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact)}</p>
-                  {totalSteadyState !== totalAnnualImpact && (
+                  <p className={`font-black ${
+                    hasAnyCurrentRuleImpact
+                      ? `text-2xl ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`
+                      : 'text-lg text-slate-500'
+                  }`}>
+                    {hasAnyCurrentRuleImpact ? fmtImpact(totalAnnualImpact) : 'No Current Impact'}
+                  </p>
+                  {!hasAnyCurrentRuleImpact && (
+                    <p className="text-[11px] font-semibold text-slate-400 mt-0.5">
+                      {currentlyQualifyingUnits.toLocaleString()} units currently qualify
+                    </p>
+                  )}
+                  {hasAnyCurrentRuleImpact && totalSteadyState !== totalAnnualImpact && (
                     <p className="text-[11px] font-semibold text-slate-400 mt-0.5">{fmtImpact(totalSteadyState)}/yr once fully ramped</p>
                   )}
                 </div>
@@ -1580,7 +1617,18 @@ function PricingCommentaryCard({ selectedServiceLine, selectedLocations, selecte
           <div className="flex sm:hidden gap-6 mt-3 pt-3 border-t border-slate-100">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">First-Year Net Impact</p>
-              <p className={`text-2xl font-black leading-tight ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmtImpact(totalAnnualImpact)}</p>
+              <p className={`font-black leading-tight ${
+                hasAnyCurrentRuleImpact
+                  ? `text-2xl ${totalAnnualImpact >= 0 ? 'text-emerald-600' : 'text-red-600'}`
+                  : 'text-lg text-slate-500'
+              }`}>
+                {hasAnyCurrentRuleImpact ? fmtImpact(totalAnnualImpact) : 'No Current Impact'}
+              </p>
+              {!hasAnyCurrentRuleImpact && (
+                <p className="text-[11px] font-semibold text-slate-400">
+                  {currentlyQualifyingUnits.toLocaleString()} units currently qualify
+                </p>
+              )}
             </div>
           </div>
         )}

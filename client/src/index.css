@@ -372,3 +372,33 @@ input[type="range"]::-moz-range-thumb {
 .leaflet-popup-pane {
   z-index: 850;
 }
+
+/* Keep Leaflet's close control above rich popup content. The map popups use
+   wide comparison tables, so the default tiny text-only button can otherwise
+   disappear against the header or sit outside a narrow viewport. */
+.leaflet-popup-close-button {
+  z-index: 10 !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 30px !important;
+  height: 30px !important;
+  padding: 0 !important;
+  border-radius: 0 8px 0 8px;
+  color: #475569 !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  font-size: 22px !important;
+  line-height: 30px !important;
+  text-align: center;
+}
+
+.leaflet-popup-close-button:hover,
+.leaflet-popup-close-button:focus {
+  color: #0f172a !important;
+  background: #ffffff !important;
+}
+
+.leaflet-popup-content {
+  margin: 0 !important;
+  max-width: calc(100vw - 56px);
+}

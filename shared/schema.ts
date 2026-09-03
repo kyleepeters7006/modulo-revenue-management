@@ -28,6 +28,16 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
+// Durable replay protection for authenticated development→production data sync.
+// The receiver inserts the nonce before accepting an archive; duplicate signed
+// requests are rejected even after a production process restart.
+export const productionSyncNonces = pgTable("production_sync_nonces", {
+  nonce: varchar("nonce", { length: 80 }).primaryKey(),
+  archiveSha256: varchar("archive_sha256", { length: 64 }).notNull(),
+  archiveSize: integer("archive_size").notNull(),
+  usedAt: timestamp("used_at").defaultNow().notNull(),
+});
+
 // Multi-tenant client environments
 export const clients = pgTable("clients", {
   id: varchar("id").primaryKey(), // slug: 'demo', 'trilogy', 'glm', 'ssmg', 'heritage'

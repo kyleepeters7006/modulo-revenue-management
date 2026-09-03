@@ -199,3 +199,7 @@ timeoutMs = 60000
 [userenv]
 
 [userenv.development]
+
+[userenv.shared]
+ENABLE_PRODUCTION_SYNC_RECEIVER = "true"
+PRODUCTION_APP_URL = "https://modulorm.com"
