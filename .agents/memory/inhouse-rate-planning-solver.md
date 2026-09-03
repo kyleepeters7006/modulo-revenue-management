@@ -62,3 +62,15 @@ line": the save succeeds and the value is never read back.
 
 **How to apply:** enumerate the read tiers from the writer's actual key space,
 not from the ones that seemed likely.
+
+When the UI requests several service lines together, an unavailable line must not
+discard valid plans for the other lines. Calculate each line independently, show
+successful results, and report skipped lines; a request for one unavailable line
+should still fail clearly.
+
+**Why:** campuses commonly do not offer every portfolio service line, so
+`Promise.all` turned one legitimate "no occupied rows" response into a misleading
+whole-page calculation failure.
+
+**How to apply:** use settled per-line requests for the multi-line calculate action,
+while retaining the server's precise `PlanningDataError` for the skipped-line message.

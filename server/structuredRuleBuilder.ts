@@ -46,11 +46,12 @@ type Op = '>' | '<' | '>=' | '<=' | '=' | '!=';
 // Must stay consistent with METRIC_TO_FIELD in naturalLanguageParser.ts:
 // 'fraction' metrics are stored 0–1 by the engine; 'raw' metrics keep the
 // number exactly as written (0–100 percents, day counts, unit counts).
-const METRIC_MAP: Record<string, { field: string; scale: 'fraction' | 'raw'; trailing?: boolean }> = {
+const METRIC_MAP: Record<string, { field: string; scale: 'fraction' | 'raw' | 'rating'; trailing?: boolean }> = {
   'campus occupancy':                                     { field: 'occupancy', scale: 'fraction', trailing: true },
   'service line occupancy':                               { field: 'service_line_occupancy', scale: 'fraction', trailing: true },
   'room type occupancy':                                  { field: 'room_type_occupancy', scale: 'fraction', trailing: true },
   'street rate to top comp var %':                        { field: 'street_to_comp_var', scale: 'raw' },
+  'street rate to average comp var %':                    { field: 'competitor_variance', scale: 'raw' },
   'in house to street rate var % - single occupant':      { field: 'ih_street_variance', scale: 'raw' },
   'competitor rate variance %':                           { field: 'competitor_variance', scale: 'raw' },
   'competitor rate':                                      { field: 'competitor_variance', scale: 'raw' }, // legacy saved payloads
@@ -63,6 +64,11 @@ const METRIC_MAP: Record<string, { field: string; scale: 'fraction' | 'raw'; tra
   'snf private pay mix':                                  { field: 'quality_mix', scale: 'raw' },
   'private-pay mix %':                                    { field: 'quality_mix', scale: 'raw' }, // legacy saved payloads
   'quality mix':                                          { field: 'quality_mix', scale: 'raw' }, // legacy saved payloads
+  'location rating':                                      { field: 'location_rating', scale: 'rating' },
+  'size rating':                                          { field: 'size_rating', scale: 'rating' },
+  'view rating':                                          { field: 'view_rating', scale: 'rating' },
+  'renovation rating':                                    { field: 'renovation_rating', scale: 'rating' },
+  'amenity rating':                                       { field: 'amenity_rating', scale: 'rating' },
 };
 
 const OPERATOR_MAP: Record<string, Op> = {
@@ -179,7 +185,7 @@ export function buildRuleFromStructured(
   if (Object.keys(filters).length > 0) action.filters = filters;
 
   // ── Conditions ────────────────────────────────────────────────────────
-  const out: Array<{ field: string; operator: Op; value: number }> = [];
+  const out: Array<{ field: string; operator: Op; value: number | string }> = [];
   const conds = Array.isArray(payload.conditions) ? payload.conditions : [];
   const rawCondOp = payload.conditionOperator ?? 'AND';
   if (rawCondOp !== 'AND' && rawCondOp !== 'OR') {
@@ -201,6 +207,19 @@ export function buildRuleFromStructured(
       return { ok: false, reason: `"${c.metric}" has no trailing-window variant` };
     }
     const field = spec.field + (spec.trailing ? suffix : '');
+
+    if (spec.scale === 'rating') {
+      if (String(c.operator).trim().toLowerCase() !== 'equals') {
+        return { ok: false, reason: `"${c.metric}" only supports equals` };
+      }
+      const rating = String(c.value).trim();
+      const normalized = rating.toUpperCase() === 'BLANK' ? 'Blank' : rating.toUpperCase();
+      if (!['A', 'B', 'C', 'Blank'].includes(normalized)) {
+        return { ok: false, reason: `"${c.metric}" must be A, B, C, or Blank` };
+      }
+      out.push({ field, operator: '=', value: normalized });
+      continue;
+    }
 
     if (String(c.operator).trim().toLowerCase() === 'is between') {
       if (conditionOperator === 'OR' && conds.length > 1) {

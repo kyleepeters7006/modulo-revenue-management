@@ -323,6 +323,28 @@ console.log('\n=== 6. HC/MC resolves under the HC facility record ===\n');
 }
 
 // ---------------------------------------------------------------------------
+// Test 7 — harmless punctuation/spacing differences still reach the static,
+// authoritative campus mapping.
+// ---------------------------------------------------------------------------
+console.log('\n=== 7. KeyStats aliases resolve through normalized names ===\n');
+
+{
+  const spacedAlias: FacilityLocation = {
+    name: 'Batesville - 120',
+    matrixCareNameHC: null,
+    matrixCareNameAL: null,
+    matrixCareNameIL: null,
+    customerFacilityIdHC: null,
+    customerFacilityIdAL: null,
+    customerFacilityIdIL: null,
+  };
+  const result = resolveMatrixCareFacility(spacedAlias, 'HC');
+  assert('Spaced Batesville alias uses the authoritative MatrixCare name', result.name, 'St. Andrews Health Campus HC');
+  assert('Spaced Batesville alias uses the authoritative customer facility id', result.customerId, '18-0120-HC');
+  assert('Spaced Batesville alias is reported as mapped', result.mapped, true);
+}
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===\n`);

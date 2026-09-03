@@ -151,7 +151,12 @@ async function login(): Promise<string> {
 function policyChecks() {
   console.log('\n── impact-selection policy ──');
   const streetAction = { target: 'street_rate', adjustmentType: 'percentage', adjustmentValue: 5 };
-  const naive = { unitsImpacted: 7, monthlyImpact: 700, annualImpact: 8400 };
+  const naive = {
+    unitsImpacted: 7,
+    monthlyImpact: 700,
+    annualImpact: 8400,
+    campuses: [{ campusName: 'Naive Campus', unitCount: 7 }],
+  };
 
   // No context at all: the naive estimate is the documented street-rate fallback.
   const noCtx = selectSuggestionImpact(null, {
@@ -160,6 +165,10 @@ function policyChecks() {
   });
   ok('street rule with no impact context falls back to the naive estimate',
     noCtx.monthlyImpact === 700 && noCtx.unitsImpacted === 7 && noCtx.basis === 'unavailable');
+  ok('the naive fallback carries the campuses behind its unit count',
+    noCtx.campuses.length === 1
+      && noCtx.campuses[0].campusName === 'Naive Campus'
+      && noCtx.campuses[0].unitCount === 7);
 
   // In-house rules must never borrow the naive number — it counts vacant units.
   const ih = selectSuggestionImpact(null, {
@@ -291,6 +300,35 @@ async function main() {
   policyChecks();
   emptyScopeChecks(ctx, parsed, portfolioWide.monthlyImpact);
 
+  const selectedForCard = selectSuggestionImpact(ctx, {
+    action: parsed.action,
+    trigger: parsed.trigger,
+    serviceLines: bothSLs,
+    locationId: null,
+    scopeLocationIds: scopeIds,
+    naive: {
+      unitsImpacted: 0,
+      monthlyImpact: null,
+      annualImpact: null,
+      computedForLocationId: null,
+    },
+  });
+  ok('suggestion campus count comes from the qualified impact result',
+    selectedForCard.campuses.length === expected.affectedCampuses,
+    `selected=${selectedForCard.campuses.length}, expected=${expected.affectedCampuses}`);
+  ok('suggestion campus unit totals reconcile to the displayed unit count',
+    selectedForCard.campuses.reduce((sum, campus) => sum + campus.unitCount, 0) === selectedForCard.unitsImpacted,
+    `campus units=${selectedForCard.campuses.reduce((sum, campus) => sum + campus.unitCount, 0)}, displayed=${selectedForCard.unitsImpacted}`);
+  ok('suggestion exposes the qualified monthly calculation inputs',
+    selectedForCard.calculation.basis === 'qualified'
+      && selectedForCard.calculation.moveInsPerMonth != null
+      && selectedForCard.calculation.avgRateChange != null,
+    `calculation=${JSON.stringify(selectedForCard.calculation)}`);
+  ok('suggestion annual calculation uses the first-year multiplier',
+    selectedForCard.calculation.annualMultiplier === 78
+      && Math.round((selectedForCard.calculation.monthlyImpactBeforeRounding ?? 0) * 78) === expected.annualImpact,
+    `multiplier=${selectedForCard.calculation.annualMultiplier}, rawMonthly=${selectedForCard.calculation.monthlyImpactBeforeRounding}, annual=${expected.annualImpact}`);
+
   // Seed the cached run exactly as generation would, carrying the campus scope
   // and the figures shown on the card.
   const suggestionId = '11111111-2222-3333-4444-555555555555';
@@ -306,6 +344,7 @@ async function main() {
       trigger: parsed.trigger,
       action: parsed.action,
       unitsImpacted: expected.affectedUnits,
+      affectedCampuses: selectedForCard.campuses,
       monthlyImpact: expected.monthlyImpact,
       annualImpact: expected.annualImpact,
     }],
@@ -318,6 +357,19 @@ async function main() {
   );
 
   const cookie = await login();
+  const restoredRes = await fetch(`${BASE}/api/adjustment-rules/suggest/last`, {
+    headers: { Cookie: cookie },
+  });
+  if (!restoredRes.ok) {
+    throw new Error(`cached suggestion restore failed: ${restoredRes.status} ${await restoredRes.text()}`);
+  }
+  const restoredPayload = await restoredRes.json();
+  const restoredCard = restoredPayload?.suggestions?.[0];
+  ok('cached cards with campus data are enriched with calculation inputs',
+    restoredCard?.impactCalculation?.basis === 'qualified'
+      && restoredCard?.impactCalculation?.annualMultiplier === 78,
+    `impactCalculation=${JSON.stringify(restoredCard?.impactCalculation)}`);
+
   const res = await fetch(`${BASE}/api/adjustment-rules/suggestions/accept`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: cookie },

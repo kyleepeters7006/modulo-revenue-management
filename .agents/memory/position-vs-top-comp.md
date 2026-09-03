@@ -33,6 +33,15 @@ product nearly every competitor publishes.
 - Verify by asserting point-level parity between the KPI and the chart for the same location and
   service line, across every service line — VIL and SL exercise the no-Studio fallback.
 
+The rule designer exposes two distinct comparisons. “Street Rate to Average Comp
+Var %” uses paired unit-level competitor rates; “Street Rate to Top Comp Var %”
+uses the weight-selected survey benchmark above. Never populate both fields from
+the same benchmark merely because top-comp data is available.
+
+**Why:** identical calculations under two differently labelled options made the
+average-comp choice misleading and prevented users from expressing the intended
+rule.
+
 ## Known coverage gap (affects both surfaces equally)
 A location/service line with no survey rows of the mapped competitor type yields no position at all.
 This is most visible on AL/MC — see `comp-benchmark-client-id.md`.

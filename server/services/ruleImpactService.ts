@@ -40,6 +40,11 @@ export interface UnitRow {
   days_vacant: number | null;
   competitor_final_rate: number;
   payor_type: string | null;
+  location_rating: string | null;
+  size_rating: string | null;
+  view_rating: string | null;
+  renovation_rating: string | null;
+  amenity_rating: string | null;
 }
 
 interface GroupAgg {
@@ -130,6 +135,7 @@ export interface RuleImpactResult {
   avgStreetRate: number;           // weighted avg monthly rate across qualified units
   avgRateChange: number;           // move-in-weighted avg $ change per unit per month
   monthlyImpact: number;
+  monthlyImpactBeforeRounding: number;
   annualImpact: number;             // first-year cumulative impact (ramped move-in cohorts)
   steadyStateAnnualImpact: number;  // full-year impact once fully ramped (12 months of cohorts)
   perCampus: RuleCampusImpact[];
@@ -344,7 +350,8 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
             street_rate::float AS street_rate, care_rate::float AS care_rate,
             in_house_rate::float AS in_house_rate,
             occupied_yn, days_vacant, competitor_final_rate::float AS competitor_final_rate,
-            payor_type
+            payor_type, location_rating, size_rating, view_rating,
+            renovation_rating, amenity_rating
      FROM rent_roll_data
      WHERE client_id = $1 AND upload_month = $2`,
     [clientId, latestMonth],
@@ -705,7 +712,7 @@ export async function buildRuleImpactContext(clientId: string): Promise<RuleImpa
 function lookupMetric(
   ctx: RuleImpactContext,
   locId: string, sl: string, rt: string,
-  metric: "occupancy_pct" | "vacant_units" | "street_to_comp_var_pct" | "ih_street_var_pct",
+  metric: "occupancy_pct" | "vacant_units" | "competitor_variance_pct" | "street_to_comp_var_pct" | "ih_street_var_pct",
 ): number | null {
   const keys = [`${locId}|${sl}|${rt}`, `${locId}|${sl}`, locId];
   for (const k of keys) {
@@ -713,6 +720,13 @@ function lookupMetric(
     if (!g || g.total === 0) continue;
     if (metric === "occupancy_pct") return (g.occupied / g.total) * 100;
     if (metric === "vacant_units") return g.total - g.occupied;
+    if (metric === "competitor_variance_pct") {
+      if (g.compN === 0) continue;
+      const avgSt = g.compStSum / g.compN;
+      const avgComp = g.compCSum / g.compN;
+      if (avgComp <= 0) continue;
+      return ((avgSt - avgComp) / avgComp) * 100;
+    }
     if (metric === "street_to_comp_var_pct") {
       // Prefer the survey-based benchmark (same source as the competitive position
       // scatter chart) over the stale competitor_final_rate from the rent roll.
@@ -795,7 +809,7 @@ const OCC_FIELDS = new Set([
  */
 function evalGroupCondition(
   ctx: RuleImpactContext,
-  cond: { field: string; operator: string; value: number },
+  cond: { field: string; operator: string; value: number | string },
   locId: string, sl: string, rt: string,
   isArrayFormat = true,
 ): boolean {
@@ -865,7 +879,10 @@ function evalGroupCondition(
     const g = ctx.metrics.get(`${locId}|${sl}`);
     return cmp(g ? g.total : null, operator, value);
   }
-  if (field === "competitor_rate" || field === "competitor_variance" || field === "street_to_comp_var") {
+  if (field === "competitor_rate" || field === "competitor_variance") {
+    return cmp(lookupMetric(ctx, locId, sl, rt, "competitor_variance_pct"), operator, value);
+  }
+  if (field === "street_to_comp_var") {
     return cmp(lookupMetric(ctx, locId, sl, rt, "street_to_comp_var_pct"), operator, value);
   }
   // In-house-to-street rate variance % (single occupant), computed from the
@@ -942,7 +959,59 @@ export const IMPACT_SCOREABLE_FIELDS: ReadonlySet<string> = new Set([
   'days_vacant',
   'quality_mix', 'private_pay',
   'inquiry_volume', 'tour_volume', 'inquiry_tour_volume', 'inquiry_count', 'tour_count',
+  'location_rating', 'size_rating', 'view_rating', 'renovation_rating', 'amenity_rating',
 ]);
+
+const ATTRIBUTE_FIELDS = new Set([
+  'location_rating', 'size_rating', 'view_rating', 'renovation_rating', 'amenity_rating',
+]);
+
+function attributeConditionPasses(
+  condition: { field: string; operator: string; value: number | string },
+  unit: UnitRow,
+): boolean {
+  if (!ATTRIBUTE_FIELDS.has(condition.field)) return false;
+  const normalize = (v: unknown) => String(v ?? '').trim().toUpperCase() || 'BLANK';
+  const actual = normalize(unit[condition.field as keyof UnitRow]);
+  const expected = normalize(condition.value);
+  return ['=', '==', '==='].includes(condition.operator) && actual === expected;
+}
+
+function unitTriggerPasses(
+  ctx: RuleImpactContext,
+  rule: any,
+  unit: UnitRow,
+  locId: string,
+  sl: string,
+  rt: string,
+): boolean {
+  const trigger = rule.trigger || {};
+  if (trigger.type === 'immediate' || trigger.immediate === true) return true;
+  if (trigger.type === 'time' || trigger.type === 'event') return true;
+  if (trigger.type !== 'condition') return true;
+
+  if (Array.isArray(trigger.conditions)) {
+    const results = trigger.conditions.map((condition: any) =>
+      ATTRIBUTE_FIELDS.has(condition.field)
+        ? attributeConditionPasses(condition, unit)
+        : evalGroupCondition(ctx, condition, locId, sl, rt, true)
+    );
+    return String(trigger.conditionOperator || 'AND').toUpperCase() === 'OR'
+      ? results.some(Boolean)
+      : results.every(Boolean);
+  }
+
+  if (trigger.condition?.field) {
+    if (ATTRIBUTE_FIELDS.has(trigger.condition.field)) {
+      return attributeConditionPasses(trigger.condition, unit);
+    }
+    if (trigger.condition.field === 'days_vacant') {
+      return cmp(Number(unit.days_vacant) || 0, trigger.condition.operator, Number(trigger.condition.value));
+    }
+    return evalGroupCondition(ctx, trigger.condition, locId, sl, rt, false);
+  }
+  return true;
+}
 
 /** Does the rule's trigger pass for this campus/SL/RT group? */
 function groupPassesTrigger(
@@ -1185,9 +1254,11 @@ export function computeQualifiedRuleImpact(
     if (scope?.serviceLine && sl !== scope.serviceLine) continue;
     if ((scope?.locationId || rule.locationId) && locId !== (scope?.locationId || rule.locationId)) continue;
     if (scope?.locationIds && !scope.locationIds.includes(locId)) continue; // empty list = match nothing
-    if (!groupPassesTrigger(ctx, rule, locId, sl, rt)) continue;
-
-    const passing = groupUnits.filter(u => unitPasses(rule, u, ctx.rtgReverse) && !isBBedRow(sl, u.room_number));
+    const passing = groupUnits.filter(u =>
+      unitTriggerPasses(ctx, rule, u, locId, sl, rt) &&
+      unitPasses(rule, u, ctx.rtgReverse) &&
+      !isBBedRow(sl, u.room_number)
+    );
     const qualified = excludeUnitIds ? passing.filter(u => !excludeUnitIds.has(u.id)) : passing;
     overlapExcludedUnits += passing.length - qualified.length;
     if (!qualified.length) continue;
@@ -1286,6 +1357,7 @@ export function computeQualifiedRuleImpact(
       ? (affectedUnits ? Math.round((deltaWeighted / affectedUnits) * 100) / 100 : 0)
       : (moveInsTotal ? Math.round((deltaWeighted / moveInsTotal) * 100) / 100 : 0),
     monthlyImpact: Math.round(monthlyImpact),
+    monthlyImpactBeforeRounding: monthlyImpact,
     annualImpact: Math.round(monthlyImpact * firstYearMult),
     steadyStateAnnualImpact: Math.round(monthlyImpact * steadyMult),
     perCampus: campuses,
@@ -1787,6 +1859,8 @@ export interface SuggestionImpactInput {
     unitsImpacted?: number | null;
     monthlyImpact?: number | null;
     annualImpact?: number | null;
+    monthlyImpactBeforeRounding?: number | null;
+    campuses?: Array<{ campusName: string; unitCount: number }>;
     /**
      * The campus the naive estimate was actually computed under (`null` =
      * portfolio-wide). REQUIRED for the fallback to be considered: the naive
@@ -1802,8 +1876,19 @@ export interface SuggestionImpactResult {
   unitsImpacted: number;
   monthlyImpact: number | null;
   annualImpact: number | null;
+  campuses: Array<{ campusName: string; unitCount: number }>;
+  calculation: SuggestionImpactCalculation;
   /** Where the monthly figure came from, so callers can log or disclose it. */
   basis: 'qualified' | 'naive' | 'unavailable';
+}
+
+export interface SuggestionImpactCalculation {
+  basis: 'qualified' | 'naive' | 'unavailable';
+  affectedUnits: number;
+  moveInsPerMonth: number | null;
+  avgRateChange: number | null;
+  monthlyImpactBeforeRounding: number | null;
+  annualMultiplier: number;
 }
 
 export function selectSuggestionImpact(
@@ -1814,6 +1899,8 @@ export function selectSuggestionImpact(
   let qUnits: number | null = null;
   let qMonthly: number | null = null;
   let qAnnual: number | null = null;
+  let qCampuses: Array<{ campusName: string; unitCount: number }> = [];
+  let qCalculation: SuggestionImpactCalculation | null = null;
 
   if (ctx) {
     try {
@@ -1838,6 +1925,18 @@ export function selectSuggestionImpact(
       qUnits = qi.affectedUnits;
       qMonthly = qi.monthlyImpact;
       qAnnual = qi.annualImpact;
+      qCampuses = qi.perCampus.map(c => ({
+        campusName: c.campusName,
+        unitCount: c.unitCount,
+      }));
+      qCalculation = {
+        basis: 'qualified',
+        affectedUnits: qi.affectedUnits,
+        moveInsPerMonth: target === 'in_house_rate' ? null : qi.moveInsPerMonth,
+        avgRateChange: qi.avgRateChange,
+        monthlyImpactBeforeRounding: qi.monthlyImpactBeforeRounding,
+        annualMultiplier: target === 'in_house_rate' ? 12 : 78,
+      };
     } catch (err) {
       console.error('[ruleImpact] selectSuggestionImpact: qualified impact failed:', err);
     }
@@ -1848,6 +1947,15 @@ export function selectSuggestionImpact(
       unitsImpacted: qUnits ?? 0,
       monthlyImpact: qMonthly,
       annualImpact: qAnnual,
+      campuses: qCampuses,
+      calculation: qCalculation ?? {
+        basis: 'unavailable',
+        affectedUnits: 0,
+        moveInsPerMonth: null,
+        avgRateChange: null,
+        monthlyImpactBeforeRounding: null,
+        annualMultiplier: target === 'in_house_rate' ? 12 : 78,
+      },
       basis: qUnits != null ? 'qualified' : 'unavailable',
     };
   }
@@ -1876,6 +1984,15 @@ export function selectSuggestionImpact(
       unitsImpacted: qUnits ?? 0,
       monthlyImpact: qMonthly,
       annualImpact: qAnnual,
+      campuses: qCampuses,
+      calculation: qCalculation ?? {
+        basis: qUnits != null ? 'qualified' : 'unavailable',
+        affectedUnits: qUnits ?? 0,
+        moveInsPerMonth: target === 'in_house_rate' ? null : null,
+        avgRateChange: null,
+        monthlyImpactBeforeRounding: null,
+        annualMultiplier: target === 'in_house_rate' ? 12 : 78,
+      },
       basis: qUnits != null ? 'qualified' : 'unavailable',
     };
   }
@@ -1883,11 +2000,25 @@ export function selectSuggestionImpact(
   const naiveUnits = Number(input.naive?.unitsImpacted ?? 0) || 0;
   const naiveMonthly = input.naive?.monthlyImpact ?? null;
   const naiveAnnual = input.naive?.annualImpact ?? null;
+  const naiveCampusBreakdown = input.naive?.campuses ?? [];
+  const naiveCalculation: SuggestionImpactCalculation = {
+    basis: 'naive',
+    affectedUnits: naiveUnits,
+    moveInsPerMonth: null,
+    avgRateChange: null,
+    monthlyImpactBeforeRounding: input.naive?.monthlyImpactBeforeRounding
+      ?? naiveMonthly,
+    annualMultiplier: target === 'in_house_rate' ? 12 : 78,
+  };
 
   return {
     unitsImpacted: qUnits != null && qUnits > 0 ? qUnits : naiveUnits,
     monthlyImpact: qMonthly != null && qMonthly !== 0 ? qMonthly : naiveMonthly,
     annualImpact: qAnnual != null && qAnnual !== 0 ? qAnnual : naiveAnnual,
+    campuses: qUnits != null && qUnits > 0 ? qCampuses : naiveCampusBreakdown,
+    calculation: qUnits != null && qUnits > 0
+      ? (qCalculation ?? naiveCalculation)
+      : naiveCalculation,
     basis: qMonthly != null && qMonthly !== 0 ? 'qualified' : (ctx ? 'naive' : 'unavailable'),
   };
 }

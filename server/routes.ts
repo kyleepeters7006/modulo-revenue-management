@@ -10297,20 +10297,59 @@ ${campusOccLines.join('\n')}
       let created = 0;
       let updated = 0;
 
+      const readCell = (row: any, ...headers: string[]): unknown => {
+        for (const header of headers) {
+          if (Object.prototype.hasOwnProperty.call(row, header)) {
+            const value = row[header];
+            if (value !== null && value !== undefined && String(value).trim() !== '') {
+              return value;
+            }
+          }
+        }
+        return undefined;
+      };
+      const readText = (row: any, ...headers: string[]): string | undefined => {
+        const value = readCell(row, ...headers);
+        return value === undefined ? undefined : String(value).trim();
+      };
+      const readNumber = (row: any, ...headers: string[]): number | undefined => {
+        const value = readCell(row, ...headers);
+        if (value === undefined) return undefined;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : undefined;
+      };
+      const readBoolean = (row: any, ...headers: string[]): boolean | undefined => {
+        const value = readCell(row, ...headers);
+        if (value === undefined) return undefined;
+        const normalized = String(value).trim().toLowerCase();
+        if (['y', 'yes', 'true', '1'].includes(normalized)) return true;
+        if (['n', 'no', 'false', '0'].includes(normalized)) return false;
+        return undefined;
+      };
+
       for (const row of dataRows) {
-        const locationName = row['Location Name'] || row['location name'] || row['Location'] || row['location'] || row['Name'] || row['name'] || '';
+        const locationName = readText(row, 'Location Name', 'location name', 'Location', 'location', 'Name', 'name') || '';
         if (!locationName) continue;
 
         const locationData = {
           name: locationName,
           clientId,
-          region: row['Region'] || row['region'] || null,
-          division: row['Division'] || row['division'] || null,
-          locationClass: row['Class'] || row['class'] || row['Location Class'] || row['location class'] || null,
-          address: row['Address'] || row['address'] || null,
-          city: row['City'] || row['city'] || null,
-          state: row['State'] || row['state'] || null,
-          zipCode: row['Zip Code'] || row['zip code'] || row['ZipCode'] || row['zipcode'] || null,
+          locationCode: readText(row, 'Location Code', 'location code', 'LocationCode', 'locationCode'),
+          region: readText(row, 'Region', 'region'),
+          division: readText(row, 'Division', 'division'),
+          locationClass: readText(row, 'Class', 'class', 'Location Class', 'location class'),
+          address: readText(row, 'Address', 'address'),
+          city: readText(row, 'City', 'city'),
+          state: readText(row, 'State', 'state'),
+          zipCode: readText(row, 'Zip Code', 'zip code', 'ZipCode', 'zipcode'),
+          totalUnits: readNumber(row, 'Total Units', 'total units', 'TotalUnits', 'totalUnits'),
+          sameStore: readBoolean(row, 'Same Store', 'same store', 'SameStore', 'sameStore'),
+          matrixCareNameHC: readText(row, 'MatrixCare Name HC', 'matrixcare name hc', 'matrixCareNameHC'),
+          matrixCareNameAL: readText(row, 'MatrixCare Name AL', 'matrixcare name al', 'matrixCareNameAL'),
+          matrixCareNameIL: readText(row, 'MatrixCare Name IL', 'matrixcare name il', 'matrixCareNameIL'),
+          customerFacilityIdHC: readText(row, 'Customer Facility ID HC', 'customer facility id hc', 'customerFacilityIdHC'),
+          customerFacilityIdAL: readText(row, 'Customer Facility ID AL', 'customer facility id al', 'customerFacilityIdAL'),
+          customerFacilityIdIL: readText(row, 'Customer Facility ID IL', 'customer facility id il', 'customerFacilityIdIL'),
         };
 
         // Check if location exists by name for this client
@@ -10322,16 +10361,14 @@ ${campusOccLines.join('\n')}
 
         if (existingLocations.length > 0) {
           // Update existing location
+          const { name: _name, clientId: _clientId, ...optionalFields } = locationData;
+          const set = Object.fromEntries(
+            Object.entries(optionalFields).filter(([, value]) => value !== undefined)
+          );
           await db
             .update(locations)
             .set({
-              region: locationData.region,
-              division: locationData.division,
-              locationClass: locationData.locationClass,
-              address: locationData.address,
-              city: locationData.city,
-              state: locationData.state,
-              zipCode: locationData.zipCode,
+              ...set,
               updatedAt: new Date(),
             })
             .where(and(eq(locations.clientId, clientId), eq(locations.name, locationName)));
@@ -18167,8 +18204,10 @@ Respond in JSON format:
   // parsed adjustment action to a campus + service line. Reuses elasticityService.
   type RuleElasticityImpact = {
     unitsImpacted: number;
+    campuses: Array<{ campusName: string; unitCount: number }>;
     monthlyImpact: number | null;
     annualImpact: number | null;
+    monthlyImpactBeforeRounding: number | null;
     elasticity: number | null;
     elasticityMin: number | null;
     elasticityMax: number | null;
@@ -18185,7 +18224,8 @@ Respond in JSON format:
     action: any,
   ): Promise<RuleElasticityImpact> {
     const empty: RuleElasticityImpact = {
-      unitsImpacted: 0, monthlyImpact: null, annualImpact: null,
+      unitsImpacted: 0, campuses: [], monthlyImpact: null, annualImpact: null,
+      monthlyImpactBeforeRounding: null,
       elasticity: null, elasticityMin: null, elasticityMax: null, elasticitySegments: 0,
       daysToSellAfter: null, predictedDaysToSellChange: null,
       elasticityMonthlyImpact: null, elasticityAnnualImpact: null,
@@ -18292,7 +18332,16 @@ Respond in JSON format:
       // based street rules ramp cohort-by-cohort (Σ 12..1 = 78 delta-months).
       return {
         unitsImpacted: affected.length,
+        campuses: Array.from(
+          affected.reduce((counts: Map<string, number>, u: any) => {
+            const campusName = String(u.location || 'Unknown');
+            counts.set(campusName, (counts.get(campusName) || 0) + 1);
+            return counts;
+          }, new Map<string, number>()),
+          ([campusName, unitCount]) => ({ campusName, unitCount }),
+        ).sort((a, b) => a.campusName.localeCompare(b.campusName)),
         monthlyImpact: Math.round(baseMonthly),
+        monthlyImpactBeforeRounding: baseMonthly,
         annualImpact: Math.round(baseMonthly * (directReprice ? 12 : 78)),
         elasticity: elWeight > 0 && wElasticity !== null ? wElasticity / elWeight : null,
         elasticityMin: elMin,
@@ -19549,6 +19598,8 @@ Respond in JSON format:
           // it exactly. `impactBasis` records whether the qualified engine or
           // the naive elasticity estimate supplied these figures.
           unitsImpacted: selected.unitsImpacted,
+          affectedCampuses: selected.campuses,
+          impactCalculation: selected.calculation,
           monthlyImpact: selected.monthlyImpact,
           annualImpact: selected.annualImpact,
           impactBasis: selected.basis,
@@ -19981,6 +20032,55 @@ Respond in JSON format:
         });
       }
 
+      // Older cached runs may be missing the campus list, the impact-calculation
+      // inputs, or both. Enrich them once from the same qualified impact engine
+      // used during generation, then persist the enriched payload so subsequent
+      // page loads stay fast.
+      let enrichedCampusBreakdowns = false;
+      if (kept.some(s => !Array.isArray(s?.affectedCampuses) || !s?.impactCalculation)) {
+        const cacheKey = `ruleImpactCtx:${clientId}`;
+        let impactCtx = getCachedAnalytics(cacheKey);
+        if (!impactCtx) {
+          impactCtx = await buildRuleImpactContext(clientId);
+          if (impactCtx) setCachedAnalytics(cacheKey, impactCtx);
+        }
+        if (impactCtx) {
+          const locationIdByName = new Map(
+            Array.from(impactCtx.locIdToName.entries(), ([id, name]) => [name, id]),
+          );
+          for (const suggestion of kept) {
+            if (Array.isArray(suggestion?.affectedCampuses) && suggestion?.impactCalculation) continue;
+            const serviceLines = Array.isArray(suggestion?.serviceLines)
+              ? suggestion.serviceLines
+              : String(suggestion?.serviceLine || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+            const hasNamedScope = Array.isArray(suggestion?.locationNames) && suggestion.locationNames.length > 0;
+            const scopeLocationIds = suggestion?.locationId
+              ? [String(suggestion.locationId)]
+              : hasNamedScope
+                ? suggestion.locationNames
+                    .map((name: any) => locationIdByName.get(String(name)))
+                    .filter((id: string | undefined): id is string => !!id)
+                : null;
+            const selected = selectSuggestionImpact(impactCtx, {
+              action: suggestion?.action,
+              trigger: suggestion?.trigger,
+              serviceLines,
+              locationId: suggestion?.locationId || null,
+              scopeLocationIds,
+              naive: {
+                unitsImpacted: suggestion?.unitsImpacted,
+                monthlyImpact: suggestion?.monthlyImpact,
+                annualImpact: suggestion?.annualImpact,
+                computedForLocationId: suggestion?.locationId || null,
+              },
+            });
+            suggestion.affectedCampuses = selected.campuses;
+            suggestion.impactCalculation = selected.calculation;
+            enrichedCampusBreakdowns = true;
+          }
+        }
+      }
+
       let payload = { ...stored, suggestions: kept };
       if (removed.length) {
         // Older cached runs predate the final impact gate. Rebuild the visible
@@ -20018,6 +20118,12 @@ Respond in JSON format:
                 reasonMessage: EMPTY_RUN_MESSAGES.all_candidates_rejected,
               },
         };
+      }
+      if (enrichedCampusBreakdowns) {
+        await pool.query(
+          `UPDATE ai_suggestion_runs SET payload = $2 WHERE client_id = $1`,
+          [clientId, JSON.stringify(payload)],
+        );
       }
       res.json({ ...payload, generatedAt: r.rows[0].created_at });
     } catch (error) {
@@ -23183,13 +23289,14 @@ Return ONLY valid JSON, no markdown fences:
 
       // Fetch all units for the latest month
       const unitsRes = await pool.query<{
+        location: string;
         service_line: string; room_type: string; room_number: string; occupied_yn: boolean;
         days_vacant: number; street_rate: number; competitor_final_rate: number; payor_type: string;
         baseline_street: string | null;
       }>(
         // baseline_street rides along from the shared view so the JS filtering
         // below judges rates by exactly the same standard as the SQL surfaces.
-        `SELECT rent_roll_data.service_line, room_type, room_number, occupied_yn, days_vacant,
+        `SELECT rent_roll_data.location, rent_roll_data.service_line, room_type, room_number, occupied_yn, days_vacant,
                 street_rate, competitor_final_rate, payor_type, rb.baseline_street
          FROM rent_roll_data
          ${buildRateBaselineJoin({ rr: 'rent_roll_data.', clientSql: '$2', monthSql: '$3' })}
@@ -23197,6 +23304,8 @@ Return ONLY valid JSON, no markdown fences:
         [locationId, clientId, latestMonth]
       );
       const units = unitsRes.rows;
+      const locationName = units[0]?.location ?? '';
+      const compBenchmark = await loadCompBenchmark(pool, clientId);
 
       // Fetch inquiry/tour volume from the inquiry_metrics table (aggregated)
       const inqRes = await pool.query<{ service_line: string; inq: string; tour: string }>(
@@ -23238,8 +23347,35 @@ Return ONLY valid JSON, no markdown fences:
           const avgC  = avgArr(compUnits.map(u => u.competitor_final_rate));
           if (avgC > 0) {
             metrics.push({ sl, rt, name: 'competitor_variance_pct',  val: (avgSt - avgC) / avgC * 100 });
-            // Street rate to top adjusted comp rate var % — raw % (e.g. 15 means 15% above comp)
-            metrics.push({ sl, rt, name: 'street_to_comp_var_pct', val: (avgSt - avgC) / avgC * 100 });
+          }
+        }
+
+        // Keep the top-comp comparison separate from the average paired comp
+        // above. The top benchmark is selected by survey weight and is the same
+        // benchmark used by Competitive Position.
+        if (sl && locationName) {
+          const bench = (rt ? compBenchmark.benchmarkForRT(locationName, sl, rt) : null)
+            ?? compBenchmark.benchmarkFor(locationName, sl);
+          const streetUnits = group
+            .filter(u => (u.street_rate || 0) > 100)
+            .filter(u => u.baseline_street == null
+              || (u.street_rate || 0) >= RATE_OUTLIER_FLOOR_RATIO * Number(u.baseline_street))
+            .filter(u => !(SH_SLS_SNAP.has(u.service_line) && /\/[B-Zb-z]$/.test(u.room_number || '')));
+          if (bench && bench.adjusted > 0 && streetUnits.length) {
+            const avgSt = avgArr(streetUnits.map(u => u.street_rate));
+            metrics.push({
+              sl, rt, name: 'street_to_comp_var_pct',
+              val: (avgSt - bench.adjusted) / bench.adjusted * 100,
+            });
+          } else if (compUnits.length) {
+            const avgSt = avgArr(compUnits.map(u => u.street_rate));
+            const avgC = avgArr(compUnits.map(u => u.competitor_final_rate));
+            if (avgC > 0) {
+              metrics.push({
+                sl, rt, name: 'street_to_comp_var_pct',
+                val: (avgSt - avgC) / avgC * 100,
+              });
+            }
           }
         }
 

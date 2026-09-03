@@ -32,8 +32,8 @@ export const BOUNDED_PERCENT_METRICS = new Set(BOUNDED_PERCENT_LIST);
  */
 const VARIANCE_PERCENT_LIST = [
   'In House to Street Rate var % - Single Occupant',
+  'Street Rate to Average Comp Var %',
   'Street Rate to Top Comp Var %',
-  'Competitor Rate Variance %',
 ];
 export const VARIANCE_PERCENT_METRICS = new Set(VARIANCE_PERCENT_LIST);
 

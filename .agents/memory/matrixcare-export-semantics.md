@@ -40,6 +40,18 @@ complete file over a blocked one.
 **How to apply:** do not "fix" this into a hard failure. If the risk of derived ids being
 rejected downstream ever needs addressing, raise it as a product question first.
 
+The authoritative mapping workbook can split one current campus across several historical
+KeyStats aliases (for example, separate HC/AL and IL aliases sharing the same numeric
+facility code). Match exact normalized names first, then merge only rows linked by the
+workbook's customer-facility code; never invent a missing MatrixCare name or id.
+
+**Why:** punctuation-only aliases are harmless, but some newer acquisition campuses are
+genuinely absent from the workbook. Guessing their identities would hide the warning while
+still producing a file MatrixCare can reject.
+
+**How to apply:** location imports must persist all MatrixCare name/id columns from the
+published template and preserve existing values when an optional cell is blank.
+
 ## Billing frequency must be classified in one place
 
 Health-campus lines are per diem; senior housing is monthly; MatrixCare wants a daily

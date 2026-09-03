@@ -702,7 +702,7 @@ export default function InhouseIncreases() {
     mutationFn: async () => {
       const requestedIdentityKey = storageIdentityKey;
       const requestedScopeKey = calculatedPlanKey;
-      const results = await Promise.all(
+      const settled = await Promise.allSettled(
         serviceLines.map(async (sl) => {
           const res = await apiRequest("/api/inhouse-planning/calculate", "POST", {
             locationId: scopeLocationId,
@@ -713,9 +713,30 @@ export default function InhouseIncreases() {
           return { sl, plan } as PlanWithSl;
         }),
       );
-      return { identityKey: requestedIdentityKey, scopeKey: requestedScopeKey, results };
+      const results: PlanWithSl[] = [];
+      const skipped: Array<{ sl: string; message: string }> = [];
+      settled.forEach((outcome, index) => {
+        const sl = serviceLines[index];
+        if (outcome.status === "fulfilled") {
+          results.push(outcome.value);
+        } else {
+          const message =
+            outcome.reason instanceof Error
+              ? cleanError(outcome.reason.message)
+              : "No plan could be calculated for this service line.";
+          skipped.push({ sl, message });
+        }
+      });
+      if (results.length === 0) {
+        throw new Error(
+          skipped.length > 0
+            ? skipped.map(({ sl, message }) => `${sl}: ${message}`).join(" ")
+            : "No service lines were selected.",
+        );
+      }
+      return { identityKey: requestedIdentityKey, scopeKey: requestedScopeKey, results, skipped };
     },
-    onSuccess: ({ identityKey, scopeKey, results }) => {
+    onSuccess: ({ identityKey, scopeKey, results, skipped }) => {
       // If the operator changed scope while the request was running, retain
       // the result under its original scope but never render it under the new
       // one.
@@ -731,6 +752,12 @@ export default function InhouseIncreases() {
       // Expand the binding quarter of the first feasible plan.
       const first = results.find((r) => r.plan.feasible) ?? results[0];
       setExpandedQuarter(first?.plan.bindingQuarterLabel ?? null);
+      if (skipped.length > 0) {
+        toast({
+          title: `${skipped.length} service line${skipped.length === 1 ? "" : "s"} skipped`,
+          description: skipped.map(({ sl, message }) => `${sl}: ${message}`).join(" "),
+        });
+      }
     },
     onError: (err: Error) => {
       // Do not clear the current or stored successful result. A transient

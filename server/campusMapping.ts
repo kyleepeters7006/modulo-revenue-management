@@ -45,8 +45,17 @@ export const campusMapping: CampusMapping[] = [
 ];
 
 // Helper functions to convert between naming conventions
+function normalizeKeyStatsName(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function findCampusMapping(keyStatsName: string): CampusMapping | undefined {
+  const normalized = normalizeKeyStatsName(keyStatsName);
+  return campusMapping.find(c => normalizeKeyStatsName(c.keyStatsName) === normalized);
+}
+
 export function getMatrixCareNameFromKeyStats(keyStatsName: string, serviceLine: 'HC' | 'AL' | 'IL'): string | undefined {
-  const mapping = campusMapping.find(c => c.keyStatsName === keyStatsName);
+  const mapping = findCampusMapping(keyStatsName);
   if (!mapping) return undefined;
   
   switch (serviceLine) {
@@ -70,7 +79,7 @@ export function getKeyStatsNameFromMatrixCare(matrixCareName: string): string | 
 }
 
 export function getCustomerFacilityId(keyStatsName: string, serviceLine: 'HC' | 'AL' | 'IL'): string | undefined {
-  const mapping = campusMapping.find(c => c.keyStatsName === keyStatsName);
+  const mapping = findCampusMapping(keyStatsName);
   if (!mapping) return undefined;
   
   switch (serviceLine) {

@@ -197,13 +197,26 @@ export async function recalculateAndPreloadCampusMetrics(
         }
       }
 
-      // Use the survey-based competitor benchmark (same source as the competitive
-      // position scatter chart) for street_to_comp_var_pct. The stale
-      // competitor_final_rate field in the rent roll holds legacy import values
-      // that are far below actual market rates for VIL, causing variance triggers
-      // like "street < comp by 3%" to never fire.
-      // Benchmark is per location+SL; skip at campus level (sl=null) since we
-      // cannot blend SLs into a single coherent comp rate.
+      // Average-comp variance uses the paired rent-roll comparison rate. Keep
+      // it distinct from the survey-selected TOP competitor metric below.
+      const compPairs = group.filter(u =>
+        (u.street_rate || 0) > 100 &&
+        (u.competitor_final_rate || 0) > 100 &&
+        !isBBed(u)
+      );
+      if (compPairs.length > 0) {
+        const avgSt = avgArr(compPairs.map(u => u.street_rate));
+        const avgComp = avgArr(compPairs.map(u => u.competitor_final_rate));
+        if (avgComp > 0) {
+          metrics.push({
+            sl, rt, name: 'competitor_variance_pct',
+            val: (avgSt - avgComp) / avgComp * 100,
+          });
+        }
+      }
+
+      // Top-comp variance uses the survey-based benchmark selected by weight
+      // (same source as the competitive-position scatter chart).
       if (sl && locationName) {
         // RT-level groups use the room-type-specific benchmark when the survey
         // has that room type (mirrors ruleImpactService.lookupMetric); the
@@ -217,24 +230,18 @@ export async function recalculateAndPreloadCampusMetrics(
           if (stUnits.length > 0) {
             const avgSt = avgArr(stUnits.map(u => u.street_rate));
             const pct = (avgSt - bench.adjusted) / bench.adjusted * 100;
-            metrics.push({ sl, rt, name: 'competitor_variance_pct', val: pct });
             metrics.push({ sl, rt, name: 'street_to_comp_var_pct',  val: pct });
           }
-        } else {
-          // No survey benchmark for this SL at this location — fall back to
-          // paired rent-roll competitor_final_rate values, mirroring
-          // ruleImpactService.lookupMetric so live pricing and the impact
-          // preview evaluate street_to_comp_var against the same comp data.
-          const pairs = group.filter(u =>
-            (u.street_rate || 0) > 100 && (u.competitor_final_rate || 0) > 100 && !isBBed(u));
-          if (pairs.length > 0) {
-            const avgSt = avgArr(pairs.map(u => u.street_rate));
-            const avgComp = avgArr(pairs.map(u => u.competitor_final_rate));
-            if (avgComp > 0) {
-              const pct = (avgSt - avgComp) / avgComp * 100;
-              metrics.push({ sl, rt, name: 'competitor_variance_pct', val: pct });
-              metrics.push({ sl, rt, name: 'street_to_comp_var_pct',  val: pct });
-            }
+        } else if (compPairs.length > 0) {
+          // No survey coverage: use the available average-comp comparison as
+          // the explicit fallback rather than pretending a top comp exists.
+          const avgSt = avgArr(compPairs.map(u => u.street_rate));
+          const avgComp = avgArr(compPairs.map(u => u.competitor_final_rate));
+          if (avgComp > 0) {
+            metrics.push({
+              sl, rt, name: 'street_to_comp_var_pct',
+              val: (avgSt - avgComp) / avgComp * 100,
+            });
           }
         }
       }
@@ -482,11 +489,27 @@ export interface RuleApplication {
  * Evaluate a single condition object { field, operator, value } against a unit.
  */
 function evaluateSingleCondition(
-  condition: { field: string; operator: string; value: number },
+  condition: { field: string; operator: string; value: number | string },
   unit: any,
   clientId: string
 ): boolean {
-  const { field, operator, value } = condition;
+  const { field, operator } = condition;
+  const attributeProperty: Record<string, string> = {
+    location_rating: 'locationRating',
+    size_rating: 'sizeRating',
+    view_rating: 'viewRating',
+    renovation_rating: 'renovationRating',
+    amenity_rating: 'amenityRating',
+  };
+  const property = attributeProperty[field];
+  if (property) {
+    const normalize = (v: unknown) => String(v ?? '').trim().toUpperCase() || 'BLANK';
+    const actual = normalize(unit[property] ?? unit[field]);
+    const expected = normalize(condition.value);
+    return (operator === '=' || operator === '==' || operator === '===') && actual === expected;
+  }
+  const value = Number(condition.value);
+  if (!Number.isFinite(value)) return false;
   const sl: string | null = unit.serviceLine || null;
   const rt: string | null = unit.roomType    || null;
 
@@ -682,20 +705,22 @@ function evaluateTrigger(rule: AdjustmentRules, unit: any): boolean {
     // combined by trigger.conditionOperator ("AND" | "OR", default "AND")
     if (Array.isArray(trigger.conditions)) {
       const condOperator: string = (trigger.conditionOperator || 'AND').toUpperCase();
-      const conditions = trigger.conditions as Array<{ field: string; operator: string; value: number }>;
+      const conditions = trigger.conditions as Array<{ field: string; operator: string; value: number | string }>;
 
       // For the array format, days_vacant is evaluated as a group-level average
       // (same as ruleImpactService.evalGroupCondition), not per-unit. The intent
       // is "fire on every unit in the group when the group average exceeds the
       // threshold." Use the days_vacant_group_avg metric computed in
       // recalculateAndPreloadCampusMetrics which averages over ALL units.
-      const evalArrayCond = (c: { field: string; operator: string; value: number }): boolean => {
+      const evalArrayCond = (c: { field: string; operator: string; value: number | string }): boolean => {
         if (c.field === 'days_vacant') {
           const sl: string | null = unit.serviceLine || null;
           const rt: string | null = unit.roomType    || null;
           const avg = _lookupCampusMetric(clientId, unit.locationId, sl, rt, 'days_vacant_group_avg');
           if (avg === null) return false;
-          const { operator, value } = c;
+          const { operator } = c;
+          const value = Number(c.value);
+          if (!Number.isFinite(value)) return false;
           switch (operator) {
             case '<':  return avg < value;
             case '<=': return avg <= value;

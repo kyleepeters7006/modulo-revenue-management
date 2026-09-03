@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Sparkles, Target, Loader2, Save, Check, X, TrendingUp, TrendingDown, Pencil, History, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { Sparkles, Target, Loader2, Save, Check, X, TrendingUp, TrendingDown, Pencil, History, Trash2, ChevronDown, ChevronRight, Building2 } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -18,6 +18,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -44,6 +52,15 @@ interface RuleSuggestion {
   serviceLines?: string[];
   locationId: string | null;
   unitsImpacted: number | null;
+  affectedCampuses?: Array<{ campusName: string; unitCount: number }>;
+  impactCalculation?: {
+    basis: "qualified" | "naive" | "unavailable";
+    affectedUnits: number;
+    moveInsPerMonth: number | null;
+    avgRateChange: number | null;
+    monthlyImpactBeforeRounding: number | null;
+    annualMultiplier: number;
+  };
   monthlyImpact: number | null;
   annualImpact: number | null;
   elasticity: number | null;
@@ -55,6 +72,7 @@ interface RuleSuggestion {
   elasticitySampleSize: number | null;
   elasticityMonthlyImpact: number | null;
   elasticityAnnualImpact: number | null;
+  action?: any;
 }
 
 /**
@@ -99,6 +117,44 @@ function isActionableSuggestion(s: RuleSuggestion): boolean {
   return Number.isFinite(units) && units > 0
     && Number.isFinite(monthly) && Math.round(Math.abs(monthly)) > 0
     && Number.isFinite(annual) && Math.round(Math.abs(annual)) > 0;
+}
+
+function describeElasticity(value: number | null): { label: string; detail: string } {
+  if (value == null) {
+    return {
+      label: "Not available",
+      detail: "There is not enough valid rate and vacancy-history data to estimate how demand responds to price changes.",
+    };
+  }
+  if (value >= 1.5) {
+    return {
+      label: "Strong price sensitivity",
+      detail: `Historically, a 1% rate increase has been associated with about a ${Math.abs(value).toFixed(1)}% increase in days-to-sell. Demand appears highly responsive to price.`,
+    };
+  }
+  if (value > 0.5) {
+    return {
+      label: "Normal price sensitivity",
+      detail: `Historically, a 1% rate increase has been associated with about a ${Math.abs(value).toFixed(1)}% increase in days-to-sell. Demand is responding in the expected direction.`,
+    };
+  }
+  if (value >= -0.5) {
+    return {
+      label: "Weak or inconclusive signal",
+      detail: "Rate changes have had little consistent relationship with days-to-sell. Treat the estimate as directional rather than predictive.",
+    };
+  }
+  return {
+    label: "Counter-intuitive signal",
+    detail: `Higher rates coincided with faster leasing in the historical data. This can reflect mix changes, timing, or sparse observations and should be investigated before using it for a decision.`,
+  };
+}
+
+function formatImpactDollars(value: number, decimals = 2): string {
+  return `${value < 0 ? "-" : ""}$${Math.abs(value).toLocaleString(undefined, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}`;
 }
 
 /** A failed run needs to stay on the page; a toast that fades leaves nothing to act on. */
@@ -812,6 +868,16 @@ export default function AiRuleGenerator({
               const monthly = s.monthlyImpact ?? 0;
               const annual = s.annualImpact ?? 0;
               const isPos = monthly >= 0;
+              const affectedCampuses = s.affectedCampuses ?? [];
+              const elasticityReading = describeElasticity(s.elasticity);
+              const impactCalculation = s.impactCalculation;
+              const isDirectReprice = s.action?.target === "in_house_rate";
+              const annualMultiplier = impactCalculation?.annualMultiplier
+                ?? (isDirectReprice ? 12 : 78);
+              const rawMonthlyImpact = impactCalculation?.monthlyImpactBeforeRounding ?? null;
+              const hasQualifiedInputs = impactCalculation?.basis === "qualified"
+                && impactCalculation.avgRateChange != null
+                && (isDirectReprice || impactCalculation.moveInsPerMonth != null);
               const isAccepting = acceptSuggestionMutation.isPending && acceptSuggestionMutation.variables?.suggestionId === s.suggestionId;
               const isDenying = denySuggestionMutation.isPending && denySuggestionMutation.variables?.suggestionId === s.suggestionId;
               const busy = isAccepting || isDenying;
@@ -873,34 +939,162 @@ export default function AiRuleGenerator({
                       Deny
                     </Button>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-3">
                     <div className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center">
                       <p className="text-sm font-semibold text-gray-900">{(s.unitsImpacted ?? 0).toLocaleString()}</p>
                       <p className="text-[10px] uppercase tracking-wide text-gray-400">Units</p>
                     </div>
-                    <div className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center">
-                      <p className={`text-sm font-semibold inline-flex items-center justify-center gap-1 ${isPos ? 'text-green-700' : 'text-red-700'}`}>
-                        {isPos ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                        {isPos ? '+' : '-'}${Math.abs(Math.round(monthly)).toLocaleString()}
-                      </p>
-                      <p className="text-[10px] uppercase tracking-wide text-gray-400">Monthly</p>
-                    </div>
-                    <div className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center">
-                      <p className={`text-sm font-semibold ${annual >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                        {annual >= 0 ? '+' : '-'}${Math.abs(Math.round(annual)).toLocaleString()}
-                      </p>
-                      <p className="text-[10px] uppercase tracking-wide text-gray-400">Annual</p>
-                    </div>
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className={`rounded-md border px-2.5 py-1.5 text-center cursor-default ${
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <button
+                          type="button"
+                          className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center transition-colors hover:border-teal-300 hover:bg-teal-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+                          data-testid={`button-campus-breakdown-${s.suggestionId}`}
+                        >
+                          <p className="inline-flex items-center justify-center gap-1 text-sm font-semibold text-gray-900">
+                            <Building2 className="h-3.5 w-3.5 text-teal-600" />
+                            {affectedCampuses.length || "—"}
+                          </p>
+                          <p className="text-[10px] uppercase tracking-wide text-gray-400">Campuses</p>
+                        </button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>Campuses impacted</DialogTitle>
+                          <DialogDescription>
+                            Campuses containing units that pass this suggestion’s trigger conditions and filters.
+                          </DialogDescription>
+                        </DialogHeader>
+                        {affectedCampuses.length ? (
+                          <div className="max-h-[55vh] overflow-y-auto rounded-md border border-gray-200">
+                            {affectedCampuses.map((campus) => (
+                              <div
+                                key={campus.campusName}
+                                className="flex items-center justify-between gap-4 border-b border-gray-100 px-3 py-2.5 last:border-b-0"
+                              >
+                                <span className="text-sm font-medium text-gray-800">{campus.campusName}</span>
+                                <span className="shrink-0 text-xs text-gray-500">
+                                  {campus.unitCount.toLocaleString()} unit{campus.unitCount === 1 ? "" : "s"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="rounded-md bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+                            Campus detail was not stored for this older suggestion run. Generate suggestions again to see the qualified campus list.
+                          </p>
+                        )}
+                      </DialogContent>
+                    </Dialog>
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={`View monthly and annual impact calculation for ${s.name}`}
+                          className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center transition-colors hover:border-teal-300 hover:bg-teal-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+                          data-testid={`button-impact-calculation-monthly-${s.suggestionId}`}
+                        >
+                          <p className={`text-sm font-semibold inline-flex items-center justify-center gap-1 ${isPos ? 'text-green-700' : 'text-red-700'}`}>
+                            {isPos ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                            {isPos ? '+' : '-'}${Math.abs(Math.round(monthly)).toLocaleString()}
+                          </p>
+                          <p className="text-[10px] uppercase tracking-wide text-gray-400">Monthly</p>
+                        </button>
+                      </DialogTrigger>
+                      <DialogTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={`View monthly and annual impact calculation for ${s.name}`}
+                          className="rounded-md bg-gray-50 border border-gray-100 px-2.5 py-1.5 text-center transition-colors hover:border-teal-300 hover:bg-teal-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+                          data-testid={`button-impact-calculation-annual-${s.suggestionId}`}
+                        >
+                          <p className={`text-sm font-semibold ${annual >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                            {annual >= 0 ? '+' : '-'}${Math.abs(Math.round(annual)).toLocaleString()}
+                          </p>
+                          <p className="text-[10px] uppercase tracking-wide text-gray-400">Annual</p>
+                        </button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-lg">
+                        <DialogHeader>
+                          <DialogTitle>Impact calculation</DialogTitle>
+                          <DialogDescription>
+                            How this proposed rule’s monthly and first-year annual impacts were calculated.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 text-sm text-gray-700">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                              <p className="text-[10px] uppercase tracking-wide text-gray-400">Monthly impact</p>
+                              <p className={`mt-1 text-xl font-semibold ${isPos ? "text-green-700" : "text-red-700"}`}>
+                                {isPos ? "+" : "-"}{formatImpactDollars(Math.abs(monthly), 0)}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                              <p className="text-[10px] uppercase tracking-wide text-gray-400">Annual impact</p>
+                              <p className={`mt-1 text-xl font-semibold ${annual >= 0 ? "text-green-700" : "text-red-700"}`}>
+                                {annual >= 0 ? "+" : "-"}{formatImpactDollars(Math.abs(annual), 0)}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="rounded-lg border border-gray-200 p-3">
+                            <p className="font-medium text-gray-900">Monthly calculation</p>
+                            {hasQualifiedInputs ? (
+                              <>
+                                <p className="mt-1.5 font-mono text-xs leading-relaxed text-gray-700">
+                                  {isDirectReprice
+                                    ? `${impactCalculation!.affectedUnits.toLocaleString()} occupied units × ${formatImpactDollars(impactCalculation!.avgRateChange!, 2)} average monthly rate change`
+                                    : `${impactCalculation!.moveInsPerMonth!.toFixed(1)} expected move-ins / month × ${formatImpactDollars(impactCalculation!.avgRateChange!, 2)} average monthly rate change`}
+                                </p>
+                                <p className="mt-2 text-xs text-gray-500">
+                                  The server applies the rule’s trigger conditions, filters, service-line scope, and campus scope before calculating this figure.
+                                </p>
+                              </>
+                            ) : (
+                              <p className="mt-1.5 text-xs leading-relaxed text-gray-600">
+                                This suggestion uses the server’s elasticity fallback estimate. The detailed qualified-unit inputs were not available for this older or fallback result.
+                              </p>
+                            )}
+                            {rawMonthlyImpact != null && (
+                              <p className="mt-2 text-xs text-gray-500">
+                                Unrounded server result: <span className="font-medium text-gray-700">{formatImpactDollars(rawMonthlyImpact)}</span>
+                                {" "}→ <span className="font-medium text-gray-700">{formatImpactDollars(monthly, 0)}</span> shown on the card.
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="rounded-lg border border-gray-200 p-3">
+                            <p className="font-medium text-gray-900">Annual calculation</p>
+                            {rawMonthlyImpact != null ? (
+                              <p className="mt-1.5 font-mono text-xs leading-relaxed text-gray-700">
+                                {formatImpactDollars(rawMonthlyImpact)} monthly result × {annualMultiplier} first-year multiplier
+                                {" "}≈ {formatImpactDollars(rawMonthlyImpact * annualMultiplier, 0)}
+                              </p>
+                            ) : (
+                              <p className="mt-1.5 font-mono text-xs leading-relaxed text-gray-700">
+                                Server-calculated monthly result × {annualMultiplier} first-year multiplier
+                              </p>
+                            )}
+                            <p className="mt-2 text-xs leading-relaxed text-gray-500">
+                              The annual figure is first-year cumulative impact. Street-rate rules use 78 stacked move-in cohort months; direct in-house repricing uses 12 months.
+                            </p>
+                          </div>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <button
+                          type="button"
+                          className={`rounded-md border px-2.5 py-1.5 text-center transition-shadow hover:ring-1 hover:ring-teal-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 ${
                             s.elasticity == null ? 'bg-gray-50 border-gray-100' :
                             s.elasticity >= 1.5   ? 'bg-emerald-50 border-emerald-200' :
                             s.elasticity > 0.5    ? 'bg-emerald-50/60 border-emerald-100' :
                             s.elasticity >= -0.5  ? 'bg-amber-50 border-amber-200' :
                                                     'bg-rose-50 border-rose-200'
-                          }`}>
+                          }`}
+                          data-testid={`button-elasticity-details-${s.suggestionId}`}
+                        >
                             <p className={`text-sm font-semibold ${
                               s.elasticity == null ? 'text-gray-900' :
                               // Low-confidence (< 6 samples) overrides direction color with amber warning
@@ -913,31 +1107,67 @@ export default function AiRuleGenerator({
                               {s.elasticity != null ? s.elasticity.toFixed(1) : '—'}
                             </p>
                             <p className="text-[10px] uppercase tracking-wide text-gray-400">
-                              {s.elasticitySampleSize != null ? `Avg. Elast. (min ${s.elasticitySampleSize}mo)` : 'Avg. Elast.'}
+                              {s.elasticitySampleSize != null ? `Avg. Elast. (min ${s.elasticitySampleSize} obs.)` : 'Avg. Elast.'}
                             </p>
                             {s.elasticityMin != null && s.elasticityMax != null && s.elasticityMin !== s.elasticityMax && (
                               <p className="text-[10px] text-gray-400 mt-0.5 whitespace-nowrap">
                                 {s.elasticityMin.toFixed(1)} – {s.elasticityMax.toFixed(1)}
                               </p>
                             )}
+                        </button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-lg">
+                        <DialogHeader>
+                          <DialogTitle>How to interpret average elasticity</DialogTitle>
+                          <DialogDescription>
+                            This is the unit-count-weighted average across the campus, service-line, and room-type segments this suggestion would affect.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 text-sm text-gray-700">
+                          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                            <div className="flex items-baseline justify-between gap-3">
+                              <span className="font-medium text-gray-900">{elasticityReading.label}</span>
+                              <span className="text-xl font-semibold text-gray-900">
+                                {s.elasticity != null ? s.elasticity.toFixed(1) : "—"}
+                              </span>
+                            </div>
+                            <p className="mt-1.5 leading-relaxed">{elasticityReading.detail}</p>
                           </div>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-[260px] text-xs">
-                          <p>Count-weighted average elasticity across the {s.unitsImpacted ?? 'affected'} unit{s.unitsImpacted === 1 ? '' : 's'} this rule would impact.
-                          {s.elasticityMin != null && s.elasticityMax != null && s.elasticityMin !== s.elasticityMax
-                            ? ` Range: ${s.elasticityMin.toFixed(1)} to ${s.elasticityMax.toFixed(1)} across ${s.elasticitySegments} segment${s.elasticitySegments === 1 ? '' : 's'} — a wide spread means the average may not describe any single segment well. Check Reference Data for per-segment values.`
-                            : ' Segments with opposite signs can average toward zero — check Reference Data for per-segment values.'}
-                          {s.elasticitySampleSize != null ? ` The least-observed segment has ${s.elasticitySampleSize} month${s.elasticitySampleSize === 1 ? '' : 's'} of history${s.elasticitySampleSize < 6 ? ' — too few for a stable reading, shown in amber' : ''}.` : ''}</p>
-                          <p className="mt-1.5 font-semibold">Direction color scale:</p>
-                          <ul className="mt-0.5 space-y-0.5">
-                            <li><span className="text-emerald-700">Dark green</span> ≥ +1.5 — strongly elastic (normal)</li>
-                            <li><span className="text-emerald-600">Green</span> +0.5 to +1.5 — elastic (normal)</li>
-                            <li><span className="text-amber-600">Amber</span> −0.5 to +0.5 — weak signal</li>
-                            <li><span className="text-rose-600">Rose</span> &lt; −0.5 — counter-intuitive (flag)</li>
-                          </ul>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+
+                          <div>
+                            <p className="font-medium text-gray-900">What the sign means</p>
+                            <p className="mt-1 leading-relaxed">
+                              Positive values are the expected pattern: higher rates are associated with longer days-to-sell.
+                              Negative values mean higher rates coincided with faster leasing and should be treated as a flag, not proof that raising rates improves demand.
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="rounded-md bg-emerald-50 p-2.5"><span className="font-semibold text-emerald-700">≥ +1.5</span><br />Strong sensitivity</div>
+                            <div className="rounded-md bg-emerald-50/60 p-2.5"><span className="font-semibold text-emerald-600">+0.5 to +1.5</span><br />Normal sensitivity</div>
+                            <div className="rounded-md bg-amber-50 p-2.5"><span className="font-semibold text-amber-700">−0.5 to +0.5</span><br />Weak signal</div>
+                            <div className="rounded-md bg-rose-50 p-2.5"><span className="font-semibold text-rose-700">&lt; −0.5</span><br />Counter-intuitive</div>
+                          </div>
+
+                          <div className="rounded-md border border-gray-200 px-3 py-2.5 text-xs leading-relaxed text-gray-600">
+                            <p>
+                              <span className="font-medium text-gray-800">Coverage:</span>{" "}
+                              {s.elasticitySegments} segment{s.elasticitySegments === 1 ? "" : "s"}
+                              {s.elasticityMin != null && s.elasticityMax != null
+                                ? `, ranging from ${s.elasticityMin.toFixed(1)} to ${s.elasticityMax.toFixed(1)}`
+                                : ""}.
+                            </p>
+                            {s.elasticitySampleSize != null && (
+                              <p className="mt-1">
+                                The least-observed segment has {s.elasticitySampleSize} valid elasticity observation{s.elasticitySampleSize === 1 ? "" : "s"}.
+                                {s.elasticitySampleSize < 6 ? " That is a low-confidence signal, so use it cautiously." : ""}
+                              </p>
+                            )}
+                            <p className="mt-1">Elasticity describes historical association, not guaranteed causation.</p>
+                          </div>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
                   </div>
                   {(s.daysToSellAfter != null || s.predictedDaysToSellChange != null) && (
                     <p className="text-[11px] text-gray-500 mt-2">

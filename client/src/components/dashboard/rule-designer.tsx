@@ -63,11 +63,20 @@ interface CoverageData {
 const METRICS = [
   'Campus Occupancy', 'Service Line Occupancy', 'Room Type Occupancy',
   'Vacant Units/Beds', 'Total Units/Beds',
-  'Competitor Rate Variance %', 'Days Vacant',
+  'Days Vacant',
   'Inquiry Volume', 'Tour Volume', 'SNF Private Pay Mix',
   'In House to Street Rate var % - Single Occupant',
+  'Street Rate to Average Comp Var %',
   'Street Rate to Top Comp Var %',
+  'Location Rating', 'Size Rating', 'View Rating',
+  'Renovation Rating', 'Amenity Rating',
 ];
+
+const ROOM_ATTRIBUTE_METRICS = new Set([
+  'Location Rating', 'Size Rating', 'View Rating',
+  'Renovation Rating', 'Amenity Rating',
+]);
+const ROOM_ATTRIBUTE_VALUES = ['A', 'B', 'C', 'Blank'];
 
 // Maps backend trigger field names -> structured-builder metric labels for the
 // rules-pivot metrics, so editing an existing rule rehydrates these conditions.
@@ -445,7 +454,7 @@ function computeValidation(conditions: Condition[], action: RuleAction, tab: str
     }
     if (!action.amountValue) msgs.push('Set an amount for the pricing action.');
     if (!action.scope) msgs.push('This rule does not have a target scope.');
-    if (conditions.some(c => c.metric === 'Competitor Rate Variance %' || c.metric === 'Street Rate to Top Comp Var %'))
+    if (conditions.some(c => c.metric === 'Street Rate to Average Comp Var %' || c.metric === 'Street Rate to Top Comp Var %'))
       msgs.push('This rule uses competitor data — confirm adjusted competitor rates are available for all campuses.');
     if (action.scope === 'All selected campuses' || !action.scope)
       msgs.push('This rule applies broadly. Confirm before applying.');
@@ -1155,7 +1164,17 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
           return { id: newConditionId(), metric: 'Total Units/Beds', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
         case 'competitor_rate':
         case 'competitor_variance':
-          return { id: newConditionId(), metric: 'Competitor Rate Variance %', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+          return { id: newConditionId(), metric: 'Street Rate to Average Comp Var %', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
+        case 'location_rating':
+          return { id: newConditionId(), metric: 'Location Rating', timePeriod: 'Current Spot', operator: 'equals', value: String(c.value) };
+        case 'size_rating':
+          return { id: newConditionId(), metric: 'Size Rating', timePeriod: 'Current Spot', operator: 'equals', value: String(c.value) };
+        case 'view_rating':
+          return { id: newConditionId(), metric: 'View Rating', timePeriod: 'Current Spot', operator: 'equals', value: String(c.value) };
+        case 'renovation_rating':
+          return { id: newConditionId(), metric: 'Renovation Rating', timePeriod: 'Current Spot', operator: 'equals', value: String(c.value) };
+        case 'amenity_rating':
+          return { id: newConditionId(), metric: 'Amenity Rating', timePeriod: 'Current Spot', operator: 'equals', value: String(c.value) };
         case 'ih_street_variance':
         case 'street_to_ih_var':
           return { id: newConditionId(), metric: 'In House to Street Rate var % - Single Occupant', timePeriod: 'Current Spot', operator: opMap[c.operator] ?? 'is greater than', value: String(c.value) };
@@ -1381,7 +1400,14 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       if (c.id !== id) return c;
       if (field === 'metric') {
         const periods = timePeriodsForMetric(value);
-        return { ...c, metric: value, timePeriod: periods.includes(c.timePeriod) ? c.timePeriod : periods[0] };
+        const switchedAttributeType = ROOM_ATTRIBUTE_METRICS.has(c.metric) !== ROOM_ATTRIBUTE_METRICS.has(value);
+        return {
+          ...c,
+          metric: value,
+          timePeriod: periods.includes(c.timePeriod) ? c.timePeriod : periods[0],
+          operator: ROOM_ATTRIBUTE_METRICS.has(value) ? 'equals' : c.operator,
+          value: switchedAttributeType ? '' : c.value,
+        };
       }
       return { ...c, [field]: value };
     }));
@@ -1860,16 +1886,31 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
                                   <SelectValue placeholder="Operator" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {OPERATORS.map(op => <SelectItem key={op} value={op} className="text-xs">{op}</SelectItem>)}
+                                  {(ROOM_ATTRIBUTE_METRICS.has(cond.metric) ? ['equals'] : OPERATORS).map(op => (
+                                    <SelectItem key={op} value={op} className="text-xs">{op}</SelectItem>
+                                  ))}
                                 </SelectContent>
                               </Select>
 
-                              <Input
-                                value={cond.value}
-                                onChange={e => updateCondition(cond.id, 'value', e.target.value)}
-                                placeholder="Value (e.g. 85%)"
-                                className="h-8 text-xs"
-                              />
+                              {ROOM_ATTRIBUTE_METRICS.has(cond.metric) ? (
+                                <Select value={cond.value} onValueChange={v => updateCondition(cond.id, 'value', v)}>
+                                  <SelectTrigger className="h-8 text-xs" data-testid={`attribute-value-${cond.id}`}>
+                                    <SelectValue placeholder="Select A, B, C, or Blank" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {ROOM_ATTRIBUTE_VALUES.map(value => (
+                                      <SelectItem key={value} value={value} className="text-xs">{value}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Input
+                                  value={cond.value}
+                                  onChange={e => updateCondition(cond.id, 'value', e.target.value)}
+                                  placeholder="Value (e.g. 85%)"
+                                  className="h-8 text-xs"
+                                />
+                              )}
                             </div>
 
                             <div className="flex justify-end gap-1">

@@ -20,3 +20,13 @@ SNF Private Pay Mix is restricted to the HC family and uses one weighted percent
 **Why:** ambiguous labels and a global period picker let users save conditions that either meant something different in the engine or were rejected by the server.
 
 **How to apply:** preserve legacy parser aliases and stored field names for old rules. Legacy combined inquiry+tour rules retain combined behavior but are not offered for new rules; reset the period when switching to a metric that does not support it.
+
+Room-attribute conditions are categorical, unit-level gates: Location, Size, View,
+Renovation, and Amenity ratings accept only A, B, C, or Blank. Blank means a
+NULL, empty, or whitespace-only rating; it is not the same as C.
+
+**Why:** treating ratings as numeric group metrics either makes mixed AND/OR rules
+incorrect or silently excludes unrated rooms.
+
+**How to apply:** preserve the rating string in the structured trigger and evaluate
+the full condition expression per unit in both preview and live pricing.

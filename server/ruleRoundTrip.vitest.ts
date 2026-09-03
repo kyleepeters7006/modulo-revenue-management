@@ -18,6 +18,7 @@ import {
   type ParsedTrigger,
   type ParsedAction,
 } from './naturalLanguageParser';
+import { applyAdjustmentRulesToUnit } from './services/adjustmentRulesService';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -254,6 +255,7 @@ describe('Raw-scale metrics — threshold kept as written', () => {
     // metric label, operator, value, expected field, description
     ['Street Rate to Top Comp Var %',               'is greater than or equal to', '-5',  'street_to_comp_var', '>= -5'],
     ['Street Rate to Top Comp Var %',               'is less than',                 '10', 'street_to_comp_var', '< 10'],
+    ['Street Rate to Average Comp Var %',           'is less than',                 '10', 'competitor_variance', '< 10'],
     ['In House to Street Rate Var % - Single Occupant', 'is less than or equal to', '-10','ih_street_variance', '<= -10'],
     ['In House to Street Rate Var % - Single Occupant', 'is greater than',           '5', 'ih_street_variance', '> 5'],
     ['Competitor Rate',                             'is less than',                 '-3', 'competitor_variance', '< -3'],
@@ -261,7 +263,7 @@ describe('Raw-scale metrics — threshold kept as written', () => {
     ['Days Vacant',                                 'is greater than or equal to',  '60', 'days_vacant',         '>= 60'],
     ['Vacant Units/Beds',                           'is greater than',              '5',  'vacant_units',        '> 5'],
     ['Total Units/Beds',                            'is greater than or equal to',  '10', 'total_units',         '>= 10'],
-    ['Inquiry and Tour Volume',                     'is less than',                 '3',  'inquiry_volume',      '< 3'],
+    ['Inquiry and Tour Volume',                     'is less than',                 '3',  'inquiry_tour_volume', '< 3'],
     ['Quality Mix',                                 'is less than',                 '80', 'quality_mix',         '< 80'],
   ];
 
@@ -652,5 +654,73 @@ describe('Threshold scale parity (regression guard)', () => {
     const conds = (s.trigger as any).conditions as Array<{ value: number }>;
     expect(conds[0].value).toBeCloseTo(0.80, 10);
     expect(conds[1].value).toBeCloseTo(0.90, 10);
+  });
+});
+
+describe('Room attribute conditions', () => {
+  const attributes = [
+    ['Location Rating', 'location_rating'],
+    ['Size Rating', 'size_rating'],
+    ['View Rating', 'view_rating'],
+    ['Renovation Rating', 'renovation_rating'],
+    ['Amenity Rating', 'amenity_rating'],
+  ] as const;
+
+  for (const [metric, field] of attributes) {
+    it(`${metric} stores an enforceable categorical condition`, () => {
+      for (const value of ['A', 'B', 'C', 'Blank']) {
+        const built = fromStructured(basePayload(metric, 'equals', value));
+        expect((built.trigger as any).condition).toEqual({
+          field,
+          operator: '=',
+          value,
+        });
+      }
+    });
+  }
+
+  it('rejects unsupported rating values and operators', () => {
+    const badValue = buildRuleFromStructured(
+      basePayload('View Rating', 'equals', 'D'),
+      'bad rating',
+    );
+    expect(badValue.ok).toBe(false);
+
+    const badOperator = buildRuleFromStructured(
+      basePayload('View Rating', 'is greater than', 'A'),
+      'bad operator',
+    );
+    expect(badOperator.ok).toBe(false);
+  });
+
+  it('live pricing matches A/B/C and treats null or whitespace as Blank', () => {
+    const blankRule = buildRuleFromStructured(
+      basePayload('Amenity Rating', 'equals', 'Blank'),
+      'blank amenity rating',
+    );
+    expect(blankRule.ok).toBe(true);
+    if (!blankRule.ok) return;
+
+    const rule = {
+      ...blankRule.rule,
+      id: 'attribute-rule',
+      isActive: true,
+      priority: 1,
+      serviceLine: null,
+      serviceLines: null,
+      locationId: null,
+      effectiveDate: null,
+    } as any;
+    const baseUnit = {
+      locationId: 'campus-1',
+      serviceLine: 'AL',
+      roomType: 'Studio',
+      occupiedYN: false,
+      amenityRating: null,
+    };
+
+    expect(applyAdjustmentRulesToUnit(baseUnit, 1000, [rule]).ruleAdjustedRate).toBe(1030);
+    expect(applyAdjustmentRulesToUnit({ ...baseUnit, amenityRating: '   ' }, 1000, [rule]).ruleAdjustedRate).toBe(1030);
+    expect(applyAdjustmentRulesToUnit({ ...baseUnit, amenityRating: 'A' }, 1000, [rule]).ruleAdjustedRate).toBeNull();
   });
 });
