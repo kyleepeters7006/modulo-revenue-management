@@ -102,6 +102,7 @@ import Tesseract from "tesseract.js";
 import express from "express";
 import path from "path";
 import os from "node:os";
+import { gzipSync } from "node:zlib";
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import * as fs from 'fs';

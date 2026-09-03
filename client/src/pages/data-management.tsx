@@ -1637,10 +1637,13 @@ export default function DataManagement() {
                   Admin: Sync Data to Production
                 </CardTitle>
                 <CardDescription className="text-indigo-700">
-                  Push all uploaded data from this environment to the published app. Syncs rent roll, competitor surveys, occupancy history, move-in/out events, care rates, pricing rules, weights, guardrails, and other configuration. Computed tables (elasticity, rate card, campus maps) are cleared and must be rebuilt after sync.
+                  Push all uploaded data from this environment to the published app. Syncs the 15 upload and configuration tables through a signed archive, while users, sessions, and production-owned records remain untouched. The destination validates the archive and verifies row counts inside one recoverable transaction.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <p className="text-xs text-indigo-700">
+                  Configure <code>PRODUCTION_APP_URL</code> and the dedicated <code>PRODUCTION_SYNC_HMAC_SECRET</code> in the development and published environments. The transfer never uses a production database connection string.
+                </p>
                 <div className="flex items-center gap-3">
                   <Button
                     onClick={() => { setSyncResult(null); syncToProductionMutation.mutate(); }}

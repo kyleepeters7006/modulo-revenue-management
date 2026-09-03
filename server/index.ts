@@ -19,7 +19,14 @@ process.on('uncaughtException', (err) => {
 });
 
 const app = express();
-app.use(express.json());
+// Leave the normal parser limit in place for every endpoint. The production
+// sync receiver installs its own authenticated, compressed-body parser in
+// server/routes.ts after this middleware is skipped for that exact path.
+const productionSyncReceiverPath = "/api/admin/sync-to-production/receive";
+app.use((req, res, next) => {
+  if (req.path === productionSyncReceiverPath) return next();
+  return express.json()(req, res, next);
+});
 app.use(express.urlencoded({ extended: false }));
 
 app.use((req, res, next) => {
