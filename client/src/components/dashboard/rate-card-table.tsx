@@ -662,7 +662,7 @@ export default function RateCardTable({
                   <TableHead>Service Line</TableHead>
                   <TableHead>Occupancy</TableHead>
                   {!showNewRateOnly && <TableHead>Avg Street Rate</TableHead>}
-                  <TableHead>{showNewRateOnly ? 'Avg New Rate' : 'Avg Rules Rate'}</TableHead>
+                  <TableHead>{showNewRateOnly ? 'Avg Rate' : 'Avg Rules Rate'}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
