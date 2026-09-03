@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-09-03T17:55:16.439Z",
+  "mode": "apply",
+  "clientId": "trilogy",
+  "targetRows": 0,
+  "restoredRows": 0,
+  "disabledRules": 3,
+  "ruleNames": [
+    "Decrease 3% - One Bedroom when SL occupancy < 80% +1 more",
+    "Decrease 3% - Studio Dlx, Studio when SL occupancy < 80% +2 more",
+    "Decrease 6.5% - Companion when RT occupancy < 50% +1 more"
+  ],
+  "remainingTargetRows": 0,
+  "rulesEligible": false,
+  "prechangeReport": "Existing pre-change snapshot retained",
+  "cacheRefresh": "Application restarted after the transactional rollback to clear in-memory analytics caches."
+}
