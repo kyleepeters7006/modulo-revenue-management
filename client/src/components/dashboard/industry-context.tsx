@@ -238,14 +238,36 @@ export default function IndustryContext() {
     ...categoryCopy[category],
     metrics: query.data.metrics.filter((metric) => metric.category === category),
   }));
+  // Older cached responses predate refresh metadata. Expanding the section
+  // must still work while React Query replaces that cache entry.
+  const liveRefresh = query.data.liveRefresh ?? {
+    provider: "U.S. Bureau of Labor Statistics",
+    schedule: "Scheduled refresh",
+    refreshIntervalHours: 6,
+    staleAfterHours: 48,
+    lastAttemptAt: null,
+    lastSuccessAt: null,
+    lastError: null,
+    consecutiveFailures: 0,
+    revisionCount: 0,
+  };
 
   return (
     <Card className="dashboard-card" data-testid="industry-context">
       <CardHeader className="gap-3 pb-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-           <CardTitle className="flex items-center gap-2 text-xl font-semibold text-[var(--dashboard-text)]">
-             Industry Context <img src="/industry-context-icon.png" alt="" className="h-7 w-7 object-contain" />
-          </CardTitle>
+         <div>
+           <button
+             type="button"
+             onClick={() => setExpanded((value) => !value)}
+             aria-expanded={expanded}
+             aria-controls="industry-context-trends"
+             className="group flex items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--trilogy-teal)]"
+           >
+             <CardTitle className="flex items-center gap-2 text-xl font-semibold text-[var(--dashboard-text)]">
+               Industry Context <img src="/industry-context-icon.png" alt="" className="h-7 w-7 object-contain" />
+             </CardTitle>
+             <ChevronDown className={`h-4 w-4 text-[var(--dashboard-muted)] transition-transform group-hover:text-[var(--dashboard-text)] ${expanded ? "rotate-180" : ""}`} />
+           </button>
            <p className="mt-1 max-w-2xl text-sm text-[var(--dashboard-muted)]">
             Start the annual rate conversation with market signals, then set our targets.
             Benchmarks are context—not an automatic recommendation.
@@ -253,9 +275,6 @@ export default function IndustryContext() {
            {feedback && !editing ? <p className={`mt-2 text-xs ${feedback.includes("failed") || feedback.includes("Choose") ? "text-red-700" : "text-[var(--trilogy-teal)]"}`} role="status">{feedback}</p> : null}
         </div>
          <div className="flex items-center gap-2">
-         <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-[var(--dashboard-border)] px-3 py-2 text-sm font-medium text-[var(--dashboard-text)] hover:bg-[var(--dashboard-bg)]">
-           {expanded ? "Hide trends" : "Show trends"} <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
-         </button>
          <Link href="/inhouse-increases">
           <span className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md bg-[var(--trilogy-teal)] px-3 py-2 text-sm font-medium text-white hover:opacity-90">
             Set our targets <ArrowRight className="h-4 w-4" />
@@ -263,7 +282,7 @@ export default function IndustryContext() {
          </Link>
          </div>
       </CardHeader>
-       {expanded ? <CardContent className="space-y-5">
+       {expanded ? <CardContent id="industry-context-trends" className="space-y-5">
         {groups.map((group) => (
           <section key={group.category} aria-labelledby={`industry-${group.category}`}>
             <div className="mb-3">
@@ -284,22 +303,22 @@ export default function IndustryContext() {
         <div className="border-t border-[var(--dashboard-border)] pt-3 text-[11px] text-[var(--dashboard-muted)]">
           <p>
             Last successful source refresh{" "}
-            {formatTimestamp(query.data.liveRefresh.lastSuccessAt)} ·{" "}
-            {query.data.liveRefresh.schedule}. Reviewed snapshots are dated to their source publication.
+             {formatTimestamp(liveRefresh.lastSuccessAt)} ·{" "}
+             {liveRefresh.schedule}. Reviewed snapshots are dated to their source publication.
           </p>
           <p className="mt-1">
-            {query.data.liveRefresh.provider} · Data is marked stale after{" "}
-            {query.data.liveRefresh.staleAfterHours} hours.
-            {query.data.liveRefresh.revisionCount > 0
-              ? ` ${query.data.liveRefresh.revisionCount} revision${query.data.liveRefresh.revisionCount === 1 ? "" : "s"} recorded.`
+             {liveRefresh.provider} · Data is marked stale after{" "}
+             {liveRefresh.staleAfterHours} hours.
+             {liveRefresh.revisionCount > 0
+               ? ` ${liveRefresh.revisionCount} revision${liveRefresh.revisionCount === 1 ? "" : "s"} recorded.`
               : ""}
           </p>
-          {query.data.liveSourceStatus === "partial" || query.data.liveRefresh.lastError ? (
+           {query.data.liveSourceStatus === "partial" || liveRefresh.lastError ? (
             <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-amber-800">
               BLS refresh issue:{" "}
-              {query.data.liveRefresh.lastError ?? "one or more live series are stale or unavailable."}
-              {query.data.liveRefresh.lastAttemptAt
-                ? ` Last attempted ${formatTimestamp(query.data.liveRefresh.lastAttemptAt)}.`
+               {liveRefresh.lastError ?? "one or more live series are stale or unavailable."}
+               {liveRefresh.lastAttemptAt
+                 ? ` Last attempted ${formatTimestamp(liveRefresh.lastAttemptAt)}.`
                 : ""}
             </p>
           ) : null}
