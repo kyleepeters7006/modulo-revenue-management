@@ -79,9 +79,9 @@ export interface PlanningAssumptions {
    */
   maxStreetIncreasePct: number;
   /**
-   * Maximum increase from the same spot month one year earlier to the
-   * recommended street rate, in percent. This catches street increases already
-   * taken during the year instead of treating today's rate as a fresh baseline.
+   * Maximum increase from the prior January rate to the proposed January rate,
+   * in percent. This catches street increases already taken during the year
+   * instead of treating today's rate as a fresh baseline.
    */
   maxYoYStreetIncreasePct: number;
 }

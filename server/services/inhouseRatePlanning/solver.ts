@@ -374,8 +374,8 @@ export interface SolveInput {
   quarters: QuarterRef[];
   anchorMs: number;
   currentStreetRateMonthly: number;
-  /** Average street rate for the exact same spot month one year earlier. */
-  yearAgoStreetRateMonthly?: number;
+  /** Average street rate in January of the year before the proposal. */
+  priorJanuaryStreetRateMonthly?: number;
 }
 
 export interface SolveOutput {
@@ -512,15 +512,15 @@ export function solvePlan(input: SolveInput): SolveOutput {
   // own street ceiling still wins: setting it to zero means "do not move street".
   const currentStreet = input.currentStreetRateMonthly;
   const ordinaryCeiling = Math.max(0, input.assumptions.maxStreetIncreasePct / 100);
-  const yearAgoStreet = input.yearAgoStreetRateMonthly;
-  // Translate the absolute same-month YoY ceiling into the maximum additional
+  const priorJanuaryStreet = input.priorJanuaryStreetRateMonthly;
+  // Translate the absolute January-to-January ceiling into the maximum additional
   // increase available from today's rate. If today's rate is already at or
   // above that ceiling, the solver gets no permission to push it further.
   const yoyCeiling =
-    yearAgoStreet != null && yearAgoStreet > 0 && currentStreet > 0
+    priorJanuaryStreet != null && priorJanuaryStreet > 0 && currentStreet > 0
       ? Math.max(
           0,
-          (yearAgoStreet * (1 + input.assumptions.maxYoYStreetIncreasePct / 100)) /
+          (priorJanuaryStreet * (1 + input.assumptions.maxYoYStreetIncreasePct / 100)) /
               currentStreet -
             1,
         )

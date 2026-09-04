@@ -1252,11 +1252,11 @@ export default function InhouseIncreases() {
             />
             <NumberField
               testId="input-max-yoy-street"
-              label="Maximum YoY monthly street increase"
+              label="Maximum YoY street increase"
               value={assumptions.maxYoYStreetIncreasePct}
               onChange={(v) => update("maxYoYStreetIncreasePct", v)}
               suffix="%"
-              hint="Caps the recommended rate versus the same spot month one year ago, including street increases already taken since then."
+              hint="Caps the proposed January rate versus January of the prior year—for example, 1/1/27 versus 1/1/26."
             />
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Equalization</Label>

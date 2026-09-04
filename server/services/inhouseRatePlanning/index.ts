@@ -152,12 +152,13 @@ export async function calculatePlanDetailed(
   // and the plan's first quarter is modelled rather than ignored.
   const anchorMs = monthBoundsMs(addMonths(sourceMonth, 1)).startMs;
 
-  const yearAgoSourceMonth = addMonths(sourceMonth, -12);
-  const [rawRows, currentStreetRateMonthly, yearAgoStreetRateMonthly, productBaselines, formulas] =
+  const proposalYear = Number(assumptions.streetRateEffectiveDate.slice(0, 4));
+  const priorJanuaryMonth = `${proposalYear - 1}-01`;
+  const [rawRows, currentStreetRateMonthly, priorJanuaryStreetRateMonthly, productBaselines, formulas] =
     await Promise.all([
       fetchResidentRows(scope, sourceMonth),
       fetchCurrentStreetRate(scope, sourceMonth),
-      fetchCurrentStreetRate(scope, yearAgoSourceMonth),
+      fetchCurrentStreetRate(scope, priorJanuaryMonth),
       fetchProductStreetBaselines(scope, sourceMonth),
       getDerivedRateFormulas((s, p) => pool.query(s, p), input.clientId),
     ]);
@@ -231,9 +232,9 @@ export async function calculatePlanDetailed(
       `There is no prior-year rent roll for ${input.serviceLine} at ${input.location ?? "this portfolio"}, so year-over-year growth cannot be measured. Import the rent roll for ${priorYearQuarters.map((q) => q.label).join(", ")} to plan against a target.`,
     );
   }
-  if (yearAgoStreetRateMonthly <= 0) {
+  if (priorJanuaryStreetRateMonthly <= 0) {
     throw new PlanningDataError(
-      `There is no usable street rate for ${yearAgoSourceMonth} at ${input.location ?? "this portfolio"}, so the year-over-year monthly street increase maximum cannot be enforced.`,
+      `There is no usable January street rate for ${priorJanuaryMonth} at ${input.location ?? "this portfolio"}, so the January-to-January street increase maximum cannot be enforced.`,
     );
   }
 
@@ -244,7 +245,7 @@ export async function calculatePlanDetailed(
     quarters,
     anchorMs,
     currentStreetRateMonthly,
-    yearAgoStreetRateMonthly,
+    priorJanuaryStreetRateMonthly,
   });
 
   const daily = isDailyRateServiceLine(input.serviceLine);

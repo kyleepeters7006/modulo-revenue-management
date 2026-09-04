@@ -112,7 +112,7 @@ function assumptions(overrides: Partial<PlanningAssumptions> = {}): PlanningAssu
   };
 }
 
-console.log("\n-- 6b. Same-month YoY maximum includes street increases already taken --");
+console.log("\n-- 6b. January-to-January maximum includes street increases already taken --");
 {
   const result = solvePlan({
     residents: roomyPopulation(),
@@ -125,10 +125,10 @@ console.log("\n-- 6b. Same-month YoY maximum includes street increases already t
     quarters: QUARTERS,
     anchorMs: ANCHOR_MS,
     currentStreetRateMonthly: 5400,
-    yearAgoStreetRateMonthly: 5000,
+    priorJanuaryStreetRateMonthly: 5000,
   });
   near(
-    "recommended street rate cannot exceed 10% over the same month last year",
+    "proposed January street rate cannot exceed 10% over prior January",
     result.recommendedStreetMonthly,
     5500,
     0.01,
