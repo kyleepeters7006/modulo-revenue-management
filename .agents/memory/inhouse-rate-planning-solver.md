@@ -105,3 +105,19 @@ whole-page calculation failure.
 
 **How to apply:** use settled per-line requests for the multi-line calculate action,
 while retaining the server's precise `PlanningDataError` for the skipped-line message.
+
+## Annual street and in-house decisions are one proposal
+
+An annual plan's street recommendation and resident-specific in-house increases
+must move through review and publication as one linked pair. Editing either half
+means recalculating and resubmitting the whole plan; never flatten the resident
+allocations into one percentage or let a generic street-rule edit detach them.
+
+**Why:** each resident increase was solved against the proposed Street Rate and
+their individual headroom. Publishing only one half, or changing Street Rate
+without recalculation, invalidates the resident-level result.
+
+**How to apply:** keep submitted plans inert until both linked proposals are
+implemented and both effective dates are due. Replace any prior unpublished pair
+for the same scope on resubmission, clear its derived rule rates if it had been
+implemented, and publish/apply/archive the complete pair atomically.

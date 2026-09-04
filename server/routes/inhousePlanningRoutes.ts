@@ -2,8 +2,9 @@
  * In-House Rate Planning routes — /api/inhouse-planning/*
  *
  * Calculating a plan is read-only by construction: the calculate endpoint
- * never writes a rate. Applying a plan is a separate, authenticated POST that
- * records an immutable version before anything else happens.
+ * never writes a rate. Submitting a plan records an immutable proposed version
+ * and its linked pricing proposals; publishing is the only operation that
+ * applies it to Reference Data.
  */
 import type { Express } from "express";
 import { z } from "zod";
@@ -18,7 +19,6 @@ import {
 } from "../services/inhouseRatePlanning";
 import { buildRatePlanWorkbook } from "../services/inhouseRatePlanning/excelExport";
 import { computeHistoricalTurnover } from "../services/inhouseRatePlanning/historicalTurnover";
-import { invalidateRefDataCache } from "../refDataCache";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -361,7 +361,7 @@ export function registerInhousePlanningRoutes(app: Express) {
     }
   });
 
-  // ── Apply (records an auditable version) ─────────────────────────────────
+  // ── Submit (records an auditable proposed version and linked rules) ──────
 
   app.post("/api/inhouse-planning/apply", requireAuth, async (req: any, res) => {
     try {
@@ -399,6 +399,7 @@ export function registerInhousePlanningRoutes(app: Express) {
       const client = await pool.connect();
       let version = 1;
       let planId: string | undefined;
+      let replacedImplementedProposal = false;
       try {
         await client.query("BEGIN");
         // Serialize concurrent approvals for this scope behind one advisory
@@ -417,17 +418,46 @@ export function registerInhousePlanningRoutes(app: Express) {
         );
         version = Number(versionRow.rows[0]?.next) || 1;
 
-        // Older plans for the same scope stop being the live answer the moment
-        // a new one is approved, but they are never deleted.
-        await client.query(
-          `UPDATE inhouse_rate_plans
-              SET status = 'superseded'
+        // Re-submitting after editing replaces the prior draft for this exact
+        // scope. Keep the old plan as a superseded audit version, but remove
+        // its unpublished Rule Administration envelopes so an admin cannot
+        // accidentally implement both the old and new resident allocations.
+        const priorDrafts = await client.query<{ id: string; was_implemented: boolean }>(
+          `SELECT p.id,
+                  EXISTS (
+                    SELECT 1
+                      FROM adjustment_rules r
+                     WHERE r.client_id = p.client_id
+                       AND r.action->>'annualPlanId' = p.id
+                       AND r.lifecycle_status = 'implemented'
+                       AND r.is_active = true
+                       AND r.is_historical IS NOT TRUE
+                  ) AS was_implemented
+             FROM inhouse_rate_plans p
             WHERE client_id = $1
-              AND service_line = $2
-              AND location IS NOT DISTINCT FROM $3
-              AND status = 'applied'`,
-          [clientId, plan.scope.serviceLine, plan.scope.location],
+              AND location_id IS NOT DISTINCT FROM $2
+              AND service_line = $3
+              AND status = 'proposed'
+            FOR UPDATE`,
+          [clientId, locationId, plan.scope.serviceLine],
         );
+        const priorDraftIds = priorDrafts.rows.map((row) => row.id);
+        replacedImplementedProposal = priorDrafts.rows.some((row) => row.was_implemented);
+        if (priorDraftIds.length > 0) {
+          await client.query(
+            `DELETE FROM adjustment_rules
+              WHERE client_id = $1
+                AND is_historical IS NOT TRUE
+                AND action->>'annualPlanId' = ANY($2::text[])`,
+            [clientId, priorDraftIds],
+          );
+          await client.query(
+            `UPDATE inhouse_rate_plans
+                SET status = 'superseded'
+              WHERE id = ANY($1::varchar[])`,
+            [priorDraftIds],
+          );
+        }
 
         const inserted = await client.query<{ id: string }>(
           `INSERT INTO inhouse_rate_plans
@@ -435,7 +465,7 @@ export function registerInhousePlanningRoutes(app: Express) {
               assumptions, summary, quarters, residents,
               street_rate_effective_date, inhouse_effective_date,
               recommended_street_rate, applied_by)
-           VALUES ($1,$2,$3,$4,$5,'applied',$6,$7,$8,$9,$10,$11,$12,$13)
+            VALUES ($1,$2,$3,$4,$5,'proposed',$6,$7,$8,$9,$10,$11,$12,$13)
            RETURNING id`,
           [
             clientId,
@@ -454,6 +484,53 @@ export function registerInhousePlanningRoutes(app: Express) {
           ],
         );
         planId = inserted.rows[0]?.id;
+        if (!planId) throw new Error("Failed to create in-house rate plan");
+
+        // These records deliberately bypass the generic rule-creation path:
+        // they are a single annual-plan decision, and plan + both proposals
+        // must either all exist or none do. The special proposal is metadata
+        // for publishing/display only; the resident-level recommendations stay
+        // immutable in inhouse_rate_plans and are never fed to the street engine.
+        const planLink = {
+          annualPlanId: planId,
+          proposalType: "inhouse_rate_plan",
+          weightedAvgIncreasePct: plan.summary.weightedAvgIncreasePct,
+        };
+        const streetAction = {
+          type: "adjust_rate",
+          target: "street_rate",
+          adjustmentType: "percentage",
+          adjustmentValue: plan.streetIncreasePct,
+          isAdditive: false,
+          filters: { serviceLine: [plan.scope.serviceLine] },
+          annualPlanId: planId,
+          proposalType: "annual_plan_street_rate",
+        };
+        const specialAction = {
+          ...planLink,
+          type: "annual_inhouse_plan",
+          adjustmentType: "percentage",
+          adjustmentValue: plan.summary.weightedAvgIncreasePct,
+        };
+        const suffix = planId.slice(0, 8);
+        await client.query(
+          `INSERT INTO adjustment_rules
+             (client_id, location_id, service_line, service_lines, name, description,
+              trigger, action, is_active, lifecycle_status, effective_date, created_by)
+           VALUES
+             ($1,$2,$3,$4,$5,$6,$7,$8,false,'proposed',$9,$10),
+             ($1,$2,$3,$4,$11,$12,$7,$13,false,'proposed',$14,$10)`,
+          [
+            clientId, locationId, plan.scope.serviceLine, [plan.scope.serviceLine],
+            `Annual plan street increase v${version} (${suffix})`,
+            `${plan.streetIncreasePct.toFixed(2)}% street-rate increase proposed by annual plan`,
+            JSON.stringify({ type: "immediate" }), JSON.stringify(streetAction),
+            plan.assumptions.streetRateEffectiveDate || null, req.session?.userId || null,
+            `Annual plan in-house increases v${version} (${suffix})`,
+            `${plan.summary.weightedAvgIncreasePct.toFixed(2)}% weighted in-house increase proposed by annual plan`,
+            JSON.stringify(specialAction), plan.assumptions.inhouseEffectiveDate || null,
+          ],
+        );
         await client.query("COMMIT");
       } catch (txErr) {
         await client.query("ROLLBACK").catch(() => {});
@@ -462,23 +539,23 @@ export function registerInhousePlanningRoutes(app: Express) {
         client.release();
       }
 
-      // Reference Data now reads applied plans for its Annual Increase columns
-      // and its Final rate, so a newly applied plan must drop the cached
-      // responses. Without this the grid serves pre-plan numbers for the rest
-      // of the 10-minute TTL.
-      invalidateRefDataCache();
-
+      // The proposal list is cached by Rule Administration. This is a
+      // submission only (so do not schedule a pricing recalculation), but the
+      // newly-created proposals must be visible immediately.
+      const { onRulesChanged, purgeRuleCaches } = await import("../routes");
+      if (replacedImplementedProposal) await onRulesChanged(clientId);
+      else await purgeRuleCaches(clientId);
       res.json({ ok: true, version, planId, plan });
     } catch (error) {
       if (error instanceof PlanningDataError) {
         return res.status(422).json({ error: error.message });
       }
       console.error("[inhouse-planning] apply failed:", error);
-      res.status(500).json({ error: "Failed to apply the in-house rate plan" });
+      res.status(500).json({ error: "Failed to submit the in-house rate plan proposal" });
     }
   });
 
-  // ── Applied plan history ─────────────────────────────────────────────────
+  // ── Plan history ─────────────────────────────────────────────────────────
 
   app.get("/api/inhouse-planning/plans", async (req: any, res) => {
     try {
@@ -517,7 +594,7 @@ export function registerInhousePlanningRoutes(app: Express) {
         return res.status(422).json({ error: error.message });
       }
       console.error("[inhouse-planning] plan history failed:", error);
-      res.status(500).json({ error: "Failed to load applied plans" });
+      res.status(500).json({ error: "Failed to load plans" });
     }
   });
 }

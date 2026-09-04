@@ -657,7 +657,7 @@ function purgeCompPositionCaches(clientId: string): void {
 // filter combination (location, service line, or "all") sees the fresh DB state.
 // Returns a Promise so callers that need the DB deletion to complete before
 // continuing (e.g. after an ROH upload) can await it.
-function purgeRuleCaches(clientId: string): Promise<void> {
+export function purgeRuleCaches(clientId: string): Promise<void> {
   // adj-rules list cache must be purged for ALL clients, not just the session
   // client. Global rules (client_id = NULL in DB) are visible to every client,
   // so a rule saved in a 'demo' session still affects what 'trilogy' sees.
@@ -769,7 +769,7 @@ function scheduleRuleRecalculation(clientId: string, attempt = 0): void {
 // portfolio repricing WRITE against a real tenant's data. Staleness is the safer
 // failure mode. The real fix is to scope rules per tenant, or to put the rule
 // endpoints behind auth — either is a bigger change than auto-apply.
-async function onRulesChanged(clientId: string): Promise<void> {
+export async function onRulesChanged(clientId: string): Promise<void> {
   await purgeRuleCaches(clientId);
   scheduleRuleRecalculation(clientId);
 }
@@ -20739,6 +20739,7 @@ Respond in JSON format:
       const unitClaimerMap = new Map<string, { id: string; name: string; specificity: number }>();
       const dedupedImpactById = new Map<string, any>();
       for (const rule of dedupOrder) {
+        if ((rule.action as any)?.proposalType === "inhouse_rate_plan") continue;
         const ruleSpec = ruleSpecificityScore(rule);
         const impact = computeQualifiedRuleImpact(impactCtx, rule, scope, claimedUnitIds);
         for (const id of Array.from(impact.qualifiedUnitIds)) {
@@ -20759,6 +20760,12 @@ Respond in JSON format:
 
       const enrichedRules = rules.map((rule) => {
         const action = rule.action as any;
+        // An annual in-house proposal is an auditable publishing envelope, not
+        // an executable street-rate rule. Its weighted average is display-only;
+        // the linked plan retains the resident-level calculated increases.
+        if (action?.proposalType === "inhouse_rate_plan") {
+          return { ...rule, affectedUnits: 0, affectedCampuses: 0, monthlyImpact: 0, annualImpact: 0 };
+        }
         const adjustmentValue: number = action?.adjustmentValue ?? 0;
         if (!adjustmentValue || !impactCtx) return rule;
 
@@ -22741,13 +22748,38 @@ Return ONLY valid JSON, no markdown fences:
     try {
       const { id } = req.params;
       const clientId = (req as any).clientId || 'demo';
+      if (!(await isRuleAdmin(req))) {
+        return res.status(403).json({ error: "Admin privileges are required to edit a rule" });
+      }
       const { description, locationId, serviceLine, serviceLines, roomTypes, effectiveDate, isAdditive, structured } = req.body;
       if (effectiveDate != null && effectiveDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate))) {
         return res.status(400).json({ error: "effectiveDate must be in YYYY-MM-DD format" });
       }
 
+      const owned = await pool.query(
+        `SELECT id FROM adjustment_rules
+          WHERE id = $1
+            AND (client_id = $2 OR (client_id IS NULL AND location_id IN (
+              SELECT id FROM locations WHERE client_id = $2
+            )))`,
+        [id, clientId],
+      );
+      if (!owned.rows.length) return res.status(404).json({ error: "Rule not found" });
       const existing = (await storage.getAdjustmentRules()).find(r => r.id === id);
       if (!existing) return res.status(404).json({ error: "Rule not found" });
+      const existingAction = typeof existing.action === "string"
+        ? JSON.parse(existing.action)
+        : existing.action as any;
+      if (existingAction?.proposalType === "inhouse_rate_plan") {
+        return res.status(400).json({
+          error: "Edit this resident-level in-house proposal from In-House Rate Planning",
+        });
+      }
+      if (existingAction?.annualPlanId) {
+        return res.status(400).json({
+          error: "Edit this linked street and in-house proposal from In-House Rate Planning so resident increases are recalculated",
+        });
+      }
 
       if (!description) return res.status(400).json({ error: "description is required" });
 
@@ -22902,17 +22934,67 @@ Return ONLY valid JSON, no markdown fences:
       // publishing claims those records for the authenticated client as they
       // move to history, eliminating their global scope going forward.
       const lockedRules = await connection.query(
-        `SELECT id
+        `SELECT id, action, effective_date
            FROM adjustment_rules
           WHERE (client_id = $1 OR client_id IS NULL)
             AND is_active = true
             AND is_historical IS NOT TRUE
-            AND (lifecycle_status IS NULL OR lifecycle_status = 'implemented')
-            AND (effective_date IS NULL OR effective_date <= CURRENT_DATE)
+             AND (lifecycle_status IS NULL OR lifecycle_status = 'implemented')
           FOR UPDATE`,
         [clientId],
       );
-      const activeRuleIds = lockedRules.rows.map((row: any) => String(row.id));
+      const dueRuleIds = (rows: any[]) => {
+        const today = new Date().toISOString().slice(0, 10);
+        const parsed = rows.map((row) => ({
+          ...row,
+          action: typeof row.action === "string" ? JSON.parse(row.action) : row.action,
+          due: !row.effective_date || String(row.effective_date).slice(0, 10) <= today,
+        }));
+        const annualGroups = new Map<string, any[]>();
+        for (const row of parsed) {
+          const planId = row.action?.annualPlanId;
+          if (planId) annualGroups.set(planId, [...(annualGroups.get(planId) ?? []), row]);
+        }
+        const included = new Set<string>();
+        for (const row of parsed) {
+          if (!row.action?.annualPlanId && row.due) included.add(String(row.id));
+        }
+        for (const rowsForPlan of annualGroups.values()) {
+          const types = rowsForPlan.map((row) => row.action?.proposalType);
+          if (rowsForPlan.length === 2 &&
+              types.filter((type) => type === "annual_plan_street_rate").length === 1 &&
+              types.filter((type) => type === "inhouse_rate_plan").length === 1 &&
+              rowsForPlan.every((row) => row.due)) {
+            rowsForPlan.forEach((row) => included.add(String(row.id)));
+          }
+        }
+        return [...included];
+      };
+      const activeRuleIds = dueRuleIds(lockedRules.rows);
+      if (activeRuleIds.length > 0) {
+        const duplicateAnnualScopes = await connection.query(
+          `SELECT location_id, service_line
+             FROM adjustment_rules
+            WHERE id = ANY($1::varchar[])
+              AND action->>'annualPlanId' IS NOT NULL
+            GROUP BY location_id, service_line
+           HAVING COUNT(DISTINCT action->>'annualPlanId') > 1`,
+          [activeRuleIds],
+        );
+        if (duplicateAnnualScopes.rows.length > 0) {
+          await connection.query("ROLLBACK");
+          return res.status(409).json({
+            error: "More than one annual plan is ready for the same scope. Edit and resubmit that scope before publishing.",
+          });
+        }
+      }
+      const inhouseProposalRuleIds = lockedRules.rows
+        .filter((row: any) => activeRuleIds.includes(String(row.id)) && (() => {
+          const action = typeof row.action === "string" ? JSON.parse(row.action) : row.action;
+          return action?.proposalType === "inhouse_rate_plan";
+        })())
+        .map((row: any) => String(row.id));
+      const streetRuleIds = activeRuleIds.filter((id: string) => !inhouseProposalRuleIds.includes(id));
       if (activeRuleIds.length === 0) {
         await connection.query("ROLLBACK");
         return res.status(409).json({ error: "There are no client-owned active rules to publish" });
@@ -22920,8 +23002,10 @@ Return ONLY valid JSON, no markdown fences:
 
       const activeIdSet = new Set(activeRuleIds);
       const activeRules = (await storage.getActiveAdjustmentRules(clientId))
-        .filter((rule) => activeIdSet.has(rule.id) && (rule.clientId === clientId || rule.clientId == null));
-      if (activeRules.length !== activeRuleIds.length) {
+        .filter((rule: any) => activeIdSet.has(rule.id) &&
+          (rule.clientId === clientId || rule.clientId == null) &&
+          rule.action?.proposalType !== "inhouse_rate_plan");
+      if (activeRules.length !== streetRuleIds.length) {
         await connection.query("ROLLBACK");
         return res.status(409).json({
           error: "The active rules changed before publishing began. Refresh and try again.",
@@ -22935,18 +23019,18 @@ Return ONLY valid JSON, no markdown fences:
         [clientId],
       );
       const uploadMonth = latestMonthResult.rows[0]?.upload_month as string | null;
-      if (!uploadMonth) {
+      if (!uploadMonth && streetRuleIds.length > 0) {
         await connection.query("ROLLBACK");
         return res.status(404).json({ error: "No rent-roll data is available to publish" });
       }
 
-      const unitResult = await connection.query(
+      const unitResult = streetRuleIds.length > 0 ? await connection.query(
         `SELECT *
            FROM rent_roll_data
           WHERE client_id = $1 AND upload_month = $2
           FOR UPDATE`,
         [clientId, uploadMonth],
-      );
+      ) : { rows: [] as any[] };
       const units = unitResult.rows.map((row: any) => ({
         ...row,
         clientId: row.client_id,
@@ -22983,7 +23067,7 @@ Return ONLY valid JSON, no markdown fences:
           appliedRuleName: result.appliedRuleName,
         }];
       });
-      if (publishable.length === 0) {
+      if (publishable.length === 0 && inhouseProposalRuleIds.length === 0) {
         await connection.query("ROLLBACK");
         return res.status(409).json({
           error: "The active rules do not currently produce a publishable Street Rate for any unit",
@@ -22993,16 +23077,15 @@ Return ONLY valid JSON, no markdown fences:
       // A new active rule could have been inserted while the locked rules were
       // being evaluated. Re-read the set and abort unless it is still exact.
       const currentRules = await connection.query(
-        `SELECT id
+        `SELECT id, action, effective_date
            FROM adjustment_rules
           WHERE (client_id = $1 OR client_id IS NULL)
             AND is_active = true
             AND is_historical IS NOT TRUE
-            AND (lifecycle_status IS NULL OR lifecycle_status = 'implemented')
-            AND (effective_date IS NULL OR effective_date <= CURRENT_DATE)`,
+             AND (lifecycle_status IS NULL OR lifecycle_status = 'implemented')`,
         [clientId],
       );
-      const currentRuleIds = currentRules.rows.map((row: any) => String(row.id)).sort();
+      const currentRuleIds = dueRuleIds(currentRules.rows).sort();
       const expectedRuleIds = [...activeRuleIds].sort();
       if (currentRuleIds.length !== activeRuleIds.length ||
           currentRuleIds.some((id: string, index: number) => id !== expectedRuleIds[index])) {
@@ -23012,7 +23095,7 @@ Return ONLY valid JSON, no markdown fences:
         });
       }
 
-      const rateUpdate = await connection.query(
+      const rateUpdate = publishable.length > 0 ? await connection.query(
         `UPDATE rent_roll_data AS rr
             SET street_rate = published.new_rate,
                 rule_adjusted_rate = NULL,
@@ -23024,7 +23107,7 @@ Return ONLY valid JSON, no markdown fences:
             AND rr.client_id = $2
             AND rr.upload_month = $3`,
         [JSON.stringify(publishable.map(({ id, newRate }) => ({ id, new_rate: newRate }))), clientId, uploadMonth],
-      );
+      ) : { rowCount: 0 };
       if (rateUpdate.rowCount !== publishable.length) {
         throw new Error(
           `Publish row-count mismatch: planned ${publishable.length}, updated ${rateUpdate.rowCount ?? 0}`,
@@ -23033,7 +23116,7 @@ Return ONLY valid JSON, no markdown fences:
 
       // No active rule remains after publish, so no latest-month row may retain
       // stale rule lineage from a previous calculation.
-      await connection.query(
+      if (streetRuleIds.length > 0) await connection.query(
         `UPDATE rent_roll_data
             SET rule_adjusted_rate = NULL,
                 applied_rule_name = NULL,
@@ -23042,6 +23125,43 @@ Return ONLY valid JSON, no markdown fences:
             AND (rule_adjusted_rate IS NOT NULL OR applied_rule_name IS NOT NULL OR rule_rate_calculated_at IS NOT NULL)`,
         [clientId, uploadMonth],
       );
+
+      // Applying special proposals is part of this same transaction. Lock and
+      // verify their proposed plans before superseding the old live answer, so
+      // a stale/malformed rule can never archive independently of its plan.
+      if (inhouseProposalRuleIds.length > 0) {
+        const linkedPlans = await connection.query(
+          `SELECT DISTINCT p.id, p.location, p.service_line
+             FROM inhouse_rate_plans p
+             JOIN adjustment_rules r ON (r.action->>'annualPlanId') = p.id
+            WHERE r.id = ANY($1::varchar[])
+              AND p.client_id = $2
+              AND p.status = 'proposed'
+            FOR UPDATE OF p`,
+          [inhouseProposalRuleIds, clientId],
+        );
+        if (linkedPlans.rows.length !== inhouseProposalRuleIds.length) {
+          throw new Error("One or more in-house plan proposals are no longer available to publish");
+        }
+        for (const plan of linkedPlans.rows) {
+          await connection.query(
+            `UPDATE inhouse_rate_plans
+                SET status = 'superseded'
+              WHERE client_id = $1
+                AND service_line = $2
+                AND location IS NOT DISTINCT FROM $3
+                AND status = 'applied'
+                AND id <> $4`,
+            [clientId, plan.service_line, plan.location, plan.id],
+          );
+          await connection.query(
+            `UPDATE inhouse_rate_plans
+                SET status = 'applied'
+              WHERE id = $1 AND status = 'proposed'`,
+            [plan.id],
+          );
+        }
+      }
 
       // The disabled lifecycle is retained for audit while is_historical moves
       // the same immutable records into the Pricing History section.
@@ -23071,7 +23191,7 @@ Return ONLY valid JSON, no markdown fences:
          VALUES ($1, $2, $3::jsonb, $4, $5::jsonb, $6)`,
         [
           clientId,
-          uploadMonth,
+          uploadMonth || new Date().toISOString().slice(0, 7),
           JSON.stringify(activeRuleIds),
           changed.length,
           JSON.stringify(publishable.map((row) => ({
@@ -23102,6 +23222,7 @@ Return ONLY valid JSON, no markdown fences:
         publishedRules: activeRuleIds.length,
         updatedUnits: changed.length,
         historicalRules: activeRuleIds.length,
+        appliedInhousePlans: inhouseProposalRuleIds.length,
       });
     } catch (error) {
       await connection.query("ROLLBACK").catch(() => {});
@@ -23152,17 +23273,73 @@ Return ONLY valid JSON, no markdown fences:
       const description = String(rule.description || rule.name || "");
       const trigger = typeof rule.trigger === "string" ? JSON.parse(rule.trigger) : rule.trigger;
       const action = typeof rule.action === "string" ? JSON.parse(rule.action) : rule.action;
-      const enforceable = checkRuleEnforceable(description, {
-        name: rule.name,
-        description,
-        trigger,
-        action,
-      });
-      if (!enforceable.ok) {
-        return res.status(400).json({
-          error: "This rule cannot be implemented as written",
-          details: [enforceable.reason],
+      if (action?.annualPlanId) {
+        const connection = await pool.connect();
+        try {
+          await connection.query("BEGIN");
+          const pair = await connection.query(
+            `SELECT id, action, lifecycle_status
+               FROM adjustment_rules
+              WHERE client_id = $1
+                AND action->>'annualPlanId' = $2
+                AND is_historical IS NOT TRUE
+              FOR UPDATE`,
+            [clientId, action.annualPlanId],
+          );
+          const types = pair.rows.map((row: any) =>
+            (typeof row.action === "string" ? JSON.parse(row.action) : row.action)?.proposalType);
+          const plan = await connection.query(
+            `SELECT id FROM inhouse_rate_plans
+              WHERE id = $1 AND client_id = $2 AND status = 'proposed'
+              FOR UPDATE`,
+            [action.annualPlanId, clientId],
+          );
+          if (pair.rows.length !== 2 ||
+              types.filter((type: string) => type === "annual_plan_street_rate").length !== 1 ||
+              types.filter((type: string) => type === "inhouse_rate_plan").length !== 1 ||
+              pair.rows.some((row: any) => row.lifecycle_status !== "proposed") ||
+              plan.rows.length !== 1) {
+            await connection.query("ROLLBACK");
+            return res.status(409).json({ error: "Annual plan proposal pair is incomplete or no longer proposed" });
+          }
+          const updated = await connection.query(
+            `UPDATE adjustment_rules
+                SET lifecycle_status = 'implemented', is_active = true,
+                    implemented_at = COALESCE(implemented_at, now()), updated_at = now()
+              WHERE id = ANY($1::varchar[])
+              RETURNING *`,
+            [pair.rows.map((row: any) => row.id)],
+          );
+          await connection.query("COMMIT");
+          await onRulesChanged(clientId);
+          return res.json({
+            rule: updated.rows.find((row: any) => row.id === id),
+            rules: updated.rows,
+            lifecycleStatus: "implemented",
+          });
+        } catch (annualError) {
+          await connection.query("ROLLBACK").catch(() => {});
+          throw annualError;
+        } finally {
+          connection.release();
+        }
+      }
+      // The special proposal is implemented solely to make its linked,
+      // resident-level plan eligible for publication. It intentionally has no
+      // street-rule trigger semantics, so normal enforceability is inapplicable.
+      if (action?.proposalType !== "inhouse_rate_plan") {
+        const enforceable = checkRuleEnforceable(description, {
+          name: rule.name,
+          description,
+          trigger,
+          action,
         });
+        if (!enforceable.ok) {
+          return res.status(400).json({
+            error: "This rule cannot be implemented as written",
+            details: [enforceable.reason],
+          });
+        }
       }
 
       const updated = await pool.query(
@@ -23196,29 +23373,64 @@ Return ONLY valid JSON, no markdown fences:
     try {
       const { id } = req.params;
       const clientId = req.clientId || 'demo';
-      const rules = await storage.getAdjustmentRules();
-      const rule = rules.find(r => r.id === id);
-      
-      if (!rule) {
-        return res.status(404).json({ error: "Rule not found" });
+      if (!(await isRuleAdmin(req))) {
+        return res.status(403).json({ error: "Admin privileges are required to toggle a rule" });
       }
-      if (getRuleLifecycleStatus(rule) === "proposed") {
-        return res.status(400).json({ error: "Implement this proposed rule before toggling it" });
+      const connection = await pool.connect();
+      try {
+        await connection.query("BEGIN");
+        const candidate = await connection.query(
+          `SELECT * FROM adjustment_rules WHERE id = $1
+             AND (client_id = $2 OR (client_id IS NULL AND location_id IN (
+               SELECT id FROM locations WHERE client_id = $2
+             ))) FOR UPDATE`,
+          [id, clientId],
+        );
+        if (!candidate.rows.length) {
+          await connection.query("ROLLBACK");
+          return res.status(404).json({ error: "Rule not found" });
+        }
+        const rule = candidate.rows[0];
+        if (getRuleLifecycleStatus(rule) === "proposed") {
+          await connection.query("ROLLBACK");
+          return res.status(400).json({ error: "Implement this proposed rule before toggling it" });
+        }
+        if (rule.is_historical) {
+          await connection.query("ROLLBACK");
+          return res.status(400).json({ error: "Historical rules cannot be toggled" });
+        }
+        const action = typeof rule.action === "string" ? JSON.parse(rule.action) : rule.action;
+        let ids = [id];
+        if (action?.annualPlanId) {
+          const pair = await connection.query(
+            `SELECT id, action, lifecycle_status, is_active FROM adjustment_rules
+              WHERE client_id = $1 AND action->>'annualPlanId' = $2
+                AND is_historical IS NOT TRUE FOR UPDATE`,
+            [clientId, action.annualPlanId],
+          );
+          if (pair.rows.length !== 2 || pair.rows.some((row: any) =>
+            !["implemented", "disabled"].includes(row.lifecycle_status))) {
+            await connection.query("ROLLBACK");
+            return res.status(409).json({ error: "Annual plan proposal pair is incomplete or cannot be toggled" });
+          }
+          ids = pair.rows.map((row: any) => row.id);
+        }
+        const isActive = !rule.is_active;
+        const updated = await connection.query(
+          `UPDATE adjustment_rules
+              SET is_active = $1, lifecycle_status = $2, updated_at = now()
+            WHERE id = ANY($3::varchar[]) RETURNING *`,
+          [isActive, isActive ? "implemented" : "disabled", ids],
+        );
+        await connection.query("COMMIT");
+        await onRulesChanged(clientId);
+        return res.json(updated.rows.find((row: any) => row.id === id));
+      } catch (toggleError) {
+        await connection.query("ROLLBACK").catch(() => {});
+        throw toggleError;
+      } finally {
+        connection.release();
       }
-      if (rule.isHistorical) {
-        return res.status(400).json({ error: "Historical rules cannot be toggled" });
-      }
-      
-      const updated = await storage.updateAdjustmentRule(id, {
-        isActive: !rule.isActive,
-        lifecycleStatus: !rule.isActive ? "implemented" : "disabled",
-      });
-
-      // Clear all cached rule-list variants so every location/service-line
-      // filter sees the updated active state immediately (not the stale cache).
-      await onRulesChanged(clientId);
-      
-      res.json(updated);
     } catch (error) {
       console.error('Error toggling adjustment rule:', error);
       res.status(500).json({ error: "Failed to toggle adjustment rule" });
@@ -23343,10 +23555,25 @@ Return ONLY valid JSON, no markdown fences:
     try {
       const { id } = req.params;
       const clientId = req.clientId || 'demo';
+      if (!(await isRuleAdmin(req))) {
+        return res.status(403).json({ error: "Admin privileges are required to change rule stacking" });
+      }
+      const owned = await pool.query(
+        `SELECT id FROM adjustment_rules
+          WHERE id = $1
+            AND (client_id = $2 OR (client_id IS NULL AND location_id IN (
+              SELECT id FROM locations WHERE client_id = $2
+            )))`,
+        [id, clientId],
+      );
+      if (!owned.rows.length) return res.status(404).json({ error: "Rule not found" });
       const rules = await storage.getAdjustmentRules();
       const rule = rules.find(r => r.id === id);
       if (!rule) return res.status(404).json({ error: "Rule not found" });
       const action = (rule.action as any) || {};
+      if (action.annualPlanId) {
+        return res.status(400).json({ error: "Annual-plan proposal stacking is fixed" });
+      }
       const updated = await storage.updateAdjustmentRule(id, {
         action: { ...action, isAdditive: action.isAdditive === false },
       });
@@ -23362,7 +23589,52 @@ Return ONLY valid JSON, no markdown fences:
     try {
       const { id } = req.params;
       const clientId = req.clientId || 'demo';
-      await storage.deleteAdjustmentRule(id);
+      if (!(await isRuleAdmin(req))) {
+        return res.status(403).json({ error: "Admin privileges are required to delete a rule" });
+      }
+      const connection = await pool.connect();
+      try {
+        await connection.query("BEGIN");
+        const candidate = await connection.query(
+          `SELECT * FROM adjustment_rules WHERE id = $1
+             AND (client_id = $2 OR (client_id IS NULL AND location_id IN (
+               SELECT id FROM locations WHERE client_id = $2
+             ))) FOR UPDATE`,
+          [id, clientId],
+        );
+        if (!candidate.rows.length) {
+          await connection.query("ROLLBACK");
+          return res.status(404).json({ error: "Rule not found" });
+        }
+        const action = typeof candidate.rows[0].action === "string"
+          ? JSON.parse(candidate.rows[0].action) : candidate.rows[0].action;
+        if (action?.annualPlanId) {
+          const pair = await connection.query(
+            `SELECT id, lifecycle_status FROM adjustment_rules
+              WHERE client_id = $1 AND action->>'annualPlanId' = $2 FOR UPDATE`,
+            [clientId, action.annualPlanId],
+          );
+          if (pair.rows.length !== 2 || pair.rows.some((row: any) => row.lifecycle_status !== "proposed")) {
+            await connection.query("ROLLBACK");
+            return res.status(409).json({ error: "Only a complete proposed annual plan pair can be deleted" });
+          }
+          await connection.query(`DELETE FROM adjustment_rules WHERE id = ANY($1::varchar[])`,
+            [pair.rows.map((row: any) => row.id)]);
+          await connection.query(
+            `UPDATE inhouse_rate_plans SET status = 'superseded'
+              WHERE id = $1 AND client_id = $2 AND status = 'proposed'`,
+            [action.annualPlanId, clientId],
+          );
+        } else {
+          await connection.query(`DELETE FROM adjustment_rules WHERE id = $1`, [id]);
+        }
+        await connection.query("COMMIT");
+      } catch (deleteError) {
+        await connection.query("ROLLBACK").catch(() => {});
+        throw deleteError;
+      } finally {
+        connection.release();
+      }
       await onRulesChanged(clientId);
       res.json({ success: true });
     } catch (error) {

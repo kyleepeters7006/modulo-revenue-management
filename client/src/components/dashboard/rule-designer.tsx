@@ -1073,6 +1073,15 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
   };
 
   const startEdit = (rule: AdjustmentRule) => {
+    const specialAction = rule.action as any;
+    if (specialAction?.annualPlanId) {
+      const params = new URLSearchParams();
+      if ((rule as any).locationId) params.set('locationId', String((rule as any).locationId));
+      const sl = (rule as any).serviceLine ?? specialAction?.filters?.serviceLine?.[0];
+      if (sl) params.set('serviceLine', String(sl));
+      window.location.assign(`/inhouse-increases${params.toString() ? `?${params}` : ''}`);
+      return;
+    }
     setEditingRuleId(rule.id);
     setEditingRuleName(rule.name);
     const action0 = rule.action as any;
@@ -1311,7 +1320,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
     try {
       const res = await fetch(`/api/adjustment-rules/${ruleId}/toggle`, { method: 'PATCH' });
       if (!res.ok) throw new Error();
-      setRules(prev => prev.map(r => r.id === ruleId ? { ...r, isActive: !r.isActive } : r));
+      await fetchRules();
       queryClient.invalidateQueries({ queryKey: ['/api/reference-data'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/rule-performance'], exact: false });
     } catch {
@@ -1325,20 +1334,26 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       const res = await fetch(`/api/adjustment-rules/${ruleId}/implement`, { method: 'POST' });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || 'Failed to implement rule');
-      setRules(prev => prev.map(rule => rule.id === ruleId
-        ? {
-            ...rule,
-            isActive: true,
-            lifecycleStatus: 'implemented',
-            implementedAt: body.rule?.implemented_at ?? body.rule?.implementedAt ?? new Date().toISOString(),
-          }
-        : rule));
+      const implementedRows = Array.isArray(body.rules) ? body.rules : [body.rule].filter(Boolean);
+      setRules(prev => prev.map(rule => {
+        const updated = implementedRows.find((row: any) => row.id === rule.id);
+        return updated
+          ? {
+              ...rule,
+              isActive: true,
+              lifecycleStatus: 'implemented',
+              implementedAt: updated.implemented_at ?? updated.implementedAt ?? new Date().toISOString(),
+            }
+          : rule;
+      }));
       queryClient.invalidateQueries({ queryKey: ['/api/reference-data'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/rule-performance'], exact: false });
       toast({
-        title: 'Rule implemented',
-        description: `"${name}" is active and Reference Data is refreshing.`,
+        title: implementedRows.length > 1 ? 'Annual plan implemented' : 'Rule implemented',
+        description: implementedRows.length > 1
+          ? 'The linked street and in-house proposals are ready to publish together.'
+          : `"${name}" is active and Reference Data is refreshing.`,
       });
     } catch (error: any) {
       toast({
@@ -1371,8 +1386,8 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
       queryClient.invalidateQueries({ queryKey: ['/api/adjustment-rules'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/rule-performance'], exact: false });
       toast({
-        title: 'Street Rates published',
-        description: `${body.updatedUnits?.toLocaleString?.() ?? body.updatedUnits} rates updated and ${body.historicalRules} rule${body.historicalRules === 1 ? '' : 's'} added to Pricing History.`,
+        title: 'Rates published',
+        description: `${body.updatedUnits?.toLocaleString?.() ?? body.updatedUnits} street rates updated, ${body.appliedInhousePlans ?? 0} in-house plan${body.appliedInhousePlans === 1 ? '' : 's'} applied, and ${body.historicalRules} rule${body.historicalRules === 1 ? '' : 's'} added to Pricing History.`,
       });
     } catch (error: any) {
       toast({
@@ -1419,7 +1434,7 @@ export function RuleDesigner({ locationId, serviceLine, locationName, selectedLo
     try {
       const res = await fetch(`/api/adjustment-rules/${ruleId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error();
-      setRules(prev => prev.filter(r => r.id !== ruleId));
+      await fetchRules();
       queryClient.invalidateQueries({ queryKey: ['/api/reference-data'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/rule-performance'], exact: false });
       toast({ title: 'Rule deleted', description: `"${name}" removed` });

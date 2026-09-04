@@ -449,9 +449,14 @@ export default function InhouseIncreases() {
   const { user, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
 
-  const [locationId, setLocationId] = useState<string>(ALL_CAMPUSES);
+  const [locationId, setLocationId] = useState<string>(() =>
+    new URLSearchParams(window.location.search).get("locationId") || ALL_CAMPUSES,
+  );
   // Multi-select: default to all service lines.
-  const [serviceLines, setServiceLines] = useState<string[]>([...SERVICE_LINES]);
+  const [serviceLines, setServiceLines] = useState<string[]>(() => {
+    const requested = new URLSearchParams(window.location.search).get("serviceLine");
+    return requested && SERVICE_LINES.includes(requested) ? [requested] : [...SERVICE_LINES];
+  });
   const [assumptions, setAssumptions] = useState<PlanningAssumptions>({ ...DEFAULT_ASSUMPTIONS });
   // Per-line overrides for the two fields that legitimately differ by service line.
   const [perLineTargets, setPerLineTargets] = useState<
@@ -794,7 +799,8 @@ export default function InhouseIncreases() {
       toast({ title: "Could not save assumptions", description: cleanError(err.message), variant: "destructive" }),
   });
 
-  // Apply each plan separately. Server re-calculates and versions each one.
+  // Submit each plan separately. Server re-calculates and creates linked
+  // street + in-house proposals in one transaction for each service line.
   const applyPlan = useMutation({
     mutationFn: async () => {
       const currentPlans = plans ?? [];
@@ -802,7 +808,7 @@ export default function InhouseIncreases() {
         ({ sl, plan }) => !assumptionsMatch(plan.assumptions, assumptionsForLine(sl)),
       );
       if (hasChangedAssumptions) {
-        throw new Error("These results were calculated with different assumptions. Recalculate the plan before approving it.");
+        throw new Error("These results were calculated with different assumptions. Recalculate the plan before submitting it.");
       }
       const results = await Promise.all(
         currentPlans.map(({ sl }) =>
@@ -817,21 +823,18 @@ export default function InhouseIncreases() {
     },
     onSuccess: (results: any[]) => {
       queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/plans"] });
-      // Reference Data is often already mounted in another tab. Refresh both
-      // grouped and unit-detail variants immediately so the newly approved
-      // annual increase appears without a browser reload.
-      queryClient.invalidateQueries({ queryKey: ["/api/reference-data"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"], exact: false });
       const desc =
         results.length === 1
-          ? `Plan v${results[0].version} recorded.`
-          : `${results.length} plans recorded.`;
-      toast({ title: "Plan approved", description: desc });
+          ? `Plan v${results[0].version} and its linked rules were submitted for approval.`
+          : `${results.length} plans and their linked rules were submitted for approval.`;
+       toast({ title: "Proposals submitted", description: desc });
     },
     onError: (err: Error) =>
-      toast({ title: "Could not apply this plan", description: cleanError(err.message), variant: "destructive" }),
+      toast({ title: "Could not submit proposals", description: cleanError(err.message), variant: "destructive" }),
   });
 
-  // Fetch previously approved plans; omit serviceLine filter when multiple are
+   // Fetch submitted and applied plan history; omit serviceLine filter when multiple are
   // selected so all lines' history shows in one list.
   const plansQuery = useQuery<{ plans: any[] }>({
     queryKey: ["/api/inhouse-planning/plans", scopeLocationId ?? "all", singleLine ?? "all"],
@@ -1629,14 +1632,14 @@ export default function InhouseIncreases() {
             </CardContent>
           </Card>
 
-          {/* ── Apply ───────────────────────────────────────────────── */}
+          {/* ── Submit proposals ─────────────────────────────────────── */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Approve this plan</CardTitle>
+              <CardTitle className="text-base">Submit this plan as proposals</CardTitle>
               <CardDescription>
-                Recording a plan saves the assumptions, the street recommendation and every
-                resident increase as a numbered version you can come back to. It does not change
-                any live rate on its own.
+                Submitting saves the street recommendation and every resident increase as a
+                numbered plan plus linked proposals. It does not change any live rate until the
+                proposals are implemented and published.
                 {plans.length > 1 && " Each service line is saved as a separate versioned plan."}
               </CardDescription>
             </CardHeader>
@@ -1653,21 +1656,21 @@ export default function InhouseIncreases() {
                 <Alert variant="destructive">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription>
-                    Some service lines do not reach the target and cannot be approved. Only the feasible lines will be recorded.
+                     Some service lines do not reach the target and cannot be submitted. Only feasible lines will be submitted.
                   </AlertDescription>
                 </Alert>
               )}
               {!isAuthenticated && (
                 <Alert>
                   <Info className="h-4 w-4" />
-                  <AlertDescription>Sign in to approve a plan.</AlertDescription>
+                   <AlertDescription>Sign in to submit a plan.</AlertDescription>
                 </Alert>
               )}
               {hasChangedPlanAssumptions && (
                 <Alert>
                   <Info className="h-4 w-4" />
                   <AlertDescription>
-                    The assumptions have changed since this result was calculated. Recalculate the plan before approving it.
+                     The assumptions have changed since this result was calculated. Recalculate the plan before submitting it.
                   </AlertDescription>
                 </Alert>
               )}
@@ -1677,13 +1680,13 @@ export default function InhouseIncreases() {
                 data-testid="button-apply-plan"
               >
                 {applyPlan.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Approve and record {plans.length > 1 ? `${plans.filter((p) => p.plan.feasible).length} plan(s)` : "plan"}
+                 Submit proposals for {plans.length > 1 ? `${plans.filter((p) => p.plan.feasible).length} plan(s)` : "plan"}
               </Button>
 
               {(plansQuery.data?.plans?.length ?? 0) > 0 && (
                 <div className="space-y-2 pt-2">
                   <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Previously approved
+                     Submitted plans
                   </h3>
                   <ul className="space-y-1.5 text-sm">
                     {plansQuery.data!.plans.map((p: any) => (
@@ -1701,6 +1704,16 @@ export default function InhouseIncreases() {
                         <span className="text-xs text-muted-foreground">
                           effective {p.inhouseEffectiveDate}
                         </span>
+                        {p.status === "proposed" && (
+                          <Badge variant="outline" className="text-[11px] font-normal">
+                            Proposed
+                          </Badge>
+                        )}
+                        {p.status === "applied" && (
+                          <Badge variant="outline" className="text-[11px] font-normal">
+                            Applied
+                          </Badge>
+                        )}
                         {p.status === "superseded" && (
                           <Badge variant="outline" className="text-[11px] font-normal">
                             Superseded

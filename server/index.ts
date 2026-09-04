@@ -566,9 +566,9 @@ app.use((req, res, next) => {
   // Idempotent migration: in-house rate planning.
   //
   // `inhouse_planning_assumptions` holds the per-scope growth objective and
-  // guardrails; `inhouse_rate_plans` keeps every applied plan as an immutable
-  // version so an operator can always answer "what did we approve, and on what
-  // numbers". Best-effort like the other table migrations — an absent table
+  // guardrails; `inhouse_rate_plans` keeps every submitted and published plan
+  // as an immutable version so an operator can always answer "what did we
+  // approve, and on what numbers". Best-effort like the other table migrations — an absent table
   // makes the planning page unavailable rather than breaking the app.
   try {
     await db.execute(sql.raw(`
@@ -604,7 +604,7 @@ app.use((req, res, next) => {
         location                    text,
         service_line                text NOT NULL,
         version                     integer NOT NULL,
-        status                      text NOT NULL DEFAULT 'applied',
+        status                      text NOT NULL DEFAULT 'proposed',
         assumptions                 jsonb NOT NULL,
         summary                     jsonb NOT NULL,
         quarters                    jsonb NOT NULL,
@@ -615,6 +615,9 @@ app.use((req, res, next) => {
         applied_by                  text,
         created_at                  timestamp DEFAULT now()
       )`));
+    await db.execute(sql.raw(`
+      ALTER TABLE inhouse_rate_plans
+        ALTER COLUMN status SET DEFAULT 'proposed'`));
     await db.execute(sql.raw(`
       CREATE INDEX IF NOT EXISTS inhouse_rate_plans_scope_idx
         ON inhouse_rate_plans (client_id, location, service_line, version DESC)`));

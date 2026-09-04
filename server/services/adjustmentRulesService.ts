@@ -873,7 +873,9 @@ export function applyAdjustmentRulesToUnit(
   // then newer effective date as the final tiebreaker.
   // Specificity is the primary key so a targeted rule always outranks a
   // blanket rule regardless of how explicit priority is set.
-  const sortedRules = [...activeRules].sort((a, b) => {
+  const sortedRules = activeRules
+    .filter((rule: any) => (rule.action as any)?.proposalType !== "inhouse_rate_plan")
+    .sort((a, b) => {
     const specDiff = ruleSpecificityScoreLocal(b) - ruleSpecificityScoreLocal(a);
     if (specDiff !== 0) return specDiff;
     const priDiff = (b.priority || 0) - (a.priority || 0);
@@ -1053,7 +1055,12 @@ export async function fetchAndApplyAdjustmentRules(
     const clientId = units.find(u => u.unit?.clientId)?.unit?.clientId || "demo";
     // Publish passes the exact client-owned rule rows it locked in its
     // transaction. Normal pricing runs continue loading the live active set.
-    const activeRules = activeRulesOverride ?? await storage.getActiveAdjustmentRules(clientId);
+    // Annual in-house plan proposals are represented in adjustment_rules so
+    // they travel through the same approval/publish lifecycle, but their
+    // resident-specific rates live in inhouse_rate_plans. They must never be
+    // interpreted as a percentage street-rate rule.
+    const activeRules = (activeRulesOverride ?? await storage.getActiveAdjustmentRules(clientId))
+      .filter((rule: any) => (rule.action as any)?.proposalType !== "inhouse_rate_plan");
 
     if (activeRules.length === 0) {
       return units.map(({ id }) => ({

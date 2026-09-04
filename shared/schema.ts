@@ -678,10 +678,10 @@ export const inhousePlanningAssumptions = pgTable("inhouse_planning_assumptions"
     .on(table.clientId, table.locationId, table.serviceLine),
 }));
 
-// An applied in-house increase plan, kept as an immutable audit version.
+// An in-house increase plan, kept as an immutable audit version.
 //
-// Calculating never writes; applying does, and it writes here FIRST so the
-// numbers an operator approved survive independently of any later repricing.
+// Calculating never writes; submission creates a proposed version here first
+// so the resident-level numbers survive independently of later repricing.
 export const inhouseRatePlans = pgTable("inhouse_rate_plans", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   clientId: varchar("client_id").notNull(),
@@ -689,7 +689,7 @@ export const inhouseRatePlans = pgTable("inhouse_rate_plans", {
   location: text("location"),
   serviceLine: text("service_line").notNull(),
   version: integer("version").notNull(),
-  status: text("status").notNull().default("applied"), // applied | superseded
+  status: text("status").notNull().default("proposed"), // proposed | applied | superseded
   assumptions: jsonb("assumptions").notNull(),
   summary: jsonb("summary").notNull(),
   quarters: jsonb("quarters").notNull(),
