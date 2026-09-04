@@ -21,6 +21,11 @@ export function usePrefetch() {
           staleTime: Infinity,
         }),
         queryClient.prefetchQuery({
+          queryKey: ["/api/industry-context"],
+          queryFn: () => apiFetch("/api/industry-context"),
+          staleTime: 30 * 60 * 1000,
+        }),
+        queryClient.prefetchQuery({
           queryKey: ["/api/locations"],
           queryFn: () => apiFetch("/api/locations"),
           staleTime: Infinity,

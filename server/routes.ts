@@ -108,6 +108,7 @@ import { dirname } from 'path';
 import * as fs from 'fs';
 import * as cron from 'node-cron';
 import bcrypt from 'bcryptjs';
+import { getIndustryContext } from "./services/industryContext";
 import { parseNaturalLanguageRule, validateParsedRule, generateRuleName, checkRuleEnforceable, supportedTriggerMetrics } from "./naturalLanguageParser";
 import { buildRuleFromStructured } from "./structuredRuleBuilder";
 import { buildReferenceDataAuditWorkbook, REFERENCE_DATA_AUDIT_CONTENT_TYPE, REFERENCE_DATA_AUDIT_FILENAME } from "./services/referenceDataAuditWorkbook";
@@ -11308,6 +11309,24 @@ ${campusOccLines.join('\n')}
     } catch (error) {
       console.error('Overview data error:', error);
       res.status(500).json({ error: 'Failed to fetch overview data' });
+    }
+  });
+
+  /**
+   * GET /api/industry-context
+   *
+   * Public benchmark context for the annual rate-increase meeting. Live BLS
+   * series are cached server-side; reviewed industry snapshots retain their
+   * publication date and source URL instead of being silently scraped.
+   */
+  app.get("/api/industry-context", async (_req: any, res) => {
+    try {
+      const context = await getIndustryContext();
+      res.setHeader("Cache-Control", "private, max-age=1800, stale-while-revalidate=3600");
+      res.json(context);
+    } catch (error) {
+      console.error("[industry-context] request failed:", error);
+      res.status(503).json({ error: "Industry context is temporarily unavailable" });
     }
   });
 

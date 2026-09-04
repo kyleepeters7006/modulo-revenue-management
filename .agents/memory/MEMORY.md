@@ -100,3 +100,4 @@
 - [Narration endings that sound cut off](demo-narration-endings.md) — three stacking causes: terminal pitch rise, a fade crossing the last word, no hold after it. Measure F0, don't guess.
 - [PDFKit footer pagination](pdfkit-footer-pagination.md) — footer text below the printable margin silently adds overflow pages; reserve footer space and draw inside margins.
 - [Rule publishing safety](rule-publishing-safety.md) — publish is serialized, audited, and tenant-scoped; claim legacy global rules once and never rebuild the unscoped rate-card cache.
+- [External benchmark feeds](industry-context-benchmark-feeds.md) — public BLS requests can exhaust anonymous quotas; preserve reviewed snapshots and explicit unavailable/last-known states.

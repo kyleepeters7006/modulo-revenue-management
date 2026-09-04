@@ -1,6 +1,7 @@
 import Navigation from "@/components/navigation";
 import OverviewTiles from "@/components/dashboard/overview-tiles";
 import RevenueChart from "@/components/dashboard/revenue-chart";
+import IndustryContext from "@/components/dashboard/industry-context";
 import { Link } from "wouter";
 import { BookOpen } from "lucide-react";
 
@@ -44,6 +45,11 @@ export default function Overview() {
             </div>
           </div>
         </div>
+
+         {/* Industry benchmarks before portfolio KPIs */}
+         <div className="mb-5 sm:mb-6">
+           <IndustryContext />
+         </div>
 
         {/* Overview Tiles */}
         <div className="mb-5 sm:mb-6">

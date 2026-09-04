@@ -1,0 +1,10 @@
+---
+name: External benchmark feeds
+description: Operational constraints for public economic benchmark sources used in meeting context.
+---
+
+Anonymous BLS API requests can be rejected after the shared daily request threshold is exhausted. A failed refresh must never become zero, a fabricated estimate, or a falsely current card; keep the last successful value when one exists and otherwise show the metric as unavailable.
+
+**Why:** the dashboard is used to frame pricing decisions, so a plausible-looking fallback is more dangerous than a visible missing source. Reviewed NIC, CBRE, and peer-company snapshots are also valid context but have different publication cadences and must show their own freshness state.
+
+**How to apply:** check the provider response status before normalizing data, cache successful live values conservatively, label stale last-known values, and keep source URL/as-of metadata on every card. Prefer a managed provider key or scheduled refresh for production scale rather than increasing anonymous request volume.
