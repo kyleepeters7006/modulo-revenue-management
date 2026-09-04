@@ -8,7 +8,7 @@ import { createHash } from "crypto";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import { db } from "../db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import {
   importRuns,
   importNotifications,
@@ -351,6 +351,22 @@ export interface ImportParams {
   validation: ValidationResult;
 }
 
+async function getPersistedRentRollPeriods(clientId: string, periods: string[]): Promise<Set<string>> {
+  if (periods.length === 0) return new Set();
+  const rows = await db
+    .select({
+      uploadMonth: rentRollData.uploadMonth,
+      count: sql<number>`count(*)`,
+    })
+    .from(rentRollData)
+    .where(and(
+      eq(rentRollData.clientId, clientId),
+      inArray(rentRollData.uploadMonth, periods),
+    ))
+    .groupBy(rentRollData.uploadMonth);
+  return new Set(rows.filter((row) => Number(row.count) > 0).map((row) => row.uploadMonth));
+}
+
 async function resolveLocationIds(clientId: string): Promise<Map<string, string>> {
   const locs = await db.select({ id: locations.id, name: locations.name }).from(locations).where(eq(locations.clientId, clientId));
   const map = new Map<string, string>();
@@ -654,29 +670,59 @@ export async function executeImport(params: ImportParams): Promise<ImportRun> {
       }
     });
 
-    const status = validation.errorRows > 0 ? "partial" : "imported";
+    const submittedPeriods = datasetId === "rent_roll"
+      ? Array.from(new Set(validation.records
+        .map((record) => record.uploadMonth || period)
+        .filter((value): value is string => Boolean(value))))
+      : [];
+    const persistedPeriods = await getPersistedRentRollPeriods(clientId, submittedPeriods);
+    const emptyPeriods = submittedPeriods.filter((submittedPeriod) => !persistedPeriods.has(submittedPeriod));
+    const zeroPersistenceWarnings = emptyPeriods.length > 0
+      ? [`Rent-roll import warning: ${params.fileName} produced 0 persisted rows for ${emptyPeriods.join(", ")}. Verify the source file and mappings, then re-upload the missing month(s).`]
+      : [];
+    for (const warning of zeroPersistenceWarnings) {
+      validation.warnings.push(warning);
+      console.warn(`[DataImport] ${warning}`);
+    }
+
+    const status = validation.errorRows > 0 || zeroPersistenceWarnings.length > 0 ? "partial" : "imported";
     const [updated] = await db.update(importRuns).set({
       status,
       insertedRows: inserted,
       deletedRows: deleted,
       completedAt: new Date(),
+      validationReport: {
+        columnIssues: validation.columnIssues,
+        rowErrors: validation.rowErrors,
+        warnings: validation.warnings,
+      },
     }).where(eq(importRuns.id, run.id)).returning();
 
     await createImportNotification(clientId, run.id,
-      validation.errorRows > 0 ? "warning" : "info",
-      `${dataset.name} import ${validation.errorRows > 0 ? "partially " : ""}completed`,
-      `${params.fileName}: ${inserted} rows imported${period ? ` — period ${period} ${deleted > 0 ? `replaced (${deleted} prior rows removed)` : "added"}` : deleted > 0 ? ` (${deleted} existing records updated)` : ""}${validation.errorRows > 0 ? `; ${validation.errorRows} rows had errors and were skipped` : ""}.`,
+      validation.errorRows > 0 || zeroPersistenceWarnings.length > 0 ? "warning" : "info",
+      `${dataset.name} import ${validation.errorRows > 0 || zeroPersistenceWarnings.length > 0 ? "completed with warnings" : "completed"}`,
+      `${params.fileName}: ${inserted} rows imported${period ? ` — period ${period} ${deleted > 0 ? `replaced (${deleted} prior rows removed)` : "added"}` : deleted > 0 ? ` (${deleted} existing records updated)` : ""}${validation.errorRows > 0 ? `; ${validation.errorRows} rows had errors and were skipped` : ""}${zeroPersistenceWarnings.length > 0 ? ` ${zeroPersistenceWarnings.join(" ")}` : ""}.`,
     );
 
     return updated;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    let finalMessage = message;
+    if (datasetId === "rent_roll" && period) {
+      const persistedRows = await getPersistedRentRollPeriods(clientId, [period])
+        .then((persisted) => persisted.has(period))
+        .catch(() => false);
+      if (!persistedRows) {
+        finalMessage = `${message} Rent-roll import warning: 0 persisted rows for ${period}; verify the source file and mappings, then re-upload the month.`;
+        console.warn(`[DataImport] ${finalMessage}`);
+      }
+    }
     const [failed] = await db.update(importRuns).set({
       status: "failed",
-      errorMessage: message,
+      errorMessage: finalMessage,
       completedAt: new Date(),
     }).where(eq(importRuns.id, run.id)).returning();
-    await createImportNotification(clientId, run.id, "error", `${dataset.name} import failed`, `${params.fileName}: ${message}`);
+    await createImportNotification(clientId, run.id, "error", `${dataset.name} import failed`, `${params.fileName}: ${finalMessage}`);
     return failed;
   }
 }

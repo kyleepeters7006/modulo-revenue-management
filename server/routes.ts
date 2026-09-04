@@ -4996,6 +4996,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let processedRows = 0;
       let errorRows = 0;
       const errors: string[] = [];
+      const submittedMonths = new Set<string>();
+      const importClientId: string = (req as any).clientId || 'demo';
 
       for (let i = 0; i < (results.data as any[]).length; i++) {
         const row = (results.data as any[])[i];
@@ -5008,6 +5010,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!mappedRow.date) {
             mappedRow.date = new Date().toISOString().substring(0, 10);
           }
+          if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(String(mappedRow.uploadMonth))) {
+            throw new Error(`Upload Month must be in YYYY-MM format (got "${mappedRow.uploadMonth}")`);
+          }
+          submittedMonths.add(mappedRow.uploadMonth);
+          mappedRow.clientId = importClientId;
 
           const validatedData = insertRentRollDataSchema.parse(mappedRow);
           await storage.createRentRollData(validatedData);
@@ -5020,6 +5027,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      const persistedMonths = new Set<string>();
+      if (submittedMonths.size > 0) {
+        const persisted = await db.execute(sql`
+          SELECT upload_month, COUNT(*)::int AS row_count
+          FROM rent_roll_data
+          WHERE client_id = ${importClientId}
+            AND upload_month IN (${sql.join(Array.from(submittedMonths).map((month) => sql`${month}`), sql`, `)})
+          GROUP BY upload_month
+        `);
+        for (const row of persisted.rows as Array<{ upload_month: string; row_count: number }>) {
+          if (Number(row.row_count) > 0) persistedMonths.add(row.upload_month);
+        }
+      }
+      const emptyMonths = Array.from(submittedMonths).filter((month) => !persistedMonths.has(month));
+      const warning = emptyMonths.length > 0
+        ? `Rent-roll import warning: ${req.file.originalname} produced 0 persisted rows for ${emptyMonths.join(", ")}. Verify the source file and mappings, then re-upload the missing month(s).`
+        : (results.data as any[]).length > 0 && processedRows === 0
+          ? `Rent-roll import warning: ${req.file.originalname} produced 0 persisted rows. Verify the source file and mappings, then re-upload the month.`
+        : undefined;
+      if (warning) console.warn(`[upload-rent-roll-mapped] ${warning}`);
+
       // Post-commit ref-data cache invalidation so the next /api/reference-data request
       // reflects the newly imported data without waiting for the TTL or debounce timer.
       // This handler has no per-tenant clientId — warm all known clients.
@@ -5031,7 +5059,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
         rows: processedRows,
         errorRows,
-        errors: errors.length > 0 ? errors : undefined
+        errors: errors.length > 0 ? errors : undefined,
+        warning,
       });
     } catch (error) {
       console.error("Error uploading mapped rent roll:", error);
@@ -27773,11 +27802,15 @@ Return ONLY valid JSON, no markdown fences:
       if (!uploadMonth) {
         return res.status(400).json({ error: "Upload month is required" });
       }
+      if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(uploadMonth)) {
+        return res.status(400).json({ error: "Invalid uploadMonth format; expected YYYY-MM" });
+      }
       
       const { 
         importRentRollCSV,
         importMatrixCareRentRollCSV,
-        syncHistoryToCurrentRentRoll
+        syncHistoryToCurrentRentRoll,
+        countPersistedRentRollRows,
       } = await import('./dataImport');
       
       // Auto-detect MatrixCare format by checking for Room_Bed column
@@ -27786,62 +27819,43 @@ Return ONLY valid JSON, no markdown fences:
       
       console.log(`Importing rent roll for ${uploadMonth}, MatrixCare format: ${isMatrixCare}`);
       
-      const importStats = isMatrixCare 
-        ? await importMatrixCareRentRollCSV(req.file.buffer, uploadMonth, req.file.originalname, (req as any).clientId)
-        : await importRentRollCSV(req.file.buffer, uploadMonth, req.file.originalname);
-      
       // Determine the importing tenant so only their cache slot is repopulated.
       const importClientId: string = (req as any).clientId || 'demo';
 
-      // If this is the most recent month, sync history → rent_roll_data (the final DB write).
-      // The cache must be invalidated AFTER this write so it reflects the committed data.
-      const currentMonth = new Date().toISOString().slice(0, 7);
+      const importStats = isMatrixCare
+        ? await importMatrixCareRentRollCSV(req.file.buffer, uploadMonth, req.file.originalname, importClientId)
+        : await importRentRollCSV(req.file.buffer, uploadMonth, req.file.originalname, importClientId);
 
-      if (uploadMonth === currentMonth) {
-        const syncResult = await syncHistoryToCurrentRentRoll(uploadMonth);
-        // All DB writes are now complete — invalidate and re-warm so /api/reference-data
-        // reflects the new data immediately without waiting for the 10-minute TTL.
-        invalidateRefDataCache();
-        warmRefDataCacheForClient(importClientId);
-        console.log(`[import/rent-roll] ref-data cache invalidated and re-warmed for client ${importClientId} after current-month sync`);
-
-        // Refresh campus_metrics for every location that was in this import.
-        // rent_roll_history has no client_id column, so we query it directly by
-        // upload_month (the import just populated those rows). recalculateAndPreloadCampusMetrics
-        // then reads from rent_roll_data (already synced above) using the tenant clientId.
-        pool.query<{ location_id: string }>(
-          `SELECT DISTINCT location_id FROM rent_roll_history WHERE upload_month=$1 AND location_id IS NOT NULL`,
-          [uploadMonth]
-        ).then(({ rows }) => {
-          if (!rows.length) return;
-          console.log(`[import/rent-roll] Refreshing campus_metrics for ${rows.length} location(s) (client: ${importClientId})...`);
-          return rows.reduce(
-            (p, { location_id }) => p.then(() => recalculateAndPreloadCampusMetrics(importClientId, location_id)),
-            Promise.resolve() as Promise<void>
-          );
-        }).then(() => {
-          console.log(`[import/rent-roll] campus_metrics refresh complete for client ${importClientId}`);
-        }).catch(err => console.warn('[import/rent-roll] campus_metrics refresh error:', err));
-
-        // Fill missing care_level_rates from the newly-imported rent roll. Fill-only:
-        // existing entries (admin-entered or from an earlier import) are preserved.
-        storage.backfillCareLevelRatesFromHistory(importClientId)
-          .then(r => console.log(`[import/rent-roll] care_level_rates backfill — inserted: ${r.inserted}, preserved: ${r.preserved}, skipped: ${r.skipped}`))
-          .catch(err => console.warn('[import/rent-roll] care_level_rates backfill error (non-fatal):', err));
-
-        return res.json({
-          ...importStats,
-          syncedToCurrent: true,
-          syncedRecords: syncResult.synced
-        });
+      // Promote every submitted month, not only the server's current month.
+      // Quarterly planning reads rent_roll_data, so leaving older imports in
+      // rent_roll_history makes a successful upload disappear from planning.
+      const syncResult = await syncHistoryToCurrentRentRoll(uploadMonth, importClientId);
+      const persistedRows = await countPersistedRentRollRows(uploadMonth, importClientId);
+      if (persistedRows === 0) {
+        importStats.warning = `Rent-roll import warning: ${req.file.originalname} produced 0 persisted rows for ${uploadMonth}. Verify the source file and mappings, then re-upload the missing month.`;
+        console.warn(`[import/rent-roll] ${importStats.warning}`);
       }
 
-      // Non-current-month: data was written to rent_roll_history only — no sync to
-      // rent_roll_data occurred, so recalculateAndPreloadCampusMetrics (which reads
-      // rent_roll_data) would compute the same result it already has. Skip the refresh.
+      // All DB writes are now complete — invalidate and re-warm so
+      // /api/reference-data reflects the promoted data immediately.
       invalidateRefDataCache();
       warmRefDataCacheForClient(importClientId);
-      console.log(`[import/rent-roll] ref-data cache invalidated and re-warmed for client ${importClientId} after import`);
+      console.log(`[import/rent-roll] ref-data cache invalidated and re-warmed for client ${importClientId} after ${uploadMonth} sync`);
+
+      // Refresh campus_metrics for every location in the imported month.
+      pool.query<{ location_id: string }>(
+        `SELECT DISTINCT location_id FROM rent_roll_history WHERE upload_month=$1 AND location_id IS NOT NULL`,
+        [uploadMonth]
+      ).then(({ rows }) => {
+        if (!rows.length) return;
+        console.log(`[import/rent-roll] Refreshing campus_metrics for ${rows.length} location(s) (client: ${importClientId})...`);
+        return rows.reduce(
+          (p, { location_id }) => p.then(() => recalculateAndPreloadCampusMetrics(importClientId, location_id)),
+          Promise.resolve() as Promise<void>
+        );
+      }).then(() => {
+        console.log(`[import/rent-roll] campus_metrics refresh complete for client ${importClientId}`);
+      }).catch(err => console.warn('[import/rent-roll] campus_metrics refresh error:', err));
 
       // Fill any missing care_level_rates from the freshly-imported rent roll history.
       // Only rows with no existing entry are written — manually-entered overrides are preserved.
@@ -27851,7 +27865,9 @@ Return ONLY valid JSON, no markdown fences:
 
       res.json({
         ...importStats,
-        syncedToCurrent: false
+        syncedToCurrent: true,
+        syncedRecords: syncResult.synced,
+        persistedRows,
       });
     } catch (error) {
       console.error('Error importing rent roll:', error);
@@ -27924,6 +27940,7 @@ Return ONLY valid JSON, no markdown fences:
       };
       
       const { importMatrixCareRentRollCSV, syncHistoryToCurrentRentRoll } = await import('./dataImport');
+      const importClientId: string = (req as any).clientId || 'demo';
       
       const results: any[] = [];
       let totalImported = 0;
@@ -27938,14 +27955,12 @@ Return ONLY valid JSON, no markdown fences:
         
         try {
           const fileBuffer = fs.readFileSync(filePath);
-          const stats = await importMatrixCareRentRollCSV(fileBuffer, uploadMonth, filename);
+          const stats = await importMatrixCareRentRollCSV(fileBuffer, uploadMonth, filename, importClientId);
           
-          // Sync to current rent roll table for the latest month
-          const currentMonth = new Date().toISOString().slice(0, 7);
-          if (uploadMonth === currentMonth) {
-            const syncResult = await syncHistoryToCurrentRentRoll(uploadMonth);
-            stats.syncedRecords = syncResult.synced;
-          }
+          // Promote every loaded month into rent_roll_data. Quarterly planning
+          // reads that table, not the legacy staging table.
+          const syncResult = await syncHistoryToCurrentRentRoll(uploadMonth, importClientId);
+          stats.syncedRecords = syncResult.synced;
           
           totalImported += stats.successfulImports;
           results.push({

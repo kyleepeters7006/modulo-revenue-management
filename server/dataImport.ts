@@ -28,6 +28,34 @@ export interface ImportStats {
   columnWarning?: string;
 }
 
+/**
+ * Verify the final table that quarterly planning reads.  The legacy importer
+ * stages rows in rent_roll_history first, so callers must run this after the
+ * history-to-current promotion rather than treating a successful staging
+ * transaction as proof that the month is usable.
+ */
+export async function countPersistedRentRollRows(uploadMonth: string, clientId: string): Promise<number> {
+  const [result] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(rentRollData)
+    .where(and(
+      eq(rentRollData.uploadMonth, uploadMonth),
+      eq(rentRollData.clientId, clientId),
+    ));
+  return Number(result?.count ?? 0);
+}
+
+async function warnIfLegacyRentRollMonthIsEmpty(stats: ImportStats, uploadMonth: string, fileName: string): Promise<void> {
+  const [result] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(rentRollHistory)
+    .where(eq(rentRollHistory.uploadMonth, uploadMonth));
+  if (stats.successfulImports === 0 || Number(result?.count ?? 0) === 0) {
+    stats.warning = `Rent-roll import warning: ${fileName} produced 0 staged rows for ${uploadMonth}. The month was not promoted into quarterly planning data; verify the source file and mappings, then re-upload it.`;
+    console.warn(`[rent-roll-import] ${stats.warning}`);
+  }
+}
+
 interface SurveyRoomType {
   name: string;
   rate: any;
@@ -53,7 +81,8 @@ interface SurveyServiceLine {
 export async function importRentRollCSV(
   fileBuffer: Buffer,
   uploadMonth: string,
-  fileName: string
+  fileName: string,
+  _clientId?: string
 ): Promise<ImportStats> {
   const stats: ImportStats = {
     totalRecords: 0,
@@ -153,6 +182,7 @@ export async function importRentRollCSV(
           stats.errors.push(`Transaction error: ${txError.message}`);
         }
 
+        await warnIfLegacyRentRollMonthIsEmpty(stats, uploadMonth, fileName);
         resolve(stats);
       },
       error: (error: Error) => {
@@ -1320,6 +1350,7 @@ export async function importMatrixCareRentRollCSV(
           stats.errors.push(`Transaction error: ${txError.message}`);
         }
 
+        await warnIfLegacyRentRollMonthIsEmpty(stats, uploadMonth, fileName);
         resolve(stats);
       },
       error: (error: Error) => {
@@ -1330,19 +1361,23 @@ export async function importMatrixCareRentRollCSV(
   });
 }
 
-export async function syncHistoryToCurrentRentRoll(uploadMonth: string): Promise<{ synced: number }> {
+export async function syncHistoryToCurrentRentRoll(uploadMonth: string, clientId?: string): Promise<{ synced: number }> {
   return await db.transaction(async (tx) => {
     const historyRecords = await tx
       .select()
       .from(rentRollHistory)
       .where(eq(rentRollHistory.uploadMonth, uploadMonth));
 
-    await tx.delete(rentRollData).where(eq(rentRollData.uploadMonth, uploadMonth));
+    const monthFilter = clientId
+      ? and(eq(rentRollData.uploadMonth, uploadMonth), eq(rentRollData.clientId, clientId))
+      : eq(rentRollData.uploadMonth, uploadMonth);
+    await tx.delete(rentRollData).where(monthFilter);
 
     let synced = 0;
     for (const record of historyRecords) {
       await tx.insert(rentRollData).values({
         uploadMonth: record.uploadMonth,
+        clientId: clientId || null,
         date: record.date,
         location: record.location,
         locationId: record.locationId,
