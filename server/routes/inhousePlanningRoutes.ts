@@ -51,6 +51,7 @@ const assumptionsSchema = z.object({
   equalizationStrength: z.enum(["low", "medium", "high"]),
   allowInhouseAboveStreet: z.boolean(),
   maxStreetIncreasePct: z.number().min(0).max(100),
+  maxYoYStreetIncreasePct: z.number().min(0).max(100),
 }).refine((d) => d.minInhouseIncreasePct <= d.maxInhouseIncreasePct, {
   message: "Minimum increase cannot exceed maximum increase",
 });
@@ -73,6 +74,9 @@ function rowToAssumptions(row: any): PlanningAssumptions {
     equalizationStrength: row.equalizationStrength,
     allowInhouseAboveStreet: Boolean(row.allowInhouseAboveStreet),
     maxStreetIncreasePct: Number(row.maxStreetIncreasePct),
+    maxYoYStreetIncreasePct: Number(
+      row.maxYoYStreetIncreasePct ?? DEFAULT_ASSUMPTIONS.maxYoYStreetIncreasePct,
+    ),
   };
 }
 
@@ -210,6 +214,7 @@ export function registerInhousePlanningRoutes(app: Express) {
         equalizationStrength: assumptions.equalizationStrength,
         allowInhouseAboveStreet: assumptions.allowInhouseAboveStreet,
         maxStreetIncreasePct: assumptions.maxStreetIncreasePct,
+        maxYoYStreetIncreasePct: assumptions.maxYoYStreetIncreasePct,
         updatedBy: req.session?.userId || null,
         updatedAt: new Date(),
       };

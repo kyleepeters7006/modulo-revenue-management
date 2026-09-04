@@ -107,8 +107,40 @@ function assumptions(overrides: Partial<PlanningAssumptions> = {}): PlanningAssu
     equalizationStrength: "medium",
     allowInhouseAboveStreet: false,
     maxStreetIncreasePct: 15,
+    maxYoYStreetIncreasePct: 15,
     ...overrides,
   };
+}
+
+console.log("\n-- 6b. Same-month YoY maximum includes street increases already taken --");
+{
+  const result = solvePlan({
+    residents: roomyPopulation(),
+    assumptions: assumptions({
+      rateGrowthTargetPct: 12,
+      maxStreetIncreasePct: 20,
+      maxYoYStreetIncreasePct: 10,
+    }),
+    baselineByQuarter: flatBaseline(4200),
+    quarters: QUARTERS,
+    anchorMs: ANCHOR_MS,
+    currentStreetRateMonthly: 5400,
+    yearAgoStreetRateMonthly: 5000,
+  });
+  near(
+    "recommended street rate cannot exceed 10% over the same month last year",
+    result.recommendedStreetMonthly,
+    5500,
+    0.01,
+  );
+  ok(
+    "the cap leaves only the unused portion of the YoY allowance",
+    result.streetIncrease * 100 <= (5500 / 5400 - 1) * 100 + 1e-6,
+  );
+  ok(
+    "the street cap does not replace the resident maximum",
+    result.allocation.allocations.every((a) => a.increase <= 0.08 + 1e-9),
+  );
 }
 
 /** Flat prior-year baseline for every horizon quarter. */

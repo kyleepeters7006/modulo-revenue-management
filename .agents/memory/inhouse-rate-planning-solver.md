@@ -59,6 +59,21 @@ the wrong knob.
 **How to apply:** whenever a derived bound meets a user-specified bound, the
 user's wins, and the binding-constraint report must name the user's bound.
 
+## Same-month YoY street ceiling includes increases already taken
+
+The annual-plan solver has two distinct Street Rate limits: the maximum increase
+from today's rate, and the maximum recommended rate versus the exact same spot
+month one year earlier. The tighter remaining allowance wins. If today's rate
+has already reached the YoY ceiling, the solver must not push it further.
+
+**Why:** treating today's Street Rate as a fresh baseline ignores increases
+already taken during the year and can produce an excessive year-over-year move.
+
+**How to apply:** translate the prior-year absolute ceiling into remaining
+headroom from today's rate, then clamp the street search by both limits. Refuse
+to calculate when the exact prior-year street baseline is unavailable; never
+substitute another month or flatten resident-specific increases.
+
 ## `computed || fallback` erases a legitimate zero
 
 Resident weight is stay-days overlapping the horizon. `stayDays(...) || horizonDays`

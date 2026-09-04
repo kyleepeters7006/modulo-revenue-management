@@ -374,6 +374,8 @@ export interface SolveInput {
   quarters: QuarterRef[];
   anchorMs: number;
   currentStreetRateMonthly: number;
+  /** Average street rate for the exact same spot month one year earlier. */
+  yearAgoStreetRateMonthly?: number;
 }
 
 export interface SolveOutput {
@@ -508,7 +510,22 @@ export function solvePlan(input: SolveInput): SolveOutput {
   // Street rate should grow at least as fast as the objective — otherwise
   // every move-in dilutes the very growth being planned for. But the operator's
   // own street ceiling still wins: setting it to zero means "do not move street".
-  const ceilStreet = Math.max(0, input.assumptions.maxStreetIncreasePct / 100);
+  const currentStreet = input.currentStreetRateMonthly;
+  const ordinaryCeiling = Math.max(0, input.assumptions.maxStreetIncreasePct / 100);
+  const yearAgoStreet = input.yearAgoStreetRateMonthly;
+  // Translate the absolute same-month YoY ceiling into the maximum additional
+  // increase available from today's rate. If today's rate is already at or
+  // above that ceiling, the solver gets no permission to push it further.
+  const yoyCeiling =
+    yearAgoStreet != null && yearAgoStreet > 0 && currentStreet > 0
+      ? Math.max(
+          0,
+          (yearAgoStreet * (1 + input.assumptions.maxYoYStreetIncreasePct / 100)) /
+              currentStreet -
+            1,
+        )
+      : ordinaryCeiling;
+  const ceilStreet = Math.min(ordinaryCeiling, yoyCeiling);
   const floorStreet = Math.min(Math.max(0, ctx.target), ceilStreet);
 
   /** Best average increase the guardrails permit at a given street increase. */

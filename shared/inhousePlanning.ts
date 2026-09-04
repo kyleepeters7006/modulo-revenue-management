@@ -78,6 +78,12 @@ export interface PlanningAssumptions {
    * creates in-house headroom, so this is the outer bound of the search.
    */
   maxStreetIncreasePct: number;
+  /**
+   * Maximum increase from the same spot month one year earlier to the
+   * recommended street rate, in percent. This catches street increases already
+   * taken during the year instead of treating today's rate as a fresh baseline.
+   */
+  maxYoYStreetIncreasePct: number;
 }
 
 export const DEFAULT_ASSUMPTIONS: PlanningAssumptions = {
@@ -91,6 +97,7 @@ export const DEFAULT_ASSUMPTIONS: PlanningAssumptions = {
   equalizationStrength: "medium",
   allowInhouseAboveStreet: false,
   maxStreetIncreasePct: 15,
+  maxYoYStreetIncreasePct: 15,
 };
 
 /**

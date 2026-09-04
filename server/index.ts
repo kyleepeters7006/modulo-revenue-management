@@ -650,10 +650,14 @@ app.use((req, res, next) => {
         equalization_strength       text    NOT NULL DEFAULT 'medium',
         allow_inhouse_above_street  boolean NOT NULL DEFAULT false,
         max_street_increase_pct     real    NOT NULL DEFAULT 15,
+        max_yoy_street_increase_pct real    NOT NULL DEFAULT 15,
         updated_by                  text,
         created_at                  timestamp DEFAULT now(),
         updated_at                  timestamp DEFAULT now()
       )`));
+    await db.execute(sql.raw(`
+      ALTER TABLE inhouse_planning_assumptions
+        ADD COLUMN IF NOT EXISTS max_yoy_street_increase_pct real NOT NULL DEFAULT 15`));
     // NULLS NOT DISTINCT so the campus-wide and portfolio-wide rows collide
     // with themselves and upsert cleanly instead of accumulating duplicates.
     await db.execute(sql.raw(`

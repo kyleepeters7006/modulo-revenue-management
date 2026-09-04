@@ -152,10 +152,12 @@ export async function calculatePlanDetailed(
   // and the plan's first quarter is modelled rather than ignored.
   const anchorMs = monthBoundsMs(addMonths(sourceMonth, 1)).startMs;
 
-  const [rawRows, currentStreetRateMonthly, productBaselines, formulas] =
+  const yearAgoSourceMonth = addMonths(sourceMonth, -12);
+  const [rawRows, currentStreetRateMonthly, yearAgoStreetRateMonthly, productBaselines, formulas] =
     await Promise.all([
       fetchResidentRows(scope, sourceMonth),
       fetchCurrentStreetRate(scope, sourceMonth),
+      fetchCurrentStreetRate(scope, yearAgoSourceMonth),
       fetchProductStreetBaselines(scope, sourceMonth),
       getDerivedRateFormulas((s, p) => pool.query(s, p), input.clientId),
     ]);
@@ -229,6 +231,11 @@ export async function calculatePlanDetailed(
       `There is no prior-year rent roll for ${input.serviceLine} at ${input.location ?? "this portfolio"}, so year-over-year growth cannot be measured. Import the rent roll for ${priorYearQuarters.map((q) => q.label).join(", ")} to plan against a target.`,
     );
   }
+  if (yearAgoStreetRateMonthly <= 0) {
+    throw new PlanningDataError(
+      `There is no usable street rate for ${yearAgoSourceMonth} at ${input.location ?? "this portfolio"}, so the year-over-year monthly street increase maximum cannot be enforced.`,
+    );
+  }
 
   const solved = solvePlan({
     residents,
@@ -237,6 +244,7 @@ export async function calculatePlanDetailed(
     quarters,
     anchorMs,
     currentStreetRateMonthly,
+    yearAgoStreetRateMonthly,
   });
 
   const daily = isDailyRateServiceLine(input.serviceLine);

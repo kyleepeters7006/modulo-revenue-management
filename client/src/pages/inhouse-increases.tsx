@@ -438,6 +438,7 @@ const ASSUMPTION_KEYS: Array<keyof PlanningAssumptions> = [
   "equalizationStrength",
   "allowInhouseAboveStreet",
   "maxStreetIncreasePct",
+  "maxYoYStreetIncreasePct",
 ];
 
 function assumptionsMatch(a: PlanningAssumptions, b: PlanningAssumptions): boolean {
@@ -1248,6 +1249,14 @@ export default function InhouseIncreases() {
               onChange={(v) => update("maxStreetIncreasePct", v)}
               suffix="%"
               hint="How far the solver may push street rate to create headroom."
+            />
+            <NumberField
+              testId="input-max-yoy-street"
+              label="Maximum YoY monthly street increase"
+              value={assumptions.maxYoYStreetIncreasePct}
+              onChange={(v) => update("maxYoYStreetIncreasePct", v)}
+              suffix="%"
+              hint="Caps the recommended rate versus the same spot month one year ago, including street increases already taken since then."
             />
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Equalization</Label>
