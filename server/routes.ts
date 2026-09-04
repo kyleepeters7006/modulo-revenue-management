@@ -11320,15 +11320,85 @@ ${campusOccLines.join('\n')}
    * series are cached server-side; reviewed industry snapshots retain their
    * publication date and source URL instead of being silently scraped.
    */
-  app.get("/api/industry-context", async (_req: any, res) => {
+  app.get("/api/industry-context", async (req: any, res) => {
     try {
-      const context = await getIndustryContext();
+      const context = await getIndustryContext(req.clientId || "demo");
       res.setHeader("Cache-Control", "private, max-age=1800, stale-while-revalidate=3600");
       res.json(context);
     } catch (error) {
       console.error("[industry-context] request failed:", error);
       res.status(503).json({ error: "Industry context is temporarily unavailable" });
     }
+  });
+
+  app.put("/api/industry-context/metrics/:id", async (req: any, res) => {
+    const clientId = req.clientId || "demo";
+    if (!(await isRuleAdmin(req))) {
+      return res.status(403).json({ error: "Admin privileges are required to edit industry benchmarks" });
+    }
+    const allowed = ["value", "asOf", "comparison", "sourceName", "sourceUrl", "note"];
+    const payload = Object.fromEntries(
+      allowed.filter((key) => Object.prototype.hasOwnProperty.call(req.body || {}, key))
+        .map((key) => [key, req.body[key]]),
+    );
+    if (!Object.keys(payload).length || typeof payload.asOf === "string" && !payload.asOf.trim()) {
+      return res.status(400).json({ error: "Provide at least one valid benchmark field" });
+    }
+    if (payload.value !== undefined &&
+        typeof payload.value !== "number" &&
+        typeof payload.value !== "string" &&
+        payload.value !== null) {
+      return res.status(400).json({ error: "Benchmark value must be a number, text range, or null" });
+    }
+    await pool.query(
+      `INSERT INTO industry_context_overrides
+         (client_id, metric_id, payload, updated_by, updated_at)
+       VALUES ($1, $2, $3::jsonb, $4, now())
+       ON CONFLICT (client_id, metric_id) DO UPDATE SET
+         payload = industry_context_overrides.payload || EXCLUDED.payload,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = now()`,
+      [clientId, req.params.id, JSON.stringify(payload), req.session?.userId ?? null],
+    );
+    res.json({ success: true });
+  });
+
+  app.get("/api/industry-context/peer-graphic", async (req: any, res) => {
+    const result = await pool.query(
+      `SELECT mime_type, image_data
+         FROM industry_context_assets
+        WHERE client_id = $1 AND asset_id = 'peer-comparison'`,
+      [req.clientId || "demo"],
+    );
+    if (!result.rows.length) return res.redirect(302, "/industry-peer-comparison.png");
+    res.setHeader("Content-Type", result.rows[0].mime_type);
+    res.setHeader("Cache-Control", "private, max-age=300");
+    res.send(result.rows[0].image_data);
+  });
+
+  app.put("/api/industry-context/peer-graphic", upload.single("image"), async (req: any, res) => {
+    const clientId = req.clientId || "demo";
+    if (!(await isRuleAdmin(req))) {
+      return res.status(403).json({ error: "Admin privileges are required to replace the peer graphic" });
+    }
+    if (!req.file || !["image/png", "image/jpeg", "image/webp"].includes(req.file.mimetype)) {
+      return res.status(400).json({ error: "Upload a PNG, JPEG, or WebP image" });
+    }
+    if (req.file.size > 3 * 1024 * 1024) {
+      return res.status(400).json({ error: "Image must be 3 MB or smaller" });
+    }
+    await pool.query(
+      `INSERT INTO industry_context_assets
+         (client_id, asset_id, mime_type, image_data, updated_by, updated_at)
+       VALUES ($1, 'peer-comparison', $2, $3, $4, now())
+       ON CONFLICT (client_id, asset_id) DO UPDATE SET
+         mime_type = EXCLUDED.mime_type,
+         image_data = EXCLUDED.image_data,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = now()`,
+      [clientId, req.file.mimetype, req.file.buffer, req.session?.userId ?? null],
+    );
+    res.json({ success: true });
   });
 
   /**

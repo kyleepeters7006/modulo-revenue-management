@@ -581,7 +581,27 @@ export function startIndustryContextRefreshLoop(): void {
   console.log(`[industry-context] BLS refresh scheduler started: ${REFRESH_SCHEDULE_LABEL}`);
 }
 
-export async function getIndustryContext(): Promise<IndustryContextResponse> {
+export async function getIndustryContext(clientId = "demo"): Promise<IndustryContextResponse> {
   const { state, snapshots } = await readPersistedContext();
-  return buildResponse(state, snapshots);
+  const response = buildResponse(state, snapshots);
+  const overrides = await pool.query(
+    `SELECT metric_id, payload, updated_at
+       FROM industry_context_overrides
+      WHERE client_id = $1`,
+    [clientId],
+  );
+  const byId = new Map(overrides.rows.map((row: any) => [row.metric_id, row]));
+  response.metrics = response.metrics.map((metric) => {
+    const override = byId.get(metric.id);
+    if (!override) return metric;
+    const payload = typeof override.payload === "string" ? JSON.parse(override.payload) : override.payload;
+    return {
+      ...metric,
+      ...payload,
+      method: "reviewed",
+      status: "current",
+      updatedAt: new Date(override.updated_at).toISOString(),
+    };
+  });
+  return response;
 }

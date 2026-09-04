@@ -1,7 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, ExternalLink, Info, RefreshCw } from "lucide-react";
+import { useRef, useState } from "react";
+import type { MutableRefObject } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowRight, ChevronDown, ExternalLink, Info, RefreshCw, Upload } from "lucide-react";
 import { Link } from "wouter";
+import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 type Metric = {
   id: string;
@@ -73,7 +78,7 @@ function formatTimestamp(value: string | null | undefined) {
   return new Date(value).toLocaleString();
 }
 
-function ContextCard({ metric }: { metric: Metric }) {
+function ContextCard({ metric, canEdit, onEdit }: { metric: Metric; canEdit: boolean; onEdit: (metric: Metric) => void }) {
   return (
     <div
       className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] p-4"
@@ -110,10 +115,17 @@ function ContextCard({ metric }: { metric: Metric }) {
               Revised {metric.revisionCount}×
             </span>
           ) : null}
-          <span className="inline-flex items-center gap-1" title={metric.note}>
-            <Info className="h-3 w-3" />
-            Definition
-          </span>
+           <Popover>
+             <PopoverTrigger asChild>
+               <button type="button" className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:text-[var(--dashboard-text)]" aria-label={`Definition for ${metric.label}`}>
+                 <Info className="h-3 w-3" /> Definition
+               </button>
+             </PopoverTrigger>
+             <PopoverContent align="end" className="w-72 text-xs leading-relaxed">
+               <p className="font-semibold text-[var(--dashboard-text)]">Definition</p>
+               <p className="mt-1 text-[var(--dashboard-muted)]">{metric.note || "No definition provided."}</p>
+             </PopoverContent>
+           </Popover>
         </span>
       </div>
       <a
@@ -125,11 +137,24 @@ function ContextCard({ metric }: { metric: Metric }) {
         <span className="truncate">{metric.sourceName}</span>
         <ExternalLink className="h-3 w-3 shrink-0" />
       </a>
+      {canEdit && (metric.status === "stale" || metric.status === "unavailable") ? (
+        <button type="button" onClick={() => onEdit(metric)} className="mt-3 block text-[11px] font-semibold text-[var(--trilogy-teal)] hover:underline">
+          Edit metric
+        </button>
+      ) : null}
     </div>
   );
 }
 
 export default function IndustryContext() {
+  const { isAdmin } = useAuth();
+  const queryClient = useQueryClient();
+  const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState<Metric | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [graphicVersion, setGraphicVersion] = useState(() => Date.now());
+  const fileRef = useRef<HTMLInputElement>(null);
   const query = useQuery<IndustryContextResponse>({
     queryKey: ["/api/industry-context"],
     queryFn: async () => {
@@ -139,6 +164,40 @@ export default function IndustryContext() {
     },
     staleTime: 30 * 60 * 1000,
   });
+
+  const saveMetric = useMutation({
+    mutationFn: async (payload: { id: string; value: number | string; asOf: string; comparison: string; sourceName: string; sourceUrl: string; note: string }) => {
+      const response = await fetch(`/api/industry-context/metrics/${payload.id}`, {
+        method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: payload.value, asOf: payload.asOf, comparison: payload.comparison, sourceName: payload.sourceName, sourceUrl: payload.sourceUrl, note: payload.note }),
+      });
+      if (!response.ok) throw new Error("Unable to save metric");
+      return response.json();
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/industry-context"] });
+      setFeedback("Metric updated.");
+      setEditing(null);
+    },
+    onError: () => setFeedback("Metric could not be saved. Try again."),
+  });
+
+  async function uploadGraphic(file: File) {
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 3 * 1024 * 1024) {
+      setFeedback("Choose a PNG, JPEG, or WebP image no larger than 3MB.");
+      return;
+    }
+    setUploading(true); setFeedback(null);
+    const formData = new FormData(); formData.append("image", file);
+    try {
+      const response = await fetch("/api/industry-context/peer-graphic", { method: "PUT", credentials: "include", body: formData });
+      if (!response.ok) throw new Error();
+      await queryClient.invalidateQueries({ queryKey: ["/api/industry-context/peer-graphic"] });
+      setGraphicVersion(Date.now());
+      setFeedback("Peer comparison graphic updated.");
+    } catch { setFeedback("Graphic upload failed. Try again."); }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
+  }
 
   if (query.isLoading) {
     return (
@@ -184,21 +243,27 @@ export default function IndustryContext() {
     <Card className="dashboard-card" data-testid="industry-context">
       <CardHeader className="gap-3 pb-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <CardTitle className="text-xl font-semibold text-[var(--dashboard-text)]">
-            Industry Context
+           <CardTitle className="flex items-center gap-2 text-xl font-semibold text-[var(--dashboard-text)]">
+             Industry Context <img src="/industry-context-icon.png" alt="" className="h-7 w-7 object-contain" />
           </CardTitle>
-          <p className="mt-1 max-w-2xl text-sm text-[var(--dashboard-muted)]">
+           <p className="mt-1 max-w-2xl text-sm text-[var(--dashboard-muted)]">
             Start the annual rate conversation with market signals, then set our targets.
             Benchmarks are context—not an automatic recommendation.
           </p>
+           {feedback && !editing ? <p className={`mt-2 text-xs ${feedback.includes("failed") || feedback.includes("Choose") ? "text-red-700" : "text-[var(--trilogy-teal)]"}`} role="status">{feedback}</p> : null}
         </div>
-        <Link href="/inhouse-increases">
+         <div className="flex items-center gap-2">
+         <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-[var(--dashboard-border)] px-3 py-2 text-sm font-medium text-[var(--dashboard-text)] hover:bg-[var(--dashboard-bg)]">
+           {expanded ? "Hide trends" : "Show trends"} <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
+         </button>
+         <Link href="/inhouse-increases">
           <span className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md bg-[var(--trilogy-teal)] px-3 py-2 text-sm font-medium text-white hover:opacity-90">
             Set our targets <ArrowRight className="h-4 w-4" />
           </span>
-        </Link>
+         </Link>
+         </div>
       </CardHeader>
-      <CardContent className="space-y-5">
+       {expanded ? <CardContent className="space-y-5">
         {groups.map((group) => (
           <section key={group.category} aria-labelledby={`industry-${group.category}`}>
             <div className="mb-3">
@@ -208,8 +273,10 @@ export default function IndustryContext() {
               <p className="text-xs text-[var(--dashboard-muted)]">{group.description}</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {group.metrics.map((metric) => (
-                <ContextCard key={metric.id} metric={metric} />
+               {group.metrics.map((metric) => (
+                 metric.label.toLowerCase().includes("peer") && metric.label.toLowerCase().includes("same-store") ? (
+                   <PeerGraphic key={metric.id} isAdmin={isAdmin} uploading={uploading} fileRef={fileRef} onFile={uploadGraphic} version={graphicVersion} />
+                 ) : <ContextCard key={metric.id} metric={metric} canEdit={isAdmin} onEdit={setEditing} />
               ))}
             </div>
           </section>
@@ -237,7 +304,65 @@ export default function IndustryContext() {
             </p>
           ) : null}
         </div>
-      </CardContent>
+       </CardContent> : null}
+       <Dialog open={!!editing} onOpenChange={(open) => { if (!open) setEditing(null); }}>
+         <DialogContent className="max-w-lg">
+           <DialogHeader>
+             <DialogTitle>Edit metric</DialogTitle>
+             <DialogDescription>Update the reviewed value and its source. Changes are recorded in Industry Context.</DialogDescription>
+           </DialogHeader>
+           {editing ? (
+             <form className="grid gap-3" onSubmit={(event) => {
+               event.preventDefault();
+                const rawValue = String(editing.value ?? "").trim();
+                saveMetric.mutate({
+                  id: editing.id,
+                  value: editing.unit === "percent" && rawValue !== "" && Number.isFinite(Number(rawValue))
+                    ? Number(rawValue)
+                    : rawValue,
+                  asOf: editing.asOf,
+                  comparison: editing.comparison,
+                  sourceName: editing.sourceName,
+                  sourceUrl: editing.sourceUrl,
+                  note: editing.note,
+                });
+             }}>
+               <p className="text-sm font-semibold text-[var(--dashboard-text)]">{editing.label}</p>
+               <div className="grid grid-cols-2 gap-3">
+                 {(["value", "asOf"] as const).map((field) => (
+                   <label key={field} className="grid gap-1 text-xs font-medium text-[var(--dashboard-muted)]">{field === "value" ? "Value" : "As of"}
+                     <input value={String(editing[field] ?? "")} onChange={(event) => setEditing({ ...editing, [field]: field === "value" ? event.target.value : event.target.value })} className="h-9 rounded-md border border-[var(--dashboard-border)] bg-transparent px-2 text-sm text-[var(--dashboard-text)]" />
+                   </label>
+                 ))}
+               </div>
+               {(["comparison", "sourceName", "sourceUrl", "note"] as const).map((field) => (
+                 <label key={field} className="grid gap-1 text-xs font-medium capitalize text-[var(--dashboard-muted)]">{field === "sourceUrl" ? "Source URL" : field}
+                   <input value={editing[field]} onChange={(event) => setEditing({ ...editing, [field]: event.target.value })} className="h-9 rounded-md border border-[var(--dashboard-border)] bg-transparent px-2 text-sm text-[var(--dashboard-text)]" />
+                 </label>
+               ))}
+               <div className="mt-1 flex items-center justify-between gap-3">
+                 <span className={`text-xs ${feedback?.includes("could not") ? "text-red-700" : "text-[var(--dashboard-muted)]"}`}>{feedback}</span>
+                 <div className="flex gap-2">
+                   <button type="button" onClick={() => setEditing(null)} className="rounded-md border border-[var(--dashboard-border)] px-3 py-2 text-sm">Cancel</button>
+                   <button type="submit" disabled={saveMetric.isPending} className="rounded-md bg-[var(--trilogy-teal)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50">{saveMetric.isPending ? "Saving…" : "Save metric"}</button>
+                 </div>
+               </div>
+             </form>
+           ) : null}
+         </DialogContent>
+       </Dialog>
     </Card>
+  );
+}
+
+function PeerGraphic({ isAdmin, uploading, fileRef, onFile, version }: { isAdmin: boolean; uploading: boolean; fileRef: MutableRefObject<HTMLInputElement | null>; onFile: (file: File) => void; version: number }) {
+  return (
+    <div className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] p-3 sm:col-span-2 lg:col-span-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]">Peer same-store revenue growth</p><p className="mt-1 text-xs text-[var(--dashboard-muted)]">Quarterly comparison across senior housing operators</p></div>
+        {isAdmin ? <><input ref={(node) => { fileRef.current = node; }} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} /><button type="button" disabled={uploading} onClick={() => fileRef.current?.click()} className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--dashboard-border)] px-2.5 py-1.5 text-xs font-medium hover:bg-white disabled:opacity-50"><Upload className="h-3.5 w-3.5" /> {uploading ? "Uploading…" : "Replace graphic"}</button></> : null}
+      </div>
+      <img key={version} src={`/api/industry-context/peer-graphic?v=${version}`} alt="Peer same-store revenue growth comparison" className="max-h-[360px] w-full object-contain object-left" onError={(event) => { event.currentTarget.src = "/industry-peer-comparison.png"; }} />
+    </div>
   );
 }

@@ -255,6 +255,27 @@ app.use((req, res, next) => {
       VALUES ('bls')
       ON CONFLICT (id) DO NOTHING
     `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS industry_context_overrides (
+        client_id varchar NOT NULL,
+        metric_id varchar NOT NULL,
+        payload jsonb NOT NULL,
+        updated_by varchar,
+        updated_at timestamp NOT NULL DEFAULT now(),
+        PRIMARY KEY (client_id, metric_id)
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS industry_context_assets (
+        client_id varchar NOT NULL,
+        asset_id varchar NOT NULL,
+        mime_type varchar NOT NULL,
+        image_data bytea NOT NULL,
+        updated_by varchar,
+        updated_at timestamp NOT NULL DEFAULT now(),
+        PRIMARY KEY (client_id, asset_id)
+      )
+    `);
     log("[migration] industry context benchmark tables ensured");
   } catch (migErr) {
     log(`[migration] industry context migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
