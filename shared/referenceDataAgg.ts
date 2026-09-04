@@ -23,7 +23,7 @@ export const AGG_SUM_KEYS: string[] = [
  */
 export const AGG_WAVG_KEYS: string[] = [
   "rtOccSpot", "rtOccT3", "rtOccT12", "daysVacantSpot", "daysVacantT3",
-  "streetSpot", "streetYoYGrowth", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
+  "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
   "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
   "elasticity", "elasticityTrend", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
   // NOTE: revYtdGrowth / ihYtdGrowth / streetYtdGrowth are listed here so the
@@ -53,4 +53,80 @@ export function wavg(
     }
   }
   return d ? n / d : null;
+}
+
+/**
+ * Return the exact same calendar month one year before a YYYY-MM month.
+ * Invalid month strings return null rather than silently producing a
+ * misleading comparison month.
+ */
+export function sameCalendarMonthLastYear(month: string | null | undefined): string | null {
+  if (!month || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return null;
+  return `${Number(month.slice(0, 4)) - 1}-${month.slice(5)}`;
+}
+
+/**
+ * Calculate a rate change against the same calendar month last year.
+ * A missing or non-positive comparison rate is intentionally blank: zero is
+ * not a valid stand-in for a month for which no survey was uploaded.
+ */
+export function sameMonthRateYoYGrowth(
+  currentRate: unknown,
+  priorYearRate: unknown,
+): number | null {
+  if (currentRate === null || currentRate === undefined
+      || priorYearRate === null || priorYearRate === undefined) return null;
+  const current = Number(currentRate);
+  const prior = Number(priorYearRate);
+  if (!Number.isFinite(current) || !Number.isFinite(prior) || prior <= 0) return null;
+  return (current - prior) / prior;
+}
+
+/**
+ * Re-derive a grouped same-month street-rate YoY from weighted rate
+ * components. Rows without both periods are excluded rather than treated as
+ * zero, and the two month populations retain separate denominators.
+ *
+ * Expected row fields are the raw weighted components emitted by the
+ * Reference Data endpoint:
+ *   yoyStreetSpot / yoyStreetBase and their matching unit counts.
+ */
+export function aggregateSameMonthStreetYoY(rows: Record<string, any>[]): number | null {
+  let currentRateSum = 0;
+  let priorRateSum = 0;
+  let currentUnits = 0;
+  let priorUnits = 0;
+
+  for (const row of rows) {
+    if (row.yoyStreetSpot === null || row.yoyStreetSpot === undefined
+        || row.yoyStreetBase === null || row.yoyStreetBase === undefined) continue;
+    const currentRowUnits = Number(row.yoyStreetUnitsSpot);
+    const priorRowUnits = Number(row.yoyStreetUnitsBase);
+    if (!Number.isFinite(currentRowUnits) || !Number.isFinite(priorRowUnits)
+        || currentRowUnits <= 0 || priorRowUnits <= 0) continue;
+
+    const currentComponent = Number(row.yoyStreetSpot);
+    const priorComponent = Number(row.yoyStreetBase);
+    if (!Number.isFinite(currentComponent) || !Number.isFinite(priorComponent)) continue;
+
+    currentRateSum += currentComponent;
+    priorRateSum += priorComponent;
+    currentUnits += currentRowUnits;
+    priorUnits += priorRowUnits;
+  }
+
+  if (currentUnits <= 0 || priorUnits <= 0) return null;
+  return sameMonthRateYoYGrowth(
+    currentRateSum / currentUnits,
+    priorRateSum / priorUnits,
+  );
+}
+
+/**
+ * ExcelJS receives the same numeric value rendered by the table for numeric
+ * columns. Null stays blank; it must never become zero in the workbook.
+ */
+export function numericExportValue(value: unknown): number | null {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return null;
+  return Number(value);
 }

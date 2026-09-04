@@ -114,6 +114,10 @@ import { buildRuleFromStructured } from "./structuredRuleBuilder";
 import { buildReferenceDataAuditWorkbook, REFERENCE_DATA_AUDIT_CONTENT_TYPE, REFERENCE_DATA_AUDIT_FILENAME } from "./services/referenceDataAuditWorkbook";
 import { advertisedMetricsList } from "./services/ruleMetricCatalog";
 import {
+  sameCalendarMonthLastYear,
+  sameMonthRateYoYGrowth,
+} from "@shared/referenceDataAgg";
+import {
   partitionCandidates,
   summarizeRejections,
   describeDiagnostics,
@@ -26529,16 +26533,11 @@ Return ONLY valid JSON, no markdown fences:
 
         const streetSpot = spot?.avgStreet ?? null;
         const ihSpot = spot?.avgIh ?? null;
-        const [spotYearNumber, spotMonthNumber] = spotMonth.split("-").map(Number);
-        const yearAgoMonth = `${spotYearNumber - 1}-${String(spotMonthNumber).padStart(2, "0")}`;
-        const yearAgo = bm.get(yearAgoMonth);
+        const yearAgoMonth = sameCalendarMonthLastYear(spotMonth);
+        const yearAgo = yearAgoMonth ? bm.get(yearAgoMonth) : undefined;
         // YoY Street Rate growth compares like-for-like calendar months, not a
         // trailing average: current spot-month average ÷ same month last year − 1.
-        const streetYoYGrowth =
-          streetSpot !== null && yearAgo?.avgStreet !== null && yearAgo?.avgStreet !== undefined &&
-          yearAgo.avgStreet > 0
-            ? (streetSpot - yearAgo.avgStreet) / yearAgo.avgStreet
-            : null;
+        const streetYoYGrowth = sameMonthRateYoYGrowth(streetSpot, yearAgo?.avgStreet);
         // Raw weighted components let higher-level client rollups re-derive the
         // ratio correctly instead of averaging room-type percentages.
         const yoyStreetSpot =

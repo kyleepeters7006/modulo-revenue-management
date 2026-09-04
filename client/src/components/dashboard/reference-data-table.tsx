@@ -56,6 +56,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { ManualOverrideHistory, ManualOverrideHistoryList } from "./manual-override-history";
+import {
+  aggregateSameMonthStreetYoY,
+  numericExportValue,
+} from "@shared/referenceDataAgg";
 
 // ── Column metadata ────────────────────────────────────────────────
 type ColType =
@@ -381,7 +385,7 @@ const AGG_CAMPUS_WAVG_KEYS = ["campusOccSpot", "campusOccT3", "campusOccT12"];
 const AGG_CAMPUS_SL_WAVG_KEYS = ["slOccSpot", "slOccT3", "slOccT12"];
 const AGG_WAVG_KEYS = [
   "rtOccSpot", "rtOccT3", "rtOccT12", "daysVacantSpot", "daysVacantT3",
-  "streetSpot", "streetYoYGrowth", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
+  "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
   "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
   "elasticity", "elasticityConfidence", "elasticitySampleSize", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
   // The three *YtdGrowth keys are re-derived from summed components in
@@ -562,25 +566,10 @@ function aggregateRows(
       out.streetYtdGrowth = (anySt && stRateSpot !== null && stRateBase !== null && stRateBase > 0)
         ? (stRateSpot - stRateBase) / stRateBase : null;
     }
-    // Same-month YoY street growth. Divide out each period's unit count before
-    // comparing averages; census/room-mix changes must not masquerade as rate growth.
-    {
-      let spotRateSum = 0, baseRateSum = 0, spotUnits = 0, baseUnits = 0;
-      for (const r of rs) {
-        if (r.yoyStreetSpot != null && r.yoyStreetBase != null) {
-          spotRateSum += Number(r.yoyStreetSpot);
-          baseRateSum += Number(r.yoyStreetBase);
-          spotUnits += Number(r.yoyStreetUnitsSpot ?? 0);
-          baseUnits += Number(r.yoyStreetUnitsBase ?? 0);
-        }
-      }
-      const currentAverage = spotUnits > 0 ? spotRateSum / spotUnits : null;
-      const yearAgoAverage = baseUnits > 0 ? baseRateSum / baseUnits : null;
-      out.streetYoYGrowth =
-        currentAverage !== null && yearAgoAverage !== null && yearAgoAverage > 0
-          ? (currentAverage - yearAgoAverage) / yearAgoAverage
-          : null;
-    }
+    // Same-month YoY street growth is a derived ratio, not an ordinary
+    // weighted average. Rows without a prior-year comparison are excluded by
+    // the shared helper instead of being treated as zero.
+    out.streetYoYGrowth = aggregateSameMonthStreetYoY(rs);
     // Derived variances recomputed from aggregates
     out.compVarDollar = (out.compAdjusted !== null && out.streetSpot !== null) ? out.compAdjusted - out.streetSpot : null;
     out.compVarPct = (out.compAdjusted !== null && out.streetSpot !== null && out.streetSpot !== 0) ? (out.compAdjusted - out.streetSpot) / out.streetSpot : null;
@@ -645,8 +634,7 @@ function fmt(value: any, type: ColType): string {
 // for the Excel export – raw numeric where possible
 function rawForExport(value: any, type: ColType): any {
   if (type === "text") return value ?? "";
-  if (value === null || value === undefined || Number.isNaN(value)) return null;
-  return Number(value);
+  return numericExportValue(value);
 }
 
 function signClass(value: any, type: ColType): string {
