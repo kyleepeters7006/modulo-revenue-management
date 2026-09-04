@@ -1,3 +1,11 @@
+import cron from "node-cron";
+import { db, pool } from "../db";
+import { eq } from "drizzle-orm";
+import {
+  industryContextRefreshState,
+  industryContextSnapshots,
+} from "@shared/schema";
+
 export type IndustryMetricStatus = "current" | "stale" | "unavailable";
 export type IndustryMetricMethod = "live" | "reviewed";
 
@@ -15,12 +23,27 @@ export interface IndustryContextMetric {
   status: IndustryMetricStatus;
   note: string;
   updatedAt?: string;
+  revisionCount?: number;
+  previousValue?: number | null;
+}
+
+export interface IndustryContextRefresh {
+  provider: string;
+  schedule: string;
+  refreshIntervalHours: number;
+  staleAfterHours: number;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+  revisionCount: number;
 }
 
 export interface IndustryContextResponse {
   metrics: IndustryContextMetric[];
   fetchedAt: string;
   liveSourceStatus: "current" | "partial";
+  liveRefresh: IndustryContextRefresh;
 }
 
 type BlsSeries = {
@@ -34,13 +57,24 @@ type BlsSeries = {
 };
 
 type ReviewedMetric = IndustryContextMetric & { staleAfter: string };
+type LiveMetricRecord = {
+  metric: IndustryContextMetric;
+  seriesId: string;
+  period: string;
+  periodName: string;
+  observationYear: number;
+};
 
 const BLS_URL = "https://api.bls.gov/publicAPI/v2/timeseries/data/";
-const CACHE_MS = 30 * 60 * 1000;
+const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const STALE_AFTER_MS = 48 * 60 * 60 * 1000;
+const REFRESH_STATE_ID = "bls";
+const REFRESH_LOCK_KEY = "industry-context-bls-refresh";
+const SCHEDULE = "17 */6 * * *";
+const REFRESH_SCHEDULE_LABEL = "Every 6 hours (17 minutes past the hour)";
 
-let cachedLiveMetrics: IndustryContextMetric[] | null = null;
-let cachedAt = 0;
-let refreshPromise: Promise<IndustryContextMetric[]> | null = null;
+let refreshPromise: Promise<unknown> | null = null;
+let schedulerStarted = false;
 
 const reviewedMetrics: ReviewedMetric[] = [
   {
@@ -182,8 +216,9 @@ function toLiveMetric(
   return prior ? definition(latest, prior) : null;
 }
 
-async function fetchLiveMetrics(): Promise<IndustryContextMetric[]> {
+async function fetchLiveMetrics(): Promise<LiveMetricRecord[]> {
   const year = new Date().getUTCFullYear();
+  const registrationKey = process.env.BLS_API_KEY || process.env.BLS_REGISTRATION_KEY;
   const response = await fetch(BLS_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -191,6 +226,7 @@ async function fetchLiveMetrics(): Promise<IndustryContextMetric[]> {
       seriesid: liveSeries.map((series) => series.seriesId),
       startyear: String(year - 2),
       endyear: String(year),
+      ...(registrationKey ? { registrationkey: registrationKey } : {}),
     }),
     signal: AbortSignal.timeout(10_000),
   });
@@ -205,9 +241,11 @@ async function fetchLiveMetrics(): Promise<IndustryContextMetric[]> {
   }
   const seriesById = new Map((payload.Results?.series ?? []).map((series) => [series.seriesID, series]));
 
+  const observedAt = new Date().toISOString();
   return liveSeries.flatMap((config) => {
     const metric = toLiveMetric(seriesById.get(config.seriesId) ?? { seriesID: config.seriesId }, (latest, prior) => {
       const percent = ((Number(latest.value) / Number(prior.value)) - 1) * 100;
+      if (!Number.isFinite(percent)) return null as never;
       return {
         id: config.id,
         category: config.category,
@@ -221,10 +259,20 @@ async function fetchLiveMetrics(): Promise<IndustryContextMetric[]> {
         method: "live",
         status: "current",
         note: config.note,
-        updatedAt: new Date().toISOString(),
+        updatedAt: observedAt,
       };
     });
-    return metric ? [metric] : [];
+    const series = seriesById.get(config.seriesId);
+    const latest = (series?.data ?? []).find((row) => row.period !== "M13" && row.period !== "M14");
+    return metric && latest
+      ? [{
+          metric,
+          seriesId: config.seriesId,
+          period: latest.period,
+          periodName: latest.periodName,
+          observationYear: Number(latest.year),
+        }]
+      : [];
   });
 }
 
@@ -236,61 +284,304 @@ function reviewedForToday(): IndustryContextMetric[] {
   }));
 }
 
-function unavailableLiveMetrics(): IndustryContextMetric[] {
-  return liveSeries.map((config) => ({
-    id: config.id,
-    category: config.category,
-    label: config.label,
-    value: null,
-    unit: "percent",
-    comparison: config.comparison,
-    asOf: "Unavailable",
-    sourceName: config.sourceName,
-    sourceUrl: config.sourceUrl,
-    method: "live",
-    status: "unavailable",
-    note: config.note,
-  }));
+type RefreshState = typeof industryContextRefreshState.$inferSelect;
+type Snapshot = typeof industryContextSnapshots.$inferSelect;
+
+export function isBlsRevision(
+  previous: { period: string; observationYear: number | null; value: number } | null,
+  current: { period: string; observationYear: number; value: number },
+): boolean {
+  return Boolean(
+    previous &&
+      previous.period === current.period &&
+      previous.observationYear !== null &&
+      previous.observationYear === current.observationYear &&
+      previous.value !== current.value,
+  );
+}
+
+function toIso(value: Date | null | undefined): string | null {
+  return value ? new Date(value).toISOString() : null;
+}
+
+async function readPersistedContext(): Promise<{ state: RefreshState | null; snapshots: Snapshot[] }> {
+  const [stateRows, snapshots] = await Promise.all([
+    db
+      .select()
+      .from(industryContextRefreshState)
+      .where(eq(industryContextRefreshState.id, REFRESH_STATE_ID))
+      .limit(1),
+    db.select().from(industryContextSnapshots),
+  ]);
+  return { state: stateRows[0] ?? null, snapshots };
+}
+
+export function buildResponse(
+  state: RefreshState | null,
+  snapshots: Snapshot[],
+  now = Date.now(),
+): IndustryContextResponse {
+  const snapshotsByMetric = new Map(snapshots.map((snapshot) => [snapshot.metricId, snapshot]));
+  let hasMissingMetric = false;
+  let hasStaleMetric = false;
+  const liveMetrics = liveSeries.map((config) => {
+    const snapshot = snapshotsByMetric.get(config.id);
+    if (!snapshot) {
+      hasMissingMetric = true;
+      return {
+        id: config.id,
+        category: config.category,
+        label: config.label,
+        value: null,
+        unit: "percent" as const,
+        comparison: config.comparison,
+        asOf: "Unavailable",
+        sourceName: config.sourceName,
+        sourceUrl: config.sourceUrl,
+        method: "live" as const,
+        status: "unavailable" as const,
+        note: config.note,
+      };
+    }
+
+    const observedAt = new Date(snapshot.observedAt).getTime();
+    const stale = !Number.isFinite(observedAt) || now - observedAt > STALE_AFTER_MS;
+    if (stale) hasStaleMetric = true;
+    return {
+      id: config.id,
+      category: config.category,
+      label: config.label,
+      value: snapshot.value,
+      unit: "percent" as const,
+      comparison: config.comparison,
+      asOf: snapshot.asOf,
+      sourceName: config.sourceName,
+      sourceUrl: config.sourceUrl,
+      method: "live" as const,
+      status: stale ? ("stale" as const) : ("current" as const),
+      note: config.note,
+      updatedAt: toIso(snapshot.observedAt) ?? undefined,
+      revisionCount: snapshot.revisionCount,
+      previousValue: snapshot.previousValue,
+    };
+  });
+
+  const lastSuccessAt = toIso(state?.lastSuccessAt);
+  const lastAttemptAt = toIso(state?.lastAttemptAt);
+  const hasUnresolvedError =
+    Boolean(state?.lastError) &&
+    (!state?.lastSuccessAt ||
+      !state.lastAttemptAt ||
+      state.lastAttemptAt.getTime() >= state.lastSuccessAt.getTime());
+
+  return {
+    metrics: [...reviewedForToday(), ...liveMetrics],
+    fetchedAt: new Date(now).toISOString(),
+    liveSourceStatus: hasMissingMetric || hasStaleMetric || hasUnresolvedError ? "partial" : "current",
+    liveRefresh: {
+      provider: "U.S. Bureau of Labor Statistics Public Data API",
+      schedule: REFRESH_SCHEDULE_LABEL,
+      refreshIntervalHours: REFRESH_INTERVAL_MS / (60 * 60 * 1000),
+      staleAfterHours: STALE_AFTER_MS / (60 * 60 * 1000),
+      lastAttemptAt,
+      lastSuccessAt,
+      lastError: state?.lastError ?? null,
+      consecutiveFailures: state?.consecutiveFailures ?? 0,
+      revisionCount: snapshots.reduce((total, snapshot) => total + snapshot.revisionCount, 0),
+    },
+  };
+}
+
+type PoolClient = {
+  query: <T extends Record<string, unknown> = Record<string, unknown>>(
+    text: string,
+    values?: unknown[],
+  ) => Promise<{ rows: T[] }>;
+  release: () => void;
+};
+
+async function withRefreshLock<T>(work: (client: PoolClient) => Promise<T>): Promise<T | null> {
+  const client = await pool.connect();
+  try {
+    const lockResult = await client.query<{ locked: boolean }>(
+      "SELECT pg_try_advisory_lock(hashtext($1)) AS locked",
+      [REFRESH_LOCK_KEY],
+    );
+    if (!lockResult.rows[0]?.locked) return null;
+    try {
+      return await work(client);
+    } finally {
+      await client.query("SELECT pg_advisory_unlock(hashtext($1))", [REFRESH_LOCK_KEY]);
+    }
+  } finally {
+    client.release();
+  }
+}
+
+async function recordRefreshFailure(error: unknown, attemptAt: Date): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error("[industry-context] scheduled BLS refresh failed:", message);
+  const current = await db
+    .select()
+    .from(industryContextRefreshState)
+    .where(eq(industryContextRefreshState.id, REFRESH_STATE_ID))
+    .limit(1);
+  const failures = (current[0]?.consecutiveFailures ?? 0) + 1;
+  await db
+    .insert(industryContextRefreshState)
+    .values({
+      id: REFRESH_STATE_ID,
+      lastAttemptAt: attemptAt,
+      lastError: message.slice(0, 1000),
+      consecutiveFailures: failures,
+      updatedAt: attemptAt,
+    })
+    .onConflictDoUpdate({
+      target: industryContextRefreshState.id,
+      set: {
+        lastAttemptAt: attemptAt,
+        lastError: message.slice(0, 1000),
+        consecutiveFailures: failures,
+        updatedAt: attemptAt,
+      },
+    });
+}
+
+async function persistRefresh(records: LiveMetricRecord[], observedAt: Date): Promise<void> {
+  const existing = await db.select().from(industryContextSnapshots);
+  const existingByMetric = new Map(existing.map((snapshot) => [snapshot.metricId, snapshot]));
+
+  await db.transaction(async (tx) => {
+    for (const record of records) {
+      const previous = existingByMetric.get(record.metric.id);
+      const value = Number(record.metric.value);
+      const revised = isBlsRevision(
+        previous
+          ? {
+              period: previous.period,
+              observationYear: previous.observationYear,
+              value: previous.value,
+            }
+          : null,
+        { period: record.period, observationYear: record.observationYear, value },
+      );
+      await tx
+        .insert(industryContextSnapshots)
+        .values({
+          metricId: record.metric.id,
+          seriesId: record.seriesId,
+          value,
+          asOf: record.metric.asOf,
+          period: record.period,
+          periodName: record.periodName,
+          observationYear: record.observationYear,
+          observedAt,
+          revisionCount: (previous?.revisionCount ?? 0) + (revised ? 1 : 0),
+          previousValue: revised ? previous?.value : (previous?.previousValue ?? null),
+          lastRevisionAt: revised ? observedAt : (previous?.lastRevisionAt ?? null),
+        })
+        .onConflictDoUpdate({
+          target: industryContextSnapshots.metricId,
+          set: {
+            seriesId: record.seriesId,
+            value,
+            asOf: record.metric.asOf,
+            period: record.period,
+            periodName: record.periodName,
+            observationYear: record.observationYear,
+            observedAt,
+            revisionCount: (previous?.revisionCount ?? 0) + (revised ? 1 : 0),
+            previousValue: revised ? previous?.value : (previous?.previousValue ?? null),
+            lastRevisionAt: revised ? observedAt : (previous?.lastRevisionAt ?? null),
+          },
+        });
+    }
+  });
+
+  await db
+    .insert(industryContextRefreshState)
+    .values({
+      id: REFRESH_STATE_ID,
+      lastAttemptAt: observedAt,
+      lastSuccessAt: observedAt,
+      lastError: null,
+      consecutiveFailures: 0,
+      updatedAt: observedAt,
+    })
+    .onConflictDoUpdate({
+      target: industryContextRefreshState.id,
+      set: {
+        lastAttemptAt: observedAt,
+        lastSuccessAt: observedAt,
+        lastError: null,
+        consecutiveFailures: 0,
+        updatedAt: observedAt,
+      },
+    });
+}
+
+export async function refreshIndustryContext(options: { force?: boolean } = {}): Promise<void> {
+  if (refreshPromise) {
+    await refreshPromise;
+    return;
+  }
+
+  const current = await readPersistedContext();
+  if (
+    !options.force &&
+    current.state?.lastSuccessAt &&
+    Date.now() - current.state.lastSuccessAt.getTime() < REFRESH_INTERVAL_MS
+  ) {
+    return;
+  }
+
+  const run = withRefreshLock(async () => {
+    const attemptAt = new Date();
+    await db
+      .insert(industryContextRefreshState)
+      .values({
+        id: REFRESH_STATE_ID,
+        lastAttemptAt: attemptAt,
+        consecutiveFailures: current.state?.consecutiveFailures ?? 0,
+        updatedAt: attemptAt,
+      })
+      .onConflictDoUpdate({
+        target: industryContextRefreshState.id,
+        set: { lastAttemptAt: attemptAt, updatedAt: attemptAt },
+      });
+    try {
+      const records = await fetchLiveMetrics();
+      if (records.length !== liveSeries.length) {
+        throw new Error(`BLS returned ${records.length} of ${liveSeries.length} configured series`);
+      }
+      await persistRefresh(records, attemptAt);
+    } catch (error) {
+      await recordRefreshFailure(error, attemptAt);
+    }
+  });
+  refreshPromise = run;
+  try {
+    await run;
+  } finally {
+    refreshPromise = null;
+  }
+}
+
+export function startIndustryContextRefreshLoop(): void {
+  if (schedulerStarted) return;
+  schedulerStarted = true;
+  void refreshIndustryContext().catch((error) => {
+    console.error("[industry-context] initial scheduled refresh failed:", error);
+  });
+  cron.schedule(SCHEDULE, () => {
+    void refreshIndustryContext({ force: true }).catch((error) => {
+      console.error("[industry-context] cron refresh failed:", error);
+    });
+  });
+  console.log(`[industry-context] BLS refresh scheduler started: ${REFRESH_SCHEDULE_LABEL}`);
 }
 
 export async function getIndustryContext(): Promise<IndustryContextResponse> {
-  const now = Date.now();
-  if (cachedLiveMetrics && now - cachedAt < CACHE_MS) {
-    return {
-      metrics: [...reviewedForToday(), ...cachedLiveMetrics],
-      fetchedAt: new Date(cachedAt).toISOString(),
-      liveSourceStatus: "current",
-    };
-  }
-
-  if (!refreshPromise) {
-    refreshPromise = fetchLiveMetrics()
-      .then((metrics) => {
-        cachedLiveMetrics = metrics;
-        cachedAt = Date.now();
-        return metrics;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
-  }
-
-  try {
-    const metrics = await refreshPromise;
-    return {
-      metrics: [...reviewedForToday(), ...metrics],
-      fetchedAt: new Date(cachedAt).toISOString(),
-      liveSourceStatus: "current",
-    };
-  } catch (error) {
-    console.error("[industry-context] live source refresh failed:", error);
-    const fallbackLive = cachedLiveMetrics?.length
-      ? cachedLiveMetrics.map((metric) => ({ ...metric, status: "stale" as const }))
-      : unavailableLiveMetrics();
-    return {
-      metrics: [...reviewedForToday(), ...fallbackLive],
-      fetchedAt: new Date(cachedAt || now).toISOString(),
-      liveSourceStatus: "partial",
-    };
-  }
+  const { state, snapshots } = await readPersistedContext();
+  return buildResponse(state, snapshots);
 }

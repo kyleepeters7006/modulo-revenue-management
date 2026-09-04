@@ -1564,3 +1564,32 @@ export const importNotifications = pgTable("import_notifications", {
   index("import_notifications_client_idx").on(table.clientId, table.read),
 ]);
 export type ImportNotification = typeof importNotifications.$inferSelect;
+
+// Persisted public economic benchmark snapshots. Keeping the latest successful
+// value in the database means dashboard reads do not call BLS and a provider
+// outage does not erase the last known signal.
+export const industryContextSnapshots = pgTable("industry_context_snapshots", {
+  metricId: varchar("metric_id").primaryKey(),
+  seriesId: varchar("series_id").notNull(),
+  value: real("value").notNull(),
+  asOf: text("as_of").notNull(),
+  period: text("period").notNull(),
+  periodName: text("period_name").notNull(),
+  observationYear: integer("observation_year"),
+  observedAt: timestamp("observed_at").notNull(),
+  revisionCount: integer("revision_count").notNull().default(0),
+  previousValue: real("previous_value"),
+  lastRevisionAt: timestamp("last_revision_at"),
+});
+export type IndustryContextSnapshot = typeof industryContextSnapshots.$inferSelect;
+
+// One row of provider health for the scheduled BLS ingestion path.
+export const industryContextRefreshState = pgTable("industry_context_refresh_state", {
+  id: varchar("id").primaryKey(),
+  lastAttemptAt: timestamp("last_attempt_at"),
+  lastSuccessAt: timestamp("last_success_at"),
+  lastError: text("last_error"),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type IndustryContextRefreshState = typeof industryContextRefreshState.$inferSelect;

@@ -218,6 +218,48 @@ app.use((req, res, next) => {
     log(`[migration] data import tables migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: persisted BLS benchmark snapshots and provider
+  // health. Dashboard reads use these rows instead of calling the public API.
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS industry_context_snapshots (
+        metric_id varchar PRIMARY KEY,
+        series_id varchar NOT NULL,
+        value real NOT NULL,
+        as_of text NOT NULL,
+        period text NOT NULL,
+        period_name text NOT NULL,
+        observation_year integer,
+        observed_at timestamp NOT NULL,
+        revision_count integer NOT NULL DEFAULT 0,
+        previous_value real,
+        last_revision_at timestamp
+      )
+    `);
+    await db.execute(sql`
+      ALTER TABLE industry_context_snapshots
+        ADD COLUMN IF NOT EXISTS observation_year integer
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS industry_context_refresh_state (
+        id varchar PRIMARY KEY,
+        last_attempt_at timestamp,
+        last_success_at timestamp,
+        last_error text,
+        consecutive_failures integer NOT NULL DEFAULT 0,
+        updated_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`
+      INSERT INTO industry_context_refresh_state (id)
+      VALUES ('bls')
+      ON CONFLICT (id) DO NOTHING
+    `);
+    log("[migration] industry context benchmark tables ensured");
+  } catch (migErr) {
+    log(`[migration] industry context migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Idempotent migration: census capacity reference.
   // Holds the client's own census-report capacity by division/department purely as a
   // tie-out against our derived numbers. It never feeds pricing or Total Units —

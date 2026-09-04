@@ -7,4 +7,4 @@ Anonymous BLS API requests can be rejected after the shared daily request thresh
 
 **Why:** the dashboard is used to frame pricing decisions, so a plausible-looking fallback is more dangerous than a visible missing source. Reviewed NIC, CBRE, and peer-company snapshots are also valid context but have different publication cadences and must show their own freshness state.
 
-**How to apply:** check the provider response status before normalizing data, cache successful live values conservatively, label stale last-known values, and keep source URL/as-of metadata on every card. Prefer a managed provider key or scheduled refresh for production scale rather than increasing anonymous request volume.
+**How to apply:** check the provider response status before normalizing data, cache successful live values conservatively, label stale last-known values, and keep source URL/as-of metadata on every card. Prefer a managed provider key or scheduled refresh for production scale rather than increasing anonymous request volume. Persist refresh health separately from metric values so provider failures and revisions remain visible after restarts.

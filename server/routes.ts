@@ -108,7 +108,7 @@ import { dirname } from 'path';
 import * as fs from 'fs';
 import * as cron from 'node-cron';
 import bcrypt from 'bcryptjs';
-import { getIndustryContext } from "./services/industryContext";
+import { getIndustryContext, startIndustryContextRefreshLoop } from "./services/industryContext";
 import { parseNaturalLanguageRule, validateParsedRule, generateRuleName, checkRuleEnforceable, supportedTriggerMetrics } from "./naturalLanguageParser";
 import { buildRuleFromStructured } from "./structuredRuleBuilder";
 import { buildReferenceDataAuditWorkbook, REFERENCE_DATA_AUDIT_CONTENT_TYPE, REFERENCE_DATA_AUDIT_FILENAME } from "./services/referenceDataAuditWorkbook";
@@ -1421,6 +1421,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerDataImportRoutes(app);
   const { startScheduledImportLoop } = await import('./services/scheduledImportService');
   startScheduledImportLoop();
+  startIndustryContextRefreshLoop();
 
   // In-house rate planning (assumptions, solver, apply/versioning)
   const { registerInhousePlanningRoutes } = await import('./routes/inhousePlanningRoutes');

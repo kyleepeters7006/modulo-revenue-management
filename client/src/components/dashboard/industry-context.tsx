@@ -16,12 +16,28 @@ type Metric = {
   method: "live" | "reviewed";
   status: "current" | "stale" | "unavailable";
   note: string;
+  updatedAt?: string;
+  revisionCount?: number;
+  previousValue?: number | null;
+};
+
+type IndustryContextRefresh = {
+  provider: string;
+  schedule: string;
+  refreshIntervalHours: number;
+  staleAfterHours: number;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+  revisionCount: number;
 };
 
 type IndustryContextResponse = {
   metrics: Metric[];
   fetchedAt: string;
   liveSourceStatus: "current" | "partial";
+  liveRefresh: IndustryContextRefresh;
 };
 
 const categoryCopy = {
@@ -52,6 +68,11 @@ function statusLabel(metric: Metric) {
   return "Live series";
 }
 
+function formatTimestamp(value: string | null | undefined) {
+  if (!value) return "Never";
+  return new Date(value).toLocaleString();
+}
+
 function ContextCard({ metric }: { metric: Metric }) {
   return (
     <div
@@ -69,7 +90,9 @@ function ContextCard({ metric }: { metric: Metric }) {
           className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium ${
             metric.status === "stale"
               ? "bg-amber-100 text-amber-800"
-              : "bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal)]"
+              : metric.status === "unavailable"
+                ? "bg-slate-100 text-slate-700"
+                : "bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal)]"
           }`}
         >
           {statusLabel(metric)}
@@ -78,9 +101,19 @@ function ContextCard({ metric }: { metric: Metric }) {
       <p className="mt-2 text-xs font-medium text-[var(--dashboard-text)]">{metric.comparison}</p>
       <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-[var(--dashboard-muted)]">
         <span>As of {metric.asOf}</span>
-        <span className="inline-flex items-center gap-1" title={metric.note}>
-          <Info className="h-3 w-3" />
-          Definition
+        <span className="inline-flex items-center gap-2">
+          {metric.revisionCount ? (
+            <span
+              className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800"
+              title={metric.previousValue == null ? undefined : `Previous value: ${metric.previousValue.toFixed(1)}%`}
+            >
+              Revised {metric.revisionCount}×
+            </span>
+          ) : null}
+          <span className="inline-flex items-center gap-1" title={metric.note}>
+            <Info className="h-3 w-3" />
+            Definition
+          </span>
         </span>
       </div>
       <a
@@ -181,11 +214,29 @@ export default function IndustryContext() {
             </div>
           </section>
         ))}
-        <p className="border-t border-[var(--dashboard-border)] pt-3 text-[11px] text-[var(--dashboard-muted)]">
-          Sources refreshed {new Date(query.data.fetchedAt).toLocaleString()} · Live public series refresh
-          automatically; reviewed snapshots are dated to their source publication.
-          {query.data.liveSourceStatus === "partial" ? " One or more live sources are currently unavailable." : ""}
-        </p>
+        <div className="border-t border-[var(--dashboard-border)] pt-3 text-[11px] text-[var(--dashboard-muted)]">
+          <p>
+            Last successful source refresh{" "}
+            {formatTimestamp(query.data.liveRefresh.lastSuccessAt)} ·{" "}
+            {query.data.liveRefresh.schedule}. Reviewed snapshots are dated to their source publication.
+          </p>
+          <p className="mt-1">
+            {query.data.liveRefresh.provider} · Data is marked stale after{" "}
+            {query.data.liveRefresh.staleAfterHours} hours.
+            {query.data.liveRefresh.revisionCount > 0
+              ? ` ${query.data.liveRefresh.revisionCount} revision${query.data.liveRefresh.revisionCount === 1 ? "" : "s"} recorded.`
+              : ""}
+          </p>
+          {query.data.liveSourceStatus === "partial" || query.data.liveRefresh.lastError ? (
+            <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-amber-800">
+              BLS refresh issue:{" "}
+              {query.data.liveRefresh.lastError ?? "one or more live series are stale or unavailable."}
+              {query.data.liveRefresh.lastAttemptAt
+                ? ` Last attempted ${formatTimestamp(query.data.liveRefresh.lastAttemptAt)}.`
+                : ""}
+            </p>
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );
