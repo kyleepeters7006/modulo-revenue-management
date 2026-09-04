@@ -23,7 +23,7 @@ export const AGG_SUM_KEYS: string[] = [
  */
 export const AGG_WAVG_KEYS: string[] = [
   "rtOccSpot", "rtOccT3", "rtOccT12", "daysVacantSpot", "daysVacantT3",
-  "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
+  "streetSpot", "streetYoYGrowth", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
   "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
   "elasticity", "elasticityTrend", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
   // NOTE: revYtdGrowth / ihYtdGrowth / streetYtdGrowth are listed here so the

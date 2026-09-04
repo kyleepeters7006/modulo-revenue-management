@@ -26529,6 +26529,24 @@ Return ONLY valid JSON, no markdown fences:
 
         const streetSpot = spot?.avgStreet ?? null;
         const ihSpot = spot?.avgIh ?? null;
+        const [spotYearNumber, spotMonthNumber] = spotMonth.split("-").map(Number);
+        const yearAgoMonth = `${spotYearNumber - 1}-${String(spotMonthNumber).padStart(2, "0")}`;
+        const yearAgo = bm.get(yearAgoMonth);
+        // YoY Street Rate growth compares like-for-like calendar months, not a
+        // trailing average: current spot-month average ÷ same month last year − 1.
+        const streetYoYGrowth =
+          streetSpot !== null && yearAgo?.avgStreet !== null && yearAgo?.avgStreet !== undefined &&
+          yearAgo.avgStreet > 0
+            ? (streetSpot - yearAgo.avgStreet) / yearAgo.avgStreet
+            : null;
+        // Raw weighted components let higher-level client rollups re-derive the
+        // ratio correctly instead of averaging room-type percentages.
+        const yoyStreetSpot =
+          streetSpot !== null && (spot?.total ?? 0) > 0 ? streetSpot * spot!.total : null;
+        const yoyStreetBase =
+          yearAgo?.avgStreet !== null && yearAgo?.avgStreet !== undefined && yearAgo.total > 0
+            ? yearAgo.avgStreet * yearAgo.total
+            : null;
         // Gate comp rate display on LATEST-survey-month coverage.  Only show
         // when the most recent survey for this location includes the group's
         // underlying normalised room type.  Stale competitor_base_rate values
@@ -26754,6 +26772,11 @@ Return ONLY valid JSON, no markdown fences:
           streetIncT3: incPct(streetSpot, rateWindow(bm, t3Months, 'avgStreet')),
           streetIncT6: incPct(streetSpot, rateWindow(bm, t6Months, 'avgStreet')),
           streetIncT12: incPct(streetSpot, rateWindow(bm, t12Months, 'avgStreet')),
+          streetYoYGrowth,
+          yoyStreetSpot,
+          yoyStreetBase,
+          yoyStreetUnitsSpot: yoyStreetSpot !== null ? spot!.total : null,
+          yoyStreetUnitsBase: yoyStreetBase !== null ? yearAgo!.total : null,
           // Comp rates - top comp
           compBase,
           compAdjusted: compAdj,

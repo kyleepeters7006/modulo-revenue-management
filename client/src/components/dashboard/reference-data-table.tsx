@@ -234,6 +234,7 @@ const GROUPS: GroupDef[] = [
     historyColType: "money",
     cols: [
       { key: "streetSpot", label: "Spot", type: "money", w: 80, tip: "Average published street rate for this room type in the latest month." },
+      { key: "streetYoYGrowth", label: "YoY Δ", type: "pctfracsigned", w: 72, tip: "Year-over-year growth: the current spot-month average street rate compared with the average street rate in the same month one year ago." },
       { key: "streetIncT3", label: "T3 Δ", type: "pctfracsigned", w: 70, tip: "% change of the latest street rate vs the trailing 3-month average." },
       { key: "streetIncT12", label: "T12 Δ", type: "pctfracsigned", w: 70, tip: "% change of the latest street rate vs the trailing 12-month average." },
     ],
@@ -380,7 +381,7 @@ const AGG_CAMPUS_WAVG_KEYS = ["campusOccSpot", "campusOccT3", "campusOccT12"];
 const AGG_CAMPUS_SL_WAVG_KEYS = ["slOccSpot", "slOccT3", "slOccT12"];
 const AGG_WAVG_KEYS = [
   "rtOccSpot", "rtOccT3", "rtOccT12", "daysVacantSpot", "daysVacantT3",
-  "streetSpot", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
+  "streetSpot", "streetYoYGrowth", "streetIncT3", "streetIncT12", "compBase", "compAdjusted",
   "ihSpot", "ihIncT3", "ihIncT12", "proposedRule",
   "elasticity", "elasticityConfidence", "elasticitySampleSize", "daysToSellBefore", "daysToSellAfter", "daysToSellChange", "predictedDaysToSellChange",
   // The three *YtdGrowth keys are re-derived from summed components in
@@ -560,6 +561,25 @@ function aggregateRows(
       const stRateBase = stUnitsBase > 0 ? stBase / stUnitsBase : null;
       out.streetYtdGrowth = (anySt && stRateSpot !== null && stRateBase !== null && stRateBase > 0)
         ? (stRateSpot - stRateBase) / stRateBase : null;
+    }
+    // Same-month YoY street growth. Divide out each period's unit count before
+    // comparing averages; census/room-mix changes must not masquerade as rate growth.
+    {
+      let spotRateSum = 0, baseRateSum = 0, spotUnits = 0, baseUnits = 0;
+      for (const r of rs) {
+        if (r.yoyStreetSpot != null && r.yoyStreetBase != null) {
+          spotRateSum += Number(r.yoyStreetSpot);
+          baseRateSum += Number(r.yoyStreetBase);
+          spotUnits += Number(r.yoyStreetUnitsSpot ?? 0);
+          baseUnits += Number(r.yoyStreetUnitsBase ?? 0);
+        }
+      }
+      const currentAverage = spotUnits > 0 ? spotRateSum / spotUnits : null;
+      const yearAgoAverage = baseUnits > 0 ? baseRateSum / baseUnits : null;
+      out.streetYoYGrowth =
+        currentAverage !== null && yearAgoAverage !== null && yearAgoAverage > 0
+          ? (currentAverage - yearAgoAverage) / yearAgoAverage
+          : null;
     }
     // Derived variances recomputed from aggregates
     out.compVarDollar = (out.compAdjusted !== null && out.streetSpot !== null) ? out.compAdjusted - out.streetSpot : null;
