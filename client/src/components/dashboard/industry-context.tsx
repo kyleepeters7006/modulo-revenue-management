@@ -264,7 +264,7 @@ export default function IndustryContext() {
              className="group flex items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--trilogy-teal)]"
            >
              <CardTitle className="flex items-center gap-2 text-xl font-semibold text-[var(--dashboard-text)]">
-               Industry Context <img src="/industry-context-icon.png" alt="" className="h-7 w-7 object-contain" />
+               Industry Context <img src="/industry-context-icon.png" alt="" className="h-11 w-11 object-contain" />
              </CardTitle>
              <ChevronDown className={`h-4 w-4 text-[var(--dashboard-muted)] transition-transform group-hover:text-[var(--dashboard-text)] ${expanded ? "rotate-180" : ""}`} />
            </button>
