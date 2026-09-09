@@ -267,7 +267,7 @@ function requireAuth(req: any, res: any, next: any) {
   if (req.session?.userId && req.session?.clientId) return next();
   return res
     .status(401)
-    .json({ error: "Login required. Applying a rate plan is disabled in anonymous demo mode." });
+    .json({ error: "Login required. In-house rate plan actions are disabled in anonymous demo mode." });
 }
 
 export function registerInhousePlanningRoutes(app: Express) {
@@ -670,7 +670,7 @@ export function registerInhousePlanningRoutes(app: Express) {
    * the operator exports what they are currently looking at, which may be
    * unsaved edits rather than the stored defaults.
    */
-  app.post("/api/inhouse-planning/export", async (req: any, res) => {
+  app.post("/api/inhouse-planning/export", requireAuth, async (req: any, res) => {
     try {
       const clientId = req.clientId || "demo";
       const body = scopeSchema

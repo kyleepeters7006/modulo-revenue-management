@@ -216,8 +216,15 @@ async function verifyDatabaseReloadAndEligibility() {
       get(path: string, handler: (req: any, res: any) => Promise<void>) {
         registeredRoutes.set(`GET ${path}`, handler);
       },
-      post(path: string, ...handlers: Array<(...args: any[]) => Promise<void>>) {
-        const handler = handlers[handlers.length - 1];
+      post(path: string, ...handlers: Array<(...args: any[]) => any>) {
+        const handler = async (req: any, res: any) => {
+          const dispatch = async (index: number): Promise<void> => {
+            const middleware = handlers[index];
+            if (!middleware) return;
+            await middleware(req, res, () => dispatch(index + 1));
+          };
+          await dispatch(0);
+        };
         if (handler) registeredRoutes.set(`POST ${path}`, handler);
       },
     };
@@ -373,6 +380,29 @@ async function verifyDatabaseReloadAndEligibility() {
     assert.ok(
       !recommendationSheet.getColumn(7).values.includes(4700),
       "the workbook excludes the other saved scope's recommendation",
+    );
+
+    let anonymousExportStatus = 200;
+    let anonymousExportBody: any;
+    const anonymousExportResponse = {
+      status(code: number) {
+        anonymousExportStatus = code;
+        return anonymousExportResponse;
+      },
+      json(value: any) {
+        anonymousExportBody = value;
+        return anonymousExportResponse;
+      },
+    };
+    await exportRoute!(
+      { clientId, body: exportBody, user: { username: "anonymous-test" } },
+      anonymousExportResponse,
+    );
+    assert.equal(anonymousExportStatus, 401, "anonymous users cannot export Street Rate workbooks");
+    assert.match(
+      String(anonymousExportBody?.error),
+      /login required/i,
+      "anonymous export rejection explains that login is required",
     );
 
     for (const [label, requestClientId, requestUserId, body] of [
