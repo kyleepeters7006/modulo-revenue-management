@@ -616,17 +616,10 @@ export function registerInhousePlanningRoutes(app: Express) {
     if (!body.success) return res.status(400).json({ error: "Invalid recommendation edit" });
     let updated: StreetRateRecommendation | null = null;
     const availableSnapshots = await recommendationSnapshotsForRequest(req);
-    const scopedSnapshot = availableSnapshots.find((candidate) =>
+    const snapshot = availableSnapshots.find((candidate) =>
       candidate.locationId === (body.data.locationId ?? null) &&
       candidate.serviceLine === body.data.serviceLine,
     );
-    const snapshot = scopedSnapshot && snapshotIsFresh(scopedSnapshot)
-      ? scopedSnapshot
-      : availableSnapshots.find((candidate) =>
-          candidate.serviceLine === body.data.serviceLine &&
-          snapshotIsFresh(candidate) &&
-          candidate.recommendations.some((row) => row.id === body.data.id),
-        );
     if (snapshot) {
       const row = snapshot.recommendations.find((candidate) => candidate.id === body.data.id);
       if (row) {

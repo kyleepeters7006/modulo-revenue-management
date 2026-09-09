@@ -107,6 +107,7 @@ async function verifyDatabaseReloadAndEligibility() {
     serviceLine: string;
     status: "proposed" | "applied" | "superseded";
     createdAt: string;
+    recommendationId?: string;
   }) {
     const versionResult = await pool.query<{ next: number }>(
       `SELECT COALESCE(MAX(version), 0) + 1 AS next
@@ -120,7 +121,11 @@ async function verifyDatabaseReloadAndEligibility() {
       createdAt: options.createdAt,
       maximumPremiumAboveTopCompetitorPct: 3,
       assumptionsFingerprint: fingerprint,
-      recommendations,
+      recommendations: recommendations.map((recommendation) => ({
+        ...recommendation,
+        id: options.recommendationId ?? recommendation.id,
+        serviceLine: options.serviceLine,
+      })),
     };
     const inserted = await pool.query<{ id: string }>(
       `INSERT INTO inhouse_rate_plans
@@ -157,6 +162,7 @@ async function verifyDatabaseReloadAndEligibility() {
       serviceLine: "AL",
       status: "proposed",
       createdAt: freshCreatedAt,
+      recommendationId: "rec-campus-al",
     });
     await insertPlan({
       clientId,
@@ -165,6 +171,7 @@ async function verifyDatabaseReloadAndEligibility() {
       serviceLine: "AL",
       status: "proposed",
       createdAt: freshCreatedAt,
+      recommendationId: "rec-all-campus-al",
     });
     await insertPlan({
       clientId,
@@ -173,30 +180,34 @@ async function verifyDatabaseReloadAndEligibility() {
       serviceLine: "HC",
       status: "proposed",
       createdAt: freshCreatedAt,
+      recommendationId: "rec-campus-hc",
     });
     await insertPlan({
       clientId,
       userId,
       locationId,
-      serviceLine: "AL",
+      serviceLine: "SUPERSEDED",
       status: "superseded",
       createdAt: freshCreatedAt,
+      recommendationId: "rec-superseded",
     });
     await insertPlan({
       clientId,
       userId,
       locationId,
-      serviceLine: "AL",
+      serviceLine: "PUBLISHED",
       status: "applied",
       createdAt: freshCreatedAt,
+      recommendationId: "rec-published",
     });
     await insertPlan({
       clientId,
       userId,
       locationId,
-      serviceLine: "AL",
+      serviceLine: "EXPIRED",
       status: "proposed",
       createdAt: expiredCreatedAt,
+      recommendationId: "rec-expired",
     });
 
     const registeredRoutes = new Map<string, (req: any, res: any) => Promise<void>>();
@@ -204,11 +215,15 @@ async function verifyDatabaseReloadAndEligibility() {
       get(path: string, handler: (req: any, res: any) => Promise<void>) {
         registeredRoutes.set(`GET ${path}`, handler);
       },
-      post() {},
+      post(path: string, handler: (req: any, res: any) => Promise<void>) {
+        registeredRoutes.set(`POST ${path}`, handler);
+      },
     };
     registerInhousePlanningRoutes(fakeApp as any);
     const latest = registeredRoutes.get("GET /api/inhouse-planning/recommendations/latest");
+    const edit = registeredRoutes.get("POST /api/inhouse-planning/recommendations/edit");
     assert.ok(latest, "the latest recommendations route should be registered");
+    assert.ok(edit, "the recommendation edit route should be registered");
 
     async function requestLatest(requestClientId: string, requestUserId: string, query: Record<string, string>) {
       let statusCode = 200;
@@ -237,6 +252,37 @@ async function verifyDatabaseReloadAndEligibility() {
       return { statusCode, body };
     }
 
+    async function requestEdit(
+      requestClientId: string,
+      requestUserId: string,
+      body: Record<string, unknown>,
+    ) {
+      let statusCode = 200;
+      let responseBody: any;
+      const response = {
+        status(code: number) {
+          statusCode = code;
+          return response;
+        },
+        setHeader() {
+          return response;
+        },
+        json(value: any) {
+          responseBody = value;
+          return response;
+        },
+      };
+      await edit!(
+        {
+          clientId: requestClientId,
+          body,
+          session: { userId: requestUserId, clientId: requestClientId },
+        },
+        response,
+      );
+      return { statusCode, body: responseBody };
+    }
+
     const restored = await requestLatest(clientId, userId, {
       locationId,
       serviceLine: "AL",
@@ -247,8 +293,19 @@ async function verifyDatabaseReloadAndEligibility() {
       1,
       "restart reload returns only a fresh proposed snapshot for the requested scope",
     );
-    assert.equal(restored.body.recommendations[0].id, "rec-1");
+    assert.equal(restored.body.recommendations[0].id, "rec-campus-al");
     assert.equal(restored.body.createdAt, freshCreatedAt);
+
+    const edited = await requestEdit(clientId, userId, {
+      id: "rec-campus-al",
+      locationId,
+      serviceLine: "AL",
+      suggestedRate: 4350,
+      locked: true,
+    });
+    assert.equal(edited.statusCode, 200, "a fresh persisted proposal can be edited after restart");
+    assert.equal(edited.body.recommendation.suggestedRate, 4350);
+    assert.equal(edited.body.recommendation.locked, true);
 
     for (const [label, requestClientId, requestUserId, query] of [
       ["different tenant", "__different-tenant__", userId, { locationId, serviceLine: "AL" }],
@@ -263,6 +320,66 @@ async function verifyDatabaseReloadAndEligibility() {
         0,
         `${label} cannot see the submitted recommendation`,
       );
+    }
+
+    for (const [label, requestClientId, requestUserId, body] of [
+      [
+        "different tenant",
+        "__different-tenant__",
+        userId,
+        { id: "rec-campus-al", locationId, serviceLine: "AL", suggestedRate: 4350 },
+      ],
+      [
+        "different user",
+        clientId,
+        "__different-user__",
+        { id: "rec-campus-al", locationId, serviceLine: "AL", suggestedRate: 4350 },
+      ],
+      [
+        "different campus",
+        clientId,
+        userId,
+        { id: "rec-campus-al", locationId: "__different-campus__", serviceLine: "AL", suggestedRate: 4350 },
+      ],
+      [
+        "missing campus scope",
+        clientId,
+        userId,
+        { id: "rec-campus-al", serviceLine: "AL", suggestedRate: 4350 },
+      ],
+      [
+        "different service line",
+        clientId,
+        userId,
+        { id: "rec-campus-al", locationId, serviceLine: "MC", suggestedRate: 4350 },
+      ],
+    ] as const) {
+      const isolated = await requestEdit(requestClientId, requestUserId, body);
+      assert.equal(
+        isolated.statusCode,
+        404,
+        `${label} edit should return the existing unavailable response`,
+      );
+      assert.equal(isolated.body.error, "Recommendation is no longer available");
+    }
+
+    for (const [label, serviceLine, id] of [
+      ["superseded", "SUPERSEDED", "rec-superseded"],
+      ["published", "PUBLISHED", "rec-published"],
+      ["expired", "EXPIRED", "rec-expired"],
+    ] as const) {
+      const unavailable = await requestEdit(clientId, userId, {
+        id,
+        locationId,
+        serviceLine,
+        suggestedRate: 4350,
+      });
+      assert.equal(
+        unavailable.statusCode,
+        404,
+        `${label} proposal edit should return the existing unavailable response`,
+      );
+      assert.equal(unavailable.body.error, "Recommendation is no longer available");
     }
 
     const restoredRows = await loadPersistedRecommendationSnapshots(clientId, userId);
