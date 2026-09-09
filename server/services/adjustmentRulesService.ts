@@ -2,6 +2,7 @@ import { storage } from "../storage";
 import { pool } from "../db";
 import type { AdjustmentRules } from "@shared/schema";
 import { isRuleExclusive, applyRuleAdjustmentStep } from "@shared/ruleStacking";
+import { resolveStreetRecommendationAction } from "./ruleImpactService";
 import { buildGuardrailResolver, clampRateWithGuardrails } from "../guardrailsUtil";
 import { isBBedRow } from "@shared/bBed";
 import { isPrivatePayer } from "@shared/payerScope";
@@ -912,6 +913,13 @@ export function applyAdjustmentRulesToUnit(
     if (action.type !== "adjust_rate") continue;
     // Resident-rate (in-house) rules never adjust street pricing.
     if (action.target === "in_house_rate") continue;
+    if (!resolveStreetRecommendationAction(action, {
+      locationId: unit.locationId ?? unit.location_id ?? null,
+      location: unit.location ?? unit.campus ?? null,
+      serviceLine: unit.serviceLine ?? unit.service_line ?? null,
+      roomType: unit.roomType ?? unit.room_type ?? null,
+      sourceRoomType: unit.sourceRoomType ?? unit.source_room_type ?? null,
+    })) continue;
 
     if (action.filters) {
       const filters = action.filters;
@@ -1001,12 +1009,20 @@ export function applyAdjustmentRulesToUnit(
 
   for (const rule of effectiveFinalRules) {
     const action = rule.action as any;
-    const isExclusive = isRuleExclusive(action);
+    const effectiveAction = resolveStreetRecommendationAction(action, {
+      locationId: unit.locationId ?? unit.location_id ?? null,
+      location: unit.location ?? unit.campus ?? null,
+      serviceLine: unit.serviceLine ?? unit.service_line ?? null,
+      roomType: unit.roomType ?? unit.room_type ?? null,
+      sourceRoomType: unit.sourceRoomType ?? unit.source_room_type ?? null,
+    });
+    if (!effectiveAction) continue;
+    const isExclusive = isRuleExclusive(effectiveAction);
     if (isExclusive) {
       if (exclusiveApplied) continue;
       exclusiveApplied = true;
     }
-    currentRate = applyRuleAdjustmentStep(currentRate, action);
+    currentRate = applyRuleAdjustmentStep(currentRate, effectiveAction);
     appliedRuleNames.push(rule.name);
   }
 

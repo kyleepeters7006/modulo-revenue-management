@@ -23,6 +23,46 @@ import { MOVE_IN_OUT_ACTIVE_VIEW } from "./moveInOutEventsView";
 
 const DAILY_SLS = new Set(["HC", "HC/MC"]);
 
+export function resolveStreetRecommendationAction(
+  action: any,
+  context: {
+    locationId?: string | null;
+    location?: string | null;
+    serviceLine?: string | null;
+    roomType?: string | null;
+    sourceRoomType?: string | null;
+  },
+): any | null {
+  const recommendations = action?.streetRateRecommendations;
+  if (!Array.isArray(recommendations) || recommendations.length === 0) return action;
+  const normalize = (value: unknown) => String(value ?? "").trim().toLowerCase();
+  const recommendation = recommendations.find((candidate: any) => {
+    const locationMatches = candidate.locationId != null
+      ? String(candidate.locationId) === String(context.locationId ?? "")
+      : normalize(candidate.location) !== "" &&
+        normalize(candidate.location) === normalize(context.location);
+    const sl = String(context.serviceLine ?? "");
+    const serviceLineMatches =
+      !candidate.serviceLine ||
+      candidate.serviceLine === sl ||
+      (candidate.serviceLine === "AL/MC" && ["AL", "AL/MC"].includes(sl)) ||
+      (candidate.serviceLine === "HC/MC" && ["HC", "HC/MC"].includes(sl));
+    const room = normalize(context.roomType);
+    const sourceRoom = normalize(context.sourceRoomType);
+    const roomMatches = Array.isArray(candidate.roomTypes) && candidate.roomTypes.length > 0
+      ? candidate.roomTypes.some((value: string) => {
+          const normalized = normalize(value);
+          return normalized === room || normalized === sourceRoom;
+        })
+      : normalize(candidate.product) === room || normalize(candidate.product) === sourceRoom;
+    return locationMatches && serviceLineMatches && roomMatches;
+  });
+  if (!recommendation) return null;
+  const delta = Number(recommendation.suggestedRate) - Number(recommendation.currentStreetRate);
+  if (!(delta > 0)) return null;
+  return { ...action, adjustmentType: "fixed", adjustmentValue: delta, isAdditive: false };
+}
+
 export interface UnitRow {
   id: string;
   location_id: string | null;
@@ -1248,6 +1288,15 @@ export function computeQualifiedRuleImpact(
 
   for (const [gKey, groupUnits] of Array.from(ctx.groups.entries())) {
     const [locId, sl, rt] = gKey.split("|");
+    const representative = groupUnits[0];
+    const effectiveAction = resolveStreetRecommendationAction(action, {
+      locationId: locId,
+      location: representative?.location ?? null,
+      serviceLine: sl,
+      roomType: rt,
+      sourceRoomType: representative?.room_type ?? null,
+    });
+    if (!effectiveAction) continue;
     // Family matching: AL-scoped rules also cover AL/MC groups; HC-scoped rules also cover HC/MC.
     const slFamily: string[] = sl === 'AL/MC' ? ['AL', 'AL/MC'] : sl === 'HC/MC' ? ['HC', 'HC/MC'] : [sl];
     if (slScope.length && !slScope.some(s => slFamily.includes(s))) continue;
@@ -1287,9 +1336,11 @@ export function computeQualifiedRuleImpact(
     const avgRate = rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : 0;
     // Fixed-dollar deltas on in-house rules must be monthly-normalized for
     // daily-rate service lines (HC/HC-MC) since avgRate is already monthly.
-    const delta = adjustmentType === "percentage"
-      ? avgRate * (adjustmentValue / 100)
-      : (useInHouseRate ? toMonthlyRate(adjustmentValue, sl) : adjustmentValue);
+    const effectiveAdjustmentType = effectiveAction.adjustmentType || adjustmentType;
+    const effectiveAdjustmentValue = Number(effectiveAction.adjustmentValue ?? adjustmentValue);
+    const delta = effectiveAdjustmentType === "percentage"
+      ? avgRate * (effectiveAdjustmentValue / 100)
+      : (useInHouseRate ? toMonthlyRate(effectiveAdjustmentValue, sl) : effectiveAdjustmentValue);
     // Move-ins = qualified units × portfolio move-in rate for the service line
     // (T3 move-ins / month / active unit). Per-group raw counts over-count.
     const moveIns = useInHouseRate ? 0 : qualified.length * (ctx.slMoveInRate.get(sl) ?? 0);
@@ -1613,7 +1664,15 @@ export function buildGroupRulePreviewRates(
     for (const rule of sortedRules) {
       const action       = (rule.action as any) || {};
       if (action.target === 'in_house_rate') continue;
-      const filters      = action.filters || {};
+      const effectiveAction = resolveStreetRecommendationAction(action, {
+        locationId: g.locationId,
+        location: g.campus,
+        serviceLine: g.sl,
+        roomType: g.rt,
+        sourceRoomType: g.sourceRt,
+      });
+      if (!effectiveAction) continue;
+      const filters      = effectiveAction.filters || {};
       const usesCareRate = action.target === 'care_rate';
       const baseRate     = usesCareRate ? g.avgIhRate : g.groupStreetRate;
       if (!baseRate) continue;
@@ -1652,8 +1711,8 @@ export function buildGroupRulePreviewRates(
       if (!passesTrigger(rule, g.campus, g.sl, rtOccPct, g.rt)) continue;
 
       // ── Compute adjusted rate ──
-      const adjustmentType: string  = action.adjustmentType  || 'percentage';
-      const adjustmentValue: number = Number(action.adjustmentValue ?? 0);
+      const adjustmentType: string  = effectiveAction.adjustmentType  || 'percentage';
+      const adjustmentValue: number = Number(effectiveAction.adjustmentValue ?? 0);
       const adjRate = adjustmentType === 'percentage'
         ? baseRate * (1 + adjustmentValue / 100)
         : baseRate + adjustmentValue;

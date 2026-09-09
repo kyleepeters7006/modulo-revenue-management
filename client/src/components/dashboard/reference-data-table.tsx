@@ -238,6 +238,7 @@ const GROUPS: GroupDef[] = [
     historyColType: "money",
     cols: [
       { key: "streetSpot", label: "Spot", type: "money", w: 80, tip: "Average published street rate for this room type in the latest month." },
+      { key: "aiSuggestedStreetRate", label: "AI Suggested", type: "money", w: 92, tip: "One-time advisory Street Rate from In-House Rate Planning. It is capped by the Top Competitor premium ceiling and does not publish a rule." },
       { key: "streetYoYGrowth", label: "YoY Δ", type: "pctfracsigned", w: 72, tip: "Year-over-year growth: the current spot-month average street rate compared with the average street rate in the same month one year ago." },
       { key: "streetIncT3", label: "T3 Δ", type: "pctfracsigned", w: 70, tip: "% change of the latest street rate vs the trailing 3-month average." },
       { key: "streetIncT12", label: "T12 Δ", type: "pctfracsigned", w: 70, tip: "% change of the latest street rate vs the trailing 12-month average." },
@@ -911,6 +912,62 @@ export default function ReferenceDataTable({
     refetchOnWindowFocus: false,
   });
 
+  const { data: aiRecommendationData } = useQuery<{
+    recommendations: Array<{
+      id: string;
+      location: string;
+      locationId?: string | null;
+      serviceLine: string;
+      product: string;
+      suggestedRate: number;
+      locked: boolean;
+    }>;
+  }>({
+    queryKey: ["/api/inhouse-planning/recommendations/latest", selectedServiceLine, selectedLocations],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (selectedServiceLine && selectedServiceLine !== "All") {
+        params.set("serviceLine", selectedServiceLine);
+      }
+      if (selectedLocations?.length) params.set("locations", selectedLocations.join(","));
+      const res = await fetch(`/api/inhouse-planning/recommendations/latest?${params.toString()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load Street Rate recommendations");
+      return res.json();
+    },
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const aiRecommendationByKey = useMemo(() => {
+    const map = new Map<string, { id: string; suggestedRate: number; locked: boolean; locationId: string | null }>();
+    for (const row of aiRecommendationData?.recommendations ?? []) {
+      map.set(`${row.locationId ?? row.location}||${row.serviceLine}||${row.product}`, {
+        id: row.id,
+        suggestedRate: row.suggestedRate,
+        locked: row.locked,
+        locationId: row.locationId ?? null,
+      });
+    }
+    return map;
+  }, [aiRecommendationData]);
+
+  const aiRecommendationEditMutation = useMutation({
+    mutationFn: async (payload: {
+      id: string;
+      locationId: string | null;
+      serviceLine: string;
+      suggestedRate: number;
+      locked: boolean;
+    }) =>
+      apiRequest("/api/inhouse-planning/recommendations/edit", "POST", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/recommendations/latest"] });
+      toast({ title: "AI Suggested Street Rate updated" });
+    },
+    onError: (error: Error) =>
+      toast({ title: "Could not update recommendation", description: error.message, variant: "destructive" }),
+  });
+
   // ── Room Detail (per-unit) query — only fetched at that grouping level ──
   const unitQueryKey = ["/api/reference-data/units", selectedServiceLine, selectedRegions, selectedDivisions, selectedLocations];
   const { data: unitData, isLoading: unitLoading, isFetching: unitFetching } = useQuery<{ rows: Record<string, any>[]; spotMonth: string | null }>({
@@ -948,7 +1005,7 @@ export default function ReferenceDataTable({
       // Rate-change deltas recomputed from wavg base values at aggregation levels.
       // Averaging per-row percentage deltas introduces a mix-effect when unit counts shift
       // between months (new buildings, census changes). Computing from aggregated rates is correct.
-      if (groupLevel !== "roomType" && groupLevel !== "roomDetail") {
+      if (groupLevel !== "roomType") {
         const ih    = row.ihSpot      as number | null;
         const ihT3  = row.ihT3avg     as number | null;
         const ihT12 = row.ihT12avg    as number | null;
@@ -1083,7 +1140,15 @@ export default function ReferenceDataTable({
         extra[`__hist_streetHistory_${mm}`]    = (row.streetHistory    as any)?.[mm] ?? null;
         extra[`__hist_ihHistory_${mm}`]        = (row.ihHistory        as any)?.[mm] ?? null;
       }
-      return { ...row, ...extra };
+      const ai = aiRecommendationByKey.get(
+        `${row.locationId ?? row.location_id ?? row.campus}||${row.serviceLine}||${row.roomType}`,
+      );
+      return {
+        ...row,
+        ...extra,
+        aiSuggestedStreetRate: ai?.suggestedRate ?? null,
+        aiSuggestedStreetRateLocked: ai?.locked ?? false,
+      };
     });
     const activeFilters = Object.entries(filters).filter(([, f]) => filterIsActive(f));
     if (activeFilters.length) {
@@ -1136,7 +1201,7 @@ export default function ReferenceDataTable({
       });
     }
     return rows;
-  }, [rawRows, filters, sortKey, sortDir, dynAllCols, data?.rules]);
+  }, [rawRows, filters, sortKey, sortDir, dynAllCols, data?.rules, aiRecommendationByKey]);
 
   // ── Totals row — shown when >1 row is visible (not on Room Detail) ──
   const totalRow = useMemo(() => {
@@ -1837,7 +1902,33 @@ export default function ReferenceDataTable({
                     ...(isFrozen ? { left: frozenLeft } : {}),
                   }}
                 >
-                  {c.key === "proposedRule" && groupLevel === "roomType" ? (() => {
+                {c.key === "aiSuggestedStreetRate" && groupLevel === "roomType" && row.aiSuggestedStreetRate != null ? (
+                  <div className="flex items-center justify-end gap-1">
+                    <Input
+                      type="number"
+                      min={row.streetSpot ?? 0}
+                      step="1"
+                      defaultValue={Math.round(Number(row.aiSuggestedStreetRate))}
+                      className="h-7 w-20 px-1 text-right text-[11px]"
+                      title="Edit the one-time AI recommendation. It remains capped by the server."
+                      onBlur={(e) => {
+                        const value = Number(e.currentTarget.value);
+                        const key = `${row.locationId ?? row.location_id ?? row.campus}||${row.serviceLine}||${row.roomType}`;
+                        const existing = aiRecommendationByKey.get(key);
+                        if (Number.isFinite(value) && existing && value !== Number(row.aiSuggestedStreetRate)) {
+                          aiRecommendationEditMutation.mutate({
+                            id: existing.id,
+                            locationId: existing.locationId ?? row.locationId ?? row.location_id ?? null,
+                            serviceLine: row.serviceLine,
+                            suggestedRate: value,
+                            locked: existing.locked,
+                          });
+                        }
+                      }}
+                    />
+                    {row.aiSuggestedStreetRateLocked && <span title="Locked in planning">🔒</span>}
+                  </div>
+                ) : c.key === "proposedRule" && groupLevel === "roomType" ? (() => {
                     const popKey = `${row.campus}||${row.serviceLine}||${row.roomType}`;
                     const isOpen = overridePop?.key === popKey;
                     return (

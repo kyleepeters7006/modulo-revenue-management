@@ -41,6 +41,10 @@ import {
 } from "@/lib/inhousePlanStorage";
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
 import type { StreetRateSource } from "@shared/inhousePlanning";
+import type {
+  StreetRateRecommendation,
+  RebalanceResult,
+} from "@shared/streetRateRecommendations";
 
 /**
  * Where a resident's comparison rate came from, said plainly. A ceiling set by
@@ -470,6 +474,9 @@ export default function InhouseIncreases() {
   const [sortDesc, setSortDesc] = useState(true);
   const [constrainedOnly, setConstrainedOnly] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
+  const [maximumPremiumPct, setMaximumPremiumPct] = useState(5);
+  const [streetRecommendations, setStreetRecommendations] = useState<StreetRateRecommendation[]>([]);
+  const [streetRebalance, setStreetRebalance] = useState<RebalanceResult | null>(null);
 
   const scopeLocationId = locationId === ALL_CAMPUSES ? null : locationId;
   const storageIdentityKey =
@@ -528,6 +535,8 @@ export default function InhouseIncreases() {
     });
     setAssumptionsTouched(false);
     setPlans(null);
+    setStreetRecommendations([]);
+    setStreetRebalance(null);
   }
 
   const { data: locationsData } = useQuery<{ locations: LocationRow[] }>({
@@ -674,7 +683,13 @@ export default function InhouseIncreases() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ locationId: scopeLocationId, serviceLine: sl, assumptions }),
+        body: JSON.stringify({
+          locationId: scopeLocationId,
+          serviceLine: sl,
+          assumptions: assumptionsForLine(sl),
+          maximumPremiumAboveTopCompetitorPct: maximumPremiumPct,
+          recommendations: streetRecommendations.filter((row) => row.serviceLine === sl),
+        }),
       });
       if (!res.ok) {
         let message = "Failed to build the export";
@@ -771,6 +786,87 @@ export default function InhouseIncreases() {
     },
   });
 
+  const recommendStreetRates = useMutation({
+    mutationFn: async (overrideRows?: StreetRateRecommendation[]) => {
+      const edits = (overrideRows ?? streetRecommendations).map((r) => ({
+        id: r.id,
+        suggestedRate: r.suggestedRate,
+        locked: r.locked,
+      }));
+      const settled = await Promise.allSettled(
+        serviceLines.map(async (sl) => {
+          const res = await apiRequest("/api/inhouse-planning/recommendations", "POST", {
+            locationId: scopeLocationId,
+            serviceLine: sl,
+            assumptions: assumptionsForLine(sl),
+            maximumPremiumAboveTopCompetitorPct: maximumPremiumPct,
+            edits: edits.filter((edit) => edit.id.includes(`||${sl}||`)),
+          });
+          return await res.json();
+        }),
+      );
+      const failed = settled
+        .map((result, index) => ({ result, serviceLine: serviceLines[index] }))
+        .filter((entry): entry is { result: PromiseRejectedResult; serviceLine: string } =>
+          entry.result.status === "rejected",
+        );
+      if (failed.length > 0) {
+        throw new Error(
+          `Street Rate recommendations failed for ${failed.map((entry) => entry.serviceLine).join(", ")}. No partial recommendation set was accepted.`,
+        );
+      }
+      const successful = settled
+        .filter((result): result is PromiseFulfilledResult<any> => result.status === "fulfilled")
+        .map((result) => result.value);
+      if (!successful.length) {
+        const firstFailure = settled.find((result) => result.status === "rejected") as PromiseRejectedResult | undefined;
+        throw firstFailure?.reason ?? new Error("No Street Rate recommendations were returned.");
+      }
+      const rows = successful.flatMap((result) => result.recommendations as StreetRateRecommendation[]);
+      const lineRebalances = successful.map((result) => result.rebalance as RebalanceResult);
+      const totalBase = rows.reduce((sum, row) => sum + row.units * row.currentStreetRate, 0);
+      const targetContribution = lineRebalances.reduce((sum, line) => sum + line.targetContribution, 0);
+      const totalGrowth = lineRebalances.reduce((sum, line) => sum + line.achievedContribution, 0);
+      return {
+        rows,
+        rebalance: {
+          recommendations: rows,
+          targetContribution,
+          achievedContribution: totalGrowth,
+          shortfallContribution: Math.max(0, targetContribution - totalGrowth),
+          achievedGrowthPct: totalBase > 0 ? totalGrowth / totalBase * 100 : 0,
+          targetGrowthPct: totalBase > 0 ? targetContribution / totalBase * 100 : 0,
+          feasible: lineRebalances.every((line) => line.feasible),
+          changedIds: lineRebalances.flatMap((line) => line.changedIds),
+          message: lineRebalances.every((line) => line.feasible)
+            ? "Each selected service line reached its own configured growth target."
+            : "At least one selected service line has a guardrail shortfall.",
+        } satisfies RebalanceResult,
+      };
+    },
+    onSuccess: ({ rows, rebalance }) => {
+      setStreetRecommendations(rows);
+      setStreetRebalance(rebalance);
+      toast({
+        title: "Street Rate recommendations ready",
+        description: "These are advisory values only. Nothing is published until you explicitly submit a proposal.",
+      });
+    },
+    onError: (error: Error) =>
+      toast({ title: "Could not recommend Street Rates", description: cleanError(error.message), variant: "destructive" }),
+  });
+
+  function updateStreetRecommendation(id: string, suggestedRate: number, locked: boolean) {
+    const next = streetRecommendations.map((row) =>
+      row.id === id
+        ? { ...row, suggestedRate: Math.max(row.currentStreetRate, Math.min(row.hardCeiling, suggestedRate)), locked }
+        : row,
+    );
+    setStreetRecommendations(next);
+    // Keep typing local and race-free. The explicit recommendation action
+    // revalidates and rebalances the complete selected scope on the server.
+  }
+
   // Saving writes the shared assumptions to every selected service line.
   const saveAssumptions = useMutation({
     mutationFn: async () => {
@@ -816,6 +912,8 @@ export default function InhouseIncreases() {
             locationId: scopeLocationId,
             serviceLine: sl,
             assumptions: assumptionsForLine(sl),
+            maximumPremiumAboveTopCompetitorPct: maximumPremiumPct,
+            recommendations: streetRecommendations.filter((row) => row.serviceLine === sl),
           }).then((r) => r.json()),
         ),
       );
@@ -851,6 +949,8 @@ export default function InhouseIncreases() {
   function update<K extends keyof PlanningAssumptions>(key: K, value: PlanningAssumptions[K]) {
     setAssumptionsTouched(true);
     setAssumptions((prev) => ({ ...prev, [key]: value }));
+    setStreetRecommendations([]);
+    setStreetRebalance(null);
   }
 
   function updatePerLine(sl: string, field: "rateGrowthTargetPct" | "annualTurnoverPct", value: number) {
@@ -993,6 +1093,8 @@ export default function InhouseIncreases() {
                 setLocationId(v);
                 setAssumptionsTouched(false);
                 setPlans(null);
+                setStreetRecommendations([]);
+                setStreetRebalance(null);
               }}
             >
               <SelectTrigger className="h-9" data-testid="select-campus">
@@ -1312,6 +1414,133 @@ export default function InhouseIncreases() {
               Save assumptions
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ── One-time competitive recommendation run ─────────────────── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">AI-informed Street Rate recommendations</CardTitle>
+          <CardDescription>
+            Draft push, measured-increase, and hold choices using the current
+            authoritative Top Competitor benchmark. This is a one-time planning
+            assumption; it does not create or publish a rule.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-56 space-y-1.5">
+              <Label className="text-xs font-medium">Maximum premium above Top Competitor</Label>
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.1"
+                  value={maximumPremiumPct}
+                  onChange={(e) => {
+                    setMaximumPremiumPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)));
+                    setStreetRecommendations([]);
+                    setStreetRebalance(null);
+                  }}
+                  className="h-9"
+                  data-testid="input-max-premium-top-competitor"
+                />
+                <span className="text-sm text-muted-foreground">%</span>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => recommendStreetRates.mutate(undefined)}
+              disabled={recommendStreetRates.isPending || !!rangeError}
+              data-testid="button-recommend-street-rates"
+            >
+              {recommendStreetRates.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <TrendingUp className="mr-2 h-4 w-4" />}
+              Recommend Street Rates
+            </Button>
+            {streetRebalance && (
+              <div className={cn(
+                "rounded-md border px-3 py-2 text-xs",
+                streetRebalance.feasible
+                  ? "border-emerald-500/40 bg-emerald-500/10"
+                  : "border-amber-500/40 bg-amber-500/10",
+              )}>
+                <span className="font-medium">
+                  {streetRebalance.achievedGrowthPct.toFixed(2)}% projected growth
+                </span>
+                <span className="ml-2 text-muted-foreground">
+                  target {streetRebalance.targetGrowthPct.toFixed(2)}%
+                </span>
+              </div>
+            )}
+          </div>
+
+          {streetRebalance && !streetRebalance.feasible && (
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{streetRebalance.message}</AlertDescription>
+            </Alert>
+          )}
+
+          {streetRecommendations.length > 0 && (
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full min-w-[920px] text-xs">
+                <thead className="bg-muted/50 text-left">
+                  <tr>
+                    <th className="px-3 py-2">Campus / product</th>
+                    <th className="px-3 py-2">Current</th>
+                    <th className="px-3 py-2">Top competitor</th>
+                    <th className="px-3 py-2">Premium ceiling</th>
+                    <th className="px-3 py-2">Recommendation</th>
+                    <th className="px-3 py-2">Suggested</th>
+                    <th className="px-3 py-2">Lock</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {streetRecommendations.map((row) => (
+                    <tr key={row.id} className="border-t">
+                      <td className="px-3 py-2">
+                        <div className="font-medium">{row.location} · {row.serviceLine}</div>
+                        <div className="text-muted-foreground">{row.product}</div>
+                      </td>
+                      <td className="px-3 py-2">${Math.round(row.currentStreetRate).toLocaleString()}</td>
+                      <td className="px-3 py-2">{row.topCompetitorRate == null ? "Unavailable" : `$${Math.round(row.topCompetitorRate).toLocaleString()}`}</td>
+                      <td className="px-3 py-2">{row.premiumCeilingRate == null ? "Unavailable" : `$${Math.round(row.premiumCeilingRate).toLocaleString()}`}</td>
+                      <td className="px-3 py-2">
+                        <Badge variant={row.action === "hold" ? "secondary" : "default"}>
+                          {row.action === "measured_increase" ? "Measured increase" : row.action}
+                        </Badge>
+                        <div className="mt-1 max-w-[260px] text-muted-foreground">{row.rationale}</div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <Input
+                          type="number"
+                          min={row.currentStreetRate}
+                          max={Number.isFinite(row.hardCeiling) ? row.hardCeiling : undefined}
+                          step="1"
+                          value={Math.round(row.suggestedRate)}
+                          disabled={row.locked}
+                          onChange={(e) => updateStreetRecommendation(row.id, Number(e.target.value) || row.currentStreetRate, row.locked)}
+                          className="h-8 w-28"
+                          aria-label={`Suggested Street Rate for ${row.location} ${row.serviceLine} ${row.product}`}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <Checkbox
+                          checked={row.locked}
+                          onCheckedChange={(checked) => updateStreetRecommendation(row.id, row.suggestedRate, checked === true)}
+                          aria-label={`Lock ${row.location} ${row.serviceLine} ${row.product}`}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="border-t bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                Edits are capped by the server when you run the recommendation again. Locking a row preserves its value while the remaining unlocked rows can be rebalanced.
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
