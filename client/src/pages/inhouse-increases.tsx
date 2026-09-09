@@ -40,7 +40,11 @@ import {
   writeInhousePlan,
 } from "@/lib/inhousePlanStorage";
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
-import type { StreetRateSource } from "@shared/inhousePlanning";
+import type {
+  InhousePlanHistoryEntry,
+  StreetRateReviewStatus,
+  StreetRateSource,
+} from "@shared/inhousePlanning";
 import type {
   StreetRateRecommendation,
   RebalanceResult,
@@ -56,6 +60,16 @@ const STREET_SOURCE_NOTE: Partial<Record<StreetRateSource, string>> = {
   service_line_median: ", the median for this product across the service line",
   derived_formula: ", derived from the base rate by the configured formula",
 };
+
+function streetRateReviewStatusLabel(status: StreetRateReviewStatus): string {
+  switch (status) {
+    case "available": return "Street Rate review available";
+    case "expired": return "Expired — cannot reopen";
+    case "superseded": return "Superseded — cannot reopen";
+    case "published": return "Published — cannot reopen";
+    case "unavailable": return "Unavailable — cannot reopen";
+  }
+}
 import {
   AlertTriangle,
   ArrowLeft,
@@ -403,6 +417,18 @@ interface PlanWithSl { sl: string; plan: PlanResult }
 
 /** A ResidentRecommendation tagged with the service line it came from. */
 type TaggedResident = ResidentRecommendation & { _sl: string };
+
+interface ReopenedStreetRateReview {
+  plan: Pick<
+    InhousePlanHistoryEntry,
+    "id" | "version" | "location" | "locationId" | "serviceLine" | "assumptions"
+  >;
+  streetRateReview: InhousePlanHistoryEntry["streetRateReview"] & {
+    maximumPremiumAboveTopCompetitorPct: number | null;
+    assumptionsFingerprint: string | null;
+    recommendations: StreetRateRecommendation[];
+  };
+}
 
 /**
  * Calculated plans are a client-side working result, not an approved plan.
@@ -934,7 +960,7 @@ export default function InhouseIncreases() {
 
    // Fetch submitted and applied plan history; omit serviceLine filter when multiple are
   // selected so all lines' history shows in one list.
-  const plansQuery = useQuery<{ plans: any[] }>({
+  const plansQuery = useQuery<{ plans: InhousePlanHistoryEntry[] }>({
     queryKey: ["/api/inhouse-planning/plans", scopeLocationId ?? "all", singleLine ?? "all"],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -944,6 +970,41 @@ export default function InhouseIncreases() {
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
+  });
+
+  const reopenStreetRateReview = useMutation({
+    mutationFn: async (plan: InhousePlanHistoryEntry) => {
+      const res = await apiRequest(
+        `/api/inhouse-planning/plans/${encodeURIComponent(plan.id)}/street-rate-review`,
+        "GET",
+      );
+      return (await res.json()) as ReopenedStreetRateReview;
+    },
+    onSuccess: ({ plan, streetRateReview }) => {
+      setLocationId(plan.locationId ?? ALL_CAMPUSES);
+      setServiceLines([plan.serviceLine]);
+      setAssumptions(plan.assumptions);
+      setPerLineTargets({});
+      // Keep the saved assumptions visible while the new campus scope loads.
+      // This prevents the assumptions query from replacing the review's
+      // saved context with the current default before the operator edits it.
+      setAssumptionsTouched(true);
+      setMaximumPremiumPct(
+        streetRateReview.maximumPremiumAboveTopCompetitorPct ?? maximumPremiumPct,
+      );
+      setStreetRecommendations(streetRateReview.recommendations);
+      setStreetRebalance(null);
+      toast({
+        title: "Street Rate review reopened",
+        description: `Loaded v${plan.version} for ${plan.location || "all campuses"} · ${plan.serviceLine}. No new recommendations were generated.`,
+      });
+    },
+    onError: (error: Error) =>
+      toast({
+        title: "Could not reopen Street Rate review",
+        description: cleanError(error.message),
+        variant: "destructive",
+      }),
   });
 
   function update<K extends keyof PlanningAssumptions>(key: K, value: PlanningAssumptions[K]) {
@@ -1902,50 +1963,93 @@ export default function InhouseIncreases() {
                  Submit proposals for {plans.length > 1 ? `${plans.filter((p) => p.plan.feasible).length} plan(s)` : "plan"}
               </Button>
 
-              {(plansQuery.data?.plans?.length ?? 0) > 0 && (
-                <div className="space-y-2 pt-2">
-                  <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                     Submitted plans
-                  </h3>
-                  <ul className="space-y-1.5 text-sm">
-                    {plansQuery.data!.plans.map((p: any) => (
-                      <li
-                        key={p.id}
-                        className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-2"
-                      >
-                        <span className="font-medium">v{p.version}</span>
-                        <span className="text-muted-foreground">
-                          {p.location || "All campuses"} · {p.serviceLine}
-                        </span>
-                        <span className="font-mono text-xs">
-                          {formatPct(p.summary?.weightedAvgIncreasePct ?? 0, 2)} avg
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          effective {p.inhouseEffectiveDate}
-                        </span>
-                        {p.status === "proposed" && (
-                          <Badge variant="outline" className="text-[11px] font-normal">
-                            Proposed
-                          </Badge>
-                        )}
-                        {p.status === "applied" && (
-                          <Badge variant="outline" className="text-[11px] font-normal">
-                            Applied
-                          </Badge>
-                        )}
-                        {p.status === "superseded" && (
-                          <Badge variant="outline" className="text-[11px] font-normal">
-                            Superseded
-                          </Badge>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </CardContent>
           </Card>
         </>
+      )}
+
+      {(plansQuery.data?.plans?.length ?? 0) > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Plan history</CardTitle>
+            <CardDescription>
+              Reopen a still-fresh saved Street Rate review without generating a new recommendation set.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1.5 text-sm">
+              {plansQuery.data!.plans.map((p) => {
+                const review = p.streetRateReview;
+                const reviewAvailable = review?.status === "available";
+                return (
+                  <li
+                    key={p.id}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-2"
+                  >
+                    <span className="font-medium">v{p.version}</span>
+                    <span className="text-muted-foreground">
+                      {p.location || "All campuses"} · {p.serviceLine}
+                    </span>
+                    <span className="font-mono text-xs">
+                      {formatPct(p.summary?.weightedAvgIncreasePct ?? 0, 2)} avg
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      effective {p.inhouseEffectiveDate}
+                    </span>
+                    {p.status === "proposed" && (
+                      <Badge variant="outline" className="text-[11px] font-normal">
+                        Proposed
+                      </Badge>
+                    )}
+                    {(p.status === "applied" || p.status === "published") && (
+                      <Badge variant="outline" className="text-[11px] font-normal">
+                        Applied
+                      </Badge>
+                    )}
+                    {p.status === "superseded" && (
+                      <Badge variant="outline" className="text-[11px] font-normal">
+                        Superseded
+                      </Badge>
+                    )}
+                    {review && (
+                      <>
+                        <Badge
+                          variant={reviewAvailable ? "secondary" : "outline"}
+                          className={cn(
+                            "text-[11px] font-normal",
+                            !reviewAvailable && "text-muted-foreground",
+                          )}
+                        >
+                          {streetRateReviewStatusLabel(review.status)}
+                        </Badge>
+                        {reviewAvailable ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="ml-auto h-7"
+                            onClick={() => reopenStreetRateReview.mutate(p)}
+                            disabled={reopenStreetRateReview.isPending}
+                            data-testid={`button-reopen-street-review-${p.id}`}
+                          >
+                            {reopenStreetRateReview.isPending ? (
+                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            ) : null}
+                            Reopen review
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            {review.reason}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

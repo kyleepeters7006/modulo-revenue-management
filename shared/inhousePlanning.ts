@@ -299,6 +299,36 @@ export interface StreetRateRecommendationSnapshot {
   recommendations: StreetRateRecommendation[];
 }
 
+export type StreetRateReviewStatus =
+  | "available"
+  | "expired"
+  | "superseded"
+  | "published"
+  | "unavailable";
+
+export interface StreetRateReviewHistory {
+  status: StreetRateReviewStatus;
+  createdAt: string | null;
+  recommendationCount: number;
+  reason: string | null;
+}
+
+export interface InhousePlanHistoryEntry {
+  id: string;
+  version: number;
+  status: string;
+  location: string | null;
+  locationId: string | null;
+  serviceLine: string;
+  summary: PlanSummary;
+  assumptions: PlanningAssumptions;
+  recommendedStreetRate: number | null;
+  inhouseEffectiveDate: string | null;
+  appliedBy: string | null;
+  createdAt: string | null;
+  streetRateReview: StreetRateReviewHistory;
+}
+
 export interface PlanResult {
   scope: PlanScope;
   assumptions: PlanningAssumptions;

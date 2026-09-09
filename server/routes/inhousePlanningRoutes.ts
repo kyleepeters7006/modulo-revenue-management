@@ -13,7 +13,11 @@ import { db, pool } from "../db";
 import { inhousePlanningAssumptions, inhouseRatePlans, locations } from "@shared/schema";
 import {
   DEFAULT_ASSUMPTIONS,
+  type InhousePlanHistoryEntry,
+  type PlanSummary,
   type PlanningAssumptions,
+  type StreetRateReviewHistory,
+  type StreetRateReviewStatus,
   type StreetRateRecommendationSnapshot,
 } from "@shared/inhousePlanning";
 import {
@@ -120,6 +124,42 @@ export function recommendationSnapshotKey(
 function recommendationCreatedAt(value: unknown): string | null {
   const date = value instanceof Date ? value : new Date(String(value ?? ""));
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function streetRateReviewStatus(
+  row: any,
+  snapshot: StreetRateRecommendationSnapshot | null,
+  currentUserId?: string,
+): StreetRateReviewHistory {
+  const recommendationCount = snapshot?.recommendations.length ?? 0;
+  const createdAt = snapshot?.createdAt ?? null;
+  let status: StreetRateReviewStatus;
+  let reason: string | null = null;
+
+  if (row.status === "superseded") {
+    status = "superseded";
+    reason = "This proposal was replaced by a newer saved plan.";
+  } else if (row.status === "applied" || row.status === "published") {
+    status = "published";
+    reason = "This proposal was published and is no longer an advisory draft.";
+  } else if (!snapshot) {
+    status = "unavailable";
+    reason = "This plan has no saved Street Rate recommendation snapshot.";
+  } else if (!snapshotIsFresh(snapshot)) {
+    status = "expired";
+    reason = "This saved Street Rate review is more than 30 minutes old.";
+  } else if (
+    currentUserId &&
+    row.appliedBy != null &&
+    String(row.appliedBy) !== currentUserId
+  ) {
+    status = "unavailable";
+    reason = "This review was saved by another operator.";
+  } else {
+    status = "available";
+  }
+
+  return { status, createdAt, recommendationCount, reason };
 }
 /** Rows come back snake_case from the driver; drizzle rows do not. */
 export function rowToAssumptions(row: any): PlanningAssumptions {
@@ -1057,6 +1097,68 @@ export function registerInhousePlanningRoutes(app: Express) {
 
   // ── Plan history ─────────────────────────────────────────────────────────
 
+  app.get("/api/inhouse-planning/plans/:planId/street-rate-review", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || "demo";
+      const rows = await db
+        .select({
+          id: inhouseRatePlans.id,
+          version: inhouseRatePlans.version,
+          status: inhouseRatePlans.status,
+          location: inhouseRatePlans.location,
+          locationId: inhouseRatePlans.locationId,
+          serviceLine: inhouseRatePlans.serviceLine,
+          summary: inhouseRatePlans.summary,
+          assumptions: inhouseRatePlans.assumptions,
+          recommendedStreetRate: inhouseRatePlans.recommendedStreetRate,
+          inhouseEffectiveDate: inhouseRatePlans.inhouseEffectiveDate,
+          appliedBy: inhouseRatePlans.appliedBy,
+          createdAt: inhouseRatePlans.createdAt,
+        })
+        .from(inhouseRatePlans)
+        .where(and(
+          eq(inhouseRatePlans.id, req.params.planId),
+          eq(inhouseRatePlans.clientId, clientId),
+        ))
+        .limit(1);
+      const row = rows[0];
+      if (!row) return res.status(404).json({ error: "Plan not found" });
+
+      const snapshot = recommendationSnapshotFromPlan(row);
+      const review = streetRateReviewStatus(row, snapshot, recommendationUserId(req));
+      if (review.status !== "available" || !snapshot) {
+        return res.status(409).json({
+          error: review.reason || "This Street Rate review is no longer available.",
+          streetRateReview: review,
+        });
+      }
+
+      res.setHeader("Cache-Control", "no-store");
+      res.json({
+        plan: {
+          id: row.id,
+          version: row.version,
+          location: row.location,
+          locationId: row.locationId,
+          serviceLine: row.serviceLine,
+          assumptions: row.assumptions,
+          recommendedStreetRate: row.recommendedStreetRate,
+          inhouseEffectiveDate: row.inhouseEffectiveDate,
+          createdAt: row.createdAt,
+        },
+        streetRateReview: {
+          ...review,
+          maximumPremiumAboveTopCompetitorPct: snapshot.maximumPremiumAboveTopCompetitorPct,
+          assumptionsFingerprint: snapshot.assumptionsFingerprint,
+          recommendations: snapshot.recommendations,
+        },
+      });
+    } catch (error) {
+      console.error("[inhouse-planning] street-rate review reopen failed:", error);
+      res.status(500).json({ error: "Failed to reopen the Street Rate review" });
+    }
+  });
+
   app.get("/api/inhouse-planning/plans", async (req: any, res) => {
     try {
       const clientId = req.clientId || "demo";
@@ -1074,6 +1176,7 @@ export function registerInhousePlanningRoutes(app: Express) {
           version: inhouseRatePlans.version,
           status: inhouseRatePlans.status,
           location: inhouseRatePlans.location,
+          locationId: inhouseRatePlans.locationId,
           serviceLine: inhouseRatePlans.serviceLine,
           summary: inhouseRatePlans.summary,
           assumptions: inhouseRatePlans.assumptions,
@@ -1087,8 +1190,20 @@ export function registerInhousePlanningRoutes(app: Express) {
         .orderBy(desc(inhouseRatePlans.createdAt))
         .limit(50);
 
+      const userId = recommendationUserId(req);
+      const plans: InhousePlanHistoryEntry[] = rows.map((row) => ({
+        ...row,
+        summary: row.summary as PlanSummary,
+        assumptions: row.assumptions as PlanningAssumptions,
+        createdAt: row.createdAt?.toISOString?.() ?? (row.createdAt ? String(row.createdAt) : null),
+        streetRateReview: streetRateReviewStatus(
+          row,
+          recommendationSnapshotFromPlan(row),
+          userId,
+        ),
+      }));
       res.setHeader("Cache-Control", "no-store");
-      res.json({ plans: rows });
+      res.json({ plans });
     } catch (error) {
       if (error instanceof PlanningDataError) {
         return res.status(422).json({ error: error.message });
@@ -1200,7 +1315,9 @@ export function recommendationSnapshotFromPlan(row: any): StreetRateRecommendati
     : validRecommendations(summary?.streetRateRecommendations)
       ? summary.streetRateRecommendations
       : null;
-  const createdAt = recommendationCreatedAt(stored?.createdAt ?? row?.created_at);
+  const createdAt = recommendationCreatedAt(
+    stored?.createdAt ?? row?.created_at ?? row?.createdAt,
+  );
   if (!recommendations || !createdAt) return null;
   return {
     createdAt,
