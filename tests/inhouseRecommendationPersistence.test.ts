@@ -6,6 +6,7 @@ import {
   registerInhousePlanningRoutes,
 } from "../server/routes/inhousePlanningRoutes";
 import { pool } from "../server/db";
+import { DEFAULT_ASSUMPTIONS } from "../shared/inhousePlanning";
 
 const recommendations = [{
   id: "rec-1",
@@ -93,7 +94,11 @@ async function verifyDatabaseReloadAndEligibility() {
   }
 
   const locationId = locationResult.rows[0].id;
-  const fingerprint = `persistence-test-${Date.now()}`;
+  const exportAssumptions = { ...DEFAULT_ASSUMPTIONS };
+  const fingerprint = JSON.stringify({
+    assumptions: exportAssumptions,
+    maximumPremiumAboveTopCompetitorPct: 3,
+  });
   const now = new Date();
   const freshCreatedAt = now.toISOString();
   const expiredCreatedAt = new Date(now.getTime() - 31 * 60 * 1000).toISOString();
@@ -167,24 +172,6 @@ async function verifyDatabaseReloadAndEligibility() {
     await insertPlan({
       clientId,
       userId,
-      locationId: null,
-      serviceLine: "AL",
-      status: "proposed",
-      createdAt: freshCreatedAt,
-      recommendationId: "rec-all-campus-al",
-    });
-    await insertPlan({
-      clientId,
-      userId,
-      locationId,
-      serviceLine: "HC",
-      status: "proposed",
-      createdAt: freshCreatedAt,
-      recommendationId: "rec-campus-hc",
-    });
-    await insertPlan({
-      clientId,
-      userId,
       locationId,
       serviceLine: "SUPERSEDED",
       status: "superseded",
@@ -210,13 +197,14 @@ async function verifyDatabaseReloadAndEligibility() {
       recommendationId: "rec-expired",
     });
 
-    const registeredRoutes = new Map<string, (req: any, res: any) => Promise<void>>();
+    const registeredRoutes = new Map<string, (...args: any[]) => Promise<void>>();
     const fakeApp = {
       get(path: string, handler: (req: any, res: any) => Promise<void>) {
         registeredRoutes.set(`GET ${path}`, handler);
       },
-      post(path: string, handler: (req: any, res: any) => Promise<void>) {
-        registeredRoutes.set(`POST ${path}`, handler);
+      post(path: string, ...handlers: Array<(...args: any[]) => Promise<void>>) {
+        const handler = handlers[handlers.length - 1];
+        if (handler) registeredRoutes.set(`POST ${path}`, handler);
       },
     };
     registerInhousePlanningRoutes(fakeApp as any);
@@ -224,6 +212,8 @@ async function verifyDatabaseReloadAndEligibility() {
     const edit = registeredRoutes.get("POST /api/inhouse-planning/recommendations/edit");
     assert.ok(latest, "the latest recommendations route should be registered");
     assert.ok(edit, "the recommendation edit route should be registered");
+    const exportRoute = registeredRoutes.get("POST /api/inhouse-planning/export");
+    assert.ok(exportRoute, "the Street Rate export route should be registered");
 
     async function requestLatest(requestClientId: string, requestUserId: string, query: Record<string, string>) {
       let statusCode = 200;
@@ -282,6 +272,153 @@ async function verifyDatabaseReloadAndEligibility() {
       );
       return { statusCode, body: responseBody };
     }
+
+    async function requestExport(
+      requestClientId: string,
+      requestUserId: string,
+      body: Record<string, unknown>,
+    ) {
+      let statusCode = 200;
+      let responseBody: any;
+      const response = {
+        status(code: number) {
+          statusCode = code;
+          return response;
+        },
+        setHeader() {
+          return response;
+        },
+        json(value: any) {
+          responseBody = value;
+          return response;
+        },
+        end(value: any) {
+          responseBody = value;
+          return response;
+        },
+      };
+      await exportRoute!(
+        {
+          clientId: requestClientId,
+          body,
+          session: { userId: requestUserId, clientId: requestClientId },
+          user: { username: "persistence-test" },
+        },
+        response,
+      );
+      return { statusCode, body: responseBody };
+    }
+
+    const exportBody = {
+      locationId,
+      serviceLine: "AL",
+      assumptions: exportAssumptions,
+      maximumPremiumAboveTopCompetitorPct: 3,
+      recommendations: [{ id: "rec-campus-al", suggestedRate: 4300, locked: false }],
+    };
+
+    const matchingExport = await requestExport(clientId, userId, exportBody);
+    assert.equal(
+      matchingExport.statusCode,
+      200,
+      "an authenticated export reopens the matching saved recommendation",
+    );
+    assert.ok(
+      Buffer.isBuffer(matchingExport.body) && matchingExport.body.length > 0,
+      "a matching recommendation export returns a workbook",
+    );
+
+    for (const [label, requestClientId, requestUserId, body] of [
+      [
+        "different tenant",
+        "__different-tenant__",
+        userId,
+        { ...exportBody, locationId: null },
+      ],
+      [
+        "different user",
+        clientId,
+        "__different-user__",
+        exportBody,
+      ],
+      [
+        "different campus",
+        clientId,
+        userId,
+        { ...exportBody, locationId: null },
+      ],
+      [
+        "different service line",
+        clientId,
+        userId,
+        { ...exportBody, serviceLine: "HC" },
+      ],
+    ] as const) {
+      const isolated = await requestExport(requestClientId, requestUserId, body);
+      assert.notEqual(
+        isolated.statusCode,
+        200,
+        `${label} cannot export the saved recommendation from this scope`,
+      );
+    }
+
+    async function setPrimaryPlanState(
+      status: "proposed" | "applied" | "superseded",
+      createdAt?: string,
+    ) {
+      const primaryPlanId = insertedPlanIds[0];
+      assert.ok(primaryPlanId, "the campus AL proposal should have been inserted");
+      if (createdAt) {
+        await pool.query(
+          `UPDATE inhouse_rate_plans
+              SET status = $2,
+                  created_at = $3::timestamp,
+                  summary = jsonb_set(
+                    summary,
+                    '{streetRateRecommendationSnapshot,createdAt}',
+                    to_jsonb($4::text)
+                  )
+            WHERE id = $1`,
+          [primaryPlanId, status, createdAt, createdAt],
+        );
+      } else {
+        await pool.query(
+          "UPDATE inhouse_rate_plans SET status = $2 WHERE id = $1",
+          [primaryPlanId, status],
+        );
+      }
+    }
+
+    for (const [label, status] of [
+      ["superseded", "superseded"],
+      ["published", "applied"],
+    ] as const) {
+      await setPrimaryPlanState(status);
+      const rejected = await requestExport(clientId, userId, exportBody);
+      assert.equal(
+        rejected.statusCode,
+        409,
+        `${label} recommendations cannot be exported`,
+      );
+    }
+
+    await setPrimaryPlanState("proposed", expiredCreatedAt);
+    const expiredExport = await requestExport(clientId, userId, exportBody);
+    assert.equal(expiredExport.statusCode, 409, "expired recommendations cannot be exported");
+
+    await setPrimaryPlanState("proposed", freshCreatedAt);
+    const mismatchedExport = await requestExport(clientId, userId, {
+      ...exportBody,
+      assumptions: {
+        ...exportAssumptions,
+        rateGrowthTargetPct: exportAssumptions.rateGrowthTargetPct + 1,
+      },
+    });
+    assert.equal(
+      mismatchedExport.statusCode,
+      409,
+      "recommendations with changed assumptions cannot be exported",
+    );
 
     const restored = await requestLatest(clientId, userId, {
       locationId,
