@@ -3,6 +3,7 @@ import {
   loadPersistedRecommendationSnapshots,
   recommendationSnapshotFromPlan,
   recommendationSnapshotKey,
+  registerInhousePlanningRoutes,
 } from "../server/routes/inhousePlanningRoutes";
 import { pool } from "../server/db";
 
@@ -76,66 +77,204 @@ async function verifyDatabaseReloadAndEligibility() {
   );
   if (userResult.rows.length === 0) {
     console.log("In-house recommendation persistence tests: skipped (no tenant user)");
+    await pool.end();
     return;
   }
 
   const { id: userId, client_id: clientId } = userResult.rows[0];
-  const fingerprint = `persistence-test-${Date.now()}`;
-  const snapshot = {
-    createdAt: new Date().toISOString(),
-    maximumPremiumAboveTopCompetitorPct: 3,
-    assumptionsFingerprint: fingerprint,
-    recommendations,
-  };
-  const versionResult = await pool.query<{ next: number }>(
-    `SELECT COALESCE(MAX(version), 0) + 1 AS next
-       FROM inhouse_rate_plans
-      WHERE client_id = $1
-        AND location IS NULL
-        AND service_line = 'AL'`,
+  const locationResult = await pool.query<{ id: string }>(
+    "SELECT id FROM locations WHERE client_id = $1 ORDER BY id LIMIT 1",
     [clientId],
   );
-  const inserted = await pool.query<{ id: string }>(
-    `INSERT INTO inhouse_rate_plans
-       (client_id, location_id, location, service_line, version, status,
-        assumptions, summary, quarters, residents, applied_by)
-     VALUES ($1, NULL, NULL, 'AL', $2, 'proposed', $3, $4, '[]', '[]', $5)
-     RETURNING id`,
-    [
-      clientId,
-      Number(versionResult.rows[0]?.next) || 1,
-      JSON.stringify({}),
-      JSON.stringify({ streetRateRecommendationSnapshot: snapshot }),
-      userId,
-    ],
-  );
-  const planId = inserted.rows[0].id;
+  if (locationResult.rows.length === 0) {
+    console.log("In-house recommendation persistence tests: skipped (no tenant location)");
+    await pool.end();
+    return;
+  }
+
+  const locationId = locationResult.rows[0].id;
+  const fingerprint = `persistence-test-${Date.now()}`;
+  const now = new Date();
+  const freshCreatedAt = now.toISOString();
+  const expiredCreatedAt = new Date(now.getTime() - 31 * 60 * 1000).toISOString();
+  const insertedPlanIds: string[] = [];
+  const testLocation = `Persistence Test Campus ${Date.now()}`;
+
+  async function insertPlan(options: {
+    clientId: string;
+    userId: string;
+    locationId: string | null;
+    serviceLine: string;
+    status: "proposed" | "applied" | "superseded";
+    createdAt: string;
+  }) {
+    const versionResult = await pool.query<{ next: number }>(
+      `SELECT COALESCE(MAX(version), 0) + 1 AS next
+         FROM inhouse_rate_plans
+        WHERE client_id = $1
+          AND location IS NOT DISTINCT FROM $2
+          AND service_line = $3`,
+      [options.clientId, testLocation, options.serviceLine],
+    );
+    const snapshot = {
+      createdAt: options.createdAt,
+      maximumPremiumAboveTopCompetitorPct: 3,
+      assumptionsFingerprint: fingerprint,
+      recommendations,
+    };
+    const inserted = await pool.query<{ id: string }>(
+      `INSERT INTO inhouse_rate_plans
+         (client_id, location_id, location, service_line, version, status,
+          assumptions, summary, quarters, residents, applied_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '[]', '[]', $9, $10)
+       RETURNING id`,
+      [
+        options.clientId,
+        options.locationId,
+        testLocation,
+        options.serviceLine,
+        Number(versionResult.rows[0]?.next) || 1,
+        options.status,
+        JSON.stringify({}),
+        JSON.stringify({ streetRateRecommendationSnapshot: snapshot }),
+        options.userId,
+        options.createdAt,
+      ],
+    );
+    const planId = inserted.rows[0].id;
+    insertedPlanIds.push(planId);
+    return planId;
+  }
 
   try {
-    const restored = await loadPersistedRecommendationSnapshots(clientId, userId);
-    assert.equal(restored.length, 1, "a proposed plan should reload after the in-memory map is gone");
-    assert.equal(restored[0].assumptionsFingerprint, fingerprint);
-    assert.deepEqual(restored[0].recommendations, recommendations);
+    // These rows are the durable records left by a submitted proposal. The
+    // route module has no generated in-memory snapshot in this test process,
+    // so the GET handler must reconstruct its response from the database.
+    await insertPlan({
+      clientId,
+      userId,
+      locationId,
+      serviceLine: "AL",
+      status: "proposed",
+      createdAt: freshCreatedAt,
+    });
+    await insertPlan({
+      clientId,
+      userId,
+      locationId: null,
+      serviceLine: "AL",
+      status: "proposed",
+      createdAt: freshCreatedAt,
+    });
+    await insertPlan({
+      clientId,
+      userId,
+      locationId,
+      serviceLine: "HC",
+      status: "proposed",
+      createdAt: freshCreatedAt,
+    });
+    await insertPlan({
+      clientId,
+      userId,
+      locationId,
+      serviceLine: "AL",
+      status: "superseded",
+      createdAt: freshCreatedAt,
+    });
+    await insertPlan({
+      clientId,
+      userId,
+      locationId,
+      serviceLine: "AL",
+      status: "applied",
+      createdAt: freshCreatedAt,
+    });
+    await insertPlan({
+      clientId,
+      userId,
+      locationId,
+      serviceLine: "AL",
+      status: "proposed",
+      createdAt: expiredCreatedAt,
+    });
 
-    assert.equal(
-      (await loadPersistedRecommendationSnapshots(clientId, "__different-user__")).length,
-      0,
-      "a different user cannot reopen the snapshot",
-    );
-    assert.equal(
-      (await loadPersistedRecommendationSnapshots("__different-tenant__", userId)).length,
-      0,
-      "a different tenant cannot reopen the snapshot",
-    );
+    const registeredRoutes = new Map<string, (req: any, res: any) => Promise<void>>();
+    const fakeApp = {
+      get(path: string, handler: (req: any, res: any) => Promise<void>) {
+        registeredRoutes.set(`GET ${path}`, handler);
+      },
+      post() {},
+    };
+    registerInhousePlanningRoutes(fakeApp as any);
+    const latest = registeredRoutes.get("GET /api/inhouse-planning/recommendations/latest");
+    assert.ok(latest, "the latest recommendations route should be registered");
 
-    await pool.query("UPDATE inhouse_rate_plans SET status = 'applied' WHERE id = $1", [planId]);
+    async function requestLatest(requestClientId: string, requestUserId: string, query: Record<string, string>) {
+      let statusCode = 200;
+      let body: any;
+      const response = {
+        status(code: number) {
+          statusCode = code;
+          return response;
+        },
+        setHeader() {
+          return response;
+        },
+        json(value: any) {
+          body = value;
+          return response;
+        },
+      };
+      await latest!(
+        {
+          clientId: requestClientId,
+          query,
+          session: { userId: requestUserId, clientId: requestClientId },
+        },
+        response,
+      );
+      return { statusCode, body };
+    }
+
+    const restored = await requestLatest(clientId, userId, {
+      locationId,
+      serviceLine: "AL",
+    });
+    assert.equal(restored.statusCode, 200);
     assert.equal(
-      (await loadPersistedRecommendationSnapshots(clientId, userId)).length,
-      0,
-      "published plans cannot become recurring advisory sources",
+      restored.body.recommendations.length,
+      1,
+      "restart reload returns only a fresh proposed snapshot for the requested scope",
+    );
+    assert.equal(restored.body.recommendations[0].id, "rec-1");
+    assert.equal(restored.body.createdAt, freshCreatedAt);
+
+    for (const [label, requestClientId, requestUserId, query] of [
+      ["different tenant", "__different-tenant__", userId, { locationId, serviceLine: "AL" }],
+      ["different user", clientId, "__different-user__", { locationId, serviceLine: "AL" }],
+      ["different campus", clientId, userId, { locationId: "__different-campus__", serviceLine: "AL" }],
+      ["different service line", clientId, userId, { locationId, serviceLine: "MC" }],
+    ] as const) {
+      const isolated = await requestLatest(requestClientId, requestUserId, query);
+      assert.equal(isolated.statusCode, 200);
+      assert.equal(
+        isolated.body.recommendations.length,
+        0,
+        `${label} cannot see the submitted recommendation`,
+      );
+    }
+
+    const restoredRows = await loadPersistedRecommendationSnapshots(clientId, userId);
+    assert.equal(
+      restoredRows.filter((row) => row.locationId === locationId && row.serviceLine === "AL").length,
+      1,
+      "only the fresh proposed AL snapshot remains eligible for this campus",
     );
   } finally {
-    await pool.query("DELETE FROM inhouse_rate_plans WHERE id = $1", [planId]);
+    if (insertedPlanIds.length > 0) {
+      await pool.query("DELETE FROM inhouse_rate_plans WHERE id = ANY($1::varchar[])", [insertedPlanIds]);
+    }
     await pool.end();
   }
 }
