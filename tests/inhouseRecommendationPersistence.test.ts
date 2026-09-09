@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import ExcelJS from "exceljs";
 import {
   loadPersistedRecommendationSnapshots,
   recommendationSnapshotFromPlan,
@@ -113,6 +114,7 @@ async function verifyDatabaseReloadAndEligibility() {
     status: "proposed" | "applied" | "superseded";
     createdAt: string;
     recommendationId?: string;
+    suggestedRate?: number;
   }) {
     const versionResult = await pool.query<{ next: number }>(
       `SELECT COALESCE(MAX(version), 0) + 1 AS next
@@ -130,6 +132,7 @@ async function verifyDatabaseReloadAndEligibility() {
         ...recommendation,
         id: options.recommendationId ?? recommendation.id,
         serviceLine: options.serviceLine,
+        suggestedRate: options.suggestedRate ?? recommendation.suggestedRate,
       })),
     };
     const inserted = await pool.query<{ id: string }>(
@@ -168,6 +171,17 @@ async function verifyDatabaseReloadAndEligibility() {
       status: "proposed",
       createdAt: freshCreatedAt,
       recommendationId: "rec-campus-al",
+      suggestedRate: 4300,
+    });
+    await insertPlan({
+      clientId,
+      userId,
+      locationId,
+      serviceLine: "VIL",
+      status: "proposed",
+      createdAt: freshCreatedAt,
+      recommendationId: "rec-campus-vil",
+      suggestedRate: 4700,
     });
     await insertPlan({
       clientId,
@@ -326,6 +340,39 @@ async function verifyDatabaseReloadAndEligibility() {
     assert.ok(
       Buffer.isBuffer(matchingExport.body) && matchingExport.body.length > 0,
       "a matching recommendation export returns a workbook",
+    );
+    const snapshotExport = await requestExport(clientId, userId, {
+      ...exportBody,
+      recommendations: [],
+    });
+    assert.equal(snapshotExport.statusCode, 200, "a matching saved snapshot can be exported");
+    const exportedWorkbook = new ExcelJS.Workbook();
+    await exportedWorkbook.xlsx.load(snapshotExport.body);
+    const recommendationSheet = exportedWorkbook.getWorksheet("Street recommendations");
+    assert.ok(recommendationSheet, "the export includes Street recommendations");
+    assert.equal(
+      recommendationSheet.rowCount,
+      2,
+      "the workbook contains only the selected campus/service-line recommendation",
+    );
+    assert.equal(recommendationSheet.getCell("A2").value, "Campus A");
+    assert.equal(recommendationSheet.getCell("B2").value, "AL");
+    assert.equal(recommendationSheet.getCell("C2").value, "Studio");
+    assert.equal(recommendationSheet.getCell("D2").value, 4200);
+    assert.equal(recommendationSheet.getCell("E2").value, 4400);
+    assert.equal(
+      recommendationSheet.getCell("F2").value,
+      null,
+      "the saved recommendation has no premium ceiling value",
+    );
+    assert.equal(
+      recommendationSheet.getCell("G2").value,
+      4300,
+      "the workbook contains the matching saved recommendation values",
+    );
+    assert.ok(
+      !recommendationSheet.getColumn(7).values.includes(4700),
+      "the workbook excludes the other saved scope's recommendation",
     );
 
     for (const [label, requestClientId, requestUserId, body] of [
