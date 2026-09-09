@@ -81,7 +81,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
 import { getRefDataCache, setRefDataCache, invalidateRefDataCache } from "./refDataCache";
-import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics, uploadHistory, competitorRateJobs, serviceLineEnum } from "@shared/schema";
+import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics, uploadHistory, competitorRateJobs, serviceLineEnum, mfaRecoveryCodes, securityAuditEvents, authSessions } from "@shared/schema";
 import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import { clampRateWithGuardrails } from "./guardrailsUtil";
@@ -107,7 +107,20 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import * as fs from 'fs';
 import * as cron from 'node-cron';
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
+import QRCode from "qrcode";
+import {
+  compareRecoveryCode,
+  createRecoveryCodes,
+  createTotpSecret,
+  decryptSecret,
+  encryptSecret,
+  hashRecoveryCode,
+  ProgressiveThrottle,
+  randomSecurityToken,
+  verifyTotp,
+} from "./security";
 import { getIndustryContext, startIndustryContextRefreshLoop } from "./services/industryContext";
 import { parseNaturalLanguageRule, validateParsedRule, generateRuleName, checkRuleEnforceable, supportedTriggerMetrics } from "./naturalLanguageParser";
 import { buildRuleFromStructured } from "./structuredRuleBuilder";
@@ -534,10 +547,299 @@ async function isRuleAdmin(req: any): Promise<boolean> {
   const session = req.session as any;
   if (!session?.userId) return false;
   const result = await pool.query(
-    `SELECT username FROM users WHERE id = $1 AND client_id = $2 LIMIT 1`,
+    `SELECT role FROM users WHERE id = $1 AND client_id = $2 AND account_status = 'active' LIMIT 1`,
     [session.userId, session.clientId || req.clientId || "demo"],
   );
-  return result.rows.length > 0 && String(result.rows[0].username || "").endsWith("_admin");
+  return result.rows.length > 0 && ["admin", "security_admin"].includes(String(result.rows[0].role));
+}
+
+const loginThrottle = new ProgressiveThrottle();
+const mfaThrottle = new ProgressiveThrottle();
+const GENERIC_AUTH_ERROR = "Unable to sign in with those credentials.";
+const RECENT_MFA_WINDOW_MS = 15 * 60 * 1000;
+const SEED_SECRET_PATHS = new Set([
+  "/admin/seed-clients",
+  "/admin/sync-rules",
+  "/admin/sync-to-production",
+  "/admin/geocode-missing-locations",
+  "/admin/geocode-missing-competitor-surveys",
+  "/admin/regeocode",
+  "/admin/generate-demo-data",
+  "/admin/backfill-location-ids",
+  "/admin/backfill-care-level-rates",
+  "/admin/reimport-competitive-survey",
+  "/admin/bust-ref-data-cache",
+]);
+const INTERNAL_AUTH_PATHS = new Set([
+  "/admin/receive-production-sync",
+]);
+
+function hasValidSeedSecret(req: any): boolean {
+  const supplied = String(req.get?.("x-seed-secret") || "");
+  const configured = String(process.env.SEED_SECRET || "");
+  if (!supplied || !configured || supplied.length !== configured.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(configured));
+}
+
+async function ensureSecuritySchema(): Promise<void> {
+  await pool.query(`
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'operator',
+      ADD COLUMN IF NOT EXISTS account_status text NOT NULL DEFAULT 'active',
+      ADD COLUMN IF NOT EXISTS mfa_secret_encrypted text,
+      ADD COLUMN IF NOT EXISTS mfa_pending_secret_encrypted text,
+      ADD COLUMN IF NOT EXISTS mfa_enabled boolean NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS mfa_enrolled_at timestamptz,
+      ADD COLUMN IF NOT EXISTS mfa_last_used_step integer
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
+      id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      code_hash text NOT NULL,
+      used_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS mfa_recovery_codes_user_idx ON mfa_recovery_codes(user_id, used_at);
+    CREATE TABLE IF NOT EXISTS security_audit_events (
+      id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+      client_id varchar REFERENCES clients(id),
+      user_id varchar REFERENCES users(id),
+      event_type text NOT NULL,
+      success boolean NOT NULL DEFAULT true,
+      ip_address text,
+      user_agent text,
+      metadata jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS security_audit_events_client_created_idx
+      ON security_audit_events(client_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      session_id text NOT NULL UNIQUE,
+      client_id varchar REFERENCES clients(id),
+      created_at timestamptz NOT NULL DEFAULT now(),
+      last_seen_at timestamptz NOT NULL DEFAULT now(),
+      revoked_at timestamptz
+    );
+    CREATE INDEX IF NOT EXISTS auth_sessions_user_idx ON auth_sessions(user_id, revoked_at);
+    CREATE TABLE IF NOT EXISTS security_migrations (
+      name text PRIMARY KEY,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  // Existing *_admin accounts are migrated once. The marker prevents a
+  // deliberate role demotion from being undone on a later restart.
+  const roleMigration = await pool.query(
+    `INSERT INTO security_migrations (name)
+     VALUES ('username-admin-role-migration')
+     ON CONFLICT (name) DO NOTHING
+     RETURNING name`,
+  );
+  if (roleMigration.rows.length > 0) {
+    await pool.query(`
+      UPDATE users SET role = 'admin'
+      WHERE role = 'operator' AND lower(coalesce(username, '')) LIKE '%\\_admin' ESCAPE '\\'
+    `);
+  }
+}
+
+async function writeSecurityAudit(
+  req: any,
+  eventType: string,
+  success = true,
+  metadata: Record<string, unknown> = {},
+): Promise<void> {
+  const session = req.session as any;
+  await pool.query(
+    `INSERT INTO security_audit_events
+      (client_id, user_id, event_type, success, ip_address, user_agent, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      session?.clientId || req.clientId || null,
+      session?.userId || null,
+      eventType,
+      success,
+      req.ip || null,
+      String(req.get?.("user-agent") || "").slice(0, 500) || null,
+      JSON.stringify(metadata),
+    ],
+  );
+}
+
+function requestOriginIsSameSite(req: any): boolean {
+  const origin = req.get?.("origin");
+  const host = req.get?.("host");
+  if (origin && host) {
+    try {
+      return new URL(origin).host === host;
+    } catch {
+      return false;
+    }
+  }
+  const referer = req.get?.("referer");
+  if (referer && host) {
+    try {
+      return new URL(referer).host === host;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+function isAuthenticatedSession(req: any): boolean {
+  const session = req.session as any;
+  return Boolean(session?.userId && session?.clientId && session?.authenticatedAt);
+}
+
+function hasRecentMfa(req: any): boolean {
+  const verifiedAt = Number((req.session as any)?.mfaVerifiedAt || 0);
+  return verifiedAt > 0 && Date.now() - verifiedAt < RECENT_MFA_WINDOW_MS;
+}
+
+function hasValidCsrf(req: any): boolean {
+  const session = req.session as any;
+  const csrfHeader = req.get?.("x-csrf-token");
+  return Boolean(
+    (csrfHeader && csrfHeader === session?.csrfToken) ||
+    requestOriginIsSameSite(req),
+  );
+}
+
+function pendingMfaUserId(req: any): string | null {
+  const session = req.session as any;
+  const pendingId = String(session?.mfaPendingUserId || "");
+  const pendingAt = Number(session?.mfaPendingAt || 0);
+  if (!pendingId || !pendingAt || Date.now() - pendingAt > 10 * 60_000) return null;
+  return pendingId;
+}
+
+async function sessionRegenerate(req: any): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    req.session.regenerate((error: Error | null) => error ? reject(error) : resolve());
+  });
+}
+
+async function sessionSave(req: any): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    req.session.save((error: Error | null) => error ? reject(error) : resolve());
+  });
+}
+
+async function completeLocalAuthentication(req: any, user: any, mfaStep: number): Promise<void> {
+  await sessionRegenerate(req);
+  const session = req.session as any;
+  session.userId = user.id;
+  session.username = user.username;
+  session.clientId = user.client_id || user.clientId;
+  session.role = user.role;
+  session.authenticatedAt = Date.now();
+  session.mfaVerifiedAt = Date.now();
+  session.csrfToken = randomSecurityToken();
+  await sessionSave(req);
+  await pool.query(
+    `INSERT INTO auth_sessions (user_id, session_id, client_id)
+     VALUES ($1, $2, $3) ON CONFLICT (session_id) DO UPDATE SET revoked_at = NULL, last_seen_at = now()`,
+    [user.id, req.sessionID, session.clientId],
+  );
+  await pool.query(
+    `UPDATE users
+        SET mfa_last_used_step = GREATEST(COALESCE(mfa_last_used_step, $1), $1)
+      WHERE id = $2`,
+    [mfaStep, user.id],
+  );
+}
+
+async function claimMfaStep(userId: string, step: number): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE users
+        SET mfa_last_used_step = $2
+      WHERE id = $1
+        AND (mfa_last_used_step IS NULL OR mfa_last_used_step < $2)
+      RETURNING id`,
+    [userId, step],
+  );
+  return result.rows.length > 0;
+}
+
+async function localUserForSession(req: any): Promise<any | null> {
+  const session = req.session as any;
+  if (!session?.userId || !session?.clientId) return null;
+  const result = await pool.query(
+    `SELECT id, username, email, first_name, last_name, client_id, role,
+            account_status, password_hash, mfa_secret_encrypted, mfa_pending_secret_encrypted,
+            mfa_enabled, mfa_last_used_step
+       FROM users WHERE id = $1 AND client_id = $2 LIMIT 1`,
+    [session.userId, session.clientId],
+  );
+  return result.rows[0] || null;
+}
+
+async function securityRequestGate(req: any, res: any, next: any): Promise<void> {
+  const pathName = req.path || "";
+  if (SEED_SECRET_PATHS.has(pathName) && hasValidSeedSecret(req)) return next();
+  // The receiver authenticates the raw archive with its own HMAC, timestamp,
+  // nonce, size, and digest checks. It must run before browser session gating.
+  if (INTERNAL_AUTH_PATHS.has(pathName)) return next();
+  if ([
+    "/auth/csrf",
+    "/auth/login",
+    "/auth/mfa/setup",
+    "/auth/mfa/setup/confirm",
+    "/auth/mfa/challenge",
+  ].includes(pathName)) return next();
+  if (pathName === "/auth/mfa/step-up") {
+    if (!isAuthenticatedSession(req)) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    if (!hasValidCsrf(req)) {
+      await writeSecurityAudit(req, "csrf_rejected", false);
+      return res.status(403).json({ error: "Request could not be verified" });
+    }
+    return next();
+  }
+  if (pathName === "/auth/logout") {
+    const session = req.session as any;
+    if (!session?.userId) return next();
+    if (!hasValidCsrf(req)) {
+      await writeSecurityAudit(req, "csrf_rejected", false);
+      return res.status(403).json({ error: "Request could not be verified" });
+    }
+    return next();
+  }
+
+  const methodChangesState = !["GET", "HEAD", "OPTIONS"].includes(req.method);
+  const exportRequest = pathName.startsWith("/export/");
+  const adminRequest = pathName.startsWith("/admin/");
+  const sensitive = methodChangesState || exportRequest || adminRequest;
+  if (!sensitive) return next();
+
+  if (!isAuthenticatedSession(req)) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+  if (methodChangesState && !hasValidCsrf(req)) {
+    await writeSecurityAudit(req, "csrf_rejected", false);
+    return res.status(403).json({ error: "Request could not be verified" });
+  }
+  if (!hasRecentMfa(req)) {
+    return res.status(428).json({ error: "Recent MFA verification required", code: "MFA_STEP_UP_REQUIRED" });
+  }
+  if (adminRequest && !await isRuleAdmin(req)) {
+    await writeSecurityAudit(req, "admin_access_denied", false);
+    return res.status(403).json({ error: "Administrator access required" });
+  }
+  const requestEvent = exportRequest
+    ? "export_requested"
+    : adminRequest
+      ? "admin_action_requested"
+      : /(?:upload|import)/i.test(pathName)
+        ? "import_requested"
+        : "state_change_requested";
+  await writeSecurityAudit(req, requestEvent, true, { method: req.method });
+  await pool.query(`UPDATE auth_sessions SET last_seen_at = now() WHERE session_id = $1 AND revoked_at IS NULL`, [req.sessionID]);
+  next();
 }
 
 async function getOverrideActor(req: any, clientId: string): Promise<string | null> {
@@ -1239,13 +1541,14 @@ async function ensureHeritageTenant() {
 
   const passwordHash = await bcrypt.hash(password, 12);
   await db.execute(sql`
-    INSERT INTO users (id, username, password_hash, client_id, first_name, last_name)
-    VALUES (gen_random_uuid(), ${username}, ${passwordHash}, ${clientId}, ${'Heritage'}, ${'Admin'})
+    INSERT INTO users (id, username, password_hash, client_id, first_name, last_name, role)
+    VALUES (gen_random_uuid(), ${username}, ${passwordHash}, ${clientId}, ${'Heritage'}, ${'Admin'}, 'admin')
     ON CONFLICT (username) DO UPDATE SET
       password_hash = ${passwordHash},
       client_id = ${clientId},
       first_name = ${'Heritage'},
       last_name = ${'Admin'},
+      role = 'admin',
       updated_at = now()
   `);
   console.log('[auth] Heritage administrator account provisioned.');
@@ -1337,6 +1640,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Initialize database on startup if needed
   await checkAndInitializeDatabase();
   try {
+    await ensureSecuritySchema();
+  } catch (error) {
+    console.error("[security] failed to initialize security schema:", error);
+    throw error;
+  }
+  try {
     await ensureHeritageTenant();
   } catch (error) {
     console.error('[auth] Failed to provision Heritage tenant:', error);
@@ -1401,11 +1710,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       store: sessionStore,
       resave: false,
       saveUninitialized: false,
+      rolling: true,
       cookie: {
         httpOnly: true,
-        secure: false, // Allow HTTP in dev; set to true in production
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000,
       },
+      proxy: true,
     }));
   }
 
@@ -1413,12 +1725,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // MULTI-TENANT AUTHENTICATION
   // ----------------------------------------------------------------------------
 
-  // clientId middleware — runs before all data routes
-  // Unauthenticated requests default to 'demo' client
-  app.use((req: any, res, next) => {
-    req.clientId = (req.session as any)?.clientId || 'demo';
+  // Tenant selection and session validation run before every API route. A
+  // legacy, revoked, or disabled-account session must never retain its
+  // persisted tenant in req.clientId, even for a read-only request.
+  app.use('/api', async (req: any, _res, next) => {
+    const session = req.session as any;
+    req.clientId = "demo";
+    const hasPendingMfa = Boolean(session?.mfaPendingUserId && session?.mfaPendingAt);
+    if (session?.userId || session?.clientId || session?.authenticatedAt) {
+      let valid = false;
+      if (!hasPendingMfa && req.sessionID && session?.userId && session?.clientId && session?.authenticatedAt) {
+      const result = await pool.query(
+        `SELECT 1
+           FROM auth_sessions s
+           JOIN users u ON u.id = s.user_id
+          WHERE s.session_id = $1
+            AND s.user_id = $2
+            AND s.revoked_at IS NULL
+            AND u.client_id = $3
+            AND u.account_status = 'active'
+          LIMIT 1`,
+        [req.sessionID, session.userId, session.clientId],
+      );
+        valid = result.rows.length > 0;
+      }
+      if (valid) {
+        req.clientId = session.clientId;
+      } else if (!hasPendingMfa) {
+        delete session.userId;
+        delete session.username;
+        delete session.clientId;
+        delete session.role;
+        delete session.authenticatedAt;
+        delete session.mfaVerifiedAt;
+        await sessionSave(req);
+      }
+    }
     next();
   });
+  app.use('/api', securityRequestGate);
 
   // Data import subsystem (registry, templates, manual import, SFTP schedules)
   const { registerDataImportRoutes } = await import('./routes/dataImportRoutes');
@@ -1431,22 +1776,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const { registerInhousePlanningRoutes } = await import('./routes/inhousePlanningRoutes');
   registerInhousePlanningRoutes(app);
 
+  // GET /api/auth/csrf — token for non-browser clients and explicit CSRF headers
+  app.get('/api/auth/csrf', async (req: any, res) => {
+    const session = req.session as any;
+    if (!session.csrfToken) {
+      session.csrfToken = randomSecurityToken();
+      await sessionSave(req);
+    }
+    res.set("Cache-Control", "no-store").json({ token: session.csrfToken });
+  });
+
   // GET /api/auth/user — returns session user or demo state
   app.get('/api/auth/user', async (req: any, res) => {
     const session = req.session as any;
-    if (session?.userId && session?.clientId) {
+    if (isAuthenticatedSession(req)) {
       try {
-        const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+        const user = await localUserForSession(req);
         const clientRows = await db.select().from(clients).where(eq(clients.id, session.clientId)).limit(1);
-        if (userRows.length > 0 && clientRows.length > 0) {
-          const username = userRows[0].username ?? '';
+        if (user && clientRows.length > 0 && user.account_status === "active") {
           return res.json({
             isAuthenticated: true,
-            id: userRows[0].id,
-            username,
+            id: user.id,
+            username: user.username,
             clientId: clientRows[0].id,
             clientName: clientRows[0].name,
-            isAdmin: username.endsWith('_admin'),
+            role: user.role,
+            isAdmin: ["admin", "security_admin"].includes(String(user.role)),
+            mfaEnabled: Boolean(user.mfa_enabled),
           });
         }
       } catch (e) {
@@ -1458,48 +1814,430 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // POST /api/auth/login — username + password login
   app.post('/api/auth/login', async (req: any, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required' });
+    const username = String(req.body?.username || "").trim();
+    const password = String(req.body?.password || "");
+    const key = `account:${username.toLowerCase()}`;
+    const ipKey = `ip:${req.ip || "unknown"}`;
+    if (!username || !password || loginThrottle.isBlocked(key) || loginThrottle.isBlocked(ipKey)) {
+      return res.status(401).json({ error: GENERIC_AUTH_ERROR });
     }
     try {
-      const userRows = await db.select().from(users).where(eq(users.username, username)).limit(1);
-      if (userRows.length === 0) {
-        return res.status(401).json({ error: 'Invalid username or password' });
+      const result = await pool.query(
+        `SELECT id, username, password_hash, client_id, role, account_status,
+                mfa_enabled, mfa_secret_encrypted, mfa_last_used_step
+           FROM users WHERE lower(username) = lower($1) LIMIT 1`,
+        [username],
+      );
+      const user = result.rows[0];
+      const valid = Boolean(user?.password_hash) && await bcrypt.compare(password, user?.password_hash || "$2a$12$invalid");
+      if (!user || !valid || user.account_status !== "active") {
+        loginThrottle.recordFailure(key);
+        loginThrottle.recordFailure(ipKey);
+        await writeSecurityAudit(req, "login", false);
+        return res.status(401).json({ error: GENERIC_AUTH_ERROR });
       }
-      const user = userRows[0];
-      if (!user.passwordHash) {
-        return res.status(401).json({ error: 'Invalid username or password' });
+      loginThrottle.clear(key);
+      loginThrottle.clear(ipKey);
+      await sessionRegenerate(req);
+      const session = req.session as any;
+      session.mfaPendingUserId = user.id;
+      session.mfaPendingClientId = user.client_id;
+      session.mfaPendingAt = Date.now();
+      session.username = user.username;
+      session.csrfToken = randomSecurityToken();
+      await sessionSave(req);
+      await writeSecurityAudit(req, "password_verified", true);
+      if (!user.mfa_enabled || !user.mfa_secret_encrypted) {
+        return res.json({ mfaSetupRequired: true, username: user.username });
       }
-      const valid = await bcrypt.compare(password, user.passwordHash);
-      if (!valid) {
-        return res.status(401).json({ error: 'Invalid username or password' });
-      }
-      const clientRows = await db.select().from(clients).where(eq(clients.id, user.clientId!)).limit(1);
-      const client = clientRows[0];
-      (req.session as any).userId = user.id;
-      (req.session as any).username = user.username;
-      (req.session as any).clientId = user.clientId;
-      req.session.save(() => {
-        res.json({
-          isAuthenticated: true,
-          id: user.id,
-          username: user.username,
-          clientId: client.id,
-          clientName: client.name,
-        });
-      });
+      return res.json({ mfaRequired: true, username: user.username });
     } catch (e) {
       console.error('Login error:', e);
-      res.status(500).json({ error: 'Login failed' });
+      res.status(500).json({ error: GENERIC_AUTH_ERROR });
     }
   });
 
-  // POST /api/auth/logout — destroy session
-  app.post('/api/auth/logout', (req: any, res) => {
-    req.session.destroy(() => {
-      res.json({ success: true });
+  // Begin or continue first-time authenticator enrollment.
+  app.post('/api/auth/mfa/setup', async (req: any, res) => {
+    const session = req.session as any;
+    const pendingId = pendingMfaUserId(req);
+    if (!pendingId) {
+      return res.status(401).json({ error: GENERIC_AUTH_ERROR });
+    }
+    const userResult = await pool.query(
+      `SELECT id, username, client_id, mfa_enabled, mfa_secret_encrypted,
+              mfa_pending_secret_encrypted
+         FROM users WHERE id = $1 AND account_status = 'active' LIMIT 1`,
+      [pendingId],
+    );
+    const user = userResult.rows[0];
+    if (!user) return res.status(401).json({ error: GENERIC_AUTH_ERROR });
+    if (user.mfa_enabled || user.mfa_secret_encrypted) {
+      return res.status(400).json({ error: "MFA enrollment is not available." });
+    }
+    let secret = user.mfa_pending_secret_encrypted
+      ? decryptSecret(user.mfa_pending_secret_encrypted)
+      : createTotpSecret();
+    if (!user.mfa_pending_secret_encrypted) {
+      await pool.query(`UPDATE users SET mfa_pending_secret_encrypted = $1 WHERE id = $2`, [encryptSecret(secret), user.id]);
+    }
+    const issuer = "Modulo Revenue Management";
+    const label = `${issuer}:${user.username}`;
+    const otpauth = `otpauth://totp/${encodeURIComponent(label)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+    const qrCode = await QRCode.toDataURL(otpauth, { width: 240, margin: 1 });
+    res.json({ qrCode, secret, username: user.username });
+  });
+
+  // Confirm enrollment and show recovery codes exactly once.
+  app.post('/api/auth/mfa/setup/confirm', async (req: any, res) => {
+    const pendingId = pendingMfaUserId(req);
+    const key = `mfa-enrollment:${pendingId || "unknown"}:${req.ip || "unknown"}`;
+    if (!pendingId || mfaThrottle.isBlocked(key)) {
+      return res.status(401).json({ error: "The authenticator code is not valid." });
+    }
+    const userResult = await pool.query(
+      `SELECT id, username, client_id, role, mfa_enabled, mfa_secret_encrypted,
+              mfa_pending_secret_encrypted, mfa_last_used_step
+         FROM users WHERE id = $1 AND account_status = 'active' LIMIT 1`,
+      [pendingId],
+    );
+    const user = userResult.rows[0];
+    if (!user?.mfa_pending_secret_encrypted || user.mfa_enabled || user.mfa_secret_encrypted) {
+      return res.status(400).json({ error: "MFA enrollment is not available." });
+    }
+    const secret = decryptSecret(user.mfa_pending_secret_encrypted);
+    const step = verifyTotp(secret, req.body?.code, user.mfa_last_used_step);
+    if (step === null || !await claimMfaStep(user.id, step)) {
+      mfaThrottle.recordFailure(key);
+      await writeSecurityAudit(req, "mfa_enrollment", false);
+      return res.status(401).json({ error: "The authenticator code is not valid." });
+    }
+    mfaThrottle.clear(key);
+    const codes = createRecoveryCodes();
+    const client = await pool.query(`SELECT name FROM clients WHERE id = $1 LIMIT 1`, [user.client_id]);
+    const dbClient = await pool.connect();
+    let enrolled = false;
+    try {
+      await dbClient.query("BEGIN");
+      const enrollment = await dbClient.query(
+        `UPDATE users
+            SET mfa_secret_encrypted = mfa_pending_secret_encrypted,
+                mfa_pending_secret_encrypted = NULL,
+                mfa_enabled = true,
+                mfa_enrolled_at = now(),
+                mfa_last_used_step = $1
+          WHERE id = $2
+            AND mfa_enabled = false
+            AND mfa_secret_encrypted IS NULL
+            AND mfa_pending_secret_encrypted IS NOT NULL
+          RETURNING id`,
+        [step, user.id],
+      );
+      if (enrollment.rows.length === 1) {
+        enrolled = true;
+        await dbClient.query(`DELETE FROM mfa_recovery_codes WHERE user_id = $1`, [user.id]);
+        for (const code of codes) {
+          await dbClient.query(
+            `INSERT INTO mfa_recovery_codes (user_id, code_hash) VALUES ($1, $2)`,
+            [user.id, await hashRecoveryCode(code)],
+          );
+        }
+        await dbClient.query(`UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1`, [user.id]);
+        await dbClient.query("COMMIT");
+      } else {
+        await dbClient.query("ROLLBACK");
+      }
+    } catch (error) {
+      await dbClient.query("ROLLBACK");
+      throw error;
+    } finally {
+      dbClient.release();
+    }
+    if (!enrolled) {
+      await writeSecurityAudit(req, "mfa_enrollment", false);
+      return res.status(400).json({ error: "MFA enrollment is not available." });
+    }
+    await completeLocalAuthentication(req, user, step);
+    await writeSecurityAudit(req, "mfa_enrollment", true);
+    res.json({
+      isAuthenticated: true,
+      id: user.id,
+      username: user.username,
+      clientId: user.client_id,
+      clientName: client.rows[0]?.name || user.client_id,
+      role: user.role,
+      isAdmin: ["admin", "security_admin"].includes(String(user.role)),
+      recoveryCodes: codes,
     });
+  });
+
+  // Complete password-first MFA challenge. Recovery codes are accepted once.
+  app.post('/api/auth/mfa/challenge', async (req: any, res) => {
+    const pendingId = pendingMfaUserId(req);
+    const key = `mfa:${pendingId || "unknown"}:${req.ip || "unknown"}`;
+    if (!pendingId || mfaThrottle.isBlocked(key)) {
+      return res.status(401).json({ error: "The verification code is not valid." });
+    }
+    const result = await pool.query(
+      `SELECT id, username, client_id, role, mfa_secret_encrypted, mfa_last_used_step
+         FROM users WHERE id = $1 AND account_status = 'active' AND mfa_enabled = true LIMIT 1`,
+      [pendingId],
+    );
+    const user = result.rows[0];
+    if (!user?.mfa_secret_encrypted) return res.status(401).json({ error: "The verification code is not valid." });
+    let step = verifyTotp(decryptSecret(user.mfa_secret_encrypted), req.body?.code, user.mfa_last_used_step);
+    let usedRecovery = false;
+    if (step !== null && !await claimMfaStep(user.id, step)) {
+      step = null;
+    }
+    if (step === null && String(req.body?.code || "").trim()) {
+      const recoveryRows = await pool.query(
+        `SELECT id, code_hash FROM mfa_recovery_codes WHERE user_id = $1 AND used_at IS NULL`,
+        [user.id],
+      );
+      for (const recovery of recoveryRows.rows) {
+        if (await compareRecoveryCode(String(req.body.code), recovery.code_hash)) {
+          const consumed = await pool.query(
+            `UPDATE mfa_recovery_codes
+                SET used_at = now()
+              WHERE id = $1 AND used_at IS NULL
+              RETURNING id`,
+            [recovery.id],
+          );
+          if (consumed.rows.length > 0) {
+            step = Math.max(user.mfa_last_used_step || 0, Math.floor(Date.now() / 30_000));
+            usedRecovery = true;
+            break;
+          }
+        }
+      }
+    }
+    if (step === null) {
+      mfaThrottle.recordFailure(key);
+      await writeSecurityAudit(req, "mfa_challenge", false);
+      return res.status(401).json({ error: "The verification code is not valid." });
+    }
+    mfaThrottle.clear(key);
+    await completeLocalAuthentication(req, user, step);
+    await writeSecurityAudit(req, usedRecovery ? "mfa_recovery_used" : "mfa_challenge", true);
+    const client = await pool.query(`SELECT name FROM clients WHERE id = $1 LIMIT 1`, [user.client_id]);
+    res.json({
+      isAuthenticated: true,
+      id: user.id,
+      username: user.username,
+      clientId: user.client_id,
+      clientName: client.rows[0]?.name || user.client_id,
+      role: user.role,
+      isAdmin: ["admin", "security_admin"].includes(String(user.role)),
+    });
+  });
+
+  // Refresh the recent-MFA window for an already authenticated user without
+  // creating a new session or accepting a recovery code.
+  app.post('/api/auth/mfa/step-up', async (req: any, res) => {
+    const user = await localUserForSession(req);
+    const key = `mfa-step-up:${user?.id || "unknown"}:${req.ip || "unknown"}`;
+    if (!user?.mfa_enabled || !user.mfa_secret_encrypted || mfaThrottle.isBlocked(key)) {
+      return res.status(401).json({ error: "The verification code is not valid." });
+    }
+    const step = verifyTotp(decryptSecret(user.mfa_secret_encrypted), req.body?.code, user.mfa_last_used_step);
+    if (step === null || !await claimMfaStep(user.id, step)) {
+      mfaThrottle.recordFailure(key);
+      await writeSecurityAudit(req, "mfa_step_up", false);
+      return res.status(401).json({ error: "The verification code is not valid." });
+    }
+    mfaThrottle.clear(key);
+    (req.session as any).mfaVerifiedAt = Date.now();
+    await sessionSave(req);
+    await writeSecurityAudit(req, "mfa_step_up", true);
+    res.json({ success: true, recentMfaExpiresAt: Date.now() + RECENT_MFA_WINDOW_MS });
+  });
+
+  app.get('/api/auth/mfa/status', async (req: any, res) => {
+    if (!isAuthenticatedSession(req)) return res.status(401).json({ error: "Authentication required" });
+    const user = await localUserForSession(req);
+    if (!user) return res.status(401).json({ error: "Authentication required" });
+    const counts = await pool.query(
+      `SELECT count(*)::int AS remaining FROM mfa_recovery_codes WHERE user_id = $1 AND used_at IS NULL`,
+      [user.id],
+    );
+    res.json({
+      enabled: Boolean(user.mfa_enabled),
+      required: true,
+      role: user.role,
+      recoveryCodesRemaining: counts.rows[0]?.remaining || 0,
+      recentMfaExpiresAt: hasRecentMfa(req) ? Number(req.session.mfaVerifiedAt) + RECENT_MFA_WINDOW_MS : null,
+    });
+  });
+
+  app.get('/api/auth/sessions', async (req: any, res) => {
+    if (!isAuthenticatedSession(req)) return res.status(401).json({ error: "Authentication required" });
+    const result = await pool.query(
+      `SELECT id, created_at, last_seen_at, revoked_at, session_id = $2 AS current
+         FROM auth_sessions WHERE user_id = $1 AND revoked_at IS NULL
+        ORDER BY last_seen_at DESC`,
+      [req.session.userId, req.sessionID],
+    );
+    res.json({ sessions: result.rows.map((row: any) => ({
+      id: row.id,
+      createdAt: row.created_at,
+      lastSeenAt: row.last_seen_at,
+      current: row.current,
+    })) });
+  });
+
+  app.delete('/api/auth/sessions/:id', async (req: any, res) => {
+    if (!isAuthenticatedSession(req)) return res.status(401).json({ error: "Authentication required" });
+    const result = await pool.query(
+      `UPDATE auth_sessions SET revoked_at = now()
+        WHERE id = $1 AND user_id = $2 AND session_id <> $3 AND revoked_at IS NULL
+        RETURNING session_id`,
+      [req.params.id, req.session.userId, req.sessionID],
+    );
+    if (result.rows[0]) {
+      await pool.query(`DELETE FROM sessions WHERE sid = $1`, [result.rows[0].session_id]);
+      await writeSecurityAudit(req, "session_revoked", true);
+    }
+    res.json({ success: true });
+  });
+
+  app.post('/api/auth/change-password', async (req: any, res) => {
+    if (!isAuthenticatedSession(req) || !hasRecentMfa(req)) {
+      return res.status(428).json({ error: "Recent MFA verification required", code: "MFA_STEP_UP_REQUIRED" });
+    }
+    const currentPassword = String(req.body?.currentPassword || "");
+    const newPassword = String(req.body?.newPassword || "");
+    if (newPassword.length < 12 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
+      return res.status(400).json({ error: "Choose a password with at least 12 characters, including a letter and a number." });
+    }
+    const user = await localUserForSession(req);
+    if (!user || !await bcrypt.compare(currentPassword, user.password_hash || "$2a$12$invalid")) {
+      return res.status(401).json({ error: "Current credentials could not be verified." });
+    }
+    await pool.query(`UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2`, [await bcrypt.hash(newPassword, 12), user.id]);
+    await pool.query(`UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1 AND session_id <> $2`, [user.id, req.sessionID]);
+    await writeSecurityAudit(req, "password_changed", true);
+    res.json({ success: true });
+  });
+
+  // Admin-controlled recovery for an operator who can no longer sign in.
+  // The gate requires an active admin session plus recent MFA and CSRF.
+  app.post('/api/admin/users/:id/recover', async (req: any, res) => {
+    const newPassword = String(req.body?.newPassword || "");
+    const resetMfa = req.body?.resetMfa === true;
+    if (newPassword.length < 12 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
+      return res.status(400).json({ error: "Choose a password with at least 12 characters, including a letter and a number." });
+    }
+    const target = await pool.query(
+      `SELECT id, client_id
+         FROM users
+        WHERE id = $1 AND client_id = $2 AND account_status = 'active'
+        LIMIT 1`,
+      [req.params.id, req.session.clientId],
+    );
+    if (!target.rows[0]) return res.status(404).json({ error: "Account could not be recovered." });
+    const dbClient = await pool.connect();
+    try {
+      await dbClient.query("BEGIN");
+      if (resetMfa) {
+        await dbClient.query(
+          `UPDATE users
+              SET password_hash = $1,
+                  mfa_secret_encrypted = NULL,
+                  mfa_pending_secret_encrypted = NULL,
+                  mfa_enabled = false,
+                  mfa_enrolled_at = NULL,
+                  mfa_last_used_step = NULL,
+                  updated_at = now()
+            WHERE id = $2`,
+          [await bcrypt.hash(newPassword, 12), target.rows[0].id],
+        );
+        await dbClient.query(`DELETE FROM mfa_recovery_codes WHERE user_id = $1`, [target.rows[0].id]);
+      } else {
+        await dbClient.query(
+          `UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2`,
+          [await bcrypt.hash(newPassword, 12), target.rows[0].id],
+        );
+      }
+      await dbClient.query(
+        `UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1`,
+        [target.rows[0].id],
+      );
+      await dbClient.query("COMMIT");
+    } catch (error) {
+      await dbClient.query("ROLLBACK");
+      throw error;
+    } finally {
+      dbClient.release();
+    }
+    await writeSecurityAudit(req, "account_recovery", true, { resetMfa });
+    res.json({ success: true, mfaSetupRequired: resetMfa });
+  });
+
+  app.post('/api/auth/mfa/recovery/regenerate', async (req: any, res) => {
+    if (!isAuthenticatedSession(req) || !hasRecentMfa(req)) {
+      return res.status(428).json({ error: "Recent MFA verification required", code: "MFA_STEP_UP_REQUIRED" });
+    }
+    const user = await localUserForSession(req);
+    if (!user?.mfa_secret_encrypted) return res.status(400).json({ error: "MFA is not enabled." });
+    const passwordValid = await bcrypt.compare(String(req.body?.password || ""), user.password_hash || "$2a$12$invalid");
+    const step = verifyTotp(decryptSecret(user.mfa_secret_encrypted), req.body?.code, user.mfa_last_used_step);
+    if (!passwordValid || step === null) {
+      await writeSecurityAudit(req, "mfa_recovery_regenerated", false);
+      return res.status(401).json({ error: "Current credentials could not be verified." });
+    }
+    const codes = createRecoveryCodes();
+    const dbClient = await pool.connect();
+    let claimed = false;
+    try {
+      await dbClient.query("BEGIN");
+      const claim = await dbClient.query(
+        `UPDATE users
+            SET mfa_last_used_step = $2
+          WHERE id = $1
+            AND (mfa_last_used_step IS NULL OR mfa_last_used_step < $2)
+          RETURNING id`,
+        [user.id, step],
+      );
+      if (claim.rows.length === 0) {
+        await dbClient.query("ROLLBACK");
+      } else {
+        claimed = true;
+      }
+      if (claimed) {
+        await dbClient.query(`DELETE FROM mfa_recovery_codes WHERE user_id = $1`, [user.id]);
+        for (const code of codes) {
+          await dbClient.query(
+            `INSERT INTO mfa_recovery_codes (user_id, code_hash) VALUES ($1, $2)`,
+            [user.id, await hashRecoveryCode(code)],
+          );
+        }
+        await dbClient.query(
+          `UPDATE auth_sessions
+              SET revoked_at = now()
+            WHERE user_id = $1 AND session_id <> $2`,
+          [user.id, req.sessionID],
+        );
+        await dbClient.query("COMMIT");
+      }
+    } catch (error) {
+      await dbClient.query("ROLLBACK");
+      throw error;
+    } finally {
+      dbClient.release();
+    }
+    if (!claimed) {
+      await writeSecurityAudit(req, "mfa_recovery_regenerated", false);
+      return res.status(401).json({ error: "Current credentials could not be verified." });
+    }
+    await writeSecurityAudit(req, "mfa_recovery_regenerated", true);
+    res.json({ recoveryCodes: codes });
+  });
+
+  // POST /api/auth/logout — destroy session
+  app.post('/api/auth/logout', async (req: any, res) => {
+    if (req.sessionID) await pool.query(`UPDATE auth_sessions SET revoked_at = now() WHERE session_id = $1`, [req.sessionID]);
+    req.session.destroy(() => res.json({ success: true }));
   });
 
   // POST /api/admin/seed-clients — one-time setup of client environments and users
@@ -1532,9 +2270,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!u.password) continue;
         const hash = await bcrypt.hash(u.password, 12);
         await db.execute(sql`
-          INSERT INTO users (id, username, password_hash, client_id, first_name, last_name)
-          VALUES (gen_random_uuid(), ${u.username}, ${hash}, ${u.clientId}, ${u.firstName}, ${u.lastName})
-          ON CONFLICT (username) DO UPDATE SET password_hash = ${hash}, client_id = ${u.clientId}
+          INSERT INTO users (id, username, password_hash, client_id, first_name, last_name, role)
+          VALUES (gen_random_uuid(), ${u.username}, ${hash}, ${u.clientId}, ${u.firstName}, ${u.lastName}, 'admin')
+          ON CONFLICT (username) DO UPDATE SET password_hash = ${hash}, client_id = ${u.clientId}, role = 'admin'
         `);
       }
 
@@ -1827,8 +2565,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const hasSecret = seedSecret && seedSecret === process.env.SEED_SECRET;
     let hasAdminSession = false;
     if (!hasSecret && session?.userId) {
-      const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-      hasAdminSession = userRows.length > 0 && (userRows[0].username ?? '').endsWith('_admin');
+      const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1);
+      hasAdminSession = userRows.length > 0 && ["admin", "security_admin"].includes(String(userRows[0].role));
     }
     if (!hasSecret && !hasAdminSession) {
       return res.status(403).json({ error: 'Admin access required' });
@@ -1906,7 +2644,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/admin/geocode-missing-locations — geocode only locations that lack lat/lng
-  // Protected by x-seed-secret header OR a logged-in admin session (username ending in _admin).
+  // Protected by x-seed-secret header OR a logged-in account with an admin role.
   app.post('/api/admin/geocode-missing-locations', async (req: any, res) => {
     const seedSecret = req.headers['x-seed-secret'];
     const session = req.session as any;
@@ -1914,8 +2652,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let hasAdminSession = false;
     if (session?.userId) {
       try {
-        const userRows = await db.select({ username: users.username }).from(users).where(eq(users.id, session.userId)).limit(1);
-        hasAdminSession = userRows.length > 0 && (userRows[0].username ?? '').endsWith('_admin');
+        const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1);
+        hasAdminSession = userRows.length > 0 && ["admin", "security_admin"].includes(String(userRows[0].role));
       } catch { /* fall through */ }
     }
     if (!hasSecret && !hasAdminSession) {
@@ -1945,12 +2683,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const seedSecret = req.headers['x-seed-secret'];
     const session = req.session as any;
     const hasSecret = seedSecret && seedSecret === process.env.SEED_SECRET;
-    // Only admin users (username ending in _admin) may call this via session
+    // Only accounts with an admin role may call this via session
     let hasAdminSession = false;
     if (session?.userId) {
       try {
-        const userRows = await db.select({ username: users.username }).from(users).where(eq(users.id, session.userId)).limit(1);
-        hasAdminSession = userRows.length > 0 && (userRows[0].username ?? '').endsWith('_admin');
+        const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1);
+        hasAdminSession = userRows.length > 0 && ["admin", "security_admin"].includes(String(userRows[0].role));
       } catch { /* fall through */ }
     }
     if (!hasSecret && !hasAdminSession) {
@@ -2049,10 +2787,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!session?.userId || !session?.clientId) {
       return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin' });
     }
-    // Verify the logged-in user has an admin username (e.g. trilogy_admin, glm_admin, ssmg_admin)
+    // Verify the logged-in user has an admin role
     try {
-      const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-      if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+      const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1);
+      if (userRows.length === 0 || !["admin", "security_admin"].includes(String(userRows[0].role))) {
         return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
       }
     } catch (e: any) {
@@ -2225,8 +2963,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!session?.userId) {
           return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin to override clientId' });
         }
-        const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-        if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+        const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1);
+        if (userRows.length === 0 || !["admin", "security_admin"].includes(String(userRows[0].role))) {
           return res.status(403).json({ error: 'Unauthorized: admin privileges required to override clientId' });
         }
         clientId = bodyClientId;
@@ -2339,8 +3077,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!session?.userId) {
           return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin to override clientId' });
         }
-        const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-        if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+        const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1);
+        if (userRows.length === 0 || !["admin", "security_admin"].includes(String(userRows[0].role))) {
           return res.status(403).json({ error: 'Unauthorized: admin privileges required to override clientId' });
         }
         clientId = bodyClientId;
@@ -2798,8 +3536,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin' });
     }
     try {
-      const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-      if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+      const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1);
+      if (userRows.length === 0 || !["admin", "security_admin"].includes(String(userRows[0].role))) {
         return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
       }
     } catch (e: any) {
@@ -2875,8 +3613,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin' });
     }
     try {
-      const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-      if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+      const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1);
+      if (userRows.length === 0 || !["admin", "security_admin"].includes(String(userRows[0].role))) {
         return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
       }
     } catch (e: any) {
@@ -2953,16 +3691,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Cleanup orphaned location rows that have zero references across all FK-referencing tables.
   // Tenant-scoped to the authenticated admin's client — does NOT touch other tenants.
-  // Requires a logged-in _admin user. Safe to run repeatedly (idempotent).
+  // Requires a logged-in admin role. Safe to run repeatedly (idempotent).
   app.post('/api/admin/cleanup-orphaned-locations', async (req: any, res) => {
-    // Server-side admin gate: require a logged-in _admin user
+    // Server-side admin gate: require a logged-in admin role
     const session = req.session as any;
     if (!session?.userId || !session?.clientId) {
       return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin' });
     }
     try {
-      const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-      if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+      const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1);
+      if (userRows.length === 0 || !["admin", "security_admin"].includes(String(userRows[0].role))) {
         return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
       }
     } catch (e: any) {
@@ -3095,8 +3833,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: 'Unauthorized' });
       }
       try {
-        const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-        if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+        const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1);
+        if (userRows.length === 0 || !["admin", "security_admin"].includes(String(userRows[0].role))) {
           return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
         }
       } catch {
@@ -3143,8 +3881,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     try {
-      const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-      if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+      const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1);
+      if (userRows.length === 0 || !["admin", "security_admin"].includes(String(userRows[0].role))) {
         return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
       }
     } catch {
@@ -13544,8 +14282,8 @@ ${campusOccLines.join('\n')}
         if (!session?.userId) {
           return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin to override clientId' });
         }
-        const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-        if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+      const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1);
+      if (userRows.length === 0 || !["admin", "security_admin"].includes(String(userRows[0].role))) {
           return res.status(403).json({ error: 'Unauthorized: admin privileges required to override clientId' });
         }
         clientId = bodyClientId;
@@ -15765,8 +16503,8 @@ IMPORTANT: Weights must sum to exactly 100. Reference specific numbers from the 
         if (!session?.userId) {
           return res.status(403).json({ error: 'Unauthorized: must be logged in as an admin to override clientId' });
         }
-        const userRows = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-        if (userRows.length === 0 || !userRows[0].username?.endsWith('_admin')) {
+        const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, session.userId)).limit(1);
+        if (userRows.length === 0 || !["admin", "security_admin"].includes(String(userRows[0].role))) {
           return res.status(403).json({ error: 'Unauthorized: admin privileges required to override clientId' });
         }
         scopedClientId = bodyClientId;

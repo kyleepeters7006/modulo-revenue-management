@@ -9,6 +9,13 @@
  */
 import pg from "pg";
 import bcrypt from "bcryptjs";
+import {
+  createRecoveryCodes,
+  createTotpSecret,
+  encryptSecret,
+  hashRecoveryCode,
+  totpCode,
+} from "../server/security";
 
 const { Pool } = pg;
 const BASE = process.env.TEST_BASE_URL || "http://localhost:5000";
@@ -29,6 +36,16 @@ const PASS = "\x1b[32m✓\x1b[0m";
 const FAIL = "\x1b[31m✗\x1b[0m";
 let passed = 0;
 let failed = 0;
+type AuthContext = { cookie: string; csrfToken: string };
+const testSecrets = new Map<string, string>();
+
+function sessionIdFromCookie(cookie: string): string {
+  const value = decodeURIComponent(cookie.split("=")[1] || "");
+  if (!value.startsWith("s:")) throw new Error("session cookie was not signed");
+  const signatureStart = value.lastIndexOf(".");
+  if (signatureStart <= 2) throw new Error("session cookie did not contain a session id");
+  return value.slice(2, signatureStart);
+}
 
 function assert(desc: string, condition: boolean, detail = "") {
   if (condition) {
@@ -40,25 +57,43 @@ function assert(desc: string, condition: boolean, detail = "") {
   }
 }
 
-async function login(username: string): Promise<string> {
+async function login(username: string): Promise<AuthContext> {
   const response = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: BASE },
     body: JSON.stringify({ username, password: PASSWORD }),
   });
   if (!response.ok) throw new Error(`login failed for ${username}: ${response.status} ${await response.text()}`);
-  const cookie = response.headers.get("set-cookie");
-  if (!cookie) throw new Error(`no session cookie returned for ${username}`);
-  return cookie.split(";")[0];
+  const firstCookie = response.headers.get("set-cookie");
+  if (!firstCookie) throw new Error(`no session cookie returned for ${username}`);
+  let cookie = firstCookie.split(";")[0];
+  const loginResult = await response.json() as { mfaRequired?: boolean };
+  if (loginResult.mfaRequired) {
+    const challenge = await fetch(`${BASE}/api/auth/mfa/challenge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie, Origin: BASE },
+      body: JSON.stringify({ code: totpCode(testSecrets.get(username)!).code }),
+    });
+    if (!challenge.ok) throw new Error(`MFA challenge failed for ${username}: ${challenge.status} ${await challenge.text()}`);
+    const challengeCookie = challenge.headers.get("set-cookie");
+    if (challengeCookie) cookie = challengeCookie.split(";")[0];
+  }
+  const csrf = await fetch(`${BASE}/api/auth/csrf`, { headers: { Cookie: cookie, Origin: BASE } });
+  if (!csrf.ok) throw new Error(`CSRF token failed for ${username}: ${csrf.status}`);
+  const csrfToken = (await csrf.json() as { token: string }).token;
+  return { cookie, csrfToken };
 }
 
-async function postOverride(cookie: string | null, rate: number, notes: string, segment = {
+async function postOverride(auth: AuthContext | null, rate: number, notes: string, segment = {
   locationName,
   serviceLine,
   roomType,
 }) {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (cookie) headers.Cookie = cookie;
+  const headers: Record<string, string> = { "Content-Type": "application/json", Origin: BASE };
+  if (auth) {
+    headers.Cookie = auth.cookie;
+    headers["x-csrf-token"] = auth.csrfToken;
+  }
   const response = await fetch(`${BASE}/api/manual-rate-override`, {
     method: "POST",
     headers,
@@ -108,6 +143,11 @@ async function cleanup() {
   } finally {
     dbClient.release();
   }
+  await pool.query(
+    `DELETE FROM security_audit_events
+      WHERE user_id IN (SELECT id FROM users WHERE username = ANY($1))`,
+    [[USER_A, USER_B]],
+  );
   await pool.query(`DELETE FROM users WHERE username = ANY($1)`, [[USER_A, USER_B]]);
 }
 
@@ -115,17 +155,73 @@ async function main() {
   await cleanup();
   try {
     const hash = await bcrypt.hash(PASSWORD, 4);
+    const secretA = createTotpSecret();
+    const secretB = createTotpSecret();
+    testSecrets.set(USER_A, secretA);
+    testSecrets.set(USER_B, secretB);
     const userRows = await pool.query<{ id: string; username: string }>(
-      `INSERT INTO users (username, password_hash, client_id)
-       VALUES ($1, $2, $3), ($4, $2, $3)
+      `INSERT INTO users (username, password_hash, client_id, mfa_enabled,
+                          mfa_secret_encrypted)
+       VALUES ($1, $2, $3, true, $4), ($5, $2, $3, true, $6)
        RETURNING id, username`,
-      [USER_A, hash, CLIENT, USER_B],
+      [USER_A, hash, CLIENT, encryptSecret(secretA), USER_B, encryptSecret(secretB)],
     );
     const userIds = new Map(userRows.rows.map((row) => [row.username, row.id]));
+    const [seedRecoveryCode] = createRecoveryCodes(1);
+    await pool.query(
+      `INSERT INTO mfa_recovery_codes (user_id, code_hash) VALUES ($1, $2)`,
+      [userIds.get(USER_A), await hashRecoveryCode(seedRecoveryCode)],
+    );
 
-    const cookieA = await login(USER_A);
+    const authA = await login(USER_A);
+    const beforeEnrollmentAttempt = (await pool.query(
+      `SELECT mfa_secret_encrypted,
+              (SELECT count(*)::int FROM mfa_recovery_codes WHERE user_id = users.id) AS recovery_count
+         FROM users WHERE id = $1`,
+      [userIds.get(USER_A)],
+    )).rows[0];
+    const passwordOnlyLogin = await fetch(`${BASE}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: BASE },
+      body: JSON.stringify({ username: USER_A, password: PASSWORD }),
+    });
+    const pendingCookie = passwordOnlyLogin.headers.get("set-cookie")?.split(";")[0];
+    const setupBypass = await fetch(`${BASE}/api/auth/mfa/setup`, {
+      method: "POST",
+      headers: { Cookie: pendingCookie || "", Origin: BASE },
+    });
+    const confirmBypass = await fetch(`${BASE}/api/auth/mfa/setup/confirm`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: pendingCookie || "",
+        Origin: BASE,
+      },
+      body: JSON.stringify({ code: totpCode(secretA).code }),
+    });
+    const afterEnrollmentAttempt = (await pool.query(
+      `SELECT mfa_secret_encrypted,
+              (SELECT count(*)::int FROM mfa_recovery_codes WHERE user_id = users.id) AS recovery_count
+         FROM users WHERE id = $1`,
+      [userIds.get(USER_A)],
+    )).rows[0];
+    assert(
+      "MFA-enabled users cannot start enrollment from a password-only session",
+      setupBypass.status === 400,
+      `got ${setupBypass.status}`,
+    );
+    assert(
+      "MFA-enabled users cannot confirm enrollment from a password-only session",
+      confirmBypass.status === 400,
+      `got ${confirmBypass.status}`,
+    );
+    assert(
+      "blocked enrollment leaves the existing factor and recovery codes unchanged",
+      afterEnrollmentAttempt?.mfa_secret_encrypted === beforeEnrollmentAttempt?.mfa_secret_encrypted &&
+        Number(afterEnrollmentAttempt?.recovery_count) === Number(beforeEnrollmentAttempt?.recovery_count),
+    );
     const referenceResponse = await fetch(`${BASE}/api/reference-data`, {
-      headers: { Cookie: cookieA },
+      headers: { Cookie: authA.cookie },
     });
     if (!referenceResponse.ok) {
       throw new Error(`reference data failed: ${referenceResponse.status} ${await referenceResponse.text()}`);
@@ -139,7 +235,7 @@ async function main() {
     serviceLine = String(target.serviceLine);
     roomType = String(target.roomType);
 
-    const first = await postOverride(cookieA, 4999, "set by first user");
+    const first = await postOverride(authA, 4999, "set by first user");
     assert("create records the original creator", first.created_by === userIds.get(USER_A),
       `expected ${userIds.get(USER_A)}, got ${first.created_by}`);
     assert("create records the initial updater", first.updated_by === userIds.get(USER_A),
@@ -151,8 +247,60 @@ async function main() {
 
     const createdAt = String(first.created_at);
     const initialUpdatedAt = String(first.updated_at);
-    const cookieB = await login(USER_B);
-    const second = await postOverride(cookieB, 5099, "updated by second user");
+    const authB = await login(USER_B);
+    const invalidSeed = await fetch(`${BASE}/api/admin/seed-clients`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-seed-secret": "not-the-seed" },
+      body: JSON.stringify({}),
+    });
+    assert("invalid seed headers cannot bypass authentication", invalidSeed.status === 401,
+      `got ${invalidSeed.status}`);
+    const stepUp = await fetch(`${BASE}/api/auth/mfa/step-up`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: authB.cookie,
+        Origin: BASE,
+        "x-csrf-token": authB.csrfToken,
+      },
+      body: JSON.stringify({
+        code: totpCode(testSecrets.get(USER_B)!, (Math.floor(Date.now() / 30_000) + 1) * 30_000).code,
+      }),
+    });
+    assert("authenticated users can refresh recent MFA with a new TOTP step", stepUp.status === 200,
+      `got ${stepUp.status} ${await stepUp.text()}`);
+
+    const mfaState = (await pool.query(
+      `SELECT mfa_last_used_step FROM users WHERE id = $1`,
+      [userIds.get(USER_A)],
+    )).rows[0];
+    const nextStep = Math.max(
+      Number(mfaState?.mfa_last_used_step || 0) + 1,
+      Math.floor(Date.now() / 30_000),
+    );
+    const regenerateRecovery = () => fetch(`${BASE}/api/auth/mfa/recovery/regenerate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: authA.cookie,
+        Origin: BASE,
+        "x-csrf-token": authA.csrfToken,
+      },
+      body: JSON.stringify({
+        password: PASSWORD,
+        code: totpCode(testSecrets.get(USER_A)!, nextStep * 30_000).code,
+      }),
+    });
+    const [regenOne, regenTwo] = await Promise.all([regenerateRecovery(), regenerateRecovery()]);
+    const regenStatuses = [regenOne.status, regenTwo.status];
+    assert(
+      "concurrent recovery regeneration accepts only one TOTP step",
+      regenStatuses.filter((status) => status === 200).length === 1 &&
+        regenStatuses.filter((status) => status === 401).length === 1,
+      `got ${regenStatuses.join(", ")}`,
+    );
+
+    const second = await postOverride(authB, 5099, "updated by second user");
     assert("update preserves the original creator", second.created_by === userIds.get(USER_A),
       `expected ${userIds.get(USER_A)}, got ${second.created_by}`);
     assert("update records the latest updater", second.updated_by === userIds.get(USER_B),
@@ -178,7 +326,7 @@ async function main() {
       `got ${persistedUpdate?.created_at} / ${persistedUpdate?.updated_at}`);
 
     const listed = await fetch(`${BASE}/api/manual-rate-overrides`, {
-      headers: { Cookie: cookieB },
+      headers: { Cookie: authB.cookie },
     });
     if (!listed.ok) throw new Error(`override list failed: ${listed.status} ${await listed.text()}`);
     const rows = await listed.json() as Array<Record<string, unknown>>;
@@ -192,7 +340,7 @@ async function main() {
       `got ${listedOverride?.created_by_name} / ${listedOverride?.updated_by_name}`);
 
     const grouped = await fetch(`${BASE}/api/reference-data`, {
-      headers: { Cookie: cookieB },
+      headers: { Cookie: authB.cookie },
     });
     if (!grouped.ok) throw new Error(`grouped Reference Data failed: ${grouped.status} ${await grouped.text()}`);
     const groupedData = await grouped.json() as { rows?: Array<Record<string, unknown>> };
@@ -216,23 +364,36 @@ async function main() {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`,
       [CLIENT, legacyLocationName, serviceLine, roomType, 4899, "legacy row", legacyActor],
     );
-    const legacy = await postOverride(null, 4999, "updated without a session", {
-      locationName: legacyLocationName,
-      serviceLine,
-      roomType,
+    const legacyResponse = await fetch(`${BASE}/api/manual-rate-override`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: BASE },
+      body: JSON.stringify({
+        locationName: legacyLocationName,
+        serviceLine,
+        roomType,
+        overrideRate: 4999,
+        notes: "updated without a session",
+      }),
     });
-    assert("unauthenticated update preserves a legacy creator", legacy.created_by === legacyActor,
-      `expected ${legacyActor}, got ${legacy.created_by}`);
-    assert("unauthenticated update preserves a legacy updater", legacy.updated_by === legacyActor,
-      `expected ${legacyActor}, got ${legacy.updated_by}`);
-    assert("legacy creator uses a safe display fallback", legacy.created_by_name === legacyActor,
-      `got ${legacy.created_by_name}`);
-    assert("legacy updater uses a safe display fallback", legacy.updated_by_name === legacyActor,
-      `got ${legacy.updated_by_name}`);
+    assert("unauthenticated override update is rejected", legacyResponse.status === 401,
+      `got ${legacyResponse.status}`);
+    const csrfRejected = await fetch(`${BASE}/api/manual-rate-override`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: authB.cookie },
+      body: JSON.stringify({
+        locationName: legacyLocationName,
+        serviceLine,
+        roomType,
+        overrideRate: 4999,
+        notes: "missing csrf",
+      }),
+    });
+    assert("state-changing cookie requests require CSRF validation", csrfRejected.status === 403,
+      `got ${csrfRejected.status}`);
 
     const importResponse = await fetch(`${BASE}/api/reference-data/import-rules`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Cookie: cookieA },
+      headers: { "Content-Type": "application/json", Cookie: authA.cookie, Origin: BASE, "x-csrf-token": authA.csrfToken },
       body: JSON.stringify({
         rows: [{
           campus: importLocationName,
@@ -279,12 +440,12 @@ async function main() {
 
     const removed = await fetch(
       `${BASE}/api/manual-rate-override/${encodeURIComponent(locationName)}/${encodeURIComponent(serviceLine)}/${encodeURIComponent(roomType)}`,
-      { method: "DELETE", headers: { Cookie: cookieB } },
+      { method: "DELETE", headers: { Cookie: authB.cookie, Origin: BASE, "x-csrf-token": authB.csrfToken } },
     );
     if (!removed.ok) throw new Error(`override delete failed: ${removed.status} ${await removed.text()}`);
 
     const history = await fetch(`${BASE}/api/manual-rate-override-history`, {
-      headers: { Cookie: cookieB },
+      headers: { Cookie: authB.cookie },
     });
     if (!history.ok) throw new Error(`all-history list failed: ${history.status} ${await history.text()}`);
     const historyRows = await history.json() as Array<Record<string, unknown>>;
@@ -320,6 +481,58 @@ async function main() {
     }
     assert("direct history updates are rejected", updateRejected);
     assert("direct history deletes are rejected", deleteRejected);
+
+    const legacySessionId = sessionIdFromCookie(authA.cookie);
+    const legacyRow = (await pool.query(
+      `SELECT sess FROM sessions WHERE sid = $1`,
+      [legacySessionId],
+    )).rows[0];
+    const legacySession = typeof legacyRow?.sess === "string"
+      ? JSON.parse(legacyRow.sess)
+      : { ...(legacyRow?.sess || {}) };
+    delete legacySession.authenticatedAt;
+    await pool.query(
+      `UPDATE sessions SET sess = $1 WHERE sid = $2`,
+      [JSON.stringify(legacySession), legacySessionId],
+    );
+    const legacyAuthUser = await fetch(`${BASE}/api/auth/user`, {
+      headers: { Cookie: authA.cookie },
+    });
+    assert(
+      "legacy pre-MFA sessions cannot remain authenticated on a GET",
+      legacyAuthUser.status === 200 &&
+        (await legacyAuthUser.json() as { isAuthenticated?: boolean }).isAuthenticated === false,
+    );
+    const legacyReference = await fetch(`${BASE}/api/reference-data`, {
+      headers: { Cookie: authA.cookie },
+    });
+    assert("legacy session reads fall back to the demo tenant", legacyReference.status === 200);
+    const legacyAuthUserAgain = await fetch(`${BASE}/api/auth/user`, {
+      headers: { Cookie: authA.cookie },
+    });
+    assert(
+      "legacy session remains invalidated on the next request",
+      legacyAuthUserAgain.status === 200 &&
+        (await legacyAuthUserAgain.json() as { isAuthenticated?: boolean }).isAuthenticated === false,
+    );
+
+    const revokedSessionId = sessionIdFromCookie(authB.cookie);
+    await pool.query(
+      `UPDATE auth_sessions SET revoked_at = now() WHERE session_id = $1`,
+      [revokedSessionId],
+    );
+    const revokedAuthUser = await fetch(`${BASE}/api/auth/user`, {
+      headers: { Cookie: authB.cookie },
+    });
+    assert(
+      "revoked sessions cannot read as authenticated",
+      revokedAuthUser.status === 200 &&
+        (await revokedAuthUser.json() as { isAuthenticated?: boolean }).isAuthenticated === false,
+    );
+    const revokedReference = await fetch(`${BASE}/api/reference-data`, {
+      headers: { Cookie: authB.cookie },
+    });
+    assert("revoked session reads fall back to the demo tenant", revokedReference.status === 200);
   } finally {
     await cleanup();
     await pool.end();

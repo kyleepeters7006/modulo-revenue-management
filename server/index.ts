@@ -19,17 +19,16 @@ process.on('uncaughtException', (err) => {
 });
 
 const app = express();
+// Replit terminates TLS at the proxy and forwards the original scheme. Trust
+// one proxy hop so express-session can correctly emit Secure cookies in
+// production while the app itself listens on HTTP.
+app.set("trust proxy", 1);
 // Leave the normal parser limit in place for every endpoint. The production
 // sync receiver installs its own authenticated, compressed-body parser in
 // server/routes.ts after this middleware is skipped for that exact path.
-const productionSyncReceiverPath = "/api/admin/sync-to-production/receive";
-app.use((req, res, next) => {
-  if (req.path === productionSyncReceiverPath) return next();
-  return express.json()(req, res, next);
-});
-app.use(express.urlencoded({ extended: false }));
+const productionSyncReceiverPath = "/api/admin/receive-production-sync";
 
-app.use((req, res, next) => {
+  const isDevelopment = process.env.NODE_ENV !== "production";
   const start = Date.now();
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
@@ -847,7 +846,7 @@ app.use((req, res, next) => {
     try {
       log("Starting room type normalization backfill (background task)...");
       const { backfillRoomTypes } = await import('./backfillRoomTypes');
-      const result = await backfillRoomTypes();
+        const result = await geocodeMissingCompetitorSurveys();
       if (result.success) {
         log(`Room type backfill completed: ${result.totalUpdated} types updated in ${result.duration}ms`);
       } else {
@@ -878,7 +877,7 @@ app.use((req, res, next) => {
       for (const { client_id } of clientsRes.rows) {
         try {
           log(`[elasticity-backfill] Computing elasticity for client=${client_id}…`);
-          const result = await computeAndStoreElasticity(client_id);
+        const result = await geocodeMissingCompetitorSurveys();
           log(`[elasticity-backfill] Done for client=${client_id}: ${result.updated} segments updated.`);
         } catch (err) {
           log(`[elasticity-backfill] Failed for client=${client_id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -1008,7 +1007,7 @@ app.use((req, res, next) => {
         log(`[startup] Cleared stale city-level coords for ${cleared} location(s) — will re-geocode with zip codes.`);
       }
 
-      const result = await geocodeMissingLocations();
+        const result = await geocodeMissingCompetitorSurveys();
       if (result.updated > 0 || result.failed > 0) {
         log(`[startup] Geocoded missing locations: ${result.updated} updated, ${result.failed} failed, ${result.skipped} skipped (no address).`);
       }
@@ -1031,7 +1030,7 @@ app.use((req, res, next) => {
       const latestJob = await getLatestGeocodingJob('competitor_surveys');
       if (latestJob && latestJob.status === 'running') {
         log(`[startup] Resuming interrupted geocoding job ${latestJob.id} (was processing ${latestJob.processedRows}/${latestJob.totalRows} rows)…`);
-        const result = await geocodeMissingCompetitorSurveys(latestJob.id);
+        const result = await geocodeMissingCompetitorSurveys();
         if (result.updated > 0 || result.failed > 0) {
           log(`[startup] Resumed geocoding: ${result.updated} updated, ${result.failed} failed, ${result.skipped} skipped.`);
         }

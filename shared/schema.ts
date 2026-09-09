@@ -56,12 +56,25 @@ export const users = pgTable("users", {
   // Multi-tenant auth fields
   username: varchar("username").unique(),
   passwordHash: varchar("password_hash"),
+  role: varchar("role").notNull().default("operator"),
+  accountStatus: varchar("account_status").notNull().default("active"),
+  mfaSecretEncrypted: text("mfa_secret_encrypted"),
+  mfaPendingSecretEncrypted: text("mfa_pending_secret_encrypted"),
+  mfaEnabled: boolean("mfa_enabled").notNull().default(false),
+  mfaEnrolledAt: timestamp("mfa_enrolled_at"),
+  mfaLastUsedStep: integer("mfa_last_used_step"),
   clientId: varchar("client_id").references(() => clients.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Service line options for senior living facilities
+export const mfaRecoveryCodes = pgTable("mfa_recovery_codes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  codeHash: text("code_hash").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 export const serviceLineEnum = ["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"] as const;
 export type ServiceLine = typeof serviceLineEnum[number];
 
@@ -1596,3 +1609,25 @@ export const industryContextRefreshState = pgTable("industry_context_refresh_sta
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 export type IndustryContextRefreshState = typeof industryContextRefreshState.$inferSelect;
+
+export const securityAuditEvents = pgTable("security_audit_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id),
+  userId: varchar("user_id").references(() => users.id),
+  eventType: text("event_type").notNull(),
+  success: boolean("success").notNull().default(true),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const authSessions = pgTable("auth_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  sessionId: text("session_id").notNull().unique(),
+  clientId: varchar("client_id").references(() => clients.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  lastSeenAt: timestamp("last_seen_at").defaultNow().notNull(),
+  revokedAt: timestamp("revoked_at"),
+});

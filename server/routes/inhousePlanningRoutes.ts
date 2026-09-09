@@ -121,7 +121,7 @@ function recommendationSnapshotKey(
 }
 
 /** Rows come back snake_case from the driver; drizzle rows do not. */
-function rowToAssumptions(row: any): PlanningAssumptions {
+export function rowToAssumptions(row: any): PlanningAssumptions {
   return {
     rateGrowthTargetPct: Number(row.rateGrowthTargetPct),
     measurementMode: "quarterly_yoy",
@@ -131,13 +131,16 @@ function rowToAssumptions(row: any): PlanningAssumptions {
     minInhouseIncreasePct: Number(row.minInhouseIncreasePct),
     maxInhouseIncreasePct: Number(row.maxInhouseIncreasePct),
     equalizationStrength: row.equalizationStrength,
-    // Legacy saved false values no longer impose a resident-to-street ceiling.
     allowInhouseAboveStreet: true,
     maxStreetIncreasePct: Number(row.maxStreetIncreasePct),
     maxYoYStreetIncreasePct: Number(
       row.maxYoYStreetIncreasePct ?? DEFAULT_ASSUMPTIONS.maxYoYStreetIncreasePct,
     ),
   };
+}
+
+function enforceCurrentPlanningPolicy(assumptions: PlanningAssumptions): PlanningAssumptions {
+  return { ...assumptions, allowInhouseAboveStreet: true };
 }
 
 /**
@@ -258,7 +261,8 @@ export function registerInhousePlanningRoutes(app: Express) {
           .status(400)
           .json({ error: body.error.errors[0]?.message || "Invalid planning assumptions" });
       }
-      const { locationId = null, serviceLine = null, assumptions } = body.data;
+      const { locationId = null, serviceLine = null } = body.data;
+      const assumptions = enforceCurrentPlanningPolicy(body.data.assumptions);
 
       const values = {
         clientId,
@@ -337,9 +341,10 @@ export function registerInhousePlanningRoutes(app: Express) {
       }
       const locationId = body.data.locationId || null;
       const location = await resolveLocationName(clientId, locationId);
-      const assumptions =
+      const assumptions = enforceCurrentPlanningPolicy(
         body.data.assumptions ??
-        (await resolveAssumptions(clientId, locationId, body.data.serviceLine)).assumptions;
+        (await resolveAssumptions(clientId, locationId, body.data.serviceLine)).assumptions,
+      );
       const plan = await calculatePlan({
         clientId,
         locationId,
@@ -375,9 +380,10 @@ export function registerInhousePlanningRoutes(app: Express) {
       }
       const locationId = body.data.locationId || null;
       const location = await resolveLocationName(clientId, locationId);
-      const assumptions =
+      const assumptions = enforceCurrentPlanningPolicy(
         body.data.assumptions ??
-        (await resolveAssumptions(clientId, locationId, body.data.serviceLine)).assumptions;
+        (await resolveAssumptions(clientId, locationId, body.data.serviceLine)).assumptions,
+      );
       if (assumptions.rateGrowthTargetPct < 0) {
         return res.status(422).json({
           error: "Street Rate recommendations support zero or positive growth targets only.",
@@ -640,9 +646,10 @@ export function registerInhousePlanningRoutes(app: Express) {
       }
       const locationId = body.data.locationId || null;
       const location = await resolveLocationName(clientId, locationId);
-      const assumptions =
+      const assumptions = enforceCurrentPlanningPolicy(
         body.data.assumptions ??
-        (await resolveAssumptions(clientId, locationId, body.data.serviceLine)).assumptions;
+        (await resolveAssumptions(clientId, locationId, body.data.serviceLine)).assumptions,
+      );
 
       const { plan, audit } = await calculatePlanDetailed({
         clientId,

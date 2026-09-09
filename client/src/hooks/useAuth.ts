@@ -8,6 +8,8 @@ export interface AuthUser {
   clientId: string;
   clientName: string;
   isAdmin?: boolean;
+  role?: string;
+  mfaEnabled?: boolean;
 }
 
 export function useAuth() {

@@ -182,6 +182,37 @@ export default function AboutUs() {
           </CardContent>
         </Card>
 
+        {/* ── Security ────────────────────────────────────────────────────── */}
+        <Card className="mb-8 border-[var(--trilogy-teal)]/25 bg-white/95 backdrop-blur">
+          <CardHeader>
+            <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
+              <ShieldCheck className="h-6 w-6 text-[var(--trilogy-teal)]" />
+              Security
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm leading-relaxed text-[var(--trilogy-grey)]">
+            <p>
+              Modulo uses account-based access with password verification and authenticator-app multi-factor authentication. New and existing users enroll with a time-based code and receive single-use recovery codes that are displayed once.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {[
+                ["Session protection", "Authenticated sessions use server-side storage, secure production cookie settings, expiration, rotation after sign-in, and revocation after account changes."],
+                ["Access boundaries", "Accounts have explicit roles and each account is scoped to its client environment. Administrative and sensitive operations are checked on the server."],
+                ["Request safeguards", "State-changing browser requests are checked for same-site origin or a session CSRF token. Responses include browser security headers."],
+                ["Audit and data handling", "Sign-in, MFA, recovery, password, session, and authorization events are recorded with tenant context without storing passwords, codes, secrets, session tokens, or resident data in the event details."],
+              ].map(([title, body]) => (
+                <div key={title} className="rounded-lg border border-[var(--trilogy-grey)]/20 bg-gray-50 p-4">
+                  <h3 className="font-semibold text-[var(--trilogy-dark-blue)] mb-1">{title}</h3>
+                  <p className="text-xs">{body}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs">
+              These are application controls implemented in Modulo. This page does not make certification, regulatory, infrastructure-encryption, or legal-compliance claims.
+            </p>
+          </CardContent>
+        </Card>
+
         {/* ── Machine Learning ───────────────────────────────────────────── */}
         <Card className="mb-8 border-[var(--trilogy-dark-blue)]/20 bg-gradient-to-br from-[var(--trilogy-dark-blue)]/5 to-white">
           <CardHeader>
