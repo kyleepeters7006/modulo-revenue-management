@@ -27972,20 +27972,21 @@ Return ONLY valid JSON, no markdown fences:
     try {
       const clientId = req.clientId || 'demo';
 
-      // Rent Roll: last upload + distinct periods from upload_history
+      // Rent Roll: derive periods from the tenant's authoritative current
+      // rows. upload_history has no client_id and previously leaked another
+      // tenant's periods into this dialog.
       const rrLast = await db
         .select({
-          lastUploadAt: sql<string>`MAX(processed_at)`,
-          lastFileName: sql<string>`(array_agg(file_name ORDER BY processed_at DESC))[1]`,
+          lastUploadAt: sql<string>`MAX(${rentRollData.createdAt})`,
         })
-        .from(uploadHistory)
-        .where(eq(uploadHistory.uploadType, 'rent_roll'));
+        .from(rentRollData)
+        .where(eq(rentRollData.clientId, clientId));
 
       const rrPeriods = await db
-        .selectDistinct({ period: uploadHistory.uploadMonth })
-        .from(uploadHistory)
-        .where(eq(uploadHistory.uploadType, 'rent_roll'))
-        .orderBy(sql`${uploadHistory.uploadMonth} DESC`);
+        .selectDistinct({ period: rentRollData.uploadMonth })
+        .from(rentRollData)
+        .where(eq(rentRollData.clientId, clientId))
+        .orderBy(sql`${rentRollData.uploadMonth} DESC`);
 
       // Inquiry: last upload + distinct periods
       const inqLast = await db
@@ -28054,7 +28055,7 @@ Return ONLY valid JSON, no markdown fences:
       res.json({
         rent_roll: {
           lastUploadAt: rrLast[0]?.lastUploadAt || null,
-          lastFileName: rrLast[0]?.lastFileName || null,
+          lastFileName: null,
           periods: rrPeriods.map(r => r.period).filter(Boolean),
         },
         inquiry_metrics: {

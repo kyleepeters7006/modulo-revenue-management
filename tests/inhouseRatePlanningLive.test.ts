@@ -15,7 +15,7 @@
  *   • no resident exceeds the configured maximum increase
  *   • no resident falls below the configured minimum, unless the street
  *     ceiling is what held them back
- *   • no new rate crosses street unless `allowInhouseAboveStreet` is on
+ *   • Street Rate shapes allocation but never caps an in-house increase
  *   • the recommended street increase stays inside its own ceiling
  *   • low-but-positive source rates remain in the resident recommendations
  *   • the headline weighted-average increase reconciles to the per-resident
@@ -235,11 +235,7 @@ function effectiveFloorPct(
   a: PlanningAssumptions,
   streetMultiplier: number,
 ): number {
-  if (a.allowInhouseAboveStreet) return a.minInhouseIncreasePct;
-  if (rec.streetRateMonthly <= 0) return a.minInhouseIncreasePct;
-  const effectiveStreet = rec.streetRateMonthly * streetMultiplier;
-  const headroomPct = Math.max(0, (effectiveStreet / rec.currentRateMonthly - 1) * 100);
-  return Math.min(a.minInhouseIncreasePct, headroomPct);
+  return a.minInhouseIncreasePct;
 }
 
 /** Street multiplier in force on the in-house effective date. */
@@ -279,50 +275,23 @@ function assertGuardrails(title: string, plan: PlanResult) {
       : undefined,
   );
 
-  // 3. Nobody below the minimum unless street is what stopped them.
+  // 3. Nobody below the configured minimum.
   const underMin = recs.filter(
     (r) => r.increasePct < effectiveFloorPct(r, a, mult) - 1e-6,
   );
   ok(
-    `${title}: no resident falls below the ${a.minInhouseIncreasePct}% minimum without a street-ceiling reason`,
+    `${title}: no resident falls below the ${a.minInhouseIncreasePct}% minimum`,
     underMin.length === 0,
     underMin.length
       ? `${underMin.length} below, e.g. room ${underMin[0].roomNumber} got ${underMin[0].increasePct.toFixed(4)}% with floor ${effectiveFloorPct(underMin[0], a, mult).toFixed(4)}%`
       : undefined,
   );
 
-  // 4. Street ceiling. A resident who already sits above street is never cut
-  //    back down to it, so their own current rate is the ceiling that applies.
-  if (!a.allowInhouseAboveStreet) {
-    const crossed = recs.filter((r) => {
-      if (r.streetRateMonthly <= 0) return false;
-      const ceiling = Math.max(r.streetRateMonthly * mult, r.currentRateMonthly);
-      return r.newRateMonthly > ceiling + EPS_MONEY;
-    });
-    ok(
-      `${title}: no new rate crosses street while allowInhouseAboveStreet is off`,
-      crossed.length === 0,
-      crossed.length
-        ? `${crossed.length} crossed, e.g. room ${crossed[0].roomNumber}: ${crossed[0].newRateMonthly.toFixed(2)} vs street ${(crossed[0].streetRateMonthly * mult).toFixed(2)}`
-        : undefined,
-    );
-    const blocked = recs.filter(
-      (r) => r.constraint === "at_or_above_street" || r.constraint === "street_cap",
-    );
-    ok(
-      `${title}: residents reported as blocked by street all sit at their ceiling`,
-      blocked.every(
-        (r) =>
-          r.streetRateMonthly <= 0 ||
-          r.newRateMonthly <= Math.max(r.streetRateMonthly * mult, r.currentRateMonthly) + EPS_MONEY,
-      ),
-    );
-  } else {
-    ok(
-      `${title}: allowInhouseAboveStreet lets rates past street where the maximum permits`,
-      recs.every((r) => r.increasePct <= a.maxInhouseIncreasePct + EPS_PCT),
-    );
-  }
+  // 4. The legacy allow-above-street setting never creates a resident cap.
+  ok(
+    `${title}: no resident is reported as blocked by Street Rate`,
+    recs.every((r) => r.constraint !== "at_or_above_street" && r.constraint !== "street_cap"),
+  );
 
   // 5. The street recommendation respects its own ceiling.
   ok(

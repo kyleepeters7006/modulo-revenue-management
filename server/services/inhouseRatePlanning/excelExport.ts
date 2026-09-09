@@ -444,7 +444,6 @@ function buildDetailSheet(
   const refExponent = `${S}$B$${SUMMARY_CELLS.exponent}`;
   const refMinInc = `${S}$B$${SUMMARY_CELLS.minIncrease}`;
   const refMaxInc = `${S}$B$${SUMMARY_CELLS.maxIncrease}`;
-  const refAllowAbove = `${S}$B$${SUMMARY_CELLS.allowAboveStreet}`;
   const refMultiplier = `${S}$B$${SUMMARY_CELLS.streetMultiplier}`;
   const refMeanHeadroom = `${S}$B$${SUMMARY_CELLS.meanHeadroom}`;
   const refSourceMonth = `${S}$B$${SUMMARY_CELLS.sourceMonth}`;
@@ -489,10 +488,7 @@ function buildDetailSheet(
       "shape",
       `IF(OR(${refExponent}=0,${refMeanHeadroom}<=0),1,(${c("headroom")}/${refMeanHeadroom})^${refExponent})`,
     );
-    setF(
-      "maxEff",
-      `MAX(0,IF(${refAllowAbove}=TRUE,${refMaxInc},MIN(${refMaxInc},${c("headroom")})))`,
-    );
+    setF("maxEff", `MAX(0,${refMaxInc})`);
     setF("minEff", `MIN(MAX(0,${refMinInc}),${c("maxEff")})`);
     setF("raw", `${refLambda}*${c("shape")}`);
     // MEDIAN of (floor, value, ceiling) is exactly clamp() and stays correct
@@ -616,7 +612,7 @@ const SUMMARY_LABELS: Record<keyof typeof SUMMARY_CELLS, string> = {
   maxIncrease: "Maximum increase per resident",
   equalizationLabel: "Equalization strength",
   exponent: "Equalization exponent",
-  allowAboveStreet: "Allow in-house above street",
+  allowAboveStreet: "In-house rates may exceed street",
   streetEffective: "Street rate effective date",
   inhouseEffective: "In-house effective date",
   currentStreet: "Current street rate (monthly)",
@@ -692,8 +688,8 @@ function buildSummarySheet(
     "A name for the exponent below, which is the value the formulas actually use.");
   inputRow(ws, C.exponent, L.exponent, audit.equalizationExponent, FMT_NUM2,
     "0 = everyone gets the same increase. 1 = increases scale fully with room to street. 0.5 = half way.");
-  inputRow(ws, C.allowAboveStreet, L.allowAboveStreet, plan.assumptions.allowInhouseAboveStreet, undefined,
-    "When FALSE a resident's new rate may never pass their street rate, which caps their increase at their room to street.");
+  labelRow(ws, C.allowAboveStreet, L.allowAboveStreet, true,
+    "Fixed planning policy: Street Rate shapes how increases are distributed but never caps an existing resident's rate.");
   inputRow(ws, C.streetEffective, L.streetEffective, plan.assumptions.streetRateEffectiveDate, undefined,
     "Held as text in ISO form so the date comparison below sorts correctly.");
   inputRow(ws, C.inhouseEffective, L.inhouseEffective, plan.assumptions.inhouseEffectiveDate, undefined,
@@ -718,7 +714,7 @@ function buildSummarySheet(
   sectionTitle(ws, 22, "DERIVED FROM THE INPUTS ABOVE", 3);
   formulaRow(ws, C.streetIncrease, L.streetIncrease,
     `IF(B${C.currentStreet}=0,0,B${C.recommendedStreet}/B${C.currentStreet}-1)`, FMT_PCT,
-    "Raising street rate is the only lever that creates in-house headroom.");
+    "The Street Rate recommendation affects future move-ins and the realized-rate projection.");
   // Mirrors streetMultiplierAtInhouse(): the raised street rate only applies if
   // the street increase has already landed by the in-house effective date. An
   // empty date means no comparison is possible, which resolves to no uplift.
@@ -727,7 +723,7 @@ function buildSummarySheet(
       `1+B${C.streetIncrease},1)`,
     FMT_NUM2,
     "1.00 when the in-house increase lands before the street increase; otherwise 1 + street increase. " +
-    "This is the ceiling that applies on the in-house effective date, and it drives every resident's room to street.");
+    "This drives each resident's room-to-street comparison and allocation shape, not a rate ceiling.");
   formulaRow(ws, C.meanHeadroom, L.meanHeadroom,
     `IF(SUM(${rw})=0,0,SUMPRODUCT(${rw},${hd})/SUM(${rw}))`, FMT_PCT2,
     "The shape curve is normalized by this, which is what makes lambda read as 'the average increase'.");
@@ -762,9 +758,6 @@ function buildSummarySheet(
   formulaRow(ws, r++, "Residents receiving an increase", `COUNTIF(${inc},">0")`, FMT_INT);
   formulaRow(ws, r++, "Held at the minimum", `COUNTIF(${con},"${CONSTRAINT_LABEL.min}")`, FMT_INT);
   formulaRow(ws, r++, "Capped at the maximum", `COUNTIF(${con},"${CONSTRAINT_LABEL.max}")`, FMT_INT);
-  formulaRow(ws, r++, "Capped by street rate", `COUNTIF(${con},"${CONSTRAINT_LABEL.street_cap}")`, FMT_INT);
-  formulaRow(ws, r++, "Already at or above street", `COUNTIF(${con},"${CONSTRAINT_LABEL.at_or_above_street}")`, FMT_INT,
-    "These residents get nothing: there is no room below street to move into.");
   r++;
   formulaRow(ws, r++, "Average current rate (monthly)", `IFERROR(AVERAGE(${cur}),0)`, FMT_MONEY);
   formulaRow(ws, r++, "Average new rate (monthly)", `IFERROR(AVERAGE(${nrt}),0)`, FMT_MONEY);
@@ -1154,8 +1147,8 @@ function buildMethodSheet(
     ],
     [
       "Allowed range",
-      "The maximum is the configured ceiling, tightened to the headroom when a new rate may not pass street. The minimum can never push a resident through that cap.",
-      `${c.maxEff}${ex} = MAX(0, MIN(max increase, ${c.headroom}${ex}))\n${c.minEff}${ex} = MIN(MAX(0, min increase), ${c.maxEff}${ex})`,
+      "The maximum is the configured resident ceiling. Street position affects the shape, but it does not reduce this bound.",
+      `${c.maxEff}${ex} = MAX(0, max increase)\n${c.minEff}${ex} = MIN(MAX(0, min increase), ${c.maxEff}${ex})`,
     ],
     [
       "Uncapped increase",

@@ -70,7 +70,7 @@ export interface PlanningAssumptions {
   maxInhouseIncreasePct: number;
   /** How widely resident increases spread around the required average. */
   equalizationStrength: EqualizationStrength;
-  /** When false, a resident's new rate may never exceed their street rate. */
+  /** Legacy compatibility field. In-house rates are allowed above street. */
   allowInhouseAboveStreet: boolean;
   /**
    * Ceiling on how far the solver may push the street rate while looking for
@@ -95,7 +95,7 @@ export const DEFAULT_ASSUMPTIONS: PlanningAssumptions = {
   minInhouseIncreasePct: 0,
   maxInhouseIncreasePct: 8,
   equalizationStrength: "medium",
-  allowInhouseAboveStreet: false,
+  allowInhouseAboveStreet: true,
   maxStreetIncreasePct: 15,
   maxYoYStreetIncreasePct: 15,
 };
@@ -182,6 +182,8 @@ export interface BaselineQuarter extends QuarterRef {
   basis: QuarterBasis;
   monthsAvailable: number;
   monthsExpected: number;
+  /** Canonical YYYY-MM months that contributed qualifying planning rows. */
+  availableMonths?: string[];
   residentDays: number;
 }
 

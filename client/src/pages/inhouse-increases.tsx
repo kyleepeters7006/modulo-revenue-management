@@ -436,7 +436,6 @@ const ASSUMPTION_KEYS: Array<keyof PlanningAssumptions> = [
   "minInhouseIncreasePct",
   "maxInhouseIncreasePct",
   "equalizationStrength",
-  "allowInhouseAboveStreet",
   "maxStreetIncreasePct",
   "maxYoYStreetIncreasePct",
 ];
@@ -1275,24 +1274,6 @@ export default function InhouseIncreases() {
               </Select>
               <p className="text-[11px] leading-snug text-muted-foreground">
                 How much more the residents furthest below street get than those closest to it.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-3 rounded-md border p-3">
-            <Switch
-              id="allow-above-street"
-              data-testid="switch-allow-above-street"
-              checked={assumptions.allowInhouseAboveStreet}
-              onCheckedChange={(v) => update("allowInhouseAboveStreet", v)}
-            />
-            <div className="space-y-0.5">
-              <Label htmlFor="allow-above-street" className="text-sm font-medium">
-                Allow in-house rates above street
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                Off by default: a resident's rate stops at the street rate a new move-in would pay.
-                Turning this on lets long-stay residents be raised past it.
               </p>
             </div>
           </div>

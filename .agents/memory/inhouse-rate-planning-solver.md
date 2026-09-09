@@ -25,14 +25,18 @@ quarterly YoY growth.
 Resident increases vary within the configured minimum-to-maximum range based on
 each resident's variance to Street Rate. The maximum (for example, 9%) is an
 individual ceiling, not a percentage applied uniformly to every resident.
+Street Rate shapes the allocation curve but is never a resident-rate ceiling;
+an in-house rate may legitimately finish above Street Rate.
 
 **Why:** the product owner explicitly rejected applying the maximum to every
 in-house resident. Residents farther below Street Rate should receive larger
-increases, while residents near Street Rate receive less and may be capped by it.
+increases, but contracted in-house rates and new-move-in Street Rates are distinct
+products, so one must not cap the other.
 
 **How to apply:** preserve the equalization curve and per-resident Street Rate
-headroom. Do not reinterpret the maximum as a guaranteed portfolio average or
-as a flat increase.
+variance, while applying only the configured individual maximum as the upper
+bound. Ignore legacy saved values that attempted to disable above-street rates,
+and keep app, diagnostics, exports, and tests on the same policy.
 
 ## Solve against the target exactly; apply the reporting tolerance only afterwards
 

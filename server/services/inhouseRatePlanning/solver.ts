@@ -226,8 +226,7 @@ interface ResidentBounds {
 }
 
 function computeBounds(input: AllocationInput): ResidentBounds[] {
-  const { residents, minIncrease, maxIncrease, allowAboveStreet, streetMultiplier, strength } =
-    input;
+  const { residents, minIncrease, maxIncrease, streetMultiplier, strength } = input;
 
   const raw = residents.map((r) => {
     const effectiveStreet = r.streetRateMonthly > 0 ? r.streetRateMonthly * streetMultiplier : 0;
@@ -238,11 +237,9 @@ function computeBounds(input: AllocationInput): ResidentBounds[] {
           // configured maximum as the only bound rather than inventing one.
           maxIncrease;
 
-    // The may-not-exceed-street rule caps the increase at the headroom. When
-    // the rule is off, only the configured maximum binds.
-    const cap = allowAboveStreet ? maxIncrease : Math.min(maxIncrease, headroom);
-    const maxEffective = Math.max(0, cap);
-    // A configured minimum can never push a resident through the street cap.
+    // Street variance shapes the allocation but is not a ceiling: an existing
+    // resident's contracted rate may legitimately finish above current street.
+    const maxEffective = Math.max(0, maxIncrease);
     const minEffective = Math.min(Math.max(0, minIncrease), maxEffective);
     return { resident: r, headroom, minEffective, maxEffective, shape: 0 };
   });
@@ -350,10 +347,7 @@ function classify(
   value: number,
   input: AllocationInput,
 ): ResidentConstraint {
-  const streetBinds = !input.allowAboveStreet && b.headroom < input.maxIncrease - 1e-9;
-  if (streetBinds && b.headroom <= 1e-9) return "at_or_above_street";
   if (value >= b.maxEffective - 1e-9) {
-    if (streetBinds) return "street_cap";
     return "max";
   }
   if (value <= b.minEffective + 1e-9 && b.minEffective > 0) return "min";
@@ -439,7 +433,7 @@ function allocationFor(ctx: EvalContext, streetIncrease: number, avgIncrease: nu
     minIncrease: ctx.min,
     maxIncrease: ctx.max,
     strength: ctx.input.assumptions.equalizationStrength,
-    allowAboveStreet: ctx.input.assumptions.allowInhouseAboveStreet,
+    allowAboveStreet: true,
     streetMultiplier: streetActiveAtInhouse ? 1 + streetIncrease : 1,
   });
 }
@@ -788,7 +782,7 @@ function findMinimumMaxIncrease(
       minIncrease: Math.min(ctx.min, maxPct),
       maxIncrease: maxPct,
       strength: ctx.input.assumptions.equalizationStrength,
-      allowAboveStreet: ctx.input.assumptions.allowInhouseAboveStreet,
+      allowAboveStreet: true,
       streetMultiplier: streetActiveAtInhouse ? 1 + streetIncrease : 1,
     }).maxAvgIncrease;
 
@@ -816,7 +810,7 @@ function findMinimumStreetIncrease(ctx: EvalContext): number | null {
       minIncrease: ctx.min,
       maxIncrease: ctx.max,
       strength: ctx.input.assumptions.equalizationStrength,
-      allowAboveStreet: ctx.input.assumptions.allowInhouseAboveStreet,
+      allowAboveStreet: true,
       streetMultiplier: streetActiveAtInhouse ? 1 + g : 1,
     }).maxAvgIncrease;
     return worstMargin(ctx, projectFor(ctx, g, ceiling)).margin >= -PASS_EPSILON;

@@ -49,7 +49,7 @@ const assumptionsSchema = z.object({
   minInhouseIncreasePct: z.number().min(0).max(100),
   maxInhouseIncreasePct: z.number().min(0).max(100),
   equalizationStrength: z.enum(["low", "medium", "high"]),
-  allowInhouseAboveStreet: z.boolean(),
+  allowInhouseAboveStreet: z.boolean().optional().default(true),
   maxStreetIncreasePct: z.number().min(0).max(100),
   maxYoYStreetIncreasePct: z.number().min(0).max(100),
 }).refine((d) => d.minInhouseIncreasePct <= d.maxInhouseIncreasePct, {
@@ -72,7 +72,8 @@ function rowToAssumptions(row: any): PlanningAssumptions {
     minInhouseIncreasePct: Number(row.minInhouseIncreasePct),
     maxInhouseIncreasePct: Number(row.maxInhouseIncreasePct),
     equalizationStrength: row.equalizationStrength,
-    allowInhouseAboveStreet: Boolean(row.allowInhouseAboveStreet),
+    // Legacy saved false values no longer impose a resident-to-street ceiling.
+    allowInhouseAboveStreet: true,
     maxStreetIncreasePct: Number(row.maxStreetIncreasePct),
     maxYoYStreetIncreasePct: Number(
       row.maxYoYStreetIncreasePct ?? DEFAULT_ASSUMPTIONS.maxYoYStreetIncreasePct,
@@ -212,7 +213,7 @@ export function registerInhousePlanningRoutes(app: Express) {
         minInhouseIncreasePct: assumptions.minInhouseIncreasePct,
         maxInhouseIncreasePct: assumptions.maxInhouseIncreasePct,
         equalizationStrength: assumptions.equalizationStrength,
-        allowInhouseAboveStreet: assumptions.allowInhouseAboveStreet,
+        allowInhouseAboveStreet: true,
         maxStreetIncreasePct: assumptions.maxStreetIncreasePct,
         maxYoYStreetIncreasePct: assumptions.maxYoYStreetIncreasePct,
         updatedBy: req.session?.userId || null,

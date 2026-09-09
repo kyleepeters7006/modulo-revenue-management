@@ -675,7 +675,9 @@ async function checkScope(scope: { clientId: string; serviceLine: string; label:
   // it is not a valid probe when every movable resident already sits at max.
   const bumped = new ExcelJS.Workbook();
   await bumped.xlsx.load(buffer as any);
-  bumped.getWorksheet("Plan summary")!.getCell(`B${lambdaRow}`).value = audit.lambda * 0.5;
+  // Zero is guaranteed to move every row that is not held at a configured
+  // minimum, whereas halving can leave max-bound residents unchanged.
+  bumped.getWorksheet("Plan summary")!.getCell(`B${lambdaRow}`).value = 0;
   const ev2 = new Evaluator(bumped);
   const before = num(ev.cell("Resident detail", `${cIncrease}${firstDataRow}`));
   const after = num(ev2.cell("Resident detail", `${cIncrease}${firstDataRow}`));

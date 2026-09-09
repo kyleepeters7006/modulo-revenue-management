@@ -6,8 +6,7 @@
  *
  *   • turnover really moves the projection (0% vs 60% must differ)
  *   • min == max degenerates to a flat increase for everyone
- *   • the may-not-exceed-street rule genuinely zeroes residents at or above
- *     street, rather than quietly letting them through
+ *   • Street Rate shapes allocation but never caps an in-house increase
  *   • an unreachable target is reported as unreachable, with a named binding
  *     constraint and a concrete minimum change — never as a plan
  *   • effective dates are weighted by the part of the quarter they cover
@@ -105,7 +104,7 @@ function assumptions(overrides: Partial<PlanningAssumptions> = {}): PlanningAssu
     minInhouseIncreasePct: 0,
     maxInhouseIncreasePct: 8,
     equalizationStrength: "medium",
-    allowInhouseAboveStreet: false,
+    allowInhouseAboveStreet: true,
     maxStreetIncreasePct: 15,
     maxYoYStreetIncreasePct: 15,
     ...overrides,
@@ -245,7 +244,7 @@ console.log("\n-- 3. Minimum equals maximum: everyone with headroom gets the sam
 }
 
 // ── 4. Resident already AT street ──────────────────────────────────────────
-console.log("\n-- 4. A resident exactly at street receives nothing --");
+console.log("\n-- 4. A resident exactly at street may still receive an increase --");
 {
   const result = allocateIncreases({
     residents: [resident("AT", 5000, 5000), resident("BELOW", 4000, 5000)],
@@ -253,19 +252,18 @@ console.log("\n-- 4. A resident exactly at street receives nothing --");
     minIncrease: 0.01,
     maxIncrease: 0.1,
     strength: "medium",
-    allowAboveStreet: false,
+    allowAboveStreet: false, // legacy input is intentionally ignored
     streetMultiplier: 1,
   });
   const at = result.allocations.find((a) => a.resident.key === "AT")!;
   const below = result.allocations.find((a) => a.resident.key === "BELOW")!;
-  near("the at-street resident gets 0%", at.increase, 0, 1e-9);
-  ok("and is labelled as having no headroom", at.constraint === "at_or_above_street");
-  ok("the configured 1% minimum does NOT override the street cap", at.increase === 0);
+  ok("the at-street resident receives at least the configured minimum", at.increase >= 0.01);
+  ok("the at-street resident is not classified as blocked", at.constraint !== "at_or_above_street");
   ok("the below-street resident still gets an increase", below.increase > 0);
 }
 
 // ── 5. Resident ABOVE street ───────────────────────────────────────────────
-console.log("\n-- 5. A resident above street receives nothing and is never cut --");
+console.log("\n-- 5. A resident above street may still receive an increase --");
 {
   const result = allocateIncreases({
     residents: [resident("ABOVE", 5400, 5000), resident("BELOW", 4000, 5000)],
@@ -273,13 +271,13 @@ console.log("\n-- 5. A resident above street receives nothing and is never cut -
     minIncrease: 0.02,
     maxIncrease: 0.1,
     strength: "medium",
-    allowAboveStreet: false,
+    allowAboveStreet: false, // legacy input is intentionally ignored
     streetMultiplier: 1,
   });
   const above = result.allocations.find((a) => a.resident.key === "ABOVE")!;
-  near("the above-street resident gets 0%", above.increase, 0, 1e-9);
+  ok("the above-street resident receives an increase", above.increase > 0);
   ok("never a negative increase — planning does not cut rates", above.increase >= 0);
-  ok("labelled as having no headroom", above.constraint === "at_or_above_street");
+  ok("not labelled as blocked by street", above.constraint !== "at_or_above_street");
 
   const allowed = allocateIncreases({
     residents: [resident("ABOVE", 5400, 5000)],
@@ -290,9 +288,11 @@ console.log("\n-- 5. A resident above street receives nothing and is never cut -
     allowAboveStreet: true,
     streetMultiplier: 1,
   });
-  ok(
-    "with allow-above-street ON the same resident can be increased",
-    allowed.allocations[0].increase > 0,
+  near(
+    "legacy allow-above-street setting no longer changes the result",
+    allowed.allocations[0].increase,
+    0.05,
+    1e-9,
   );
 }
 
@@ -350,8 +350,8 @@ console.log("\n-- 7. An unreachable target is reported, not silently approximate
   );
 }
 
-// ── 7b. Impossible because nobody has headroom ─────────────────────────────
-console.log("\n-- 7b. A population with no headroom names the street cap --");
+// ── 7b. Impossible because the configured resident maximum is too low ──────
+console.log("\n-- 7b. Street position does not replace the resident maximum --");
 {
   const atStreet = [
     resident("A", 5000, 5000),
@@ -368,8 +368,8 @@ console.log("\n-- 7b. A population with no headroom names the street cap --");
   });
   ok("plan is infeasible", !result.feasible);
   ok(
-    "the binding constraint is a lack of headroom",
-    result.infeasibility?.bindingConstraint === "no_headroom",
+    "the binding constraint is the resident maximum, not Street Rate",
+    result.infeasibility?.bindingConstraint === "max_increase",
     `got ${result.infeasibility?.bindingConstraint}`,
   );
   ok(
@@ -431,7 +431,7 @@ console.log("\n-- 8. Effective dates are weighted by the part of the quarter the
     lateStreet.get("Q4 2027")! < early.get("Q4 2027")!,
   );
 
-  // A street date AFTER the in-house date cannot raise the in-house ceiling.
+  // A later street date does not impose a resident ceiling.
   const cappedLate = solvePlan({
     residents: [resident("A", 4900, 5000)],
     assumptions: assumptions({
@@ -445,8 +445,8 @@ console.log("\n-- 8. Effective dates are weighted by the part of the quarter the
     currentStreetRateMonthly: 5000,
   });
   ok(
-    "a street increase landing after the in-house date gives no extra headroom",
-    cappedLate.allocation.allocations[0].increase <= 5000 / 4900 - 1 + 1e-9,
+    "the resident may be raised above current street up to the configured maximum",
+    cappedLate.allocation.allocations[0].increase > 5000 / 4900 - 1,
     `increase=${cappedLate.allocation.allocations[0].increase}`,
   );
 }
@@ -575,11 +575,9 @@ console.log("\n-- 12. Resident allocation reconciles back to the required aggreg
       result.allocations.every((a) => a.increase <= 0.08 + 1e-9),
     );
     ok(
-      `${strength} equalization: nobody is pushed past street`,
+      `${strength} equalization: nobody is classified as blocked by Street Rate`,
       result.allocations.every(
-        (a) =>
-          a.resident.currentRateMonthly * (1 + a.increase) <=
-          Math.max(a.resident.streetRateMonthly, a.resident.currentRateMonthly) + 1e-6,
+        (a) => a.constraint !== "street_cap" && a.constraint !== "at_or_above_street",
       ),
     );
   }

@@ -324,7 +324,7 @@ export async function calculatePlanDetailed(
     streetMultiplierAtInhouse,
     minEffectiveFloor: assumptions.minInhouseIncreasePct / 100,
     maxEffectiveCeiling: assumptions.maxInhouseIncreasePct / 100,
-    allowAboveStreet: assumptions.allowInhouseAboveStreet,
+    allowAboveStreet: true,
     currentStreetRateMonthly,
     recommendedStreetRateMonthly: solved.recommendedStreetMonthly,
     monthlyRealized: monthly,
@@ -631,11 +631,6 @@ function explainPlan(ctx: {
   narrative.push(
     `Each quarter's projection is compared with the same quarter a year earlier. The quarter with the least cushion sets the answer${solved.bindingQuarterLabel ? ` — here that is ${solved.bindingQuarterLabel}` : ""}.`,
   );
-  if (summary.residentsBlockedByStreet > 0) {
-    narrative.push(
-      `${summary.residentsBlockedByStreet} of ${summary.residentCount} residents are held back by the street-rate ceiling rather than by the maximum increase. That is why the street rate and the in-house increase are solved together: lifting street is what creates room for them.`,
-    );
-  }
   if (!solved.feasible && solved.infeasibility) {
     narrative.push(solved.infeasibility.message);
   }
@@ -678,10 +673,20 @@ function buildWarnings(ctx: {
     );
   }
   if (partial.length > 0) {
+    const describePartial = (p: BaselineQuarter) => {
+      const expected = Array.from({ length: 3 }, (_, offset) => {
+        const month = (p.quarter - 1) * 3 + offset + 1;
+        return `${p.year}-${String(month).padStart(2, "0")}`;
+      });
+      const available = new Set(p.availableMonths ?? []);
+      const missing = expected.filter((month) => !available.has(month));
+      const missingLabel = missing.length > 0 ? `; no qualifying rows for ${missing.join(", ")}` : "";
+      return `${p.label} (${p.monthsAvailable} of 3 months${missingLabel})`;
+    };
     warnings.push(
       `Prior-year baseline for ${partial
-        .map((p) => `${p.label} (${p.monthsAvailable} of 3 months)`)
-        .join(", ")} is measured over an incomplete quarter.`,
+        .map(describePartial)
+        .join(", ")} is based only on months with qualifying imported planning rows.`,
     );
   }
   const untestable = ctx.quarters.filter((q) => {

@@ -581,13 +581,16 @@ export async function fetchMonthlyRealizedRates(
  * get projected separately.
  */
 export function rollMonthsIntoQuarters(months: MonthlyRealized[]): Map<string, BaselineQuarter> {
-  const acc = new Map<string, { ref: QuarterRef; revenue: number; days: number; months: number }>();
+  const acc = new Map<
+    string,
+    { ref: QuarterRef; revenue: number; days: number; monthKeys: Set<string> }
+  >();
   for (const m of months) {
     const ref = quarterOfMonthKey(m.month);
-    const cur = acc.get(ref.label) ?? { ref, revenue: 0, days: 0, months: 0 };
+    const cur = acc.get(ref.label) ?? { ref, revenue: 0, days: 0, monthKeys: new Set<string>() };
     cur.revenue += m.rateMonthly * m.residentDays;
     cur.days += m.residentDays;
-    cur.months += 1;
+    cur.monthKeys.add(m.month);
     acc.set(ref.label, cur);
   }
   const out = new Map<string, BaselineQuarter>();
@@ -595,9 +598,10 @@ export function rollMonthsIntoQuarters(months: MonthlyRealized[]): Map<string, B
     out.set(label, {
       ...v.ref,
       realizedRateMonthly: v.days > 0 ? v.revenue / v.days : null,
-      basis: v.months >= 3 ? "actual" : "partial",
-      monthsAvailable: v.months,
+      basis: v.monthKeys.size >= 3 ? "actual" : "partial",
+      monthsAvailable: v.monthKeys.size,
       monthsExpected: 3,
+      availableMonths: Array.from(v.monthKeys).sort(),
       residentDays: v.days,
     });
   }
