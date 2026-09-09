@@ -11,7 +11,11 @@ import { z } from "zod";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db, pool } from "../db";
 import { inhousePlanningAssumptions, inhouseRatePlans, locations } from "@shared/schema";
-import { DEFAULT_ASSUMPTIONS, type PlanningAssumptions } from "@shared/inhousePlanning";
+import {
+  DEFAULT_ASSUMPTIONS,
+  type PlanningAssumptions,
+  type StreetRateRecommendationSnapshot,
+} from "@shared/inhousePlanning";
 import {
   calculatePlan,
   calculatePlanDetailed,
@@ -80,20 +84,13 @@ const recommendationSchema = scopeSchema.extend({
   })).optional().default([]),
 });
 
-// Recommendations are intentionally short-lived session snapshots. They are
-// advisory display state, not a second pricing source of truth; accepted
-// proposals remain in the existing inhouse_rate_plans / adjustment-rules
-// lifecycle.
-const recommendationSnapshots = new Map<string, {
+type RecommendationSnapshot = StreetRateRecommendationSnapshot & {
   clientId: string;
   userId: string;
   locationId: string | null;
   serviceLine: string;
-  createdAt: string;
-  maximumPremiumAboveTopCompetitorPct: number;
-  assumptionsFingerprint: string;
-  recommendations: StreetRateRecommendation[];
-}>();
+};
+const recommendationSnapshots = new Map<string, RecommendationSnapshot>();
 const RECOMMENDATION_TTL_MS = 30 * 60 * 1000;
 
 function snapshotIsFresh(snapshot: { createdAt: string }): boolean {
@@ -111,7 +108,7 @@ function recommendationUserId(req: any): string {
   return String(req.session?.userId ?? req.user?.id ?? req.user?.username ?? "anonymous");
 }
 
-function recommendationSnapshotKey(
+export function recommendationSnapshotKey(
   clientId: string,
   userId: string,
   locationId: string | null,
@@ -120,6 +117,10 @@ function recommendationSnapshotKey(
   return `${clientId}::${userId}::${locationId ?? "all"}::${serviceLine}`;
 }
 
+function recommendationCreatedAt(value: unknown): string | null {
+  const date = value instanceof Date ? value : new Date(String(value ?? ""));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
 /** Rows come back snake_case from the driver; drizzle rows do not. */
 export function rowToAssumptions(row: any): PlanningAssumptions {
   return {
@@ -369,7 +370,7 @@ export function registerInhousePlanningRoutes(app: Express) {
    * Client edits are treated as proposals and are re-clamped against the
    * server's current benchmark and guardrails before rebalancing.
    */
-  app.post("/api/inhouse-planning/recommendations", requireAuth, async (req: any, res) => {
+  app.post("/api/inhouse-planning/recommendations", async (req: any, res) => {
     try {
       const clientId = req.clientId || "demo";
       const body = recommendationSchema.safeParse(req.body);
@@ -531,16 +532,14 @@ export function registerInhousePlanningRoutes(app: Express) {
     }
   });
 
-  app.get("/api/inhouse-planning/recommendations/latest", requireAuth, async (req: any, res) => {
+  app.get("/api/inhouse-planning/recommendations/latest", async (req: any, res) => {
     const clientId = req.clientId || "demo";
-    const userId = recommendationUserId(req);
     const locationId = (req.query.locationId as string) || null;
     const serviceLine = (req.query.serviceLine as string) || null;
     const requestedLocations = String(req.query.locations ?? "")
       .split(",").map((value) => value.trim()).filter(Boolean);
-    const snapshots = Array.from(recommendationSnapshots.values()).filter((snapshot) =>
+    const snapshots = (await recommendationSnapshotsForRequest(req)).filter((snapshot) =>
       snapshot.clientId === clientId &&
-      snapshot.userId === userId &&
       snapshotIsFresh(snapshot) &&
       (!locationId || snapshot.locationId === locationId) &&
       (!requestedLocations.length ||
@@ -565,7 +564,7 @@ export function registerInhousePlanningRoutes(app: Express) {
     });
   });
 
-  app.post("/api/inhouse-planning/recommendations/edit", requireAuth, async (req: any, res) => {
+  app.post("/api/inhouse-planning/recommendations/edit", async (req: any, res) => {
     const clientId = req.clientId || "demo";
     const body = z.object({
       id: z.string().min(1),
@@ -576,19 +575,14 @@ export function registerInhousePlanningRoutes(app: Express) {
     }).safeParse(req.body);
     if (!body.success) return res.status(400).json({ error: "Invalid recommendation edit" });
     let updated: StreetRateRecommendation | null = null;
-    const scopedSnapshot = recommendationSnapshots.get(
-      recommendationSnapshotKey(
-        clientId,
-        recommendationUserId(req),
-        body.data.locationId ?? null,
-        body.data.serviceLine,
-      ),
+    const availableSnapshots = await recommendationSnapshotsForRequest(req);
+    const scopedSnapshot = availableSnapshots.find((candidate) =>
+      candidate.locationId === (body.data.locationId ?? null) &&
+      candidate.serviceLine === body.data.serviceLine,
     );
     const snapshot = scopedSnapshot && snapshotIsFresh(scopedSnapshot)
       ? scopedSnapshot
-      : Array.from(recommendationSnapshots.values()).find((candidate) =>
-          candidate.clientId === clientId &&
-          candidate.userId === recommendationUserId(req) &&
+      : availableSnapshots.find((candidate) =>
           candidate.serviceLine === body.data.serviceLine &&
           snapshotIsFresh(candidate) &&
           candidate.recommendations.some((row) => row.id === body.data.id),
@@ -612,6 +606,20 @@ export function registerInhousePlanningRoutes(app: Express) {
       }
     }
     if (!updated) return res.status(404).json({ error: "Recommendation is no longer available" });
+    // Keep an edit available to a subsequent submit in this process. The
+    // proposal remains the durable audit record; a later generated set or
+    // replacement proposal supersedes this in-memory working copy.
+    if (snapshot) {
+      recommendationSnapshots.set(
+        recommendationSnapshotKey(
+          snapshot.clientId,
+          snapshot.userId,
+          snapshot.locationId,
+          snapshot.serviceLine,
+        ),
+        snapshot,
+      );
+    }
     res.setHeader("Cache-Control", "no-store");
     res.json({ recommendation: updated });
   });
@@ -659,17 +667,17 @@ export function registerInhousePlanningRoutes(app: Express) {
         assumptions,
       });
 
-      const snapshot = recommendationSnapshots.get(
-        recommendationSnapshotKey(
-          clientId,
-          recommendationUserId(req),
-          locationId,
-          body.data.serviceLine,
-        ),
+      const snapshot = (await recommendationSnapshotsForRequest(req)).find(
+        (candidate) =>
+          candidate.locationId === locationId &&
+          candidate.serviceLine === body.data.serviceLine,
       );
       const requestedPremium = body.data.maximumPremiumAboveTopCompetitorPct ?? snapshot?.maximumPremiumAboveTopCompetitorPct;
       const snapshotMatchesRequest = Boolean(
-        snapshot && snapshotIsFresh(snapshot) && requestedPremium != null &&
+        snapshot &&
+        snapshotIsFresh(snapshot) &&
+        requestedPremium != null &&
+        snapshot.assumptionsFingerprint &&
         recommendationFingerprint(assumptions, requestedPremium) === snapshot.assumptionsFingerprint,
       );
       if (body.data.recommendations.length > 0 && !snapshotMatchesRequest) {
@@ -687,7 +695,7 @@ export function registerInhousePlanningRoutes(app: Express) {
           saved.product,
         ) ?? exportBenchmark.benchmarkFor(saved.benchmarkLocation ?? saved.location, saved.serviceLine);
         const currentCap = top
-          ? (premiumCeiling(top.adjusted, usableSnapshot.maximumPremiumAboveTopCompetitorPct) ?? saved.currentStreetRate)
+          ? (premiumCeiling(top.adjusted, usableSnapshot.maximumPremiumAboveTopCompetitorPct ?? 0) ?? saved.currentStreetRate)
           : saved.currentStreetRate;
         const hardCeiling = Math.min(saved.hardCeiling, currentCap);
         const suggestedRate = Math.round(
@@ -775,17 +783,20 @@ export function registerInhousePlanningRoutes(app: Express) {
         });
       }
 
-      const snapshot = recommendationSnapshots.get(
-        recommendationSnapshotKey(
-          clientId,
-          recommendationUserId(req),
-          locationId,
-          body.data.serviceLine,
-        ),
+      const snapshot = (await recommendationSnapshotsForRequest(req)).find(
+        (candidate) =>
+          candidate.locationId === locationId &&
+          candidate.serviceLine === body.data.serviceLine,
       );
       const requestedPremium = body.data.maximumPremiumAboveTopCompetitorPct ?? snapshot?.maximumPremiumAboveTopCompetitorPct;
-      if (body.data.recommendations.length > 0 && (!snapshot || !snapshotIsFresh(snapshot) || requestedPremium == null ||
-          recommendationFingerprint(body.data.assumptions, requestedPremium) !== snapshot.assumptionsFingerprint)) {
+      if (
+        body.data.recommendations.length > 0 &&
+        (!snapshot ||
+          !snapshotIsFresh(snapshot) ||
+          requestedPremium == null ||
+          !snapshot.assumptionsFingerprint ||
+          recommendationFingerprint(body.data.assumptions, requestedPremium) !== snapshot.assumptionsFingerprint)
+      ) {
         throw new PlanningDataError("Street Rate recommendations expired. Re-run them before submitting.");
       }
       if (snapshot && body.data.recommendations.length > 0) {
@@ -798,7 +809,7 @@ export function registerInhousePlanningRoutes(app: Express) {
             saved.serviceLine,
             saved.product,
           ) ?? currentBenchmark.benchmarkFor(saved.benchmarkLocation ?? saved.location, saved.serviceLine);
-          const currentPremiumCap = currentTop
+          const currentPremiumCap = currentTop && snapshot.maximumPremiumAboveTopCompetitorPct != null
             ? (premiumCeiling(currentTop.adjusted, snapshot.maximumPremiumAboveTopCompetitorPct) ?? saved.currentStreetRate)
             : saved.currentStreetRate;
           const allowedCap = Math.max(saved.currentStreetRate, currentPremiumCap);
@@ -825,7 +836,18 @@ export function registerInhousePlanningRoutes(app: Express) {
         };
       });
       const persistedSummary = submittedRecommendations.length
-        ? { ...plan.summary, streetRateRecommendations: submittedRecommendations }
+        ? {
+            ...plan.summary,
+            streetRateRecommendations: submittedRecommendations,
+            streetRateRecommendationSnapshot: snapshot
+              ? {
+                  createdAt: snapshot.createdAt,
+                  maximumPremiumAboveTopCompetitorPct: snapshot.maximumPremiumAboveTopCompetitorPct,
+                  assumptionsFingerprint: snapshot.assumptionsFingerprint,
+                  recommendations: submittedRecommendations,
+                }
+              : undefined,
+          }
         : plan.summary;
 
       // Read-max, supersede and insert must be ONE transaction on ONE
@@ -869,7 +891,7 @@ export function registerInhousePlanningRoutes(app: Express) {
                        AND r.lifecycle_status = 'implemented'
                        AND r.is_active = true
                        AND r.is_historical IS NOT TRUE
-                  ) AS was_implemented
+                   ) AS was_implemented
              FROM inhouse_rate_plans p
             WHERE client_id = $1
               AND location_id IS NOT DISTINCT FROM $2
@@ -1015,6 +1037,8 @@ export function registerInhousePlanningRoutes(app: Express) {
         client.release();
       }
 
+      clearRecommendationSnapshotsForScope(clientId, locationId, body.data.serviceLine);
+
       // The proposal list is cached by Rule Administration. This is a
       // submission only (so do not schedule a pricing recalculation), but the
       // newly-created proposals must be visible immediately.
@@ -1073,4 +1097,121 @@ export function registerInhousePlanningRoutes(app: Express) {
       res.status(500).json({ error: "Failed to load plans" });
     }
   });
+}
+
+/**
+ * Plans are the durable snapshot store. Only proposed plans are eligible:
+ * once a proposal is published it is active pricing history, not a recurring
+ * advisory recommendation source. `applied_by` keeps one user's proposal
+ * from appearing in another user's review.
+ */
+export async function loadPersistedRecommendationSnapshots(
+  clientId: string,
+  userId: string,
+): Promise<RecommendationSnapshot[]> {
+  const result = await pool.query(
+    `SELECT id, location_id, service_line, summary, created_at
+       FROM inhouse_rate_plans
+      WHERE client_id = $1
+        AND applied_by = $2
+        AND status = 'proposed'
+      ORDER BY created_at DESC`,
+    [clientId, userId],
+  );
+  const snapshots: RecommendationSnapshot[] = [];
+  for (const row of result.rows) {
+    const snapshot = recommendationSnapshotFromPlan(row);
+    if (!snapshot || !snapshotIsFresh(snapshot)) continue;
+    snapshots.push({
+      ...snapshot,
+      clientId,
+      userId,
+      locationId: row.location_id ?? null,
+      serviceLine: row.service_line,
+    });
+  }
+  return snapshots;
+}
+
+function clearRecommendationSnapshotsForScope(
+  clientId: string,
+  locationId: string | null,
+  serviceLine: string,
+) {
+  for (const [key, snapshot] of Array.from(recommendationSnapshots.entries())) {
+    if (
+      snapshot.clientId === clientId &&
+      snapshot.locationId === locationId &&
+      snapshot.serviceLine === serviceLine
+    ) {
+      recommendationSnapshots.delete(key);
+    }
+  }
+}
+
+async function recommendationSnapshotsForRequest(req: any): Promise<RecommendationSnapshot[]> {
+  const clientId = req.clientId || "demo";
+  const userId = recommendationUserId(req);
+  const persisted = await loadPersistedRecommendationSnapshots(clientId, userId);
+  const memory = Array.from(recommendationSnapshots.values()).filter((snapshot) =>
+    snapshot.clientId === clientId &&
+    snapshot.userId === userId &&
+    snapshotIsFresh(snapshot),
+  );
+  // The in-memory copy is useful immediately after generation; the persisted
+  // copy wins when both exist because it reflects the saved proposal.
+  const newestByScope = new Map<string, RecommendationSnapshot>();
+  for (const snapshot of [...memory, ...persisted].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  )) {
+    const key = recommendationSnapshotKey(
+      snapshot.clientId,
+      snapshot.userId,
+      snapshot.locationId,
+      snapshot.serviceLine,
+    );
+    if (!newestByScope.has(key)) newestByScope.set(key, snapshot);
+  }
+  return Array.from(newestByScope.values());
+}
+
+function validRecommendations(value: unknown): value is StreetRateRecommendation[] {
+  return Array.isArray(value) && value.length > 0 && value.every((row) =>
+    row && typeof row === "object" &&
+    typeof (row as any).id === "string" &&
+    typeof (row as any).location === "string" &&
+    typeof (row as any).serviceLine === "string" &&
+    typeof (row as any).product === "string" &&
+    Number.isFinite(Number((row as any).suggestedRate)),
+  );
+}
+
+/**
+ * Read only the recommendation payload written with a saved proposal. The
+ * legacy array is still useful for reopening old proposals, but it has no
+ * premium/fingerprint metadata and is intentionally not accepted for a new
+ * export or submit operation.
+ */
+export function recommendationSnapshotFromPlan(row: any): StreetRateRecommendationSnapshot | null {
+  const summary = row?.summary && typeof row.summary === "object" ? row.summary : null;
+  const stored = summary?.streetRateRecommendationSnapshot;
+  const recommendations = validRecommendations(stored?.recommendations)
+    ? stored.recommendations
+    : validRecommendations(summary?.streetRateRecommendations)
+      ? summary.streetRateRecommendations
+      : null;
+  const createdAt = recommendationCreatedAt(stored?.createdAt ?? row?.created_at);
+  if (!recommendations || !createdAt) return null;
+  return {
+    createdAt,
+    maximumPremiumAboveTopCompetitorPct:
+      stored && Number.isFinite(Number(stored.maximumPremiumAboveTopCompetitorPct))
+        ? Number(stored.maximumPremiumAboveTopCompetitorPct)
+        : null,
+    assumptionsFingerprint:
+      stored && typeof stored.assumptionsFingerprint === "string"
+        ? stored.assumptionsFingerprint
+        : null,
+    recommendations,
+  };
 }

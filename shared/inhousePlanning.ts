@@ -15,6 +15,7 @@
  */
 
 import type { RateProduct } from "./rateProduct";
+import type { StreetRateRecommendation } from "./streetRateRecommendations";
 
 export type { RateProduct };
 
@@ -278,6 +279,24 @@ export interface PlanSummary {
   totalAnnualIncreaseDollars: number;
   currentAvgInhouseRateMonthly: number;
   newAvgInhouseRateMonthly: number;
+  /**
+   * The submitted Street Rate set is advisory evidence attached to this
+   * proposal. It is deliberately not part of the active pricing-rule state.
+   */
+  streetRateRecommendations?: StreetRateRecommendation[];
+  /**
+   * Metadata needed to reopen a submitted recommendation set safely after a
+   * process restart. Older proposals may have the array above without this
+   * metadata and are therefore display-only.
+   */
+  streetRateRecommendationSnapshot?: StreetRateRecommendationSnapshot;
+}
+
+export interface StreetRateRecommendationSnapshot {
+  createdAt: string;
+  maximumPremiumAboveTopCompetitorPct: number | null;
+  assumptionsFingerprint: string | null;
+  recommendations: StreetRateRecommendation[];
 }
 
 export interface PlanResult {

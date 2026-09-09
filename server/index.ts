@@ -27,8 +27,20 @@ app.set("trust proxy", 1);
 // sync receiver installs its own authenticated, compressed-body parser in
 // server/routes.ts after this middleware is skipped for that exact path.
 const productionSyncReceiverPath = "/api/admin/receive-production-sync";
+app.use((req, res, next) => {
+  if (req.path === productionSyncReceiverPath) return next();
+  return express.json()(req, res, next);
+});
+app.use(express.urlencoded({ extended: false }));
 
-  const isDevelopment = process.env.NODE_ENV !== "production";
+const sensitiveResponsePaths = new Set([
+  "/api/auth/mfa/setup",
+  "/api/auth/mfa/setup/confirm",
+  "/api/auth/mfa/challenge",
+  "/api/auth/mfa/recovery",
+  "/api/auth/mfa/recovery/regenerate",
+]);
+app.use((req, res, next) => {
   const start = Date.now();
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
@@ -42,7 +54,7 @@ const productionSyncReceiverPath = "/api/admin/receive-production-sync";
     const duration = Date.now() - start;
     if (req.path.startsWith("/api")) {
       let logLine = `${req.method} ${req.path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      if (capturedJsonResponse && !sensitiveResponsePaths.has(req.path)) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 
@@ -846,7 +858,7 @@ const productionSyncReceiverPath = "/api/admin/receive-production-sync";
     try {
       log("Starting room type normalization backfill (background task)...");
       const { backfillRoomTypes } = await import('./backfillRoomTypes');
-        const result = await geocodeMissingCompetitorSurveys();
+      const result = await backfillRoomTypes();
       if (result.success) {
         log(`Room type backfill completed: ${result.totalUpdated} types updated in ${result.duration}ms`);
       } else {
@@ -877,7 +889,7 @@ const productionSyncReceiverPath = "/api/admin/receive-production-sync";
       for (const { client_id } of clientsRes.rows) {
         try {
           log(`[elasticity-backfill] Computing elasticity for client=${client_id}…`);
-        const result = await geocodeMissingCompetitorSurveys();
+          const result = await computeAndStoreElasticity(client_id);
           log(`[elasticity-backfill] Done for client=${client_id}: ${result.updated} segments updated.`);
         } catch (err) {
           log(`[elasticity-backfill] Failed for client=${client_id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -1007,7 +1019,7 @@ const productionSyncReceiverPath = "/api/admin/receive-production-sync";
         log(`[startup] Cleared stale city-level coords for ${cleared} location(s) — will re-geocode with zip codes.`);
       }
 
-        const result = await geocodeMissingCompetitorSurveys();
+      const result = await geocodeMissingLocations();
       if (result.updated > 0 || result.failed > 0) {
         log(`[startup] Geocoded missing locations: ${result.updated} updated, ${result.failed} failed, ${result.skipped} skipped (no address).`);
       }

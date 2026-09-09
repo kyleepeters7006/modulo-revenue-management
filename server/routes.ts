@@ -810,6 +810,16 @@ async function securityRequestGate(req: any, res: any, next: any): Promise<void>
     return next();
   }
 
+  // These POST endpoints calculate advisory values only. They intentionally
+  // remain usable in anonymous demo mode; proposal submission has its own
+  // authentication requirement in the in-house planning router.
+  if ([
+    "/inhouse-planning/calculate",
+    "/inhouse-planning/recommendations",
+  ].includes(pathName)) {
+    return next();
+  }
+
   const methodChangesState = !["GET", "HEAD", "OPTIONS"].includes(req.method);
   const exportRequest = pathName.startsWith("/export/");
   const adminRequest = pathName.startsWith("/admin/");
