@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ChevronDown, ExternalLink, Info, RefreshCw, Upload } from "lucide-react";
+import { ArrowRight, ChevronDown, ExternalLink, Info, Maximize2, RefreshCw, Upload } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -375,13 +375,35 @@ export default function IndustryContext() {
 }
 
 function PeerGraphic({ isAdmin, uploading, fileRef, onFile, version }: { isAdmin: boolean; uploading: boolean; fileRef: MutableRefObject<HTMLInputElement | null>; onFile: (file: File) => void; version: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const imageUrl = `/api/industry-context/peer-graphic?v=${version}`;
+  const handleImageError = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    event.currentTarget.src = "/industry-peer-comparison.png";
+  };
+
   return (
-    <div className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] p-3 sm:col-span-2 lg:col-span-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]">Peer same-store revenue growth</p><p className="mt-1 text-xs text-[var(--dashboard-muted)]">Quarterly comparison across senior housing operators</p></div>
-        {isAdmin ? <><input ref={(node) => { fileRef.current = node; }} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} /><button type="button" disabled={uploading} onClick={() => fileRef.current?.click()} className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--dashboard-border)] px-2.5 py-1.5 text-xs font-medium hover:bg-white disabled:opacity-50"><Upload className="h-3.5 w-3.5" /> {uploading ? "Uploading…" : "Replace graphic"}</button></> : null}
+    <>
+      <div className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] p-3 sm:col-span-2 lg:col-span-3">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]">Peer same-store revenue growth</p><p className="mt-1 text-xs text-[var(--dashboard-muted)]">Quarterly comparison across senior housing operators</p></div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" onClick={() => setExpanded(true)} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--dashboard-border)] px-2.5 py-1.5 text-xs font-medium hover:bg-white"><Maximize2 className="h-3.5 w-3.5" /> Expand</button>
+            {isAdmin ? <><input ref={(node) => { fileRef.current = node; }} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} /><button type="button" disabled={uploading} onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--dashboard-border)] px-2.5 py-1.5 text-xs font-medium hover:bg-white disabled:opacity-50"><Upload className="h-3.5 w-3.5" /> {uploading ? "Uploading…" : "Replace graphic"}</button></> : null}
+          </div>
+        </div>
+        <img key={version} src={imageUrl} alt="Peer same-store revenue growth comparison" className="max-h-[360px] w-full object-contain object-left" onError={handleImageError} />
       </div>
-      <img key={version} src={`/api/industry-context/peer-graphic?v=${version}`} alt="Peer same-store revenue growth comparison" className="max-h-[360px] w-full object-contain object-left" onError={(event) => { event.currentTarget.src = "/industry-peer-comparison.png"; }} />
-    </div>
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent className="flex h-[92vh] w-[96vw] max-w-[96vw] flex-col">
+          <DialogHeader>
+            <DialogTitle>Peer same-store revenue growth</DialogTitle>
+            <DialogDescription>Quarterly comparison across senior housing operators</DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-auto rounded-lg bg-white p-4">
+            <img key={`expanded-${version}`} src={imageUrl} alt="Expanded peer same-store revenue growth comparison" className="h-full min-h-[520px] w-full object-contain object-center" onError={handleImageError} />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
