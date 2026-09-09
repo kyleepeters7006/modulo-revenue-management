@@ -878,6 +878,11 @@ export default function DataManagement() {
                 <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
                   <Clock className="w-3 h-3 shrink-0" />
                   <span>Last upload: {formatUploadTime(uploadSummary.rent_roll.lastUploadAt)}</span>
+                  {uploadSummary.rent_roll.lastFileName && (
+                    <span className="truncate max-w-[20rem]" title={uploadSummary.rent_roll.lastFileName}>
+                      {uploadSummary.rent_roll.lastFileName}
+                    </span>
+                  )}
                   {uploadSummary.rent_roll.periods.length > 0 && (
                     <button
                       onClick={() => setPeriodsDialog({ label: 'Rent Roll', periods: uploadSummary.rent_roll.periods, lastUploadAt: uploadSummary.rent_roll.lastUploadAt })}
@@ -1027,6 +1032,11 @@ export default function DataManagement() {
                 <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
                   <Clock className="w-3 h-3 shrink-0" />
                   <span>Last upload: {formatUploadTime(uploadSummary.inquiry_metrics.lastUploadAt)}</span>
+                  {uploadSummary.inquiry_metrics.lastFileName && (
+                    <span className="truncate max-w-[20rem]" title={uploadSummary.inquiry_metrics.lastFileName}>
+                      {uploadSummary.inquiry_metrics.lastFileName}
+                    </span>
+                  )}
                   {uploadSummary.inquiry_metrics.periods.length > 0 && (
                     <button
                       onClick={() => setPeriodsDialog({ label: 'Inquiry Data', periods: uploadSummary.inquiry_metrics.periods, lastUploadAt: uploadSummary.inquiry_metrics.lastUploadAt })}

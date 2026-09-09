@@ -143,7 +143,7 @@ export interface IStorage {
   generateRateCard(uploadMonth: string): Promise<void>;
   
   // Upload history
-  createUploadHistory(data: InsertUploadHistory): Promise<UploadHistory>;
+  createUploadHistory(data: InsertUploadHistory & { clientId: string }): Promise<UploadHistory>;
   
   // Calculation history
   createCalculationHistory(data: InsertCalculationHistory): Promise<CalculationHistory>;
@@ -1001,7 +1001,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Upload history
-  async createUploadHistory(data: InsertUploadHistory): Promise<UploadHistory> {
+  async createUploadHistory(data: InsertUploadHistory & { clientId: string }): Promise<UploadHistory> {
     const [history] = await db.insert(uploadHistory).values(data).returning();
     return history;
   }

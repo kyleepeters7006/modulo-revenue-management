@@ -2069,7 +2069,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.execute(sql.raw(`DELETE FROM rent_roll_history WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
       await db.execute(sql.raw(`DELETE FROM room_type_occupancy_history WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
       await db.execute(sql.raw(`DELETE FROM revenue_growth_targets WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
-      await db.execute(sql.raw(`DELETE FROM upload_history WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM upload_history WHERE client_id = 'demo' OR location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
       await db.execute(sql.raw(`DELETE FROM floor_plans WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
       await db.execute(sql.raw(`DELETE FROM campus_maps WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
       await db.execute(sql.raw(`DELETE FROM pricing_weights WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
@@ -2137,7 +2137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.execute(sql.raw(`DELETE FROM rent_roll_history WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
       await db.execute(sql.raw(`DELETE FROM room_type_occupancy_history WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
       await db.execute(sql.raw(`DELETE FROM revenue_growth_targets WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
-      await db.execute(sql.raw(`DELETE FROM upload_history WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
+      await db.execute(sql.raw(`DELETE FROM upload_history WHERE client_id = 'demo' OR location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
       await db.execute(sql.raw(`DELETE FROM floor_plans WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
       await db.execute(sql.raw(`DELETE FROM campus_maps WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
       await db.execute(sql.raw(`DELETE FROM pricing_weights WHERE location_id IN (SELECT id FROM locations WHERE client_id = 'demo')`));
@@ -6562,6 +6562,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const files = req.files as Express.Multer.File[];
       const { uploadType, region, division } = req.body;
+      const clientId = req.clientId || 'demo';
       
       let totalRecords = 0;
       let locationsCreated = 0;
@@ -6698,6 +6699,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           uploadType,
           location: locationName,
           locationId: location.id,
+          clientId,
           totalRecords: data.length,
         });
       }
@@ -10005,6 +10007,7 @@ ${campusOccLines.join('\n')}
         uploadMonth: uploadMonth,
         fileName: req.file.originalname,
         uploadType: 'rent_roll',
+        clientId,
         totalRecords: processedRecords.length
       });
 
@@ -10298,6 +10301,7 @@ ${campusOccLines.join('\n')}
         uploadMonth,
         fileName: req.file.originalname,
         uploadType: 'inquiry_metrics',
+        clientId,
         totalRecords: processedRecords.length
       });
 
@@ -27972,15 +27976,21 @@ Return ONLY valid JSON, no markdown fences:
     try {
       const clientId = req.clientId || 'demo';
 
-      // Rent Roll: derive periods from the tenant's authoritative current
-      // rows. upload_history has no client_id and previously leaked another
-      // tenant's periods into this dialog.
+      // Rent Roll periods come from the tenant's authoritative current rows.
+      // History metadata is queried separately and only owned rows are shown;
+      // legacy rows with no provable owner remain invisible here.
       const rrLast = await db
         .select({
-          lastUploadAt: sql<string>`MAX(${rentRollData.createdAt})`,
+          lastUploadAt: uploadHistory.processedAt,
+          lastFileName: uploadHistory.fileName,
         })
-        .from(rentRollData)
-        .where(eq(rentRollData.clientId, clientId));
+        .from(uploadHistory)
+        .where(and(
+          eq(uploadHistory.uploadType, 'rent_roll'),
+          eq(uploadHistory.clientId, clientId),
+        ))
+        .orderBy(desc(uploadHistory.processedAt))
+        .limit(1);
 
       const rrPeriods = await db
         .selectDistinct({ period: rentRollData.uploadMonth })
@@ -27990,14 +28000,25 @@ Return ONLY valid JSON, no markdown fences:
 
       // Inquiry: last upload + distinct periods
       const inqLast = await db
-        .select({ lastUploadAt: sql<string>`MAX(processed_at)` })
+        .select({
+          lastUploadAt: uploadHistory.processedAt,
+          lastFileName: uploadHistory.fileName,
+        })
         .from(uploadHistory)
-        .where(eq(uploadHistory.uploadType, 'inquiry_metrics'));
+        .where(and(
+          eq(uploadHistory.uploadType, 'inquiry_metrics'),
+          eq(uploadHistory.clientId, clientId),
+        ))
+        .orderBy(desc(uploadHistory.processedAt))
+        .limit(1);
 
       const inqPeriods = await db
         .selectDistinct({ period: uploadHistory.uploadMonth })
         .from(uploadHistory)
-        .where(eq(uploadHistory.uploadType, 'inquiry_metrics'))
+        .where(and(
+          eq(uploadHistory.uploadType, 'inquiry_metrics'),
+          eq(uploadHistory.clientId, clientId),
+        ))
         .orderBy(sql`${uploadHistory.uploadMonth} DESC`);
 
       // Competitor: from competitive_survey_data (not tracked in upload_history)
@@ -28055,11 +28076,12 @@ Return ONLY valid JSON, no markdown fences:
       res.json({
         rent_roll: {
           lastUploadAt: rrLast[0]?.lastUploadAt || null,
-          lastFileName: null,
+          lastFileName: rrLast[0]?.lastFileName || null,
           periods: rrPeriods.map(r => r.period).filter(Boolean),
         },
         inquiry_metrics: {
           lastUploadAt: inqLast[0]?.lastUploadAt || null,
+          lastFileName: inqLast[0]?.lastFileName || null,
           periods: inqPeriods.map(r => r.period).filter(Boolean),
         },
         competitors: {

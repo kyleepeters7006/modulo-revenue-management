@@ -322,6 +322,8 @@ export const uploadHistory = pgTable("upload_history", {
   uploadType: text("upload_type").notNull(), // 'rent_roll' or 'competitors'
   location: text("location"), // Which location this upload is for
   locationId: varchar("location_id").references(() => locations.id),
+  // Nullable for legacy rows that cannot be attributed to exactly one client.
+  clientId: varchar("client_id").references(() => clients.id),
   totalRecords: integer("total_records"),
   processedAt: timestamp("processed_at").defaultNow(),
 });

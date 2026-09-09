@@ -72,6 +72,45 @@ app.use((req, res, next) => {
     log(`[migration] lat/lng column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: upload history used to be global. Keep the owner
+  // nullable so rows that cannot be attributed safely remain anonymous, then
+  // backfill only rows whose location ownership identifies one client.
+  try {
+    await db.execute(sql`
+      ALTER TABLE upload_history
+        ADD COLUMN IF NOT EXISTS client_id varchar REFERENCES clients(id)
+    `);
+    await db.execute(sql`
+      UPDATE upload_history h
+      SET client_id = l.client_id
+      FROM locations l
+      WHERE h.client_id IS NULL
+        AND h.location_id = l.id
+        AND l.client_id IS NOT NULL
+    `);
+    await db.execute(sql`
+      WITH candidates AS (
+        SELECT h.id, MIN(l.client_id) AS client_id
+        FROM upload_history h
+        JOIN locations l
+          ON h.location_id IS NULL
+         AND h.location IS NOT NULL
+         AND lower(trim(h.location)) = lower(trim(l.name))
+        WHERE h.client_id IS NULL
+          AND l.client_id IS NOT NULL
+        GROUP BY h.id
+        HAVING COUNT(DISTINCT l.client_id) = 1
+      )
+      UPDATE upload_history h
+      SET client_id = candidates.client_id
+      FROM candidates
+      WHERE h.id = candidates.id
+    `);
+    log("[migration] upload_history.client_id ensured and attributable legacy rows backfilled");
+  } catch (migErr) {
+    log(`[migration] upload_history client ownership migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Idempotent migration: create care_level_rates table if it does not exist.
   // Defined in shared/schema.ts but never applied to the live database.
   try {
