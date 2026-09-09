@@ -509,6 +509,11 @@ async function verifyDatabaseReloadAndEligibility() {
     );
     assert.equal(restored.body.recommendations[0].id, "rec-campus-al");
     assert.equal(restored.body.createdAt, freshCreatedAt);
+    assert.equal(
+      restored.body.recommendations.some((recommendation: any) => recommendation.id === "rec-all-campus-al"),
+      false,
+      "a portfolio-wide proposal is not available for a campus-scoped request",
+    );
 
     const edited = await requestEdit(clientId, userId, {
       id: "rec-campus-al",
@@ -520,6 +525,50 @@ async function verifyDatabaseReloadAndEligibility() {
     assert.equal(edited.statusCode, 200, "a fresh persisted proposal can be edited after restart");
     assert.equal(edited.body.recommendation.suggestedRate, 4350);
     assert.equal(edited.body.recommendation.locked, true);
+
+    const portfolioRestored = await requestLatest(clientId, userId, {
+      serviceLine: "AL",
+    });
+    assert.equal(portfolioRestored.statusCode, 200);
+    assert.ok(
+      portfolioRestored.body.recommendations.some(
+        (recommendation: any) => recommendation.id === "rec-all-campus-al",
+      ),
+      "restart reload returns a portfolio-wide proposal when no campus scope is requested",
+    );
+
+    const portfolioEdited = await requestEdit(clientId, userId, {
+      id: "rec-all-campus-al",
+      serviceLine: "AL",
+      suggestedRate: 4350,
+      locked: true,
+    });
+    assert.equal(
+      portfolioEdited.statusCode,
+      200,
+      "a fresh portfolio-wide proposal can be edited after restart without a campus scope",
+    );
+    assert.equal(portfolioEdited.body.recommendation.suggestedRate, 4350);
+    assert.equal(portfolioEdited.body.recommendation.locked, true);
+
+    for (const [label, body] of [
+      [
+        "campus-scoped request",
+        { id: "rec-all-campus-al", locationId, serviceLine: "AL", suggestedRate: 4350 },
+      ],
+      [
+        "different service line",
+        { id: "rec-all-campus-al", serviceLine: "HC", suggestedRate: 4350 },
+      ],
+    ] as const) {
+      const unavailable = await requestEdit(clientId, userId, body);
+      assert.equal(
+        unavailable.statusCode,
+        404,
+        `${label} cannot edit the portfolio-wide recommendation`,
+      );
+      assert.equal(unavailable.body.error, "Recommendation is no longer available");
+    }
 
     for (const [label, requestClientId, requestUserId, query] of [
       ["different tenant", "__different-tenant__", userId, { locationId, serviceLine: "AL" }],
