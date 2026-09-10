@@ -21,7 +21,11 @@ import type {
   PlanningAssumptions,
   PlanningResident,
 } from "../shared/inhousePlanning";
-import { DEFAULT_ASSUMPTIONS } from "../shared/inhousePlanning";
+import {
+  DEFAULT_ASSUMPTIONS,
+  planAssumptionsMatch,
+  selectSubmittablePlans,
+} from "../shared/inhousePlanning";
 import {
   allocateIncreases,
   projectQuarterlyRealizedRates,
@@ -77,11 +81,12 @@ function resident(
   currentRate: number,
   streetRate: number,
   weight = 90,
+  serviceLine = "AL",
 ): PlanningResident {
   return {
     key: id,
     location: "Test Campus",
-    serviceLine: "AL",
+    serviceLine,
     roomNumber: id,
     roomType: "Studio",
     careLevel: null,
@@ -376,6 +381,84 @@ console.log("\n-- 7b. Street position does not replace the resident maximum --")
   ok(
     "a street increase is offered as the way out",
     (result.infeasibility?.minimumChange.streetIncreasePct ?? 0) > 0,
+  );
+}
+
+// ── 7c. Mixed service-line submission ─────────────────────────────────────
+console.log("\n-- 7c. One infeasible service line does not block a valid submission --");
+{
+  const feasibleAssumptions = assumptions({ rateGrowthTargetPct: 5 });
+  const infeasibleAssumptions = assumptions({
+    rateGrowthTargetPct: 20,
+    maxInhouseIncreasePct: 1,
+  });
+  const common = {
+    baselineByQuarter: flatBaseline(4200),
+    quarters: QUARTERS,
+    anchorMs: ANCHOR_MS,
+    currentStreetRateMonthly: 5000,
+  };
+  const calculated = [
+    {
+      sl: "AL",
+      plan: {
+        ...solvePlan({
+          ...common,
+          residents: roomyPopulation().map((r) => ({ ...r, serviceLine: "AL" })),
+          assumptions: feasibleAssumptions,
+        }),
+        assumptions: feasibleAssumptions,
+      },
+    },
+    {
+      sl: "MC",
+      plan: {
+        ...solvePlan({
+          ...common,
+          residents: roomyPopulation().map((r) => ({ ...r, serviceLine: "MC" })),
+          assumptions: infeasibleAssumptions,
+        }),
+        assumptions: infeasibleAssumptions,
+      },
+    },
+  ];
+  const submittable = selectSubmittablePlans(calculated);
+  const hasMixedWarning = calculated.some(({ plan }) => !plan.feasible) && submittable.length > 0;
+
+  ok("the mixed fixture has one feasible line", calculated.filter(({ plan }) => plan.feasible).length === 1);
+  ok("the mixed fixture has one infeasible line", calculated.filter(({ plan }) => !plan.feasible).length === 1);
+  ok(
+    "only the feasible service line is selected for submission",
+    submittable.length === 1 && submittable[0].sl === "AL",
+  );
+  ok("the warning is shown when valid requests remain alongside an infeasible line", hasMixedWarning);
+  ok("the submitted count matches the requests that would be sent", submittable.length === 1);
+
+  const changedAssumptions = { ...feasibleAssumptions, maxInhouseIncreasePct: 7 };
+  ok(
+    "changed assumptions make the existing feasible result stale",
+    !planAssumptionsMatch(calculated[0].plan.assumptions, changedAssumptions),
+  );
+  const recalculated = {
+    sl: "AL",
+    plan: {
+      ...solvePlan({
+        ...common,
+        residents: roomyPopulation().map((r) => ({ ...r, serviceLine: "AL" })),
+        assumptions: changedAssumptions,
+      }),
+      assumptions: changedAssumptions,
+    },
+  };
+  ok("recalculation replaces the stale result", recalculated.plan !== calculated[0].plan);
+  ok(
+    "the refreshed result matches the current assumptions",
+    planAssumptionsMatch(recalculated.plan.assumptions, changedAssumptions),
+  );
+  ok(
+    "submission is re-enabled after recalculation when the valid line remains feasible",
+    selectSubmittablePlans([recalculated, calculated[1]]).length === 1 &&
+      recalculated.plan.feasible,
   );
 }
 

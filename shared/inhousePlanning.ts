@@ -356,6 +356,44 @@ export interface PlanResult {
   warnings: string[];
 }
 
+/**
+ * The fields that make a calculated plan safe to submit. Keep this list
+ * aligned with the inputs sent to the calculator; legacy compatibility fields
+ * that do not change the solver result intentionally stay out.
+ */
+export const SUBMISSION_ASSUMPTION_KEYS: Array<keyof PlanningAssumptions> = [
+  "rateGrowthTargetPct",
+  "measurementMode",
+  "streetRateEffectiveDate",
+  "inhouseEffectiveDate",
+  "annualTurnoverPct",
+  "minInhouseIncreasePct",
+  "maxInhouseIncreasePct",
+  "equalizationStrength",
+  "maxStreetIncreasePct",
+  "maxYoYStreetIncreasePct",
+];
+
+export function planAssumptionsMatch(
+  calculated: PlanningAssumptions,
+  current: PlanningAssumptions,
+): boolean {
+  return SUBMISSION_ASSUMPTION_KEYS.every((key) => calculated[key] === current[key]);
+}
+
+export interface PlanSubmissionCandidate {
+  sl: string;
+  plan: Pick<PlanResult, "feasible" | "assumptions">;
+}
+
+/**
+ * A multi-line calculation can contain both valid and infeasible results.
+ * Only feasible lines may be sent to the apply endpoint.
+ */
+export function selectSubmittablePlans<T extends PlanSubmissionCandidate>(plans: T[]): T[] {
+  return plans.filter(({ plan }) => plan.feasible);
+}
+
 /** Quarter label used everywhere: "Q3 2026". */
 export function quarterLabel(year: number, quarter: number): string {
   return `Q${quarter} ${year}`;

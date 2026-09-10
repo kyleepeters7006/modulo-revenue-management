@@ -40,6 +40,10 @@ import {
   writeInhousePlan,
 } from "@/lib/inhousePlanStorage";
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
+import {
+  planAssumptionsMatch,
+  selectSubmittablePlans,
+} from "@shared/inhousePlanning";
 import type {
   InhousePlanHistoryEntry,
   StreetRateReviewStatus,
@@ -455,23 +459,6 @@ function isStoredPlan(value: unknown): value is PlanWithSl {
     Array.isArray(plan.residents) &&
     Array.isArray(plan.warnings)
   );
-}
-
-const ASSUMPTION_KEYS: Array<keyof PlanningAssumptions> = [
-  "rateGrowthTargetPct",
-  "measurementMode",
-  "streetRateEffectiveDate",
-  "inhouseEffectiveDate",
-  "annualTurnoverPct",
-  "minInhouseIncreasePct",
-  "maxInhouseIncreasePct",
-  "equalizationStrength",
-  "maxStreetIncreasePct",
-  "maxYoYStreetIncreasePct",
-];
-
-function assumptionsMatch(a: PlanningAssumptions, b: PlanningAssumptions): boolean {
-  return ASSUMPTION_KEYS.every((key) => a[key] === b[key]);
 }
 
 export default function InhouseIncreases() {
@@ -950,12 +937,12 @@ export default function InhouseIncreases() {
   const applyPlan = useMutation({
     mutationFn: async () => {
       const currentPlans = plans ?? [];
-      const submittablePlans = currentPlans.filter(({ plan }) => plan.feasible);
+      const submittablePlans = selectSubmittablePlans(currentPlans);
       if (submittablePlans.length === 0) {
         throw new Error("No service lines currently reach the target. Recalculate after adjusting the assumptions.");
       }
       const hasChangedAssumptions = submittablePlans.some(
-        ({ sl, plan }) => !assumptionsMatch(plan.assumptions, assumptionsForLine(sl)),
+        ({ sl, plan }) => !planAssumptionsMatch(plan.assumptions, assumptionsForLine(sl)),
       );
       if (hasChangedAssumptions) {
         throw new Error("These results were calculated with different assumptions. Recalculate the plan before submitting it.");
@@ -1062,7 +1049,7 @@ export default function InhouseIncreases() {
   }
 
   const hasChangedPlanAssumptions = !!plans?.some(
-    ({ sl, plan }) => !assumptionsMatch(plan.assumptions, assumptionsForLine(sl)),
+    ({ sl, plan }) => !planAssumptionsMatch(plan.assumptions, assumptionsForLine(sl)),
   );
 
   const rangeError =
