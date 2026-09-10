@@ -1,10 +1,9 @@
 /**
- * Applied in-house increase plans, indexed per unit for the Reference Data grid.
+ * In-house increase plans, indexed per unit for the Reference Data grid.
  *
  * Calculating a plan never writes; applying it inserts an immutable version into
- * `inhouse_rate_plans`. Only those applied versions are surfaced here — an
- * un-applied preview is not a rate anybody agreed to, so it must not appear
- * beside the rule rates operators price from.
+ * `inhouse_rate_plans`. Applied and proposed versions are loaded separately so
+ * Reference Data can show recommendations without treating them as served rates.
  */
 import { pool } from "../../db";
 
@@ -72,13 +71,16 @@ export function unitKey(
 }
 
 /**
- * Load every applied plan for a client and flatten it to one entry per unit.
+ * Load plans in one lifecycle status and flatten them to one entry per unit.
  *
  * Plans are replayed oldest-first so that when two plans cover the same room —
  * a portfolio-wide plan and a later campus-specific one, say — the most
  * recently applied plan wins. `status = 'applied'` excludes superseded versions.
  */
-export async function loadAppliedPlanRates(clientId: string): Promise<AppliedPlanIndex> {
+async function loadPlanRates(
+  clientId: string,
+  status: "applied" | "proposed",
+): Promise<AppliedPlanIndex> {
   if (!clientId) return EMPTY;
 
   let res;
@@ -86,14 +88,14 @@ export async function loadAppliedPlanRates(clientId: string): Promise<AppliedPla
     res = await pool.query(
       `SELECT id, location, service_line, version, inhouse_effective_date, residents
          FROM inhouse_rate_plans
-        WHERE client_id = $1 AND status = 'applied'
+        WHERE client_id = $1 AND status = $2
         ORDER BY created_at ASC, version ASC`,
-      [clientId],
+      [clientId, status],
     );
   } catch (err: any) {
     // The grid must still render if this table is missing or unreadable; the
     // annual-increase columns simply stay empty.
-    console.warn(`[applied-plan-rates] skipped: ${err?.message ?? err}`);
+    console.warn(`[${status}-plan-rates] skipped: ${err?.message ?? err}`);
     return EMPTY;
   }
 
@@ -151,10 +153,19 @@ export async function loadAppliedPlanRates(clientId: string): Promise<AppliedPla
   }
 
   if (skipped > 0) {
-    console.warn(`[applied-plan-rates] skipped ${skipped} resident(s) with incomplete rate figures`);
+    console.warn(`[${status}-plan-rates] skipped ${skipped} resident(s) with incomplete rate figures`);
   }
 
   return { byUnit, isEmpty: byUnit.size === 0, scopes };
+}
+
+export async function loadAppliedPlanRates(clientId: string): Promise<AppliedPlanIndex> {
+  return loadPlanRates(clientId, "applied");
+}
+
+/** Submitted recommendations that are not yet live. */
+export async function loadRecommendedPlanRates(clientId: string): Promise<AppliedPlanIndex> {
+  return loadPlanRates(clientId, "proposed");
 }
 
 /** Running total for one Reference Data group. */

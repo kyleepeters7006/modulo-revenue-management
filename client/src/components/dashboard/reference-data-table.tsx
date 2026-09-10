@@ -254,6 +254,17 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
+    id: "ihRecommendation",
+    label: "Annual Increase (Recommended)",
+    cols: [
+      { key: "ihRecommendationNewRate", label: "Recommended IH Rate", type: "money", w: 110, tip: "Resident-weighted in-house rate from the latest submitted plan recommendation. It remains advisory until the plan is implemented." },
+      { key: "ihRecommendationDeltaDollar", label: "Δ$ vs Current IH", type: "moneysigned", w: 100, tip: "Recommended average increase per covered resident, in the same daily/monthly basis as Current IH." },
+      { key: "ihRecommendationDeltaPct", label: "Δ% vs Current IH", type: "pctfracsigned", w: 100, tip: "Recommended total increase divided by the covered residents' current in-house rate." },
+      { key: "ihRecommendationResidents", label: "Residents", type: "int", w: 78, tip: "Residents covered by the latest submitted recommendation." },
+      { key: "ihRecommendationMonthlyImpact", label: "Monthly Impact", type: "moneysigned", w: 100, tip: "Combined monthly revenue increase if the recommendation is implemented." },
+    ],
+  },
+  {
     id: "ihPlan",
     label: "Annual Increase (Applied)",
     cols: [
@@ -479,37 +490,33 @@ function aggregateRows(
     };
     for (const k of AGG_CAMPUS_WAVG_KEYS) out[k] = dedupeWavg(byCampus, (r) => r[k]);
     for (const k of AGG_CAMPUS_SL_WAVG_KEYS) out[k] = dedupeWavg(byCampusSL, (r) => r[k]);
-    // Applied annual increase — re-derived from summed components, never by
-    // averaging the child averages. An increase only covers OCCUPIED rooms, so
-    // the weight is residents covered; weighting by total units would dilute
-    // the rate with vacant rooms the plan never touched. Rows with no coverage
-    // contribute nothing rather than a zero.
+    // Recommended and applied annual increases are re-derived independently
+    // from their covered residents. Never mix an advisory recommendation into
+    // the live/applied fields.
     {
-      // Two different bases are in play and must never be mixed. The rate and
-      // Δ$ columns are in the DISPLAY basis (dollars per day for HC/HC-MC,
-      // per month for senior housing), matching the in-house rate columns.
-      // Monthly Impact is always per month. Summing the daily delta into the
-      // monthly figure understates HC impact by ~30x, so they are tracked apart.
-      let residents = 0, newSum = 0, curSum = 0, displayDeltaSum = 0, monthlyImpactSum = 0;
-      let effDate: string | null = null;
-      for (const r of rs) {
-        const n = Number(r.ihPlanResidents ?? 0);
-        if (!n) continue;
-        residents += n;
-        if (r.ihPlanNewRate !== null && r.ihPlanNewRate !== undefined) newSum += Number(r.ihPlanNewRate) * n;
-        if (r.ihPlanCurrentRate !== null && r.ihPlanCurrentRate !== undefined) curSum += Number(r.ihPlanCurrentRate) * n;
-        if (r.ihPlanDeltaDollar !== null && r.ihPlanDeltaDollar !== undefined) displayDeltaSum += Number(r.ihPlanDeltaDollar) * n;
-        if (r.ihPlanMonthlyImpact !== null && r.ihPlanMonthlyImpact !== undefined) monthlyImpactSum += Number(r.ihPlanMonthlyImpact);
-        if (effDate === null && r.ihPlanEffectiveDate) effDate = r.ihPlanEffectiveDate;
-      }
-      out.ihPlanResidents = residents || null;
-      out.ihPlanNewRate = residents ? newSum / residents : null;
-      out.ihPlanCurrentRate = residents ? curSum / residents : null;
-      out.ihPlanDeltaDollar = residents ? displayDeltaSum / residents : null;
-      // Both sides in the display basis, so the ratio is basis-independent.
-      out.ihPlanDeltaPct = curSum > 0 ? displayDeltaSum / curSum : null;
-      out.ihPlanMonthlyImpact = residents ? monthlyImpactSum : null;
-      out.ihPlanEffectiveDate = effDate;
+      const rollupPlan = (prefix: "ihPlan" | "ihRecommendation") => {
+        let residents = 0, newSum = 0, curSum = 0, displayDeltaSum = 0, monthlyImpactSum = 0;
+        let effDate: string | null = null;
+        for (const r of rs) {
+          const n = Number(r[`${prefix}Residents`] ?? 0);
+          if (!n) continue;
+          residents += n;
+          if (r[`${prefix}NewRate`] != null) newSum += Number(r[`${prefix}NewRate`]) * n;
+          if (r[`${prefix}CurrentRate`] != null) curSum += Number(r[`${prefix}CurrentRate`]) * n;
+          if (r[`${prefix}DeltaDollar`] != null) displayDeltaSum += Number(r[`${prefix}DeltaDollar`]) * n;
+          if (r[`${prefix}MonthlyImpact`] != null) monthlyImpactSum += Number(r[`${prefix}MonthlyImpact`]);
+          if (effDate === null && r[`${prefix}EffectiveDate`]) effDate = r[`${prefix}EffectiveDate`];
+        }
+        out[`${prefix}Residents`] = residents || null;
+        out[`${prefix}NewRate`] = residents ? newSum / residents : null;
+        out[`${prefix}CurrentRate`] = residents ? curSum / residents : null;
+        out[`${prefix}DeltaDollar`] = residents ? displayDeltaSum / residents : null;
+        out[`${prefix}DeltaPct`] = curSum > 0 ? displayDeltaSum / curSum : null;
+        out[`${prefix}MonthlyImpact`] = residents ? monthlyImpactSum : null;
+        out[`${prefix}EffectiveDate`] = effDate;
+      };
+      rollupPlan("ihPlan");
+      rollupPlan("ihRecommendation");
     }
     // % impact recomputed from summed components (never average %s): summed
     // move-ins-based monthly impact ÷ summed current in-house revenue

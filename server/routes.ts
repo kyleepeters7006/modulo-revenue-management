@@ -27222,17 +27222,23 @@ Return ONLY valid JSON, no markdown fences:
       // rooms are covered, so the group average is over covered residents and
       // `ihPlanResidents` publishes that coverage rather than implying it.
       const {
-        loadAppliedPlanRates, unitKey: planUnitKey, newPlanGroupAccumulator,
+        loadAppliedPlanRates, loadRecommendedPlanRates, unitKey: planUnitKey, newPlanGroupAccumulator,
         addToPlanGroup, finalizePlanGroup,
       } = await import('./services/inhouseRatePlanning/appliedPlanRates');
-      const appliedPlans = await loadAppliedPlanRates(clientId);
+      const [appliedPlans, recommendedPlans] = await Promise.all([
+        loadAppliedPlanRates(clientId),
+        loadRecommendedPlanRates(clientId),
+      ]);
       const planGroupMap = new Map<string, ReturnType<typeof newPlanGroupAccumulator>>();
-      if (!appliedPlans.isEmpty) {
+      const recommendationGroupMap = new Map<string, ReturnType<typeof newPlanGroupAccumulator>>();
+      if (!appliedPlans.isEmpty || !recommendedPlans.isEmpty) {
         // Map each covered room to its Reference Data group. Room types must go
         // through room_type_groupings exactly as the aggregate SQL does, or the
         // branded group names ("Legacy Lane - Studio") never match.
         const { parseFlexibleDate } = await import('./services/inhouseRatePlanning/dates');
-        const planScopeSls = Array.from(new Set(appliedPlans.scopes.map(s => s.serviceLine)));
+        const planScopeSls = Array.from(new Set(
+          [...appliedPlans.scopes, ...recommendedPlans.scopes].map(s => s.serviceLine),
+        ));
         const planRoomsRes = await pool.query(
           `SELECT rr.location, rr.service_line, rr.room_number, rr.move_in_date,
                   rr.room_type AS raw_room_type,
@@ -27259,13 +27265,20 @@ Return ONLY valid JSON, no markdown fences:
         // silently inflates coverage past the number of occupied rooms when a
         // room number is reused. Driving from the plan makes double-counting
         // structurally impossible: each resident contributes exactly once.
-        for (const [k, rate] of Array.from(appliedPlans.byUnit.entries())) {
-          const gk = keyToGroup.get(k);
-          if (!gk) continue; // resident no longer in the current rent roll
-          let acc = planGroupMap.get(gk);
-          if (!acc) { acc = newPlanGroupAccumulator(); planGroupMap.set(gk, acc); }
-          addToPlanGroup(acc, rate);
-        }
+        const groupRates = (
+          rates: typeof appliedPlans,
+          target: Map<string, ReturnType<typeof newPlanGroupAccumulator>>,
+        ) => {
+          for (const [k, rate] of Array.from(rates.byUnit.entries())) {
+            const gk = keyToGroup.get(k);
+            if (!gk) continue;
+            let acc = target.get(gk);
+            if (!acc) { acc = newPlanGroupAccumulator(); target.set(gk, acc); }
+            addToPlanGroup(acc, rate);
+          }
+        };
+        groupRates(appliedPlans, planGroupMap);
+        groupRates(recommendedPlans, recommendationGroupMap);
       }
 
       const rows = Array.from(comboMap.values()).map(c => {
@@ -27333,6 +27346,9 @@ Return ONLY valid JSON, no markdown fences:
         }
         // Applied annual increase for this group, if any.
         const planFields = finalizePlanGroup(planGroupMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`));
+        const recommendationFields = finalizePlanGroup(
+          recommendationGroupMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`),
+        );
 
         // Final precedence: a manual override still wins over everything; below
         // it an applied increase takes over from the rule rate, because for an
@@ -27558,6 +27574,14 @@ Return ONLY valid JSON, no markdown fences:
           // Applied annual in-house increase. `ihPlanNewRate` is an average over
           // covered residents only — `ihPlanResidents` is the coverage count.
           ...planFields,
+          // Latest submitted recommendation remains advisory until implemented.
+          ihRecommendationNewRate: recommendationFields.ihPlanNewRate,
+          ihRecommendationCurrentRate: recommendationFields.ihPlanCurrentRate,
+          ihRecommendationDeltaDollar: recommendationFields.ihPlanDeltaDollar,
+          ihRecommendationDeltaPct: recommendationFields.ihPlanDeltaPct,
+          ihRecommendationResidents: recommendationFields.ihPlanResidents,
+          ihRecommendationMonthlyImpact: recommendationFields.ihPlanMonthlyImpact,
+          ihRecommendationEffectiveDate: recommendationFields.ihPlanEffectiveDate,
           // True when Final is showing the increase rather than a rule rate, so
           // the grid can label the two apart.
           finalFromPlan: manualRate === null && planFields.ihPlanNewRate !== null,
@@ -27790,10 +27814,17 @@ Return ONLY valid JSON, no markdown fences:
       // Applied annual in-house increases, per unit. Same precedence as the
       // grouped endpoint: below a manual override, an applied increase takes
       // over Final for the occupied rooms it covers.
-      const { loadAppliedPlanRates: loadPlansForUnits, unitKey: planUnitKeyForUnits } =
+      const {
+        loadAppliedPlanRates: loadPlansForUnits,
+        loadRecommendedPlanRates: loadRecommendationsForUnits,
+        unitKey: planUnitKeyForUnits,
+      } =
         await import('./services/inhouseRatePlanning/appliedPlanRates');
       const { parseFlexibleDate: parsePlanMoveIn } = await import('./services/inhouseRatePlanning/dates');
-      const unitPlanIndex = await loadPlansForUnits(clientId);
+      const [unitPlanIndex, unitRecommendationIndex] = await Promise.all([
+        loadPlansForUnits(clientId),
+        loadRecommendationsForUnits(clientId),
+      ]);
 
       // Average street rate per group — the JS twin of the grouped
       // reference-data endpoint's
@@ -28039,6 +28070,12 @@ Return ONLY valid JSON, no markdown fences:
               r.source_room_type ?? null, parsePlanMoveIn(r.move_in_date),
             )) ?? null
           : null;
+        const unitRecommendation = r.room_number
+          ? unitRecommendationIndex.byUnit.get(planUnitKeyForUnits(
+              r.campus, r.service_line, String(r.room_number),
+              r.source_room_type ?? null, parsePlanMoveIn(r.move_in_date),
+            )) ?? null
+          : null;
         const proposed = manualOverride ?? unitPlan?.newRate ?? num(r.proposed_rate) ?? rulePreviewMap.get(unitGroupKey) ?? null;
         return {
           division: r.division,
@@ -28078,6 +28115,13 @@ Return ONLY valid JSON, no markdown fences:
           // revenue impact by ~30x. Detail must sum to the grouped figure.
           ihPlanMonthlyImpact: unitPlan?.increaseDollarsMonthly ?? null,
           ihPlanEffectiveDate: unitPlan?.inhouseEffectiveDate ?? null,
+          ihRecommendationNewRate: unitRecommendation?.newRate ?? null,
+          ihRecommendationCurrentRate: unitRecommendation?.currentRate ?? null,
+          ihRecommendationDeltaDollar: unitRecommendation?.increaseDollars ?? null,
+          ihRecommendationDeltaPct: unitRecommendation?.increasePct ?? null,
+          ihRecommendationResidents: unitRecommendation ? 1 : null,
+          ihRecommendationMonthlyImpact: unitRecommendation?.increaseDollarsMonthly ?? null,
+          ihRecommendationEffectiveDate: unitRecommendation?.inhouseEffectiveDate ?? null,
           finalFromPlan: manualOverride === null && unitPlan !== null,
           ...((): { revT3MoveIns: number | null; revMonthlyImpact: number | null; revAnnualImpact: number | null } => {
             const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;

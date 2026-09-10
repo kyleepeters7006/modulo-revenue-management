@@ -10,6 +10,18 @@ columns, and take over the **Final** rate for the occupied rooms they cover.
 Precedence for Final is: manual override → applied increase → stored rule rate
 → rule preview.
 
+Submitted but not-yet-implemented plans surface in a separate **Recommended**
+column group. They use the same resident identity and aggregation math, but must
+never take over Final or be labelled applied.
+
+**Why:** operators need recommendations in Reference Data before implementation,
+but presenting an unapproved plan as the served rate removes the lifecycle
+distinction and makes audit status ambiguous.
+
+**How to apply:** load proposed and applied plan indexes separately, map both
+through the same raw-room-type identity, and invalidate Reference Data when a
+proposal is submitted so the recommendation appears immediately.
+
 ## A room number is NOT a resident identity
 
 The same room number appears under **several different room types** at one
