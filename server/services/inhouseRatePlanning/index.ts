@@ -240,6 +240,7 @@ export async function calculatePlanDetailed(
     );
   }
 
+  const daily = isDailyRateServiceLine(input.serviceLine);
   const solved = solvePlan({
     residents,
     assumptions,
@@ -249,9 +250,9 @@ export async function calculatePlanDetailed(
     currentStreetRateMonthly,
     priorJanuaryStreetRateMonthly,
     topCompetitorRateMonthly,
+    rateWeightBasis: daily ? "resident_days" : "resident_months",
   });
 
-  const daily = isDailyRateServiceLine(input.serviceLine);
   const toDisplay = (monthlyValue: number) =>
     daily ? Math.round((monthlyValue / DAYS_PER_MONTH) * 100) / 100 : Math.round(monthlyValue);
 

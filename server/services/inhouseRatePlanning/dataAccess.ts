@@ -509,22 +509,31 @@ export async function fetchTopCompetitorRate(
 export interface MonthlyRealized {
   month: string;
   rateMonthly: number;
+  weightBasis: "resident_months" | "resident_days";
+  /** Resident-months for senior housing; resident-days for HC/HC-MC. */
   residentDays: number;
-  /** Current rate for the exact same unit rows, weighted by historical resident-days. */
+  /** Current rate for the exact same unit rows, using the service line's weight basis. */
   currentMixRateMonthly?: number;
 }
 
+export function realizedRateWeightBasis(
+  serviceLine: string,
+): MonthlyRealized["weightBasis"] {
+  return serviceLine === "HC" || serviceLine === "HC/MC"
+    ? "resident_days"
+    : "resident_months";
+}
+
 /**
- * Realized in-house rate per month: private-pay in-house revenue divided by
- * resident-days, in monthly-equivalent dollars.
+ * Realized in-house rate per month, in monthly-equivalent dollars.
  *
  * "Realized rate" here is the ROOM rate we set, not room plus care. Care fees
  * are priced separately and an in-house rate increase does not move them, so
  * folding them in would credit the plan with growth it did not cause.
  *
- * Resident-days come from intersecting each stay with the month. Where a row
- * has no move-in date (3% of rows) the stay is assumed to span the whole
- * month, which is what a monthly snapshot actually tells us.
+ * AL, AL/MC, SL, and VIL rates are monthly, so every qualifying snapshot is
+ * one resident-month. HC and HC/MC rates are daily, so those lines retain the
+ * resident's actual overlap days within each month.
  */
 export async function fetchMonthlyRealizedRates(
   scope: ScopeFilter,
@@ -543,6 +552,8 @@ export async function fetchMonthlyRealizedRates(
   const stayStart = `GREATEST(${monthStart}, COALESCE(${dateExpr("rr.move_in_date")}, ${monthStart}))`;
   const stayEnd = `LEAST(${monthEndExcl}, COALESCE(${dateExpr("rr.move_out_date")} + 1, ${monthEndExcl}))`;
   const days = `GREATEST(0, EXTRACT(EPOCH FROM (${stayEnd} - ${stayStart})) / 86400.0)`;
+  const weightBasis = realizedRateWeightBasis(scope.serviceLine);
+  const observationWeight = weightBasis === "resident_days" ? days : "1";
 
   let unitMixJoin = "";
   let currentMixRevenueSql = "NULL::double precision";
@@ -556,7 +567,7 @@ export async function fetchMonthlyRealizedRates(
          AS mix(unit_key, current_rate_monthly)
          ON mix.unit_key =
             (COALESCE(rr.location, '') || E'\\x1f' || COALESCE(rr.room_number, ''))`;
-    currentMixRevenueSql = `SUM(mix.current_rate_monthly * (${days}))`;
+    currentMixRevenueSql = `SUM(mix.current_rate_monthly * (${observationWeight}))`;
   }
 
   // The baseline join correlates on the row's own month: this query spans
@@ -571,9 +582,9 @@ export async function fetchMonthlyRealizedRates(
     days: string;
   }>(
     `SELECT rr.upload_month AS month,
-            SUM(${monthlyRateExpr("rr.in_house_rate")} * (${days})) AS revenue,
+            SUM(${monthlyRateExpr("rr.in_house_rate")} * (${observationWeight})) AS revenue,
             ${currentMixRevenueSql} AS current_mix_revenue,
-            SUM(${days}) AS days
+            SUM(${observationWeight}) AS days
        FROM rent_roll_data rr
        ${join}
        ${unitMixJoin}
@@ -593,6 +604,7 @@ export async function fetchMonthlyRealizedRates(
   return res.rows
     .map((r) => ({
       month: r.month,
+      weightBasis,
       residentDays: Number(r.days) || 0,
       rateMonthly: Number(r.days) > 0 ? Number(r.revenue) / Number(r.days) : 0,
       currentMixRateMonthly:
@@ -604,7 +616,9 @@ export async function fetchMonthlyRealizedRates(
 }
 
 /**
- * Roll monthly realized rates into quarters, resident-day weighted.
+ * Roll monthly realized rates into quarters using each service line's
+ * observation basis: resident-months for senior housing, resident-days for
+ * HC/HC-MC.
  *
  * A quarter with all three months is `actual`; with one or two it is
  * `partial` — a real measurement over a short window, which is honest but not

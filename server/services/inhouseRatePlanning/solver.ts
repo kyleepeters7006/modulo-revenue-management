@@ -75,6 +75,8 @@ export interface ProjectionInput {
   streetEffectiveMs: number;
   /** Annual turnover as a fraction, e.g. 0.35. */
   annualTurnover: number;
+  /** Monthly senior-housing rates weight each month equally; HC rates weight days. */
+  weightBasis?: "resident_months" | "resident_days";
 }
 
 /**
@@ -104,6 +106,7 @@ export function projectQuarterlyRealizedRates(
     newStreetMonthly,
     streetEffectiveMs,
     annualTurnover,
+    weightBasis = "resident_days",
   } = input;
 
   const out = new Map<string, number>();
@@ -114,7 +117,7 @@ export function projectQuarterlyRealizedRates(
     startMs: quarterStartMs(q),
     endMs: quarterEndMs(q),
     sum: 0,
-    days: 0,
+    weight: 0,
   }));
 
   const finalMs = Math.max(...buckets.map((b) => b.endMs));
@@ -151,18 +154,28 @@ export function projectQuarterlyRealizedRates(
     replacementShare = newReplacementShare;
 
     const dayRate = existingShare * existingRate + replacementShare * replacementRate;
+    const dayDate = new Date(day);
+    const daysInMonth = new Date(Date.UTC(
+      dayDate.getUTCFullYear(),
+      dayDate.getUTCMonth() + 1,
+      0,
+    )).getUTCDate();
+    // A monthly rate contributes one resident-month per calendar month. Daily
+    // simulation is retained for turnover/effective-date precision, but the
+    // month's daily slices sum to one rather than 28, 30, or 31.
+    const observationWeight = weightBasis === "resident_months" ? 1 / daysInMonth : 1;
 
     for (const b of buckets) {
       if (day >= b.startMs && day < b.endMs) {
-        b.sum += dayRate;
-        b.days += 1;
+        b.sum += dayRate * observationWeight;
+        b.weight += observationWeight;
         break;
       }
     }
   }
 
   for (const b of buckets) {
-    out.set(b.label, b.days > 0 ? b.sum / b.days : existingAvgRateMonthly);
+    out.set(b.label, b.weight > 0 ? b.sum / b.weight : existingAvgRateMonthly);
   }
   return out;
 }
@@ -378,6 +391,8 @@ export interface SolveInput {
   priorJanuaryStreetRateMonthly?: number;
   /** Matched Top Competitor benchmark for this exact scope, normalized monthly. */
   topCompetitorRateMonthly?: number | null;
+  /** Monthly for AL/AL-MC/SL/VIL, daily for HC/HC-MC. */
+  rateWeightBasis?: "resident_months" | "resident_days";
 }
 
 export interface SolveOutput {
@@ -457,6 +472,7 @@ function projectFor(ctx: EvalContext, streetIncrease: number, avgIncrease: numbe
     newStreetMonthly: ctx.input.currentStreetRateMonthly * (1 + streetIncrease),
     streetEffectiveMs: ctx.streetMs,
     annualTurnover: ctx.turnover,
+    weightBasis: ctx.input.rateWeightBasis,
   });
 }
 

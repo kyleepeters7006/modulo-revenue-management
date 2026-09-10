@@ -42,6 +42,7 @@ import {
   buildResidents,
   makeProductStreetResolver,
   projectMissingQuarters,
+  realizedRateWeightBasis,
   type ProductStreetBaselines,
   type RawResidentRow,
 } from "../server/services/inhouseRatePlanning/dataAccess";
@@ -176,6 +177,38 @@ function roomyPopulation(): PlanningResident[] {
 }
 
 console.log("\n=== In-House Rate Planning Solver ===\n");
+
+console.log("-- Rate basis uses months for senior housing and days for health care --");
+ok("AL uses resident-month weighting", realizedRateWeightBasis("AL") === "resident_months");
+ok("AL/MC uses resident-month weighting", realizedRateWeightBasis("AL/MC") === "resident_months");
+ok("SL uses resident-month weighting", realizedRateWeightBasis("SL") === "resident_months");
+ok("VIL uses resident-month weighting", realizedRateWeightBasis("VIL") === "resident_months");
+ok("HC uses resident-day weighting", realizedRateWeightBasis("HC") === "resident_days");
+ok("HC/MC uses resident-day weighting", realizedRateWeightBasis("HC/MC") === "resident_days");
+{
+  const q1 = makeQuarterRef(2027, 1);
+  const common = {
+    anchorMs: isoToMs("2027-01-01"),
+    quarters: [q1],
+    existingAvgRateMonthly: 100,
+    postIncreaseAvgRateMonthly: 200,
+    inhouseEffectiveMs: isoToMs("2027-02-01"),
+    currentStreetMonthly: 100,
+    newStreetMonthly: 100,
+    streetEffectiveMs: isoToMs("2027-01-01"),
+    annualTurnover: 0,
+  };
+  const monthly = projectQuarterlyRealizedRates({
+    ...common,
+    weightBasis: "resident_months",
+  }).get(q1.label) ?? 0;
+  const daily = projectQuarterlyRealizedRates({
+    ...common,
+    weightBasis: "resident_days",
+  }).get(q1.label) ?? 0;
+  near("monthly rates give January, February, and March equal quarter weight", monthly, 500 / 3, 0.0001);
+  ok("daily rates still reflect different calendar-day counts", Math.abs(daily - monthly) > 0.5);
+}
 
 // ── 0. Missing-quarter projection anchors on latest complete quarter ────────
 console.log("-- 0. Missing-quarter projection uses chronological quarter order --");

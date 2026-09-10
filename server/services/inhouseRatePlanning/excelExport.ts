@@ -1044,13 +1044,19 @@ function buildHistorySheet(ws: ExcelJS.Worksheet, plan: PlanResult, audit: PlanA
   const monthHeaderRow = quarterLast + 3;
   sectionTitle(ws, monthHeaderRow - 1, "MONTHLY REALIZED RATE — the measured history", 7);
   const mh = ws.getRow(monthHeaderRow);
-  ["Month", "Realized rate (monthly)", "Resident-days", "Implied revenue", "Change vs prior month"].forEach(
+  const history = audit.monthlyRealized;
+  const monthlyWeightBasis = history[0]?.weightBasis ?? (
+    input.serviceLine === "HC" || input.serviceLine === "HC/MC"
+      ? "resident_days"
+      : "resident_months"
+  );
+  const weightHeader = monthlyWeightBasis === "resident_days" ? "Resident-days" : "Resident-months";
+  ["Month", "Realized rate (monthly)", weightHeader, "Implied revenue", "Change vs prior month"].forEach(
     (h, i) => (mh.getCell(i + 1).value = h),
   );
   styleHeaderRow(mh);
 
   const monthFirst = monthHeaderRow + 1;
-  const history = audit.monthlyRealized;
   history.forEach((m, i) => {
     const rowIx = monthFirst + i;
     const row = ws.getRow(rowIx);
@@ -1060,7 +1066,9 @@ function buildHistorySheet(ws: ExcelJS.Worksheet, plan: PlanResult, audit: PlanA
     row.getCell(3).value = m.residentDays;
     row.getCell(3).numFmt = FMT_INT;
     row.getCell(4).value = {
-      formula: `B${rowIx}*C${rowIx}/${DAYS_PER_MONTH}`,
+      formula: monthlyWeightBasis === "resident_days"
+        ? `B${rowIx}*C${rowIx}/${DAYS_PER_MONTH}`
+        : `B${rowIx}*C${rowIx}`,
     } as ExcelJS.CellFormulaValue;
     row.getCell(4).numFmt = FMT_MONEY;
     row.getCell(5).value =
