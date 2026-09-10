@@ -1,7 +1,15 @@
-const STORAGE_KEY = "inhouse-rate-planning:calculated-plans:v2";
-const LEGACY_STORAGE_KEY = "inhouse-rate-planning:calculated-plans:v1";
-const DB_NAME = "inhouse-rate-planning:v2";
-const LEGACY_DB_NAME = "inhouse-rate-planning";
+const STORAGE_KEY = "inhouse-rate-planning:calculated-plans:v4";
+const LEGACY_STORAGE_KEYS = [
+  "inhouse-rate-planning:calculated-plans:v3",
+  "inhouse-rate-planning:calculated-plans:v2",
+  "inhouse-rate-planning:calculated-plans:v1",
+];
+const DB_NAME = "inhouse-rate-planning:v4";
+const LEGACY_DB_NAMES = [
+  "inhouse-rate-planning:v3",
+  "inhouse-rate-planning:v2",
+  "inhouse-rate-planning",
+];
 const STORE_NAME = "calculated-plans";
 
 function storageKey(identityKey: string, scopeKey: string): string {
@@ -112,10 +120,10 @@ export async function clearInhousePlanStorage(): Promise<void> {
   try {
     window.localStorage.removeItem(STORAGE_KEY);
     // Remove data written by the pre-identity-scoped implementation as well.
-    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    for (const key of LEGACY_STORAGE_KEYS) window.localStorage.removeItem(key);
   } catch {
     // Continue with IndexedDB cleanup when localStorage is unavailable.
   }
 
-  await Promise.all([deleteDb(DB_NAME), deleteDb(LEGACY_DB_NAME)]);
+  await Promise.all([DB_NAME, ...LEGACY_DB_NAMES].map(deleteDb));
 }

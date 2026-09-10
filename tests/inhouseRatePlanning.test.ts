@@ -41,6 +41,7 @@ import {
 import {
   buildResidents,
   makeProductStreetResolver,
+  projectMissingQuarters,
   type ProductStreetBaselines,
   type RawResidentRow,
 } from "../server/services/inhouseRatePlanning/dataAccess";
@@ -175,6 +176,39 @@ function roomyPopulation(): PlanningResident[] {
 }
 
 console.log("\n=== In-House Rate Planning Solver ===\n");
+
+// ── 0. Missing-quarter projection anchors on latest complete quarter ────────
+console.log("-- 0. Missing-quarter projection uses chronological quarter order --");
+{
+  const q1 = makeQuarterRef(2026, 1);
+  const q2 = makeQuarterRef(2026, 2);
+  const q4 = makeQuarterRef(2026, 4);
+  const known = new Map<string, BaselineQuarter>([
+    [q1.label, {
+      ...q1,
+      realizedRateMonthly: 100,
+      basis: "actual",
+      monthsAvailable: 3,
+      monthsExpected: 3,
+      residentDays: 9000,
+    }],
+    [q2.label, {
+      ...q2,
+      realizedRateMonthly: 110,
+      basis: "actual",
+      monthsAvailable: 3,
+      monthsExpected: 3,
+      residentDays: 9000,
+    }],
+  ]);
+  const result = projectMissingQuarters(known, [q4]);
+  near(
+    "Q4 projects forward from Q2 using the observed chronological trend",
+    result.baselines.get(q4.label)?.realizedRateMonthly ?? 0,
+    133.1,
+    0.0001,
+  );
+}
 
 // ── 1. Zero turnover ───────────────────────────────────────────────────────
 console.log("-- 1. Zero turnover: only the in-house increase moves the rate --");

@@ -16,6 +16,7 @@ import DerivedRateFormulas from "@/components/dashboard/derived-rate-formulas";
 import { useUploads } from "@/contexts/upload-context";
 import { useAuth } from "@/hooks/useAuth";
 import { DataImportsContent } from "@/pages/data-imports";
+import { clearInhousePlanStorage } from "@/lib/inhousePlanStorage";
 
 interface FileWithDate {
   file: File;
@@ -303,7 +304,11 @@ export default function DataManagement() {
       
       return { data: await response.json(), uploadId };
     },
-    onSuccess: ({ data, uploadId }) => {
+    onSuccess: async ({ data, uploadId }) => {
+      // A Rent Roll upload can change historical quarter coverage, resident
+      // rates, and the planning cohort. Never leave an older calculated plan
+      // in browser storage after the source data changes.
+      await clearInhousePlanStorage();
       updateUpload(uploadId, { status: 'success', message: `Processed ${data.recordsProcessed || 0} records` });
       toast({
         title: "Upload Successful",

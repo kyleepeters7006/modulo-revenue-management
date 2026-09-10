@@ -655,7 +655,10 @@ export function projectMissingQuarters(
   const out = new Map(known);
   const complete = Array.from(known.values())
     .filter((q) => q.basis === "actual" && (q.realizedRateMonthly ?? 0) > 0)
-    .sort((a, b) => quarterDiff(a, b));
+    // quarterDiff(a, b) is the distance FROM a TO b, so using it directly as
+    // the comparator reverses chronological order. Keep oldest first and the
+    // latest complete quarter last because projections anchor on `last`.
+    .sort((a, b) => quarterDiff(b, a));
 
   if (complete.length === 0) {
     return { baselines: out, quarterlyGrowthPct: null };
