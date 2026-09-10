@@ -1509,10 +1509,10 @@ export default function InhouseIncreases() {
                               type="stepAfter"
                               dataKey="street"
                               name="Street Rate"
-                              stroke="#7c3aed"
+                              stroke="#2563eb"
                               strokeWidth={2}
                               strokeDasharray="5 4"
-                              dot={{ r: 1.5, fill: "#7c3aed", strokeWidth: 0 }}
+                              dot={{ r: 1.5, fill: "#2563eb", strokeWidth: 0 }}
                               isAnimationActive={false}
                             />
                           </LineChart>
@@ -1520,7 +1520,7 @@ export default function InhouseIncreases() {
                       </div>
                       <div className="mt-1 flex items-center gap-4 text-[11px] text-muted-foreground">
                         <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 bg-[#0f9f9a]" />Projected realized</span>
-                        <span className="inline-flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-[#7c3aed]" />Street Rate</span>
+                        <span className="inline-flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-[#2563eb]" />Street Rate</span>
                       </div>
                     </div>
                   );
