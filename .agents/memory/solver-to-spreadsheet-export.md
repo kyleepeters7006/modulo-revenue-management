@@ -44,6 +44,19 @@ a one-line `IF(AND(...))` over two cells that are already in the sheet. Pasting 
 silently decouples the effective dates from the whole calculation. Check each
 "solver output" for derivability before accepting it as a snapshot.
 
+Every derived allocation formula must mirror the solver's guards and numerical
+floors, not only its main expression. A positive shape floor is part of the
+equation; omitting it can leave at/above-street residents at 0% in Excel while
+the app correctly raises them to the configured maximum.
+
+**Why:** one missing floor made hundreds of exported recommendations disagree
+with the app and materially understated the workbook's monthly impact even
+though the file opened and most formula checks passed.
+
+**How to apply:** whenever allocation math changes, update the spreadsheet twin
+in the same change and assert every resident's shape, increase, new rate, and
+total impact against the solver result.
+
 ISO date strings (`YYYY-MM-DD`) compare correctly with `<=` in Excel, so
 date gating works without real date serials — but guard the empty-string case
 explicitly, since `"" <= "2027-01-01"` is TRUE and would invert the gate.

@@ -536,7 +536,7 @@ function buildDetailSheet(
     );
     setF(
       "shape",
-      `IF(OR(${refExponent}=0,${refMeanHeadroom}<=0),1,(${c("headroom")}/${refMeanHeadroom})^${refExponent})`,
+      `IF(OR(${refExponent}=0,${refMeanHeadroom}<=0),1,MAX(0.000001,(${c("headroom")}/${refMeanHeadroom})^${refExponent}))`,
     );
     setF("maxEff", `MAX(0,${refMaxInc})`);
     setF("minEff", `MIN(MAX(0,${refMinInc}),${c("maxEff")})`);

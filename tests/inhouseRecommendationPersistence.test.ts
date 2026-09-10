@@ -526,6 +526,16 @@ async function verifyDatabaseReloadAndEligibility() {
     assert.equal(edited.body.recommendation.suggestedRate, 4350);
     assert.equal(edited.body.recommendation.locked, true);
 
+    await insertPlan({
+      clientId,
+      userId,
+      locationId: null,
+      serviceLine: "AL",
+      status: "proposed",
+      createdAt: freshCreatedAt,
+      recommendationId: "rec-all-campus-al",
+      suggestedRate: 4300,
+    });
     const portfolioRestored = await requestLatest(clientId, userId, {
       serviceLine: "AL",
     });

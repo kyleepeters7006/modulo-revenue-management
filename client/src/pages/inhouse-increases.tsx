@@ -816,6 +816,7 @@ export default function InhouseIncreases() {
     mutationFn: async (overrideRows?: StreetRateRecommendation[]) => {
       const edits = (overrideRows ?? streetRecommendations).map((r) => ({
         id: r.id,
+        serviceLine: r.serviceLine,
         suggestedRate: r.suggestedRate,
         locked: r.locked,
       }));
@@ -826,7 +827,9 @@ export default function InhouseIncreases() {
             serviceLine: sl,
             assumptions: assumptionsForLine(sl),
             maximumPremiumAboveTopCompetitorPct: maximumPremiumPct,
-            edits: edits.filter((edit) => edit.id.includes(`||${sl}||`)),
+            edits: edits
+              .filter((edit) => edit.serviceLine === sl)
+              .map(({ serviceLine: _serviceLine, ...edit }) => edit),
           });
           return await res.json();
         }),
@@ -889,9 +892,30 @@ export default function InhouseIncreases() {
         : row,
     );
     setStreetRecommendations(next);
-    // Keep typing local and race-free. The explicit recommendation action
-    // revalidates and rebalances the complete selected scope on the server.
   }
+
+  const saveStreetRecommendation = useMutation({
+    mutationFn: async (row: StreetRateRecommendation) => {
+      const res = await apiRequest("/api/inhouse-planning/recommendations/edit", "POST", {
+        id: row.id,
+        locationId: scopeLocationId,
+        serviceLine: row.serviceLine,
+        suggestedRate: row.suggestedRate,
+        locked: row.locked,
+      });
+      return (await res.json()).recommendation as StreetRateRecommendation;
+    },
+    onSuccess: (saved) => {
+      setStreetRecommendations((rows) => rows.map((row) => row.id === saved.id ? saved : row));
+      queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/recommendations/latest"], exact: false });
+    },
+    onError: (error: Error) =>
+      toast({
+        title: "Could not save Street Rate edit",
+        description: cleanError(error.message),
+        variant: "destructive",
+      }),
+  });
 
   // Saving writes the shared assumptions to every selected service line.
   const saveAssumptions = useMutation({
@@ -1586,6 +1610,10 @@ export default function InhouseIncreases() {
                           value={Math.round(row.suggestedRate)}
                           disabled={row.locked}
                           onChange={(e) => updateStreetRecommendation(row.id, Number(e.target.value) || row.currentStreetRate, row.locked)}
+                          onBlur={() => {
+                            const current = streetRecommendations.find((candidate) => candidate.id === row.id);
+                            if (current) saveStreetRecommendation.mutate(current);
+                          }}
                           className="h-8 w-28"
                           aria-label={`Suggested Street Rate for ${row.location} ${row.serviceLine} ${row.product}`}
                         />
@@ -1593,7 +1621,11 @@ export default function InhouseIncreases() {
                       <td className="px-3 py-2">
                         <Checkbox
                           checked={row.locked}
-                          onCheckedChange={(checked) => updateStreetRecommendation(row.id, row.suggestedRate, checked === true)}
+                          onCheckedChange={(checked) => {
+                            const locked = checked === true;
+                            updateStreetRecommendation(row.id, row.suggestedRate, locked);
+                            saveStreetRecommendation.mutate({ ...row, locked });
+                          }}
                           aria-label={`Lock ${row.location} ${row.serviceLine} ${row.product}`}
                         />
                       </td>
@@ -1602,7 +1634,9 @@ export default function InhouseIncreases() {
                 </tbody>
               </table>
               <div className="border-t bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                Edits are capped by the server when you run the recommendation again. Locking a row preserves its value while the remaining unlocked rows can be rebalanced.
+                {saveStreetRecommendation.isPending
+                  ? "Saving edit…"
+                  : "Edits are saved and capped by the server. Locking a row preserves its value while the remaining unlocked rows can be rebalanced."}
               </div>
             </div>
           )}
@@ -1623,8 +1657,9 @@ export default function InhouseIncreases() {
             <Alert className="border-emerald-500/40 bg-emerald-500/10">
               <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <AlertTitle>
-                {formatPct(assumptions.rateGrowthTargetPct)} growth is reachable
-                {plans.length > 1 ? " across all selected service lines" : ""}
+                {plans.length > 1
+                  ? "Each configured growth target is reachable across the selected service lines"
+                  : `${formatPct(plans[0].plan.assumptions.rateGrowthTargetPct)} growth is reachable`}
               </AlertTitle>
               <AlertDescription>
                 Every quarter in the next year clears the target
@@ -1819,7 +1854,7 @@ export default function InhouseIncreases() {
                   {/* One export button per service line */}
                   {plans.map(({ sl }) => (
                     <Button key={sl} variant="outline" size="sm" data-testid="button-export-plan"
-                      disabled={exportPlan.isPending}
+                      disabled={exportPlan.isPending || hasChangedPlanAssumptions}
                       onClick={() => exportPlan.mutate(sl)}
                     >
                       {exportPlan.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
