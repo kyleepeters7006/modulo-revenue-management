@@ -9,6 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { rollupAnnualIncrease } from "@/lib/annualIncreaseRollup";
 import {
   Popover,
   PopoverContent,
@@ -495,25 +496,14 @@ function aggregateRows(
     // the live/applied fields.
     {
       const rollupPlan = (prefix: "ihPlan" | "ihRecommendation") => {
-        let residents = 0, newSum = 0, curSum = 0, displayDeltaSum = 0, monthlyImpactSum = 0;
-        let effDate: string | null = null;
-        for (const r of rs) {
-          const n = Number(r[`${prefix}Residents`] ?? 0);
-          if (!n) continue;
-          residents += n;
-          if (r[`${prefix}NewRate`] != null) newSum += Number(r[`${prefix}NewRate`]) * n;
-          if (r[`${prefix}CurrentRate`] != null) curSum += Number(r[`${prefix}CurrentRate`]) * n;
-          if (r[`${prefix}DeltaDollar`] != null) displayDeltaSum += Number(r[`${prefix}DeltaDollar`]) * n;
-          if (r[`${prefix}MonthlyImpact`] != null) monthlyImpactSum += Number(r[`${prefix}MonthlyImpact`]);
-          if (effDate === null && r[`${prefix}EffectiveDate`]) effDate = r[`${prefix}EffectiveDate`];
-        }
-        out[`${prefix}Residents`] = residents || null;
-        out[`${prefix}NewRate`] = residents ? newSum / residents : null;
-        out[`${prefix}CurrentRate`] = residents ? curSum / residents : null;
-        out[`${prefix}DeltaDollar`] = residents ? displayDeltaSum / residents : null;
-        out[`${prefix}DeltaPct`] = curSum > 0 ? displayDeltaSum / curSum : null;
-        out[`${prefix}MonthlyImpact`] = residents ? monthlyImpactSum : null;
-        out[`${prefix}EffectiveDate`] = effDate;
+        const rolled = rollupAnnualIncrease(rs, prefix);
+        out[`${prefix}Residents`] = rolled.residents;
+        out[`${prefix}NewRate`] = rolled.newRate;
+        out[`${prefix}CurrentRate`] = rolled.currentRate;
+        out[`${prefix}DeltaDollar`] = rolled.deltaDollar;
+        out[`${prefix}DeltaPct`] = rolled.deltaPct;
+        out[`${prefix}MonthlyImpact`] = rolled.monthlyImpact;
+        out[`${prefix}EffectiveDate`] = rolled.effectiveDate;
       };
       rollupPlan("ihPlan");
       rollupPlan("ihRecommendation");
