@@ -81,7 +81,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
 import { getRefDataCache, setRefDataCache, invalidateRefDataCache } from "./refDataCache";
-import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics, uploadHistory, competitorRateJobs, serviceLineEnum, mfaRecoveryCodes, securityAuditEvents, authSessions } from "@shared/schema";
+import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics, uploadHistory, inquiryMetrics, competitorRateJobs, serviceLineEnum, mfaRecoveryCodes, securityAuditEvents, authSessions } from "@shared/schema";
 import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
 import { clampRateWithGuardrails } from "./guardrailsUtil";
@@ -828,9 +828,6 @@ async function securityRequestGate(req: any, res: any, next: any): Promise<void>
   if (methodChangesState && !hasValidCsrf(req)) {
     await writeSecurityAudit(req, "csrf_rejected", false);
     return res.status(403).json({ error: "Request could not be verified" });
-  }
-  if (!hasRecentMfa(req)) {
-    return res.status(428).json({ error: "Recent MFA verification required", code: "MFA_STEP_UP_REQUIRED" });
   }
   if (adminRequest && !await isRuleAdmin(req)) {
     await writeSecurityAudit(req, "admin_access_denied", false);
@@ -2108,9 +2105,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post('/api/auth/change-password', async (req: any, res) => {
-    if (!isAuthenticatedSession(req) || !hasRecentMfa(req)) {
-      return res.status(428).json({ error: "Recent MFA verification required", code: "MFA_STEP_UP_REQUIRED" });
-    }
+    if (!isAuthenticatedSession(req)) return res.status(401).json({ error: "Authentication required" });
     const currentPassword = String(req.body?.currentPassword || "");
     const newPassword = String(req.body?.newPassword || "");
     if (newPassword.length < 12 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
@@ -2127,7 +2122,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin-controlled recovery for an operator who can no longer sign in.
-  // The gate requires an active admin session plus recent MFA and CSRF.
+  // The global gate requires an active admin session, admin role, and CSRF.
   app.post('/api/admin/users/:id/recover', async (req: any, res) => {
     const newPassword = String(req.body?.newPassword || "");
     const resetMfa = req.body?.resetMfa === true;
@@ -2181,9 +2176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post('/api/auth/mfa/recovery/regenerate', async (req: any, res) => {
-    if (!isAuthenticatedSession(req) || !hasRecentMfa(req)) {
-      return res.status(428).json({ error: "Recent MFA verification required", code: "MFA_STEP_UP_REQUIRED" });
-    }
+    if (!isAuthenticatedSession(req)) return res.status(401).json({ error: "Authentication required" });
     const user = await localUserForSession(req);
     if (!user?.mfa_secret_encrypted) return res.status(400).json({ error: "MFA is not enabled." });
     const passwordValid = await bcrypt.compare(String(req.body?.password || ""), user.password_hash || "$2a$12$invalid");

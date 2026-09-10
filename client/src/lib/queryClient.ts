@@ -1,44 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-export const MFA_STEP_UP_REQUIRED_EVENT = "modulo:mfa-step-up-required";
-let stepUpPromise: Promise<void> | null = null;
-let resolveStepUp: (() => void) | null = null;
-
-export function waitForMfaStepUp(): Promise<void> {
-  if (stepUpPromise) return stepUpPromise;
-  stepUpPromise = new Promise<void>((resolve) => {
-    resolveStepUp = resolve;
-    window.dispatchEvent(new Event(MFA_STEP_UP_REQUIRED_EVENT));
-  });
-  return stepUpPromise;
-}
-
-export function completeMfaStepUp(): void {
-  resolveStepUp?.();
-  resolveStepUp = null;
-  stepUpPromise = null;
-}
-
-export function installMfaFetchGuard(): () => void {
-  const originalFetch = window.fetch.bind(window);
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const firstInput = input instanceof Request ? input.clone() : input;
-    const response = await originalFetch(firstInput, init);
-    const path = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
-    if (response.status !== 428 || path.includes("/api/auth/mfa/step-up")) return response;
-    await waitForMfaStepUp();
-    const retryInput = input instanceof Request ? input.clone() : input;
-    return originalFetch(retryInput, init);
-  };
-  return () => {
-    window.fetch = originalFetch;
-  };
-}
-
 async function throwIfResNotOk(res: Response) {
-  if (res.status === 428 && typeof window !== "undefined") {
-    void waitForMfaStepUp();
-  }
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);

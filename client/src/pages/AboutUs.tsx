@@ -206,7 +206,7 @@ export default function AboutUs() {
                 ],
                 [
                   "Tenant and role enforcement",
-                  "Each authenticated request resolves the user by both user ID and client ID and rejects inactive or revoked accounts. Data access is scoped by client ID. Roles are operator, admin, and security_admin; administrative routes require an admin role. State changes, exports, and administrative operations require MFA verification within the previous 15 minutes.",
+                  "Each authenticated request resolves the user by both user ID and client ID and rejects inactive or revoked accounts. Data access is scoped by client ID. Roles are operator, admin, and security_admin; administrative routes require an admin role. MFA is verified when the user signs in and the authenticated session remains valid while the user works in the platform.",
                 ],
                 [
                   "Request and audit controls",

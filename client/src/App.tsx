@@ -1,5 +1,5 @@
 import { Switch, Route, Redirect } from "wouter";
-import { installMfaFetchGuard, queryClient } from "./lib/queryClient";
+import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -25,17 +25,12 @@ import StreetRateQuality from "@/pages/street-rate-quality";
 import InhouseIncreases from "@/pages/inhouse-increases";
 import NotFound from "@/pages/not-found";
 
-import MfaStepUpDialog from "@/components/mfa-step-up-dialog";
-import { useEffect } from "react";
-
 function AppContent() {
   usePrefetch();
-  useEffect(() => installMfaFetchGuard(), []);
   return (
     <TooltipProvider>
       <div className="dark">
         <Toaster />
-        <MfaStepUpDialog />
         <Router />
       </div>
     </TooltipProvider>

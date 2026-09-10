@@ -401,6 +401,13 @@ function DateField({
 /** A PlanResult tagged with the service line it was calculated for. */
 interface PlanWithSl { sl: string; plan: PlanResult }
 
+interface CalculateRequest {
+  identityKey: string | null;
+  locationId: string | null;
+  serviceLines: string[];
+  assumptionsByLine: Record<string, PlanningAssumptions>;
+}
+
 /** A ResidentRecommendation tagged with the service line it came from. */
 type TaggedResident = ResidentRecommendation & { _sl: string };
 /**
@@ -694,15 +701,14 @@ export default function InhouseIncreases() {
 
   // Run one calculate call per selected service line in parallel and combine.
   const calculate = useMutation({
-    mutationFn: async () => {
-      const requestedIdentityKey = storageIdentityKey;
-      const requestedScopeKey = calculatedPlanKey;
+    mutationFn: async (request: CalculateRequest) => {
+      const requestedScopeKey = calculatedPlanScopeKey(request.locationId, request.serviceLines);
       const settled = await Promise.allSettled(
-        serviceLines.map(async (sl) => {
+        request.serviceLines.map(async (sl) => {
           const res = await apiRequest("/api/inhouse-planning/calculate", "POST", {
-            locationId: scopeLocationId,
+            locationId: request.locationId,
             serviceLine: sl,
-            assumptions: assumptionsForLine(sl),
+            assumptions: request.assumptionsByLine[sl],
           });
           const plan = (await res.json()) as PlanResult;
           return { sl, plan } as PlanWithSl;
@@ -711,7 +717,7 @@ export default function InhouseIncreases() {
       const results: PlanWithSl[] = [];
       const skipped: Array<{ sl: string; message: string }> = [];
       settled.forEach((outcome, index) => {
-        const sl = serviceLines[index];
+        const sl = request.serviceLines[index];
         if (outcome.status === "fulfilled") {
           results.push(outcome.value);
         } else {
@@ -729,7 +735,7 @@ export default function InhouseIncreases() {
             : "No service lines were selected.",
         );
       }
-      return { identityKey: requestedIdentityKey, scopeKey: requestedScopeKey, results, skipped };
+      return { identityKey: request.identityKey, scopeKey: requestedScopeKey, results, skipped };
     },
     onSuccess: ({ identityKey, scopeKey, results, skipped }) => {
       // If the operator changed scope while the request was running, retain
@@ -1304,7 +1310,18 @@ export default function InhouseIncreases() {
 
           <div className="flex flex-wrap gap-2">
             <Button
-              onClick={() => calculate.mutate()}
+              type="button"
+              onClick={() => {
+                const selectedLines = [...serviceLines];
+                calculate.mutate({
+                  identityKey: storageIdentityKey,
+                  locationId: scopeLocationId,
+                  serviceLines: selectedLines,
+                  assumptionsByLine: Object.fromEntries(
+                    selectedLines.map((sl) => [sl, { ...assumptionsForLine(sl) }]),
+                  ),
+                });
+              }}
               disabled={!!rangeError || calculate.isPending}
               data-testid="button-calculate"
             >
