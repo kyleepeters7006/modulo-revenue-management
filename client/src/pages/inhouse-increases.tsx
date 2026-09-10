@@ -46,13 +46,8 @@ import {
 } from "@shared/inhousePlanning";
 import type {
   InhousePlanHistoryEntry,
-  StreetRateReviewStatus,
   StreetRateSource,
 } from "@shared/inhousePlanning";
-import type {
-  StreetRateRecommendation,
-  RebalanceResult,
-} from "@shared/streetRateRecommendations";
 
 /**
  * Where a resident's comparison rate came from, said plainly. A ceiling set by
@@ -64,49 +59,6 @@ const STREET_SOURCE_NOTE: Partial<Record<StreetRateSource, string>> = {
   service_line_median: ", the median for this product across the service line",
   derived_formula: ", derived from the base rate by the configured formula",
 };
-
-function streetRateReviewStatusLabel(status: StreetRateReviewStatus): string {
-  switch (status) {
-    case "available": return "Street Rate review available";
-    case "expired": return "Expired — cannot reopen";
-    case "superseded": return "Superseded — cannot reopen";
-    case "published": return "Published — cannot reopen";
-    case "unavailable": return "Unavailable — cannot reopen";
-  }
-}
-import {
-  AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  Calculator,
-  Download,
-  Info,
-  Loader2,
-  Save,
-  TrendingUp,
-} from "lucide-react";
-import {
-  DEFAULT_ASSUMPTIONS,
-  formatMoney,
-  formatPct,
-  type EqualizationStrength,
-  type PlanResult,
-  type PlanningAssumptions,
-  type ResidentRecommendation,
-  type CalcExplanation,
-} from "@shared/inhousePlanning";
-import {
-  MODEL_MAX_TURNOVER_PCT,
-  MODEL_MIN_TURNOVER_PCT,
-  defaultTurnoverFor,
-  describeTurnoverBand,
-  explainTurnoverOutOfBand,
-  formatLos,
-} from "@shared/turnoverBounds";
-
 const SERVICE_LINES = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
 
 /** One service line's measured turnover, from /api/inhouse-planning/historical-turnover. */
@@ -421,19 +373,6 @@ interface PlanWithSl { sl: string; plan: PlanResult }
 
 /** A ResidentRecommendation tagged with the service line it came from. */
 type TaggedResident = ResidentRecommendation & { _sl: string };
-
-interface ReopenedStreetRateReview {
-  plan: Pick<
-    InhousePlanHistoryEntry,
-    "id" | "version" | "location" | "locationId" | "serviceLine" | "assumptions"
-  >;
-  streetRateReview: InhousePlanHistoryEntry["streetRateReview"] & {
-    maximumPremiumAboveTopCompetitorPct: number | null;
-    assumptionsFingerprint: string | null;
-    recommendations: StreetRateRecommendation[];
-  };
-}
-
 /**
  * Calculated plans are a client-side working result, not an approved plan.
  * Keep one result per scope so leaving the page does not discard a calculation,
@@ -487,9 +426,6 @@ export default function InhouseIncreases() {
   const [sortDesc, setSortDesc] = useState(true);
   const [constrainedOnly, setConstrainedOnly] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
-  const [maximumPremiumPct, setMaximumPremiumPct] = useState(5);
-  const [streetRecommendations, setStreetRecommendations] = useState<StreetRateRecommendation[]>([]);
-  const [streetRebalance, setStreetRebalance] = useState<RebalanceResult | null>(null);
 
   const scopeLocationId = locationId === ALL_CAMPUSES ? null : locationId;
   const storageIdentityKey =
@@ -548,8 +484,6 @@ export default function InhouseIncreases() {
     });
     setAssumptionsTouched(false);
     setPlans(null);
-    setStreetRecommendations([]);
-    setStreetRebalance(null);
   }
 
   const { data: locationsData } = useQuery<{ locations: LocationRow[] }>({
@@ -797,111 +731,6 @@ export default function InhouseIncreases() {
     },
   });
 
-  const recommendStreetRates = useMutation({
-    mutationFn: async (overrideRows?: StreetRateRecommendation[]) => {
-      const edits = (overrideRows ?? streetRecommendations).map((r) => ({
-        id: r.id,
-        serviceLine: r.serviceLine,
-        suggestedRate: r.suggestedRate,
-        locked: r.locked,
-      }));
-      const settled = await Promise.allSettled(
-        serviceLines.map(async (sl) => {
-          const res = await apiRequest("/api/inhouse-planning/recommendations", "POST", {
-            locationId: scopeLocationId,
-            serviceLine: sl,
-            assumptions: assumptionsForLine(sl),
-            maximumPremiumAboveTopCompetitorPct: maximumPremiumPct,
-            edits: edits
-              .filter((edit) => edit.serviceLine === sl)
-              .map(({ serviceLine: _serviceLine, ...edit }) => edit),
-          });
-          return await res.json();
-        }),
-      );
-      const failed = settled
-        .map((result, index) => ({ result, serviceLine: serviceLines[index] }))
-        .filter((entry): entry is { result: PromiseRejectedResult; serviceLine: string } =>
-          entry.result.status === "rejected",
-        );
-      if (failed.length > 0) {
-        throw new Error(
-          `Street Rate recommendations failed for ${failed.map((entry) => entry.serviceLine).join(", ")}. No partial recommendation set was accepted.`,
-        );
-      }
-      const successful = settled
-        .filter((result): result is PromiseFulfilledResult<any> => result.status === "fulfilled")
-        .map((result) => result.value);
-      if (!successful.length) {
-        const firstFailure = settled.find((result) => result.status === "rejected") as PromiseRejectedResult | undefined;
-        throw firstFailure?.reason ?? new Error("No Street Rate recommendations were returned.");
-      }
-      const rows = successful.flatMap((result) => result.recommendations as StreetRateRecommendation[]);
-      const lineRebalances = successful.map((result) => result.rebalance as RebalanceResult);
-      const totalBase = rows.reduce((sum, row) => sum + row.units * row.currentStreetRate, 0);
-      const targetContribution = lineRebalances.reduce((sum, line) => sum + line.targetContribution, 0);
-      const totalGrowth = lineRebalances.reduce((sum, line) => sum + line.achievedContribution, 0);
-      return {
-        rows,
-        rebalance: {
-          recommendations: rows,
-          targetContribution,
-          achievedContribution: totalGrowth,
-          shortfallContribution: Math.max(0, targetContribution - totalGrowth),
-          achievedGrowthPct: totalBase > 0 ? totalGrowth / totalBase * 100 : 0,
-          targetGrowthPct: totalBase > 0 ? targetContribution / totalBase * 100 : 0,
-          feasible: lineRebalances.every((line) => line.feasible),
-          changedIds: lineRebalances.flatMap((line) => line.changedIds),
-          message: lineRebalances.every((line) => line.feasible)
-            ? "Each selected service line reached its own configured growth target."
-            : "At least one selected service line has a guardrail shortfall.",
-        } satisfies RebalanceResult,
-      };
-    },
-    onSuccess: ({ rows, rebalance }) => {
-      setStreetRecommendations(rows);
-      setStreetRebalance(rebalance);
-      toast({
-        title: "Street Rate recommendations ready",
-        description: "These are advisory values only. Nothing is published until you explicitly submit a proposal.",
-      });
-    },
-    onError: (error: Error) =>
-      toast({ title: "Could not recommend Street Rates", description: cleanError(error.message), variant: "destructive" }),
-  });
-
-  function updateStreetRecommendation(id: string, suggestedRate: number, locked: boolean) {
-    const next = streetRecommendations.map((row) =>
-      row.id === id
-        ? { ...row, suggestedRate: Math.max(row.currentStreetRate, Math.min(row.hardCeiling, suggestedRate)), locked }
-        : row,
-    );
-    setStreetRecommendations(next);
-  }
-
-  const saveStreetRecommendation = useMutation({
-    mutationFn: async (row: StreetRateRecommendation) => {
-      const res = await apiRequest("/api/inhouse-planning/recommendations/edit", "POST", {
-        id: row.id,
-        locationId: scopeLocationId,
-        serviceLine: row.serviceLine,
-        suggestedRate: row.suggestedRate,
-        locked: row.locked,
-      });
-      return (await res.json()).recommendation as StreetRateRecommendation;
-    },
-    onSuccess: (saved) => {
-      setStreetRecommendations((rows) => rows.map((row) => row.id === saved.id ? saved : row));
-      queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/recommendations/latest"], exact: false });
-    },
-    onError: (error: Error) =>
-      toast({
-        title: "Could not save Street Rate edit",
-        description: cleanError(error.message),
-        variant: "destructive",
-      }),
-  });
-
   // Saving writes the shared assumptions to every selected service line.
   const saveAssumptions = useMutation({
     mutationFn: async () => {
@@ -983,46 +812,9 @@ export default function InhouseIncreases() {
     },
   });
 
-  const reopenStreetRateReview = useMutation({
-    mutationFn: async (plan: InhousePlanHistoryEntry) => {
-      const res = await apiRequest(
-        `/api/inhouse-planning/plans/${encodeURIComponent(plan.id)}/street-rate-review`,
-        "GET",
-      );
-      return (await res.json()) as ReopenedStreetRateReview;
-    },
-    onSuccess: ({ plan, streetRateReview }) => {
-      setLocationId(plan.locationId ?? ALL_CAMPUSES);
-      setServiceLines([plan.serviceLine]);
-      setAssumptions(plan.assumptions);
-      setPerLineTargets({});
-      // Keep the saved assumptions visible while the new campus scope loads.
-      // This prevents the assumptions query from replacing the review's
-      // saved context with the current default before the operator edits it.
-      setAssumptionsTouched(true);
-      setMaximumPremiumPct(
-        streetRateReview.maximumPremiumAboveTopCompetitorPct ?? maximumPremiumPct,
-      );
-      setStreetRecommendations(streetRateReview.recommendations);
-      setStreetRebalance(null);
-      toast({
-        title: "Street Rate review reopened",
-        description: `Loaded v${plan.version} for ${plan.location || "all campuses"} · ${plan.serviceLine}. No new recommendations were generated.`,
-      });
-    },
-    onError: (error: Error) =>
-      toast({
-        title: "Could not reopen Street Rate review",
-        description: cleanError(error.message),
-        variant: "destructive",
-      }),
-  });
-
   function update<K extends keyof PlanningAssumptions>(key: K, value: PlanningAssumptions[K]) {
     setAssumptionsTouched(true);
     setAssumptions((prev) => ({ ...prev, [key]: value }));
-    setStreetRecommendations([]);
-    setStreetRebalance(null);
   }
 
   function updatePerLine(sl: string, field: "rateGrowthTargetPct" | "annualTurnoverPct", value: number) {
@@ -1172,8 +964,6 @@ export default function InhouseIncreases() {
                 setLocationId(v);
                 setAssumptionsTouched(false);
                 setPlans(null);
-                setStreetRecommendations([]);
-                setStreetRebalance(null);
               }}
             >
               <SelectTrigger className="h-9" data-testid="select-campus">

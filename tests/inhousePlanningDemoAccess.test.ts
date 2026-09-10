@@ -18,12 +18,6 @@ const calculate = await post("/api/inhouse-planning/calculate", {
 });
 assert.notEqual(calculate.status, 401, "anonymous demo calculation is not MFA-gated");
 
-const recommendations = await post("/api/inhouse-planning/recommendations", {
-  serviceLine: "AL",
-  maximumPremiumAboveTopCompetitorPct: 3,
-});
-assert.notEqual(recommendations.status, 401, "anonymous demo recommendations are not MFA-gated");
-
 const apply = await post("/api/inhouse-planning/apply", {
   serviceLine: "AL",
   assumptions: {},

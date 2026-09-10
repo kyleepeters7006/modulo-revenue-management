@@ -27,7 +27,6 @@ import { DAYS_PER_MONTH } from "@shared/careRates";
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
 import type { PlanAudit } from "./index";
 import { injectCharts, type ChartSpec } from "../xlsxCharts";
-import type { StreetRateRecommendation } from "@shared/streetRateRecommendations";
 
 // ── formats ────────────────────────────────────────────────────────────────
 /** Money: comma separated, no decimals, as requested. */
@@ -224,8 +223,6 @@ export interface BuildExportInput {
   audit: PlanAudit;
   /** Who generated it, for the provenance line. */
   generatedBy?: string;
-  /** Optional one-time advisory Street Rate recommendations. */
-  recommendations?: StreetRateRecommendation[];
 }
 
 export async function buildRatePlanWorkbook(input: BuildExportInput): Promise<Buffer> {
@@ -254,9 +251,6 @@ export async function buildRatePlanWorkbook(input: BuildExportInput): Promise<Bu
   const wsMoveIn = wb.addWorksheet("Move-in trends");
   const wsHistory = wb.addWorksheet("Rate history");
   const wsMethod = wb.addWorksheet("Method");
-  if (input.recommendations?.length) {
-    buildStreetRecommendationSheet(wb.addWorksheet("Street recommendations"), input.recommendations);
-  }
 
   // Detail is built first: the summary's totals are formulas over its rows.
   const detail = buildDetailSheet(wsDetail, plan, audit, daily);
@@ -363,50 +357,6 @@ export async function buildRatePlanWorkbook(input: BuildExportInput): Promise<Bu
   }
 
   return injectCharts(buffer, charts);
-}
-
-function buildStreetRecommendationSheet(
-  ws: ExcelJS.Worksheet,
-  recommendations: StreetRateRecommendation[],
-) {
-  ws.views = [{ state: "frozen", ySplit: 1 }];
-  const headers = [
-    "Campus", "Service line", "Product", "Current Street Rate",
-    "Top Competitor", "Premium Ceiling", "Suggested Street Rate",
-    "Action", "Locked", "Growth Contribution", "Rationale",
-  ];
-  headers.forEach((header, index) => {
-    const cell = ws.getCell(1, index + 1);
-    cell.value = header;
-    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_FILL } };
-    cell.alignment = { wrapText: true, vertical: "middle" };
-  });
-  recommendations.forEach((recommendation, rowIndex) => {
-    const row = rowIndex + 2;
-    [
-      recommendation.location,
-      recommendation.serviceLine,
-      recommendation.product,
-      recommendation.currentStreetRate,
-      recommendation.topCompetitorRate,
-      recommendation.premiumCeilingRate,
-      recommendation.suggestedRate,
-      recommendation.action,
-      recommendation.locked ? "Yes" : "No",
-      recommendation.growthContribution,
-      recommendation.rationale,
-    ].forEach((value, columnIndex) => {
-      ws.getCell(row, columnIndex + 1).value = value;
-    });
-  });
-  [28, 14, 22, 18, 16, 16, 20, 20, 10, 20, 80].forEach((width, index) => {
-    ws.getColumn(index + 1).width = width;
-  });
-  for (let row = 2; row <= recommendations.length + 1; row++) {
-    for (const column of [4, 5, 6, 7, 10]) ws.getCell(row, column).numFmt = FMT_MONEY;
-    ws.getCell(row, 11).alignment = { wrapText: true, vertical: "top" };
-  }
 }
 
 // ── Resident detail ────────────────────────────────────────────────────────

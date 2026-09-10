@@ -15,7 +15,6 @@
  */
 
 import type { RateProduct } from "./rateProduct";
-import type { StreetRateRecommendation } from "./streetRateRecommendations";
 
 export type { RateProduct };
 
@@ -23,6 +22,8 @@ export type EqualizationStrength = "low" | "medium" | "high";
 
 export type MeasurementMode = "quarterly_yoy";
 
+/** Historical Street Rate evidence retained only for reading old plan snapshots. */
+export type StreetRecommendationAction = "push" | "measured_increase" | "hold";
 /** Basis on which a quarter's realized rate was established. */
 export type QuarterBasis =
   /** Every month of the quarter is present in the rent roll. */
@@ -292,16 +293,8 @@ export interface PlanSummary {
   totalAnnualIncreaseDollars: number;
   currentAvgInhouseRateMonthly: number;
   newAvgInhouseRateMonthly: number;
-  /**
-   * The submitted Street Rate set is advisory evidence attached to this
-   * proposal. It is deliberately not part of the active pricing-rule state.
-   */
+  /** Legacy advisory Street Rate evidence, retained when reading old plans. */
   streetRateRecommendations?: StreetRateRecommendation[];
-  /**
-   * Metadata needed to reopen a submitted recommendation set safely after a
-   * process restart. Older proposals may have the array above without this
-   * metadata and are therefore display-only.
-   */
   streetRateRecommendationSnapshot?: StreetRateRecommendationSnapshot;
 }
 
@@ -311,21 +304,6 @@ export interface StreetRateRecommendationSnapshot {
   assumptionsFingerprint: string | null;
   recommendations: StreetRateRecommendation[];
 }
-
-export type StreetRateReviewStatus =
-  | "available"
-  | "expired"
-  | "superseded"
-  | "published"
-  | "unavailable";
-
-export interface StreetRateReviewHistory {
-  status: StreetRateReviewStatus;
-  createdAt: string | null;
-  recommendationCount: number;
-  reason: string | null;
-}
-
 export interface InhousePlanHistoryEntry {
   id: string;
   version: number;
@@ -339,7 +317,6 @@ export interface InhousePlanHistoryEntry {
   inhouseEffectiveDate: string | null;
   appliedBy: string | null;
   createdAt: string | null;
-  streetRateReview: StreetRateReviewHistory;
 }
 
 export interface PlanResult {
@@ -423,4 +400,26 @@ export function formatMoney(value: number, digits = 0): string {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   })}`;
+}
+
+export interface StreetRateRecommendation {
+  id: string;
+  location: string;
+  benchmarkLocation?: string;
+  locationId: string | null;
+  serviceLine: string;
+  product: string;
+  currentStreetRate: number;
+  topCompetitorRate: number | null;
+  premiumCeilingRate: number | null;
+  hardCeiling: number;
+  suggestedRate: number;
+  suggestedIncreasePct: number;
+  action: StreetRecommendationAction;
+  rationale: string;
+  units: number;
+  occupancyPct: number | null;
+  locked: boolean;
+  growthContribution: number;
+  validation: string[];
 }
