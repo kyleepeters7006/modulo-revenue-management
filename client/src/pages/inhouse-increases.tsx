@@ -35,19 +35,49 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Calculator,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Info,
+  Loader2,
+  Save,
+  TrendingUp,
+} from "lucide-react";
+import {
   clearInhousePlanStorage,
   readInhousePlan,
   writeInhousePlan,
 } from "@/lib/inhousePlanStorage";
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
 import {
+  DEFAULT_ASSUMPTIONS,
+  formatMoney,
+  formatPct,
   planAssumptionsMatch,
   selectSubmittablePlans,
+  type CalcExplanation,
+  type EqualizationStrength,
+  type PlanResult,
+  type PlanningAssumptions,
+  type ResidentRecommendation,
 } from "@shared/inhousePlanning";
 import type {
   InhousePlanHistoryEntry,
   StreetRateSource,
 } from "@shared/inhousePlanning";
+import {
+  MODEL_MAX_TURNOVER_PCT,
+  MODEL_MIN_TURNOVER_PCT,
+  defaultTurnoverFor,
+  describeTurnoverBand,
+  explainTurnoverOutOfBand,
+  formatLos,
+} from "@shared/turnoverBounds";
 
 /**
  * Where a resident's comparison rate came from, said plainly. A ceiling set by

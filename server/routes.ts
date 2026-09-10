@@ -28790,7 +28790,9 @@ Return ONLY valid JSON, no markdown fences:
         .where(eq(rentRollData.clientId, clientId))
         .orderBy(sql`${rentRollData.uploadMonth} DESC`);
 
-      // Inquiry: last upload + distinct periods
+      // Inquiry: file metadata comes from upload_history when attributable.
+      // Periods and the fallback timestamp come from the authoritative,
+      // tenant-owned inquiry rows so legacy imports remain visible.
       const inqLast = await db
         .select({
           lastUploadAt: uploadHistory.processedAt,
@@ -28804,14 +28806,16 @@ Return ONLY valid JSON, no markdown fences:
         .orderBy(desc(uploadHistory.processedAt))
         .limit(1);
 
+      const inqDataLast = await db
+        .select({ lastUploadAt: sql<string>`MAX(${inquiryMetrics.createdAt})` })
+        .from(inquiryMetrics)
+        .where(eq(inquiryMetrics.clientId, clientId));
+
       const inqPeriods = await db
-        .selectDistinct({ period: uploadHistory.uploadMonth })
-        .from(uploadHistory)
-        .where(and(
-          eq(uploadHistory.uploadType, 'inquiry_metrics'),
-          eq(uploadHistory.clientId, clientId),
-        ))
-        .orderBy(sql`${uploadHistory.uploadMonth} DESC`);
+        .selectDistinct({ period: inquiryMetrics.uploadMonth })
+        .from(inquiryMetrics)
+        .where(eq(inquiryMetrics.clientId, clientId))
+        .orderBy(sql`${inquiryMetrics.uploadMonth} DESC`);
 
       // Competitor: from competitive_survey_data (not tracked in upload_history)
       const compLast = await db
@@ -28872,7 +28876,7 @@ Return ONLY valid JSON, no markdown fences:
           periods: rrPeriods.map(r => r.period).filter(Boolean),
         },
         inquiry_metrics: {
-          lastUploadAt: inqLast[0]?.lastUploadAt || null,
+          lastUploadAt: inqLast[0]?.lastUploadAt || inqDataLast[0]?.lastUploadAt || null,
           lastFileName: inqLast[0]?.lastFileName || null,
           periods: inqPeriods.map(r => r.period).filter(Boolean),
         },
