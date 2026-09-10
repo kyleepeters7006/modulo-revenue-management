@@ -36,9 +36,27 @@ De-duplication alone takes AL to ~57%, bedhold exclusion on top takes it to ~40%
 this far out, do not stop at the first sufficient explanation — a plausible result after one fix
 is not evidence the other cause is absent.
 
-### Current portfolio readings (post-dedup, post-bedhold, private-pay HC basis)
-AL 40%, AL/MC 39%, SL 31%, VIL 23%, HC/MC 82%, HC 281%. Only HC remains out of band, and its
-residue is private-pay short-stay rehab rather than a counting defect.
+### Missing departures can be recovered conservatively from replacement admissions
+
+Trilogy rent rolls support resident IDs in schema, but the imported rows have no
+resident ID or name populated. Move-in/out events carry a census ID for essentially
+every admission and discharge, so the event feed—not rent-roll identity—is the
+available resident-level source.
+
+Explicit move-outs can still be incomplete. Recover only a provable lower bound:
+one unique admission into a room occupied in the prior monthly rent roll, where no
+qualifying same-room move-out exists in the admission month. Add at most one inferred
+departure per room-month and report recorded versus inferred counts separately.
+
+**Why:** this catches a move-out followed by a move-in between monthly snapshots,
+without treating a vacancy fill, newly opened room, or newly added campus as turnover.
+Raw admissions cannot substitute for departures: portfolio expansion can create
+hundreds of legitimate admissions in one month.
+
+**How to apply:** dedupe admissions by patient/census identity, require prior-month
+occupied-room evidence, anti-join a same-room explicit move-out, and retain all payer,
+bedhold, companion, service-line, feed-precedence, and month-coverage rules used by
+the explicit numerator. Keep occupancy history as the denominator.
 
 ### LOS is the sanity-check lever
 `losMonths = 1200 / turnoverPct` (12 months × 100 / pct). Show it beside every turnover figure

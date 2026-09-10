@@ -155,6 +155,8 @@ const SERVICE_LINES = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
 interface ServiceLineTurnover {
   serviceLine: string;
   moveOuts: number;
+  explicitMoveOuts: number;
+  inferredMoveOuts: number;
   avgOccupiedUnits: number;
   /** True for HC and HC/MC (private-pay numerator + private-pay denominator). False for all other lines (all move-outs / all occupied units). */
   privatePayBasis: boolean;
@@ -299,6 +301,13 @@ function TurnoverEvidence({
   // assumption, which no amount of history validation would ever look at.
   const appliedWarning = explainTurnoverOutOfBand(serviceLine, applied);
   const band = describeTurnoverBand(serviceLine);
+  const departureEvidence = hist
+    ? `${hist.moveOuts.toLocaleString()} departures${
+        hist.inferredMoveOuts > 0
+          ? ` (${hist.explicitMoveOuts.toLocaleString()} recorded + ${hist.inferredMoveOuts.toLocaleString()} same-room replacements)`
+          : ""
+      }`
+    : "";
 
   let history: JSX.Element;
   if (!hist) {
@@ -319,7 +328,7 @@ function TurnoverEvidence({
     history = (
       <span className="text-amber-500">
         History says {hist.turnoverPct}% ({formatLos(hist.turnoverPct)}){" "}
-        — {hist.moveOuts.toLocaleString()} move-outs /{" "}
+        — {departureEvidence} /{" "}
         {hist.avgOccupiedUnits.toLocaleString()} {unitLabel}.{" "}
         {hist.outOfBandReason} Saved assumption kept.
       </span>
@@ -339,7 +348,7 @@ function TurnoverEvidence({
     history = (
       <span className="text-muted-foreground">
         {adopted ? "From history: " : "History: "}
-        {hist.moveOuts.toLocaleString()} move-outs /{" "}
+        {departureEvidence} /{" "}
         {hist.avgOccupiedUnits.toLocaleString()} {unitLabel} = {hist.turnoverPct}%{" "}
         ({formatLos(hist.turnoverPct)})
         {/* The measurement is trusted here, so say the ceiling bound rather
@@ -1210,9 +1219,18 @@ export default function InhouseIncreases() {
           {serviceLines.length > 1 ? (
             <div className="space-y-2">
               <div className="grid grid-cols-[6rem_1fr_1fr] gap-x-3 gap-y-0.5 text-xs font-medium text-muted-foreground">
-                <span>Service line</span>
-                <span>Rate growth target</span>
-                <span>Annual turnover</span>
+                <HeaderHelp
+                  label="Service line"
+                  explanation="The level of care being planned. Each selected service line is calculated independently using its own rates, residents, turnover, and competitive benchmark."
+                />
+                <HeaderHelp
+                  label="Rate growth target"
+                  explanation="The minimum year-over-year realized-rate growth the plan must deliver in every measurable quarter. The solver favors in-house increases and uses Street Rate according to the competitive position and configured guardrails."
+                />
+                <HeaderHelp
+                  label="Annual turnover"
+                  explanation="The estimated percentage of occupied units replaced by new move-ins over one year. Turnover determines how quickly residents paying the proposed Street Rate affect projected realized-rate growth."
+                />
               </div>
               {serviceLines.map((sl) => {
                 const vals = perLineTargets[sl] ?? {
@@ -1585,6 +1603,7 @@ export default function InhouseIncreases() {
                                 left: "auto",
                                 transform: "none",
                                 pointerEvents: "none",
+                                maxWidth: 245,
                               }}
                               formatter={(value: number, name: string, item: any) => [
                                 `${formatMoney(Number(value))}${daily ? "/day" : "/mo"}${
@@ -1596,11 +1615,14 @@ export default function InhouseIncreases() {
                               ]}
                               labelFormatter={(label) => String(label)}
                               contentStyle={{
-                                borderRadius: "8px",
+                                width: "245px",
+                                padding: "6px 8px",
+                                borderRadius: "6px",
                                 borderColor: "hsl(var(--border))",
                                 background: "hsl(var(--popover))",
                                 color: "hsl(var(--popover-foreground))",
-                                fontSize: "12px",
+                                fontSize: "10px",
+                                lineHeight: "1.25",
                               }}
                             />
                             <Line

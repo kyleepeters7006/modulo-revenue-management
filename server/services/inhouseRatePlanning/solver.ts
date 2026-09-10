@@ -605,9 +605,12 @@ function requiredAvgIncreaseAt(ctx: EvalContext, streetIncrease: number, ceiling
 
 export function solvePlan(input: SolveInput): SolveOutput {
   const ctx = buildContext(input);
-  // Street rate should grow at least as fast as the objective — otherwise
-  // every move-in dilutes the very growth being planned for. But the operator's
-  // own street ceiling still wins: setting it to zero means "do not move street".
+  // Street Rate is the last lever, not the first. Growth is taken from in-house
+  // increases wherever the guardrails allow, because raising the asking rate
+  // prices the scope against its market and widens the gap to the residents
+  // already in the building. The growth objective is therefore NOT a street
+  // floor: it is enforced by the quarterly feasibility check below, which
+  // already accounts for move-ins arriving at the street rate.
   const currentStreet = input.currentStreetRateMonthly;
   const ordinaryCeiling = Math.max(0, input.assumptions.maxStreetIncreasePct / 100);
   const priorJanuaryStreet = input.priorJanuaryStreetRateMonthly;
@@ -639,7 +642,7 @@ export function solvePlan(input: SolveInput): SolveOutput {
       ? Math.max(0, desiredCompetitiveRate / currentStreet - 1)
       : 0;
   const floorStreet = Math.min(
-    Math.max(0, ctx.target, configuredMinimum, competitivePush),
+    Math.max(0, configuredMinimum, competitivePush),
     ceilStreet,
   );
 
@@ -668,6 +671,9 @@ export function solvePlan(input: SolveInput): SolveOutput {
     streetIncrease = ceilStreet;
   }
 
+  // The in-house average is deliberately NOT held below the asking rate. A
+  // resident may be raised past street; that is an accepted outcome, not a
+  // reason to push the asking rate up to meet them.
   const headroomCeiling = maxAvgAt(streetIncrease);
   const rawRequired = feasible
     ? requiredAvgIncreaseAt(ctx, streetIncrease, Math.max(headroomCeiling, ctx.max))

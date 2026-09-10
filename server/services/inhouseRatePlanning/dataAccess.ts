@@ -499,60 +499,90 @@ export async function fetchCurrentStreetRate(
   return Number(res.rows[0]?.avg_rate) || 0;
 }
 
+export interface MixStandardizedStreetComparison {
+  /** Average January rate over rooms present and eligible in BOTH months. */
+  priorMatchedMonthly: number;
+  /** Average current rate over that same matched room set. */
+  currentMatchedMonthly: number;
+  /** Rooms matched in both months. */
+  matchedRooms: number;
+  /** Eligible rooms in the current month, matched or not. */
+  currentRooms: number;
+}
+
 /**
- * Historical Street Rate on today's private-pay base-room mix.
+ * January vs today's Street Rate, measured on the same physical rooms.
  *
- * The payer occupying a room and the mix of priced products can change between
- * January and the source month. Comparing two independently weighted averages
- * makes the annual ceiling move even when room prices do not. Match today's
- * eligible cohort back to the same physical rooms in January instead.
+ * The payer occupying a room and the mix of priced products both change between
+ * January and the source month. Two independently weighted averages therefore
+ * move even when no room's price changed, which silently shifts the annual
+ * ceiling. Both sides are instead averaged over one matched room set.
+ *
+ * Rooms are deduplicated first: `rent_roll_data` has no uniqueness constraint on
+ * (client, month, location, service line, room), so joining raw rows fans out
+ * and weights duplicated rooms more heavily.
+ *
+ * The January side is deliberately NOT payer-filtered — a room switching from
+ * Medicare to private pay is exactly the mix artifact being removed — but it is
+ * held to the same base-product and plausibility rules, so a room that was a
+ * companion or short-stay product in January cannot contribute another
+ * product's price.
  */
-export async function fetchMixStandardizedPriorStreetRate(
+export async function fetchMixStandardizedStreetComparison(
   scope: ScopeFilter,
   baselineMonth: string,
   currentMonth: string,
-): Promise<number> {
+): Promise<MixStandardizedStreetComparison> {
   const params: any[] = [scope.clientId, currentMonth, scope.serviceLine, baselineMonth];
   let locSql = "";
   if (scope.location) {
     params.push(scope.location);
-    locSql = ` AND cur.location = $${params.length}`;
+    locSql = ` AND rr.location = $${params.length}`;
   }
-  const currentBaselineJoin = buildRateBaselineJoin({
-    rr: "cur.",
-    clientSql: "$1",
-    monthSql: "$2",
-    alias: "cur_rb",
-  });
-  const historicalBaselineJoin = buildRateBaselineJoin({
-    rr: "hist.",
-    clientSql: "$1",
-    monthSql: "$4",
-    alias: "hist_rb",
-  });
-  const res = await pool.query<{ avg_rate: string | null }>(
-    `SELECT AVG(${monthlyRateExpr("hist.street_rate", "hist.service_line")}) AS avg_rate
-       FROM rent_roll_data cur
-       ${currentBaselineJoin}
-       JOIN rent_roll_data hist
-         ON hist.client_id = cur.client_id
-        AND hist.upload_month = $4
-        AND hist.location = cur.location
-        AND hist.service_line IS NOT DISTINCT FROM cur.service_line
-        AND hist.room_number = cur.room_number
-       ${historicalBaselineJoin}
-      WHERE cur.client_id = $1
-        AND cur.upload_month = $2
-        AND cur.service_line = $3
-        AND cur.street_rate > 0
-        AND ${privatePaySql("cur.payor_type")}
-        AND ${baseRateExclusionSql("cur.")}
-        AND ${streetRateGate("cur.", "cur_rb")}
-        AND hist.street_rate > 0
-        AND ${streetRateGate("hist.", "hist_rb")}${locSql}`,
+  const roomCte = (monthSql: string, alias: string, payerFiltered: boolean) => `
+    SELECT rr.location, rr.service_line, rr.room_number,
+           AVG(${monthlyRateExpr("rr.street_rate")}) AS rate
+      FROM rent_roll_data rr
+      ${buildRateBaselineJoin({ clientSql: "$1", monthSql, alias })}
+     WHERE rr.client_id = $1
+       AND rr.upload_month = ${monthSql}
+       AND rr.service_line = $3
+       AND rr.room_number IS NOT NULL
+       AND rr.street_rate > 0
+       ${payerFiltered ? `AND ${privatePaySql("rr.payor_type")}` : ""}
+       AND ${baseRateExclusionSql("rr.")}
+       AND ${streetRateGate("rr.", alias)}${locSql}
+     GROUP BY rr.location, rr.service_line, rr.room_number`;
+
+  const res = await pool.query<{
+    prior_rate: string | null;
+    current_rate: string | null;
+    matched_rooms: string;
+    current_rooms: string;
+  }>(
+    `WITH cur AS (${roomCte("$2", "cur_rb", true)}),
+          hist AS (${roomCte("$4", "hist_rb", false)}),
+          matched AS (
+            SELECT cur.rate AS cur_rate, hist.rate AS hist_rate
+              FROM cur
+              JOIN hist
+                ON hist.location = cur.location
+               AND hist.service_line = cur.service_line
+               AND hist.room_number = cur.room_number
+          )
+     SELECT (SELECT AVG(hist_rate) FROM matched) AS prior_rate,
+            (SELECT AVG(cur_rate) FROM matched) AS current_rate,
+            (SELECT COUNT(*) FROM matched) AS matched_rooms,
+            (SELECT COUNT(*) FROM cur) AS current_rooms`,
     params,
   );
-  return Number(res.rows[0]?.avg_rate) || 0;
+  const row = res.rows[0];
+  return {
+    priorMatchedMonthly: Number(row?.prior_rate) || 0,
+    currentMatchedMonthly: Number(row?.current_rate) || 0,
+    matchedRooms: Number(row?.matched_rooms) || 0,
+    currentRooms: Number(row?.current_rooms) || 0,
+  };
 }
 
 /**

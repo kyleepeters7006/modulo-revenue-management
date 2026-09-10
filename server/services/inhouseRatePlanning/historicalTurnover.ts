@@ -45,6 +45,14 @@ export interface ServiceLineTurnover {
    * For all other lines: all payers, excluding bed-holds and companion positions.
    */
   moveOuts: number;
+  /** Explicit move-out events present in the authoritative event feed. */
+  explicitMoveOuts: number;
+  /**
+   * Conservative missing departures inferred from a unique admission into a
+   * room occupied in the prior monthly rent roll, with no same-room move-out
+   * event in that month. At most one is added per room-month.
+   */
+  inferredMoveOuts: number;
   /**
    * Average monthly occupied units across those months.
    * For HC and HC/MC: private-pay share only (matches the numerator).
@@ -330,6 +338,83 @@ export async function computeHistoricalTurnover(
        ${locationName ? "AND e.location = $4" : ""}
      GROUP BY 1, 2`;
 
+  // Some permanent departures are absent from the discharge feed even though
+  // the corresponding admission is present. Census IDs make those admissions
+  // individually identifiable; the prior month's occupied-room snapshot tells
+  // us whether the admission replaced someone rather than filling a vacancy.
+  //
+  // Add only the conservative, provable gap: one admission into a room that was
+  // occupied in the prior month and has no qualifying same-room move-out in the
+  // admission month. This catches move-out + move-in cycles hidden inside one
+  // monthly rent-roll interval without treating new campuses, new rooms, or
+  // ordinary vacancy fills as turnover.
+  const inferredMoveOutSql = `
+    WITH admissions AS (
+      SELECT e.id,
+             COALESCE(NULLIF(BTRIM(e.patient_id), ''), NULLIF(BTRIM(e.census_id), ''), e.id::text) AS resident_key,
+             e.location,
+             e.service_line AS sl,
+             e.room_name,
+             substring(e.event_date, 1, 7) AS m,
+             to_char(
+               to_date(substring(e.event_date, 1, 7), 'YYYY-MM') - interval '1 month',
+               'YYYY-MM'
+             ) AS prior_m
+        FROM ${MOVE_IN_OUT_ACTIVE_VIEW} e
+       WHERE e.client_id = $1
+         AND e.event_type = 'move_in'
+         AND e.counted = true
+         AND substring(e.event_date, 1, 7) BETWEEN $2 AND $3
+         AND e.room_name IS NOT NULL
+         AND ${moveOutPayerScopeSql("e")}
+         ${locationName ? "AND e.location = $4" : ""}
+    ),
+    prior_occupied_rooms AS (
+      SELECT DISTINCT rr.location, rr.service_line AS sl, rr.upload_month AS m, rr.room_number
+        FROM rent_roll_data rr
+       WHERE rr.client_id = $1
+         AND rr.occupied_yn = true
+         AND rr.room_number IS NOT NULL
+         AND rr.upload_month BETWEEN
+             to_char(to_date($2, 'YYYY-MM') - interval '1 month', 'YYYY-MM')
+             AND to_char(to_date($3, 'YYYY-MM') - interval '1 month', 'YYYY-MM')
+         ${locationName ? "AND rr.location = $4" : ""}
+    ),
+    explicit_out_rooms AS (
+      SELECT DISTINCT e.location,
+             e.service_line AS sl,
+             e.room_name,
+             substring(e.event_date, 1, 7) AS m
+        FROM ${MOVE_IN_OUT_ACTIVE_VIEW} e
+       WHERE e.client_id = $1
+         AND e.event_type = 'move_out'
+         AND e.counted = true
+         AND substring(e.event_date, 1, 7) BETWEEN $2 AND $3
+         AND e.room_name IS NOT NULL
+         AND ${moveOutPayerScopeSql("e")}
+         ${locationName ? "AND e.location = $4" : ""}
+    ),
+    missing_room_months AS (
+      SELECT a.sl, a.m, a.location, a.room_name,
+             MIN(a.resident_key) AS admission_resident_key
+        FROM admissions a
+        JOIN prior_occupied_rooms p
+          ON p.location = a.location
+         AND p.sl IS NOT DISTINCT FROM a.sl
+         AND p.m = a.prior_m
+         AND BTRIM(p.room_number) = BTRIM(a.room_name)
+        LEFT JOIN explicit_out_rooms o
+          ON o.location = a.location
+         AND o.sl IS NOT DISTINCT FROM a.sl
+         AND o.m = a.m
+         AND BTRIM(o.room_name) = BTRIM(a.room_name)
+       WHERE o.room_name IS NULL
+       GROUP BY a.sl, a.m, a.location, a.room_name
+    )
+    SELECT sl, m, COUNT(*)::int AS n
+      FROM missing_room_months
+     GROUP BY 1, 2`;
+
   // Occupied units per month from the authoritative occupancy source. Left
   // per-month rather than pre-averaged: a campus whose history lags has fewer
   // months than the window, and averaging here would hide that.
@@ -361,8 +446,12 @@ export async function computeHistoricalTurnover(
     : [clientId, windowStart, windowEnd];
   const shareParams: any[] = locationId ? [clientId, locationId] : [clientId];
 
-  const [moveOutRes, occRes, shareRes] = await Promise.all([
+  const inferredParams: any[] = locationName
+    ? [clientId, windowStart, windowEnd, locationName]
+    : [clientId, windowStart, windowEnd];
+  const [moveOutRes, inferredMoveOutRes, occRes, shareRes] = await Promise.all([
     pool.query(moveOutSql, eventParams),
+    pool.query(inferredMoveOutSql, inferredParams),
     pool.query(occSql, occParams),
     pool.query(shareSql, shareParams),
   ]);
@@ -377,6 +466,17 @@ export async function computeHistoricalTurnover(
     if (!byMonth) {
       byMonth = new Map();
       moveOutsBySlMonth.set(sl, byMonth);
+    }
+    byMonth.set(r.m, (byMonth.get(r.m) ?? 0) + Number(r.n));
+  }
+  const inferredBySlMonth = new Map<string, Map<string, number>>();
+  for (const r of inferredMoveOutRes.rows) {
+    const sl = normalizeEventSl(r.sl);
+    if (!sl) continue;
+    let byMonth = inferredBySlMonth.get(sl);
+    if (!byMonth) {
+      byMonth = new Map();
+      inferredBySlMonth.set(sl, byMonth);
     }
     byMonth.set(r.m, (byMonth.get(r.m) ?? 0) + Number(r.n));
   }
@@ -430,7 +530,10 @@ export async function computeHistoricalTurnover(
     // over the four months a campus happens to have reports a turnover far
     // above anything that happened, and reports it as a 12-month measure.
     const byMonth = moveOutsBySlMonth.get(sl);
-    const moveOuts = months.reduce((s, m) => s + (byMonth?.get(m) ?? 0), 0);
+    const inferredByMonth = inferredBySlMonth.get(sl);
+    const explicitMoveOuts = months.reduce((s, m) => s + (byMonth?.get(m) ?? 0), 0);
+    const inferredMoveOuts = months.reduce((s, m) => s + (inferredByMonth?.get(m) ?? 0), 0);
+    const moveOuts = explicitMoveOuts + inferredMoveOuts;
     const annualisedMoveOuts = (moveOuts / monthsCovered) * monthsInWindow;
     const turnoverPct = (annualisedMoveOuts / avgOcc) * 100;
 
@@ -454,6 +557,8 @@ export async function computeHistoricalTurnover(
     out.push({
       serviceLine: sl,
       moveOuts,
+      explicitMoveOuts,
+      inferredMoveOuts,
       avgOccupiedUnits: Math.round(avgOcc),
       privatePayBasis: ppBasis,
       privatePaySharePct: share !== undefined ? Math.round(share * 1000) / 10 : 0,

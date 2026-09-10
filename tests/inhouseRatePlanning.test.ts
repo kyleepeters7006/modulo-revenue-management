@@ -400,7 +400,11 @@ console.log("\n-- 6. An achievable target is solved without touching the street 
     currentStreetRateMonthly: 5000,
   });
   ok("plan is feasible", result.feasible);
-  near("street recommendation sits at the target growth, not above", result.streetIncrease * 100, 5, 0.01);
+  ok(
+    "growth is taken from in-house before Street Rate is moved",
+    result.streetIncrease * 100 < 5 - 0.01,
+  );
+  ok("the in-house increase is what clears the target", result.requiredAvgIncrease > 0);
   ok("every quarter passes", result.quarterResults.every((q) => q.passes));
   ok("no infeasibility block", result.infeasibility === null);
   ok(
@@ -446,10 +450,13 @@ console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rat
     0.01,
   );
 
+  // In-house is capped low here, so the growth objective cannot be met from
+  // resident increases alone and the Street Rate has to make up the rest.
   const aboveDesired = solvePlan({
     residents: roomyPopulation(),
     assumptions: assumptions({
-      rateGrowthTargetPct: 7,
+      rateGrowthTargetPct: 6,
+      maxInhouseIncreasePct: 1.5,
       desiredVarianceToTopCompetitorPct: -5,
     }),
     baselineByQuarter: flatBaseline(4200),
@@ -458,11 +465,13 @@ console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rat
     currentStreetRateMonthly: 5000,
     topCompetitorRateMonthly: 5000,
   });
-  near(
-    "desired competitor position does not cap a larger required increase",
-    aboveDesired.streetIncrease * 100,
-    7,
-    0.01,
+  ok(
+    "desired competitor position does not cap a Street Rate the target requires",
+    aboveDesired.streetIncrease > 1e-9,
+  );
+  ok(
+    "in-house is exhausted before Street Rate makes up the difference",
+    aboveDesired.requiredAvgIncrease * 100 >= 1.5 - 0.01,
   );
 
   const noBenchmark = solvePlan({
@@ -477,11 +486,57 @@ console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rat
     currentStreetRateMonthly: 5000,
     topCompetitorRateMonthly: null,
   });
-  near(
-    "missing Top Competitor falls back to the ordinary growth solve",
-    noBenchmark.streetIncrease * 100,
-    3,
-    0.01,
+  ok(
+    "missing Top Competitor leaves Street Rate at the minimum the target needs",
+    noBenchmark.streetIncrease * 100 < 3 - 0.01,
+  );
+  ok(
+    "and the plan still clears every quarter from in-house increases",
+    noBenchmark.feasible && noBenchmark.quarterResults.every((q) => q.passes),
+  );
+}
+
+// ── 6d. Variance to Top Competitor decides which lever carries the growth ───
+console.log("\n-- 6d. Variance to Top Competitor decides Street vs in-house --");
+{
+  const solveAtVariance = (desiredVarianceToTopCompetitorPct: number) =>
+    solvePlan({
+      residents: roomyPopulation(),
+      assumptions: assumptions({
+        rateGrowthTargetPct: 5,
+        minStreetIncreasePct: 0,
+        desiredVarianceToTopCompetitorPct,
+      }),
+      baselineByQuarter: flatBaseline(4200),
+      quarters: QUARTERS,
+      anchorMs: ANCHOR_MS,
+      currentStreetRateMonthly: 5000,
+      topCompetitorRateMonthly: 5200,
+    });
+
+  // Asking rate sits far above where the operator wants to be versus the top
+  // competitor, so there is no competitive room and in-house does the work.
+  const wellAbove = solveAtVariance(-40);
+  // The operator wants to be well above the top competitor, so the asking rate
+  // has competitive room and is the lever that moves first.
+  const wellBelow = solveAtVariance(40);
+
+  ok(
+    "no competitive room leaves Street Rate alone",
+    wellAbove.streetIncrease * 100 < 0.01,
+  );
+  ok(
+    "competitive room pushes Street Rate up instead",
+    wellBelow.streetIncrease > wellAbove.streetIncrease + 1e-6,
+  );
+  ok(
+    "and the in-house increase carries less when Street Rate carries more",
+    wellBelow.requiredAvgIncrease < wellAbove.requiredAvgIncrease - 1e-6,
+  );
+  ok(
+    "both directions still clear every quarter",
+    wellAbove.quarterResults.every((q) => q.passes) &&
+      wellBelow.quarterResults.every((q) => q.passes),
   );
 }
 

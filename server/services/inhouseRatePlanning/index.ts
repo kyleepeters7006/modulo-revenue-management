@@ -25,7 +25,7 @@ import { isDailyRateServiceLine } from "../rateNormalization";
 import {
   buildResidents,
   fetchCurrentStreetRate,
-  fetchMixStandardizedPriorStreetRate,
+  fetchMixStandardizedStreetComparison,
   fetchTopCompetitorRate,
   fetchMonthlyRealizedRates,
   fetchProductStreetBaselines,
@@ -161,11 +161,11 @@ export async function calculatePlanDetailed(
   // preceding that plan year. Using the Street effective-date year minus one
   // incorrectly sent an October 2026 change back to January 2025.
   const priorJanuaryMonth = `${quarters[0].year - 1}-01`;
-  const [rawRows, currentStreetRateMonthly, priorJanuaryStreetRateMonthly, topCompetitorRateMonthly, productBaselines, formulas] =
+  const [rawRows, currentStreetRateMonthly, priorJanuaryComparison, topCompetitorRateMonthly, productBaselines, formulas] =
     await Promise.all([
       fetchResidentRows(scope, sourceMonth),
       fetchCurrentStreetRate(scope, sourceMonth),
-      fetchMixStandardizedPriorStreetRate(scope, priorJanuaryMonth, sourceMonth),
+      fetchMixStandardizedStreetComparison(scope, priorJanuaryMonth, sourceMonth),
       fetchTopCompetitorRate(scope, sourceMonth),
       fetchProductStreetBaselines(scope, sourceMonth),
       getDerivedRateFormulas((s, p) => pool.query(s, p), input.clientId),
@@ -240,11 +240,27 @@ export async function calculatePlanDetailed(
       `There is no prior-year rent roll for ${input.serviceLine} at ${input.location ?? "this portfolio"}, so year-over-year growth cannot be measured. Import the rent roll for ${priorYearQuarters.map((q) => q.label).join(", ")} to plan against a target.`,
     );
   }
-  if (priorJanuaryStreetRateMonthly <= 0) {
+  // Both sides of the January comparison are averaged over the same matched
+  // rooms, so their RATIO is the like-for-like price movement. Anchor that
+  // ratio to today's full planning street rate rather than handing the solver a
+  // January average drawn from a different room population.
+  if (
+    priorJanuaryComparison.matchedRooms === 0 ||
+    priorJanuaryComparison.priorMatchedMonthly <= 0 ||
+    priorJanuaryComparison.currentMatchedMonthly <= 0
+  ) {
     throw new PlanningDataError(
-      `There is no usable January street rate for ${priorJanuaryMonth} at ${input.location ?? "this portfolio"}, so the January-to-January street increase maximum cannot be enforced.`,
+      `No room in ${sourceMonth} can be matched back to a usable ${priorJanuaryMonth} street rate at ${input.location ?? "this portfolio"}, so the January-to-January street increase maximum cannot be enforced.`,
     );
   }
+  const priorJanuaryStreetRateMonthly =
+    currentStreetRateMonthly *
+    (priorJanuaryComparison.priorMatchedMonthly / priorJanuaryComparison.currentMatchedMonthly);
+
+  const matchCoverage =
+    priorJanuaryComparison.currentRooms > 0
+      ? priorJanuaryComparison.matchedRooms / priorJanuaryComparison.currentRooms
+      : 0;
 
   const daily = isDailyRateServiceLine(input.serviceLine);
   const solved = solvePlan({
@@ -420,6 +436,8 @@ export async function calculatePlanDetailed(
     quarterlyGrowthPct,
     residentsWithoutStreet: residents.filter((r) => r.streetRateMonthly <= 0).length,
     residentCount: residents.length,
+    priorJanuaryMonth,
+    januaryMatchCoverage: matchCoverage,
   });
 
   const planScope: PlanScope = {
@@ -796,6 +814,8 @@ function buildWarnings(ctx: {
   quarterlyGrowthPct: number | null;
   residentsWithoutStreet: number;
   residentCount: number;
+  priorJanuaryMonth: string;
+  januaryMatchCoverage: number;
 }): string[] {
   const warnings: string[] = [];
   const quarterMonthRanges = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
@@ -832,6 +852,11 @@ function buildWarnings(ctx: {
       `Prior-year baseline for ${partial
         .map(describePartial)
         .join(", ")} is based only on months with qualifying imported planning rows.`,
+    );
+  }
+  if (ctx.januaryMatchCoverage < 0.8) {
+    warnings.push(
+      `Only ${Math.round(ctx.januaryMatchCoverage * 100)}% of today's priced rooms could be matched back to a comparable ${ctx.priorJanuaryMonth} room, so the January-to-January Street Rate maximum is measured on that subset.`,
     );
   }
   const untestable = ctx.quarters.filter((q) => {

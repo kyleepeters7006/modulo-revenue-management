@@ -89,9 +89,45 @@ weighted January/current averages turn payer and product-mix changes into fake
 price movement.
 
 **How to apply:** match today's eligible private-pay base rooms back to the same
-physical rooms in the January immediately before the plan year, calculate the
-historical average on that fixed mix, translate its absolute ceiling into
-remaining headroom from today's rate, then clamp the search by both limits.
+physical rooms in the January immediately before the plan year, translate the
+absolute ceiling into remaining headroom from today's rate, then clamp the
+search by both limits.
+
+Three rules make that room match trustworthy:
+
+- **Deduplicate rooms before joining.** The rent roll has no uniqueness
+  constraint on (client, month, location, service line, room); a raw row-to-row
+  join fans out and over-weights duplicated rooms. Collapse each side to one
+  row per room key first.
+- **Average both months over the matched set only, and use the RATIO.** An
+  inner join drops rooms with no January match, so a matched January average
+  compared against an all-rooms current average silently reintroduces the mix
+  effect it was meant to remove. Apply the matched ratio to today's full street
+  average instead, and warn when match coverage is low.
+- **Do not payer-filter the historical side.** A room moving from Medicare to
+  private pay is precisely the artifact being removed. Hold the historical side
+  to the same base-product and plausibility rules, but not the same payer.
+
+## Street Rate is the last lever; the competitive gap decides the balance
+
+Growth is taken from in-house resident increases wherever the guardrails allow.
+The quarterly growth target is NOT a Street Rate floor. Street only moves for
+one of three reasons: the operator's configured minimum, a positive gap to the
+desired position versus the Top Competitor, or in-house being exhausted while
+quarters still fail.
+
+**Why:** using the growth objective as a street floor raised the asking rate by
+the full target on every scope, even when resident increases alone cleared every
+quarter. That prices the scope against its market for no gain. The variance to
+Top Competitor is what expresses whether raising the asking rate is competitively
+justified, so it — not the growth target — decides how much street carries.
+
+**How to apply:** keep the floor at max(configured minimum, positive competitive
+gap) and let feasibility (which already models move-ins arriving at street) pull
+street higher only as a last resort. Bisection stays valid: maximum in-house
+capacity is constant in the street increase while replacement revenue is
+nondecreasing in it. In-house rates are explicitly allowed to finish above
+Street Rate — never add a parity guard that lifts street to meet them.
 
 ## `computed || fallback` erases a legitimate zero
 
@@ -182,10 +218,11 @@ to move toward, while the current-rate maximum and January-to-January maximum
 are the explicit safety limits. Treating the competitor target as a ceiling
 silently blocks valid growth above the market benchmark.
 
-**How to apply:** combine the growth objective, configured minimum, and positive
-gap to the desired competitor position as candidate floors, then clamp the result
-only by the two Street Rate guardrails. Missing competitor data removes only the
-competitive signal; ordinary calculation continues.
+**How to apply:** combine the configured minimum and the positive gap to the
+desired competitor position as candidate floors, then clamp the result only by
+the two Street Rate guardrails. The growth objective is deliberately not among
+them — see "Street Rate is the last lever". Missing competitor data removes only
+the competitive signal; ordinary calculation continues.
 
 ## Rate weighting follows the billing basis
 

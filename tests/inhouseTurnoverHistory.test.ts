@@ -500,14 +500,21 @@ async function main() {
       );
       const family = Object.fromEntries(familyRows.map((r) => [r.sl, Number(r.n)]));
       ok(
-        `${parent} and ${mc} partition the same discharges`,
-        parentLine.moveOuts + mcLine.moveOuts === (family[parent] ?? 0) + (family[mc] ?? 0),
-        `reported ${parentLine.moveOuts}+${mcLine.moveOuts} vs feed ${family[parent] ?? 0}+${family[mc] ?? 0}`,
+        `${parent} and ${mc} recorded departures partition the same discharges`,
+        parentLine.explicitMoveOuts + mcLine.explicitMoveOuts ===
+          (family[parent] ?? 0) + (family[mc] ?? 0),
+        `reported ${parentLine.explicitMoveOuts}+${mcLine.explicitMoveOuts} vs feed ${family[parent] ?? 0}+${family[mc] ?? 0}`,
       );
       ok(
         `no ${mc} discharge is left behind in ${parent}`,
-        mcLine.moveOuts === (family[mc] ?? 0) && parentLine.moveOuts === (family[parent] ?? 0),
-        `${mc} ${mcLine.moveOuts} vs ${family[mc] ?? 0}, ${parent} ${parentLine.moveOuts} vs ${family[parent] ?? 0}`,
+        mcLine.explicitMoveOuts === (family[mc] ?? 0) &&
+          parentLine.explicitMoveOuts === (family[parent] ?? 0),
+        `${mc} ${mcLine.explicitMoveOuts} vs ${family[mc] ?? 0}, ${parent} ${parentLine.explicitMoveOuts} vs ${family[parent] ?? 0}`,
+      );
+      ok(
+        `${parent} and ${mc} expose inferred replacements separately`,
+        parentLine.moveOuts === parentLine.explicitMoveOuts + parentLine.inferredMoveOuts &&
+          mcLine.moveOuts === mcLine.explicitMoveOuts + mcLine.inferredMoveOuts,
       );
     }
   }
