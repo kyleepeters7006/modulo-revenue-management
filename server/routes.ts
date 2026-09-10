@@ -11610,6 +11610,158 @@ ${campusOccLines.join('\n')}
    * ---------------------------------------------------------------------------- */
 
   /**
+   * GET /api/overview/rate-growth
+   *
+   * Monthly-equivalent Street and in-house rates with progressive drill-down:
+   * Senior Housing / SNF -> service line -> campus -> room.
+   */
+  app.get("/api/overview/rate-growth", async (req: any, res) => {
+    try {
+      const query = z.object({
+        group: z.enum(["Senior Housing", "SNF"]).optional(),
+        serviceLine: z.enum(["AL", "AL/MC", "SL", "VIL", "HC", "HC/MC"]).optional(),
+        campus: z.string().trim().min(1).max(200).optional(),
+        room: z.string().trim().min(1).max(100).optional(),
+      }).parse(req.query);
+      const clientId = req.clientId || "demo";
+      const cacheKey = `overview_rate_growth_${clientId}_${query.group ?? "all"}_${query.serviceLine ?? "all"}_${query.campus ?? "all"}_${query.room ?? "all"}`;
+      const cached = getCachedAnalytics(cacheKey);
+      if (cached) {
+        res.setHeader("Cache-Control", "private, max-age=300");
+        return res.json(cached);
+      }
+      const seniorLines = ["AL", "AL/MC", "SL", "VIL"];
+      const snfLines = ["HC", "HC/MC"];
+      const groupLines = query.group === "SNF" ? snfLines : seniorLines;
+      if (query.serviceLine && !groupLines.includes(query.serviceLine)) {
+        return res.status(400).json({ error: "Service line does not belong to the selected group." });
+      }
+
+      const level =
+        !query.group ? "group" :
+        !query.serviceLine ? "serviceLine" :
+        !query.campus ? "campus" :
+        "room";
+      const params: any[] = [clientId];
+      const predicates: string[] = [];
+      if (query.group) {
+        params.push(groupLines);
+        predicates.push(`rr.service_line = ANY($${params.length}::text[])`);
+      }
+      if (query.serviceLine) {
+        params.push(query.serviceLine);
+        predicates.push(`rr.service_line = $${params.length}`);
+      }
+      if (query.campus) {
+        params.push(query.campus);
+        predicates.push(`rr.location = $${params.length}`);
+      }
+      if (query.room) {
+        params.push(query.room);
+        predicates.push(`rr.room_number = $${params.length}`);
+      }
+      const scopeSql = predicates.length ? `AND ${predicates.join(" AND ")}` : "";
+      const keySql =
+        level === "group"
+          ? `CASE WHEN rr.service_line IN ('HC', 'HC/MC') THEN 'SNF' ELSE 'Senior Housing' END`
+          : level === "serviceLine"
+            ? "rr.service_line"
+            : level === "campus"
+              ? "rr.location"
+              : "rr.room_number";
+      const monthlyStreet = `CASE WHEN rr.service_line IN ('HC', 'HC/MC')
+        THEN rr.street_rate * ${SHARED_DAYS_PER_MONTH}
+        ELSE rr.street_rate END`;
+      const monthlyInHouse = `CASE WHEN rr.service_line IN ('HC', 'HC/MC')
+        THEN rr.in_house_rate * ${SHARED_DAYS_PER_MONTH}
+        ELSE rr.in_house_rate END`;
+      const baselineJoin = buildRateBaselineJoin({
+        rr: "rr.",
+        clientSql: "$1",
+        alias: "overview_rb",
+      });
+      const result = await pool.query(
+        `WITH latest AS (
+           SELECT MAX(upload_month) AS month
+             FROM rent_roll_data
+            WHERE client_id = $1
+         ),
+         monthly AS (
+           SELECT rr.upload_month AS month,
+                  ${keySql} AS series_key,
+                  AVG(${monthlyStreet}) FILTER (
+                    WHERE rr.street_rate > 0
+                      AND ${privatePaySql("rr.payor_type")}
+                      AND ${streetRateGate("rr.", "overview_rb")}
+                  ) AS street_rate,
+                  AVG(${monthlyInHouse}) FILTER (
+                    WHERE rr.occupied_yn = true
+                      AND rr.in_house_rate > 0
+                      AND ${privatePaySql("rr.payor_type")}
+                      AND ${inHouseRateGate("rr.", "overview_rb")}
+                  ) AS in_house_rate,
+                  COUNT(*) FILTER (
+                    WHERE rr.occupied_yn = true
+                      AND rr.in_house_rate > 0
+                      AND ${privatePaySql("rr.payor_type")}
+                      AND ${inHouseRateGate("rr.", "overview_rb")}
+                  )::int AS units
+             FROM rent_roll_data rr
+             ${baselineJoin}
+             CROSS JOIN latest
+            WHERE rr.client_id = $1
+              AND rr.upload_month >= to_char(
+                    to_date(latest.month, 'YYYY-MM') - interval '17 months',
+                    'YYYY-MM'
+                  )
+              AND ${baseRateExclusionSql("rr.")}
+              AND ${keySql} IS NOT NULL
+              ${scopeSql}
+            GROUP BY rr.upload_month, ${keySql}
+         )
+         SELECT month, series_key, street_rate, in_house_rate, units
+           FROM monthly
+          ORDER BY series_key, month`,
+        params,
+      );
+
+      const byKey = new Map<string, any[]>();
+      for (const row of result.rows) {
+        const key = String(row.series_key);
+        if (!byKey.has(key)) byKey.set(key, []);
+        byKey.get(key)!.push({
+          month: row.month,
+          streetRate: row.street_rate == null ? null : Number(row.street_rate),
+          inHouseRate: row.in_house_rate == null ? null : Number(row.in_house_rate),
+          units: Number(row.units) || 0,
+        });
+      }
+      const series = Array.from(byKey, ([key, points]) => {
+        const next =
+          level === "group" ? { group: key } :
+          level === "serviceLine" ? { group: query.group, serviceLine: key } :
+          level === "campus" ? { group: query.group, serviceLine: query.serviceLine, campus: key } :
+          undefined;
+        return { key, label: key, next, points };
+      });
+      const response = {
+        level,
+        selection: query,
+        series,
+      };
+      setCachedAnalytics(cacheKey, response, 5 * 60 * 1000);
+      res.setHeader("Cache-Control", "private, max-age=300");
+      return res.json(response);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid rate-growth drill-down filters." });
+      }
+      console.error("Overview rate-growth error:", error);
+      return res.status(500).json({ error: "Failed to load rate growth." });
+    }
+  });
+
+  /**
    * GET /api/overview
    * 
    * Returns dashboard summary data including:

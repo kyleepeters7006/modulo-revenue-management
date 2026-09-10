@@ -5,6 +5,7 @@ import { DollarSign, Home, Users, TrendingUp, Info, ChevronDown, ChevronUp, Exte
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatNumber, formatCurrency, formatPercentage } from "@/lib/formatters";
 import { TileDetailDialog } from "./tile-detail-dialog";
+import RateGrowthDrilldown from "./rate-growth-drilldown";
 
 interface ServiceLineData {
   serviceLine: string;
@@ -233,7 +234,7 @@ export default function OverviewTiles() {
               onMouseEnter={() => prefetchTileDetails(tile.tileType)}
               data-testid={`tile-clickable-${tile.tileType}`}
             >
-              <CardContent className="p-4">
+             <CardContent className="p-3">
                 <div className="flex items-center justify-between">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
@@ -243,7 +244,7 @@ export default function OverviewTiles() {
                       <ExternalLink className="w-3 h-3 text-[var(--dashboard-muted)] opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
                     <p 
-                      className="text-3xl font-light text-[var(--dashboard-text)]"
+                       className="text-2xl font-light text-[var(--dashboard-text)]"
                       data-testid={tile.testId}
                     >
                       {tile.value}
@@ -257,8 +258,8 @@ export default function OverviewTiles() {
                       </p>
                     )}
                   </div>
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${getColorClasses(tile.color)}`}>
-                    <Icon className="w-6 h-6" />
+                   <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${getColorClasses(tile.color)}`}>
+                     <Icon className="w-5 h-5" />
                   </div>
                 </div>
               </CardContent>
@@ -267,7 +268,9 @@ export default function OverviewTiles() {
         })}
       </div>
 
-      {/* Occupancy by Service Line Breakdown */}
+       <RateGrowthDrilldown />
+
+       {/* Occupancy by Service Line Breakdown */}
       <Card className="dashboard-card">
         <CardHeader className="pb-3 pt-4">
           <CardTitle className="text-xl font-semibold text-[var(--dashboard-text)]">
