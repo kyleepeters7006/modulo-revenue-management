@@ -23958,12 +23958,16 @@ Return ONLY valid JSON, no markdown fences:
       // a stale/malformed rule can never archive independently of its plan.
       if (inhouseProposalRuleIds.length > 0) {
         const linkedPlans = await connection.query(
-          `SELECT DISTINCT p.id, p.location, p.service_line
+          `SELECT p.id, p.location, p.service_line
              FROM inhouse_rate_plans p
-             JOIN adjustment_rules r ON (r.action->>'annualPlanId') = p.id
-            WHERE r.id = ANY($1::varchar[])
-              AND p.client_id = $2
+            WHERE p.client_id = $2
               AND p.status = 'proposed'
+              AND EXISTS (
+                SELECT 1
+                  FROM adjustment_rules r
+                 WHERE r.id = ANY($1::varchar[])
+                   AND r.action->>'annualPlanId' = p.id
+              )
             FOR UPDATE OF p`,
           [inhouseProposalRuleIds, clientId],
         );
