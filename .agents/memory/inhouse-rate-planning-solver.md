@@ -36,7 +36,15 @@ products, so one must not cap the other.
 **How to apply:** preserve the equalization curve and per-resident Street Rate
 variance, while applying only the configured individual maximum as the upper
 bound. Ignore legacy saved values that attempted to disable above-street rates,
-and keep app, diagnostics, exports, and tests on the same policy.
+and keep app, diagnostics, exports, and tests on the same policy. Never give an
+at/above-street resident a literal zero allocation weight: use a positive floor
+so the curve can still reach that resident's allowed maximum when required.
+
+**Why:** a zero shape permanently held those residents at the minimum while the
+feasibility search still counted their configured maximum as achievable. That
+made a plan report infeasible even when its displayed required average was below
+the displayed achievable average, and prevented the Street Rate search from
+behaving consistently.
 
 ## Solve against the target exactly; apply the reporting tolerance only afterwards
 

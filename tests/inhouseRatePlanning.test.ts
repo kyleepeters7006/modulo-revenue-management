@@ -260,6 +260,7 @@ console.log("\n-- 4. A resident exactly at street may still receive an increase 
   ok("the at-street resident receives at least the configured minimum", at.increase >= 0.01);
   ok("the at-street resident is not classified as blocked", at.constraint !== "at_or_above_street");
   ok("the below-street resident still gets an increase", below.increase > 0);
+  near("the mixed cohort still reaches the requested weighted average", result.achievedAvgIncrease, 0.05, 1e-9);
 }
 
 // ── 5. Resident ABOVE street ───────────────────────────────────────────────

@@ -926,14 +926,18 @@ export default function InhouseIncreases() {
   const applyPlan = useMutation({
     mutationFn: async () => {
       const currentPlans = plans ?? [];
-      const hasChangedAssumptions = currentPlans.some(
+      const submittablePlans = currentPlans.filter(({ plan }) => plan.feasible);
+      if (submittablePlans.length === 0) {
+        throw new Error("No service lines currently reach the target. Recalculate after adjusting the assumptions.");
+      }
+      const hasChangedAssumptions = submittablePlans.some(
         ({ sl, plan }) => !assumptionsMatch(plan.assumptions, assumptionsForLine(sl)),
       );
       if (hasChangedAssumptions) {
         throw new Error("These results were calculated with different assumptions. Recalculate the plan before submitting it.");
       }
       const results = await Promise.all(
-        currentPlans.map(({ sl }) =>
+        submittablePlans.map(({ sl }) =>
           apiRequest("/api/inhouse-planning/apply", "POST", {
             locationId: scopeLocationId,
             serviceLine: sl,
@@ -1949,8 +1953,23 @@ export default function InhouseIncreases() {
               {hasChangedPlanAssumptions && (
                 <Alert>
                   <Info className="h-4 w-4" />
-                  <AlertDescription>
-                     The assumptions have changed since this result was calculated. Recalculate the plan before submitting it.
+                  <AlertDescription className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <span>The assumptions have changed since this result was calculated. Recalculate the plan before submitting it.</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => calculate.mutate()}
+                      disabled={!!rangeError || calculate.isPending}
+                      className="shrink-0"
+                    >
+                      {calculate.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Calculator className="mr-2 h-4 w-4" />
+                      )}
+                      Recalculate plan
+                    </Button>
                   </AlertDescription>
                 </Alert>
               )}

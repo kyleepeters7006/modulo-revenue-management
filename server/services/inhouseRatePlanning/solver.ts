@@ -261,7 +261,13 @@ function computeBounds(input: AllocationInput): ResidentBounds[] {
     if (exponent === 0 || meanHeadroom <= 0) {
       b.shape = 1;
     } else {
-      b.shape = Math.pow(b.headroom / meanHeadroom, exponent);
+      // Street variance controls who receives the larger increase; it is not
+      // an eligibility gate. A literal zero shape made residents at/above
+      // street permanently unable to move beyond the minimum while the solver
+      // still counted their configured maximum as achievable. Keep a tiny
+      // positive weight so the allocation can reach every resident's allowed
+      // maximum when the aggregate target requires it.
+      b.shape = Math.max(1e-6, Math.pow(b.headroom / meanHeadroom, exponent));
     }
   }
   return raw;
