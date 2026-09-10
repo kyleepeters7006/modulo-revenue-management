@@ -339,17 +339,33 @@ export async function calculatePlanDetailed(
         changeMonthly: projectedRate - resident.currentRateMonthly,
       };
     });
+    let weightedCurrent = 0;
+    let weightedExisting = 0;
     let weightedProjected = 0;
     let weight = 0;
     for (const room of roomDetails) {
       const roomWeight = residentWeightByKey.get(room.key) ?? 0;
+      weightedCurrent += room.currentRateMonthly * roomWeight;
+      weightedExisting += room.existingRateUsedMonthly * roomWeight;
       weightedProjected += room.projectedRateMonthly * roomWeight;
       weight += roomWeight;
     }
+    const currentTotal = weight > 0 ? weightedCurrent / weight : 0;
+    const existingTotal = weight > 0 ? weightedExisting / weight : 0;
+    const projectedTotal = weight > 0 ? weightedProjected / weight : 0;
     return {
       ...quarter,
       roomDetails,
-      roomDetailProjectedRateMonthly: weight > 0 ? weightedProjected / weight : 0,
+      roomDetailProjectedRateMonthly: projectedTotal,
+      roomDetailTotals: {
+        currentRateMonthly: currentTotal,
+        existingRateUsedMonthly: existingTotal,
+        existingSharePct: existingShare * 100,
+        replacementSharePct: replacementShare * 100,
+        replacementRateMonthly: replacementRate,
+        projectedRateMonthly: projectedTotal,
+        changeMonthly: projectedTotal - currentTotal,
+      },
     };
   });
 

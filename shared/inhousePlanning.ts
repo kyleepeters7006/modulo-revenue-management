@@ -217,6 +217,15 @@ export interface QuarterResult extends QuarterRef {
   roomDetails?: QuarterRoomProjection[];
   /** Weighted average of roomDetails; should equal projectedRateMonthly. */
   roomDetailProjectedRateMonthly?: number;
+  roomDetailTotals?: {
+    currentRateMonthly: number;
+    existingRateUsedMonthly: number;
+    existingSharePct: number;
+    replacementSharePct: number;
+    replacementRateMonthly: number;
+    projectedRateMonthly: number;
+    changeMonthly: number;
+  };
 }
 
 export interface QuarterRoomProjection {

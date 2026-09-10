@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -89,6 +90,36 @@ const STREET_SOURCE_NOTE: Partial<Record<StreetRateSource, string>> = {
   service_line_median: ", the median for this product across the service line",
   derived_formula: ", derived from the base rate by the configured formula",
 };
+
+function FormulaValue({
+  value,
+  formula,
+  className,
+}: {
+  value: string;
+  formula: string;
+  className?: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className={cn(
+            "inline-block cursor-help border-b border-dotted border-current/40 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            className,
+          )}
+        >
+          {value}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[360px] text-left text-xs leading-relaxed">
+        <p className="mb-1 font-semibold">Calculation</p>
+        <p className="font-mono">{formula}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 const SERVICE_LINES = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
 
 /** One service line's measured turnover, from /api/inhouse-planning/historical-turnover. */
@@ -1542,6 +1573,7 @@ export default function InhouseIncreases() {
                                         <div>Quarter headline: <span className="font-mono text-foreground">{formatMoney(q.projectedRateMonthly)}</span></div>
                                       </div>
                                     </div>
+                                    <TooltipProvider delayDuration={150}>
                                     <div className="max-h-[420px] overflow-auto">
                                       <table className="w-full min-w-[1040px] text-xs">
                                         <thead className="sticky top-0 z-10 bg-background">
@@ -1566,18 +1598,47 @@ export default function InhouseIncreases() {
                                               <td className="px-3 py-2 text-muted-foreground">
                                                 {room.moveInDate ? `Since ${room.moveInDate}` : "Current resident"}
                                               </td>
-                                              <td className="px-3 py-2 text-right font-mono">{formatMoney(room.currentRateMonthly)}</td>
-                                              <td className="px-3 py-2 text-right font-mono">{formatMoney(room.existingRateUsedMonthly)}</td>
-                                              <td className="px-3 py-2 text-right font-mono">{formatPct(room.existingSharePct, 1)}</td>
-                                              <td className="px-3 py-2 text-right">
-                                                <Badge variant="outline" className="border-blue-500/30 bg-blue-500/10 font-mono text-[10px] font-normal text-blue-600 dark:text-blue-400">
-                                                  {formatPct(room.replacementSharePct, 1)} new
-                                                </Badge>
+                                              <td className="px-3 py-2 text-right font-mono">
+                                                <FormulaValue
+                                                  value={formatMoney(room.currentRateMonthly)}
+                                                  formula={`Before = current occupied-room rate from ${plan.scope.sourceMonth} = ${formatMoney(room.currentRateMonthly)}`}
+                                                />
                                               </td>
-                                              <td className="px-3 py-2 text-right font-mono">{formatMoney(room.replacementRateMonthly)}</td>
-                                              <td className="px-3 py-2 text-right font-mono font-medium">{formatMoney(room.projectedRateMonthly)}</td>
+                                              <td className="px-3 py-2 text-right font-mono">
+                                                <FormulaValue
+                                                  value={formatMoney(room.existingRateUsedMonthly)}
+                                                  formula={`Existing after = quarter-average rate for today's occupant = ${formatMoney(room.existingRateUsedMonthly)}. Full planned rate after ${plan.assumptions.inhouseEffectiveDate} = ${formatMoney(room.plannedExistingRateMonthly)}.`}
+                                                />
+                                              </td>
+                                              <td className="px-3 py-2 text-right font-mono">
+                                                <FormulaValue
+                                                  value={formatPct(room.existingSharePct, 1)}
+                                                  formula={`Existing share = 100.0% − ${formatPct(room.replacementSharePct, 1)} new = ${formatPct(room.existingSharePct, 1)}`}
+                                                />
+                                              </td>
+                                              <td className="px-3 py-2 text-right">
+                                                <FormulaValue
+                                                  value={`${formatPct(room.replacementSharePct, 1)} new`}
+                                                  formula={`New share = modeled turnover replacement share averaged across ${q.label}, using ${formatPct(plan.assumptions.annualTurnoverPct, 1)} annual turnover = ${formatPct(room.replacementSharePct, 1)}`}
+                                                />
+                                              </td>
+                                              <td className="px-3 py-2 text-right font-mono">
+                                                <FormulaValue
+                                                  value={formatMoney(room.replacementRateMonthly)}
+                                                  formula={`Move-in rate = replacement-rate contribution ÷ new share. Street rate in force on each modeled move-in date, including the ${plan.assumptions.streetRateEffectiveDate} change = ${formatMoney(room.replacementRateMonthly)}`}
+                                                />
+                                              </td>
+                                              <td className="px-3 py-2 text-right font-mono font-medium">
+                                                <FormulaValue
+                                                  value={formatMoney(room.projectedRateMonthly)}
+                                                  formula={`Blended after = (${formatPct(room.existingSharePct, 1)} × ${formatMoney(room.existingRateUsedMonthly)}) + (${formatPct(room.replacementSharePct, 1)} × ${formatMoney(room.replacementRateMonthly)}) = ${formatMoney(room.projectedRateMonthly)}`}
+                                                />
+                                              </td>
                                               <td className={cn("px-3 py-2 text-right font-mono", room.changeMonthly >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>
-                                                {room.changeMonthly >= 0 ? "+" : ""}{formatMoney(room.changeMonthly)}
+                                                <FormulaValue
+                                                  value={`${room.changeMonthly >= 0 ? "+" : ""}${formatMoney(room.changeMonthly)}`}
+                                                  formula={`Change = ${formatMoney(room.projectedRateMonthly)} blended after − ${formatMoney(room.currentRateMonthly)} before = ${room.changeMonthly >= 0 ? "+" : ""}${formatMoney(room.changeMonthly)}`}
+                                                />
                                               </td>
                                             </tr>
                                           ))}
@@ -1585,8 +1646,27 @@ export default function InhouseIncreases() {
                                             <tr><td colSpan={10} className="px-3 py-6 text-center text-muted-foreground">Room detail is unavailable for this saved calculation. Recalculate the plan.</td></tr>
                                           )}
                                         </tbody>
+                                        {q.roomDetailTotals && (
+                                          <tfoot className="sticky bottom-0 z-10 border-t-2 bg-background shadow-[0_-2px_6px_rgba(0,0,0,0.06)]">
+                                            <tr className="font-semibold">
+                                              <td className="px-3 py-2.5">Weighted total</td>
+                                              <td className="px-3 py-2.5">{q.roomDetails?.length ?? 0} rooms</td>
+                                              <td className="px-3 py-2.5 text-muted-foreground">Quarter rate bridge</td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatMoney(q.roomDetailTotals.currentRateMonthly)} formula={`Weighted before = Σ(room before × room weight) ÷ Σ(room weight) = ${formatMoney(q.roomDetailTotals.currentRateMonthly)}`} /></td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatMoney(q.roomDetailTotals.existingRateUsedMonthly)} formula={`Weighted existing after = Σ(room existing-after rate × room weight) ÷ Σ(room weight) = ${formatMoney(q.roomDetailTotals.existingRateUsedMonthly)}`} /></td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatPct(q.roomDetailTotals.existingSharePct, 1)} formula={`Existing share = 100.0% − ${formatPct(q.roomDetailTotals.replacementSharePct, 1)} new = ${formatPct(q.roomDetailTotals.existingSharePct, 1)}`} /></td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatPct(q.roomDetailTotals.replacementSharePct, 1)} formula={`Modeled new share averaged across ${q.label} at ${formatPct(plan.assumptions.annualTurnoverPct, 1)} annual turnover = ${formatPct(q.roomDetailTotals.replacementSharePct, 1)}`} /></td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatMoney(q.roomDetailTotals.replacementRateMonthly)} formula={`Move-in rate = replacement-rate contribution ÷ modeled new share = ${formatMoney(q.roomDetailTotals.replacementRateMonthly)}`} /></td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatMoney(q.roomDetailTotals.projectedRateMonthly)} formula={`Blended after = (${formatPct(q.roomDetailTotals.existingSharePct, 1)} × ${formatMoney(q.roomDetailTotals.existingRateUsedMonthly)}) + (${formatPct(q.roomDetailTotals.replacementSharePct, 1)} × ${formatMoney(q.roomDetailTotals.replacementRateMonthly)}) = ${formatMoney(q.roomDetailTotals.projectedRateMonthly)}; matches quarter headline ${formatMoney(q.projectedRateMonthly)}`} /></td>
+                                              <td className={cn("px-3 py-2.5 text-right font-mono", q.roomDetailTotals.changeMonthly >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>
+                                                <FormulaValue value={`${q.roomDetailTotals.changeMonthly >= 0 ? "+" : ""}${formatMoney(q.roomDetailTotals.changeMonthly)}`} formula={`Weighted change = ${formatMoney(q.roomDetailTotals.projectedRateMonthly)} blended after − ${formatMoney(q.roomDetailTotals.currentRateMonthly)} before = ${q.roomDetailTotals.changeMonthly >= 0 ? "+" : ""}${formatMoney(q.roomDetailTotals.changeMonthly)}`} />
+                                              </td>
+                                            </tr>
+                                          </tfoot>
+                                        )}
                                       </table>
                                     </div>
+                                    </TooltipProvider>
                                   </div>
                                 </td>
                               </tr>
