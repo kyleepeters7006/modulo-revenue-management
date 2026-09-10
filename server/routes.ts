@@ -11627,7 +11627,7 @@ ${campusOccLines.join('\n')}
       const cacheKey = `overview_rate_growth_${clientId}_${query.group ?? "all"}_${query.serviceLine ?? "all"}_${query.campus ?? "all"}_${query.room ?? "all"}`;
       const cached = getCachedAnalytics(cacheKey);
       if (cached) {
-        res.setHeader("Cache-Control", "private, max-age=300");
+        res.setHeader("Cache-Control", "no-store");
         return res.json(cached);
       }
       const seniorLines = ["AL", "AL/MC", "SL", "VIL"];
@@ -11669,12 +11669,11 @@ ${campusOccLines.join('\n')}
             : level === "campus"
               ? "rr.location"
               : "rr.room_number";
-      const monthlyStreet = `CASE WHEN rr.service_line IN ('HC', 'HC/MC')
-        THEN rr.street_rate * ${SHARED_DAYS_PER_MONTH}
-        ELSE rr.street_rate END`;
-      const monthlyInHouse = `CASE WHEN rr.service_line IN ('HC', 'HC/MC')
-        THEN rr.in_house_rate * ${SHARED_DAYS_PER_MONTH}
-        ELSE rr.in_house_rate END`;
+      // Preserve the operator-facing source basis: HC/HC-MC are daily; senior
+      // housing lines are monthly. The portfolio UI renders SNF separately, so
+      // unlike a blended financial total there is no reason to convert it.
+      const displayStreet = "rr.street_rate";
+      const displayInHouse = "rr.in_house_rate";
       const baselineJoin = buildRateBaselineJoin({
         rr: "rr.",
         clientSql: "$1",
@@ -11689,12 +11688,12 @@ ${campusOccLines.join('\n')}
          monthly AS (
            SELECT rr.upload_month AS month,
                   ${keySql} AS series_key,
-                  AVG(${monthlyStreet}) FILTER (
+                  AVG(${displayStreet}) FILTER (
                     WHERE rr.street_rate > 0
                       AND ${privatePaySql("rr.payor_type")}
                       AND ${streetRateGate("rr.", "overview_rb")}
                   ) AS street_rate,
-                  AVG(${monthlyInHouse}) FILTER (
+                  AVG(${displayInHouse}) FILTER (
                     WHERE rr.occupied_yn = true
                       AND rr.in_house_rate > 0
                       AND ${privatePaySql("rr.payor_type")}
@@ -11737,12 +11736,18 @@ ${campusOccLines.join('\n')}
         });
       }
       const series = Array.from(byKey, ([key, points]) => {
+        const daily =
+          key === "SNF" ||
+          key === "HC" ||
+          key === "HC/MC" ||
+          query.serviceLine === "HC" ||
+          query.serviceLine === "HC/MC";
         const next =
           level === "group" ? { group: key } :
           level === "serviceLine" ? { group: query.group, serviceLine: key } :
           level === "campus" ? { group: query.group, serviceLine: query.serviceLine, campus: key } :
           undefined;
-        return { key, label: key, next, points };
+        return { key, label: key, rateBasis: daily ? "daily" : "monthly", next, points };
       });
       const response = {
         level,
@@ -11750,7 +11755,7 @@ ${campusOccLines.join('\n')}
         series,
       };
       setCachedAnalytics(cacheKey, response, 5 * 60 * 1000);
-      res.setHeader("Cache-Control", "private, max-age=300");
+      res.setHeader("Cache-Control", "no-store");
       return res.json(response);
     } catch (error) {
       if (error instanceof z.ZodError) {

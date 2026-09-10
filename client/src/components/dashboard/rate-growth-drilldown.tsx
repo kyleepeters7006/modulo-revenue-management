@@ -17,7 +17,13 @@ import { formatCurrency } from "@/lib/formatters";
 type DrillLevel = "group" | "serviceLine" | "campus" | "room";
 type Selection = { group?: string; serviceLine?: string; campus?: string; room?: string };
 type Point = { month: string; streetRate: number | null; inHouseRate: number | null; units: number };
-type Series = { key: string; label: string; next?: Selection; points: Point[] };
+type Series = {
+  key: string;
+  label: string;
+  rateBasis: "daily" | "monthly";
+  next?: Selection;
+  points: Point[];
+};
 type RateGrowthResponse = { level: DrillLevel; selection: Selection; series: Series[] };
 
 const LEVEL_LABEL: Record<DrillLevel, string> = {
@@ -34,6 +40,80 @@ function monthLabel(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 }
 
+function buildChartData(seriesList: Series[]) {
+  const points = new Map<string, Record<string, number | string | undefined>>();
+  seriesList.forEach((series) =>
+    series.points.forEach((point) => {
+      const row = points.get(point.month) ?? { month: point.month };
+      row[`${series.key}-street`] = point.streetRate ?? undefined;
+      row[`${series.key}-inhouse`] = point.inHouseRate ?? undefined;
+      points.set(point.month, row);
+    }),
+  );
+  return Array.from(points.values()).sort((a, b) =>
+    String(a.month).localeCompare(String(b.month)),
+  );
+}
+
+function RateChart({
+  series,
+  colorOffset = 0,
+}: {
+  series: Series[];
+  colorOffset?: number;
+}) {
+  const chartData = buildChartData(series);
+  const daily = series[0]?.rateBasis === "daily";
+  return (
+    <div>
+      {series.length === 1 && (
+        <div className="mb-1 flex items-center justify-between px-1">
+          <p className="text-xs font-semibold text-[var(--dashboard-text)]">{series[0].label}</p>
+          <p className="text-[11px] text-[var(--dashboard-muted)]">
+            {daily ? "Daily rates" : "Monthly rates"}
+          </p>
+        </div>
+      )}
+      <div className="h-[230px] w-full sm:h-[260px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ top: 8, right: 10, left: 4, bottom: 4 }}>
+            <CartesianGrid stroke="var(--dashboard-border)" strokeDasharray="2 4" vertical={false} />
+            <XAxis dataKey="month" tickFormatter={monthLabel} tickLine={false} axisLine={false} fontSize={10} stroke="var(--dashboard-muted)" />
+            <YAxis
+              tickFormatter={(value) => `$${Math.round(value).toLocaleString()}`}
+              domain={[
+                (dataMin: number) => Math.floor(dataMin * 0.98),
+                (dataMax: number) => Math.ceil(dataMax * 1.02),
+              ]}
+              allowDataOverflow
+              tickLine={false}
+              axisLine={false}
+              fontSize={10}
+              width={52}
+              stroke="var(--dashboard-muted)"
+            />
+            <Tooltip
+              labelFormatter={(label) => monthLabel(String(label))}
+              formatter={(value: unknown, name: unknown) => [
+                `${formatCurrency(Math.round(Number(value)))}${daily ? "/day" : "/mo"}`,
+                String(name).endsWith("-street") ? "Street rate" : "In-house rate",
+              ]}
+              contentStyle={{ background: "var(--dashboard-surface)", border: "1px solid var(--dashboard-border)", borderRadius: 8, fontSize: 12 }}
+            />
+            {series.flatMap((item, index) => {
+              const color = COLORS[(index + colorOffset) % COLORS.length];
+              return [
+                <Line key={`${item.key}-street`} type="monotone" dataKey={`${item.key}-street`} name={`${item.key}-street`} stroke={color} strokeWidth={2} dot={false} connectNulls />,
+                <Line key={`${item.key}-inhouse`} type="monotone" dataKey={`${item.key}-inhouse`} name={`${item.key}-inhouse`} stroke={color} strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls />,
+              ];
+            })}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 export default function RateGrowthDrilldown() {
   const [selection, setSelection] = useState<Selection>({});
   const [history, setHistory] = useState<Selection[]>([]);
@@ -45,6 +125,7 @@ export default function RateGrowthDrilldown() {
       Object.entries(selection).forEach(([key, value]) => value && params.set(key, value));
       const response = await fetch(`/api/overview/rate-growth${params.toString() ? `?${params}` : ""}`, {
         credentials: "include",
+        cache: "no-store",
       });
       if (!response.ok) throw new Error("Unable to load rate history");
       return response.json();
@@ -56,19 +137,6 @@ export default function RateGrowthDrilldown() {
     () => (data?.series ?? []).slice(0, data?.level === "group" || data?.level === "serviceLine" ? 8 : 6),
     [data],
   );
-  const chartData = useMemo(() => {
-    const points = new Map<string, Record<string, number | string | undefined>>();
-    visibleSeries.forEach((series) =>
-      series.points.forEach((point) => {
-        const row = points.get(point.month) ?? { month: point.month };
-        row[`${series.key}-street`] = point.streetRate ?? undefined;
-        row[`${series.key}-inhouse`] = point.inHouseRate ?? undefined;
-        points.set(point.month, row);
-      }),
-    );
-    return Array.from(points.values()).sort((a, b) => String(a.month).localeCompare(String(b.month)));
-  }, [visibleSeries]);
-
   const drillInto = (next: Selection) => {
     setHistory((current) => [...current, selection]);
     setSelection(next);
@@ -155,26 +223,15 @@ export default function RateGrowthDrilldown() {
         )}
         {data && data.series.length > 0 && (
           <div className="space-y-4">
-            <div className="h-[250px] w-full sm:h-[280px]" data-testid="rate-growth-plot">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 8, right: 10, left: 4, bottom: 4 }}>
-                  <CartesianGrid stroke="var(--dashboard-border)" strokeDasharray="2 4" vertical={false} />
-                  <XAxis dataKey="month" tickFormatter={monthLabel} tickLine={false} axisLine={false} fontSize={10} stroke="var(--dashboard-muted)" />
-                  <YAxis tickFormatter={(value) => `$${Math.round(value).toLocaleString()}`} tickLine={false} axisLine={false} fontSize={10} width={52} stroke="var(--dashboard-muted)" />
-                  <Tooltip
-                    labelFormatter={(label) => monthLabel(String(label))}
-                    formatter={(value: unknown, name: unknown) => [
-                      formatCurrency(Math.round(Number(value))),
-                      String(name).endsWith("-street") ? "Street rate" : "In-house rate",
-                    ]}
-                    contentStyle={{ background: "var(--dashboard-surface)", border: "1px solid var(--dashboard-border)", borderRadius: 8, fontSize: 12 }}
-                  />
-                  {visibleSeries.flatMap((series, index) => [
-                    <Line key={`${series.key}-street`} type="monotone" dataKey={`${series.key}-street`} name={`${series.key}-street`} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={false} connectNulls />,
-                    <Line key={`${series.key}-inhouse`} type="monotone" dataKey={`${series.key}-inhouse`} name={`${series.key}-inhouse`} stroke={COLORS[index % COLORS.length]} strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls />,
-                  ])}
-                </LineChart>
-              </ResponsiveContainer>
+            <div
+              className={data.level === "group" ? "grid gap-4 lg:grid-cols-2" : ""}
+              data-testid="rate-growth-plot"
+            >
+              {data.level === "group"
+                ? visibleSeries.map((series, index) => (
+                    <RateChart key={series.key} series={[series]} colorOffset={index} />
+                  ))
+                : <RateChart series={visibleSeries} />}
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" data-testid="rate-growth-drill-controls">
               {data.series.map((series, index) => (
