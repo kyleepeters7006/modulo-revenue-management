@@ -683,34 +683,36 @@ export function rollMonthsIntoQuarters(months: MonthlyRealized[]): Map<string, B
  * Trilogy's rent roll ends 2026-07 and 2026-02 is missing outright, so a plan
  * written today is routinely compared against quarters that were never
  * recorded. Rather than refuse to plan, the baseline is extrapolated from the
- * observed quarter-over-quarter trend of the complete quarters and returned
- * flagged `projected`. The UI must never render it as an actual.
+ * latest observed quarter-over-quarter trend and returned flagged `projected`.
+ * A partial quarter may anchor the projection because it is the freshest real
+ * rate evidence, but the result remains explicitly projected in the UI.
  */
 export function projectMissingQuarters(
   known: Map<string, BaselineQuarter>,
   needed: QuarterRef[],
 ): { baselines: Map<string, BaselineQuarter>; quarterlyGrowthPct: number | null } {
   const out = new Map(known);
-  const complete = Array.from(known.values())
-    .filter((q) => q.basis === "actual" && (q.realizedRateMonthly ?? 0) > 0)
+  const observed = Array.from(known.values())
+    .filter((q) => q.basis !== "projected" && (q.realizedRateMonthly ?? 0) > 0)
     // quarterDiff(a, b) is the distance FROM a TO b, so using it directly as
     // the comparator reverses chronological order. Keep oldest first and the
     // latest complete quarter last because projections anchor on `last`.
     .sort((a, b) => quarterDiff(b, a));
 
-  if (complete.length === 0) {
+  if (observed.length === 0) {
     return { baselines: out, quarterlyGrowthPct: null };
   }
 
-  // Compound quarter-over-quarter growth across the observed window. Using the
-  // whole window rather than the last two quarters keeps one odd quarter from
-  // setting the trend for everything that follows.
-  const first = complete[0];
-  const last = complete[complete.length - 1];
-  const span = quarterDiff(first, last);
+  // Continue the latest measured trajectory, rather than compounding an old
+  // portfolio-wide trend past the freshest evidence. This matters when Q3 is
+  // partial: projecting Q4 from Q2 treats it as two missing quarters and can
+  // jump far above the real July/August run rate.
+  const last = observed[observed.length - 1];
+  const previous = observed.length > 1 ? observed[observed.length - 2] : last;
+  const span = quarterDiff(previous, last);
   const growth =
     span > 0
-      ? Math.pow(last.realizedRateMonthly! / first.realizedRateMonthly!, 1 / span) - 1
+      ? Math.pow(last.realizedRateMonthly! / previous.realizedRateMonthly!, 1 / span) - 1
       : 0;
 
   for (const q of needed) {

@@ -112,6 +112,20 @@ a plan with no measurable baseline at all reads as feasible and can be approved.
 **How to apply:** distinguish "passed", "failed", and "could not be evaluated";
 never let the third collapse into the first.
 
+## Missing-quarter projections continue the latest observed trajectory
+
+When a future prior-year quarter is missing, anchor its projection on the latest
+observed quarter, including a partial quarter, and continue the growth between
+the latest two observed quarters.
+
+**Why:** ignoring a partial Q3 and extrapolating an old whole-history trend from
+Q2 treats Q4 as two missing quarters and can create a large jump despite the
+current July/August run rate being nearly flat.
+
+**How to apply:** use actual and partial quarters as observed trend points, keep
+the extrapolated result labelled projected, and never present the partial anchor
+or projected result as a complete actual quarter.
+
 ## Scope fallback chains must enumerate every tier the writer can produce
 
 Saved assumptions are scoped by (location, service line), either of which can be

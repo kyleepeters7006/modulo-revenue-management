@@ -50,6 +50,7 @@ import {
 } from "./dates";
 import {
   EQUALIZATION_EXPONENT,
+  projectMonthlyRealizedRates,
   projectQuarterlyRealizedRates,
   residentDayWeightedAverageRate,
   solvePlan,
@@ -281,6 +282,36 @@ export async function calculatePlanDetailed(
     annualTurnover: assumptions.annualTurnoverPct / 100,
     weightBasis: daily ? "resident_days" as const : "resident_months" as const,
   };
+  const horizonMonths: string[] = [];
+  const firstHorizonMonth = `${quarters[0].year}-${String((quarters[0].quarter - 1) * 3 + 1).padStart(2, "0")}`;
+  for (let i = 0; i < quarters.length * 3; i++) {
+    horizonMonths.push(addMonths(firstHorizonMonth, i));
+  }
+  const monthlyProjected = projectMonthlyRealizedRates(
+    {
+      ...projectionCommon,
+      existingAvgRateMonthly: solved.existingAvgRateMonthly,
+      postIncreaseAvgRateMonthly: solved.postIncreaseAvgRateMonthly,
+    },
+    horizonMonths,
+  );
+  const monthlyRateProjection = horizonMonths.map((month) => {
+    const projectedRateMonthly = monthlyProjected.get(month) ?? solved.existingAvgRateMonthly;
+    const monthEndMs = monthBoundsMs(month).endMs - 1;
+    const streetRateMonthly =
+      monthEndMs >= isoToMs(assumptions.streetRateEffectiveDate)
+        ? solved.recommendedStreetMonthly
+        : currentStreetRateMonthly;
+    return {
+      month,
+      projectedRateMonthly,
+      streetRateMonthly,
+      growthFromCurrentPct:
+        solved.existingAvgRateMonthly > 0
+          ? (projectedRateMonthly / solved.existingAvgRateMonthly - 1) * 100
+          : 0,
+    };
+  });
   // A unit-rate projection isolates the expected future-move-in share. A
   // street-rate projection then supplies the exact replacement contribution
   // used by every room. Future people are unknowable, so this is deliberately
@@ -405,6 +436,7 @@ export async function calculatePlanDetailed(
     requiredWeightedAvgIncreasePct: solved.requiredAvgIncrease * 100,
 
     quarters: quartersWithRoomDetail,
+    monthlyRateProjection,
     bindingQuarterLabel: solved.bindingQuarterLabel,
 
     summary,

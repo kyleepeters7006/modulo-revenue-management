@@ -180,6 +180,86 @@ export function projectQuarterlyRealizedRates(
   return out;
 }
 
+/**
+ * The same simulation as projectQuarterlyRealizedRates, bucketed by calendar
+ * month for the operator-facing trajectory chart.
+ */
+export function projectMonthlyRealizedRates(
+  input: ProjectionInput,
+  months: string[],
+): Map<string, number> {
+  const {
+    anchorMs,
+    existingAvgRateMonthly,
+    postIncreaseAvgRateMonthly,
+    inhouseEffectiveMs,
+    currentStreetMonthly,
+    newStreetMonthly,
+    streetEffectiveMs,
+    annualTurnover,
+    weightBasis = "resident_days",
+  } = input;
+  const out = new Map<string, number>();
+  if (months.length === 0) return out;
+  const buckets = months.map((month) => {
+    const [year, monthNumber] = month.split("-").map(Number);
+    return {
+      month,
+      startMs: Date.UTC(year, monthNumber - 1, 1),
+      endMs: Date.UTC(year, monthNumber, 1),
+      sum: 0,
+      weight: 0,
+    };
+  });
+  const finalMs = Math.max(...buckets.map((b) => b.endMs));
+  const startMs = Math.min(anchorMs, ...buckets.map((b) => b.startMs));
+  const clampedTurnover = Math.min(Math.max(annualTurnover, 0), 0.999);
+  const dailySurvival = Math.pow(1 - clampedTurnover, 1 / 365);
+  let existingShare = 1;
+  let existingRate = existingAvgRateMonthly;
+  let replacementShare = 0;
+  let replacementRate = 0;
+  let increaseApplied = false;
+
+  for (let day = startMs; day < finalMs; day += MS_PER_DAY) {
+    if (!increaseApplied && day >= inhouseEffectiveMs) {
+      existingRate = postIncreaseAvgRateMonthly;
+      increaseApplied = true;
+    }
+    const streetToday = day >= streetEffectiveMs ? newStreetMonthly : currentStreetMonthly;
+    const survivingExisting = existingShare * dailySurvival;
+    const survivingReplacement = replacementShare * dailySurvival;
+    const movedIn = Math.max(0, 1 - survivingExisting - survivingReplacement);
+    const newReplacementShare = survivingReplacement + movedIn;
+    replacementRate =
+      newReplacementShare > 0
+        ? (survivingReplacement * replacementRate + movedIn * streetToday) / newReplacementShare
+        : 0;
+    existingShare = survivingExisting;
+    replacementShare = newReplacementShare;
+    const dayRate = existingShare * existingRate + replacementShare * replacementRate;
+    const date = new Date(day);
+    const daysInMonth = new Date(Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth() + 1,
+      0,
+    )).getUTCDate();
+    const observationWeight = weightBasis === "resident_months" ? 1 / daysInMonth : 1;
+    const bucket = buckets.find((b) => day >= b.startMs && day < b.endMs);
+    if (bucket) {
+      bucket.sum += dayRate * observationWeight;
+      bucket.weight += observationWeight;
+    }
+  }
+  for (const bucket of buckets) {
+    out.set(
+      bucket.month,
+      bucket.weight > 0 ? bucket.sum / bucket.weight : existingAvgRateMonthly,
+    );
+  }
+  return out;
+}
+
 // ───────────────────────────────────────────────────────────── allocation ──
 
 export interface AllocationInput {

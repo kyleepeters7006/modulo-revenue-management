@@ -28,6 +28,7 @@ import {
 } from "../shared/inhousePlanning";
 import {
   allocateIncreases,
+  projectMonthlyRealizedRates,
   projectQuarterlyRealizedRates,
   residentDayWeightedAverageRate,
   solvePlan,
@@ -239,6 +240,24 @@ console.log("-- 0. Missing-quarter projection uses chronological quarter order -
     "Q4 projects forward from Q2 using the observed chronological trend",
     result.baselines.get(q4.label)?.realizedRateMonthly ?? 0,
     133.1,
+    0.0001,
+  );
+
+  const q3 = makeQuarterRef(2026, 3);
+  known.set(q3.label, {
+    ...q3,
+    realizedRateMonthly: 110.2,
+    basis: "partial",
+    monthsAvailable: 2,
+    monthsExpected: 3,
+    availableMonths: ["2026-07", "2026-08"],
+    residentDays: 6000,
+  });
+  const withPartialQ3 = projectMissingQuarters(known, [q4]);
+  near(
+    "Q4 continues the latest Q2-to-partial-Q3 trajectory instead of jumping from an old trend",
+    withPartialQ3.baselines.get(q4.label)?.realizedRateMonthly ?? 0,
+    110.4003636364,
     0.0001,
   );
 }
@@ -853,6 +872,24 @@ console.log("\n-- 13. Projection covers the whole horizon --");
     "with street equal to the in-house rate the projection is flat",
     QUARTERS.every((q) => Math.abs(projected.get(q.label)! - 4000) < 0.01),
   );
+  const monthly = projectMonthlyRealizedRates(
+    {
+      anchorMs: quarterStartMs(QUARTERS[0]),
+      quarters: QUARTERS,
+      existingAvgRateMonthly: 4000,
+      postIncreaseAvgRateMonthly: 4400,
+      inhouseEffectiveMs: isoToMs("2027-02-01"),
+      currentStreetMonthly: 4500,
+      newStreetMonthly: 4800,
+      streetEffectiveMs: isoToMs("2027-03-01"),
+      annualTurnover: 0,
+      weightBasis: "resident_months",
+    },
+    ["2027-01", "2027-02", "2027-03"],
+  );
+  near("monthly projection shows the pre-increase January rate", monthly.get("2027-01")!, 4000, 0.01);
+  near("monthly projection applies the resident increase in February", monthly.get("2027-02")!, 4400, 0.01);
+  near("with no turnover, the March Street Rate change does not alter realized rate", monthly.get("2027-03")!, 4400, 0.01);
 }
 
 // ── 14. Resident construction from raw rent-roll rows ──────────────────────

@@ -13,6 +13,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,6 +64,7 @@ import {
   writeInhousePlan,
 } from "@/lib/inhousePlanStorage";
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
+import { DAYS_PER_MONTH } from "@shared/careRates";
 import {
   DEFAULT_ASSUMPTIONS,
   formatMoney,
@@ -1408,6 +1418,117 @@ export default function InhouseIncreases() {
 
       {plans && plans.length > 0 && combinedSummary && (
         <>
+          <Card data-testid="monthly-rate-growth-chart">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Monthly rate growth</CardTitle>
+              <CardDescription>
+                Projected realized rate and Street Rate by month, using the same turnover and effective-date assumptions as the quarter results.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className={cn("grid gap-5", plans.length > 1 && "lg:grid-cols-2")}>
+                {plans.map(({ sl, plan }) => {
+                  const daily = plan.rateBasis === "daily";
+                  const display = (monthly: number) => daily ? monthly / DAYS_PER_MONTH : monthly;
+                  const chartData = (plan.monthlyRateProjection ?? []).map((point) => ({
+                    ...point,
+                    label: new Date(`${point.month}-01T00:00:00Z`).toLocaleDateString("en-US", {
+                      month: "short",
+                      year: "2-digit",
+                      timeZone: "UTC",
+                    }),
+                    projected: display(point.projectedRateMonthly),
+                    street: display(point.streetRateMonthly),
+                  }));
+                  return (
+                    <div key={sl} className="min-w-0 rounded-lg border p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-medium">{sl}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {daily ? "Daily rate" : "Monthly rate"} · growth from today shown on hover
+                          </p>
+                        </div>
+                        <Badge variant="outline">
+                          {chartData.length > 0
+                            ? `${chartData[chartData.length - 1].growthFromCurrentPct >= 0 ? "+" : ""}${chartData[chartData.length - 1].growthFromCurrentPct.toFixed(1)}%`
+                            : "No monthly data"}
+                        </Badge>
+                      </div>
+                      <div className="h-56">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={chartData} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
+                            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
+                            <XAxis
+                              dataKey="label"
+                              tick={{ fontSize: 10 }}
+                              tickLine={false}
+                              axisLine={false}
+                              interval="preserveStartEnd"
+                            />
+                            <YAxis
+                              tick={{ fontSize: 10 }}
+                              tickLine={false}
+                              axisLine={false}
+                              width={54}
+                              tickFormatter={(value) => `$${Math.round(value).toLocaleString()}`}
+                              domain={[
+                                (dataMin: number) => Math.floor(dataMin * 0.995),
+                                (dataMax: number) => Math.ceil(dataMax * 1.005),
+                              ]}
+                            />
+                            <RechartsTooltip
+                              formatter={(value: number, name: string, item: any) => [
+                                `${formatMoney(Number(value))}${daily ? "/day" : "/mo"}${
+                                  name === "Projected realized"
+                                    ? ` (${item.payload.growthFromCurrentPct >= 0 ? "+" : ""}${item.payload.growthFromCurrentPct.toFixed(1)}% from today)`
+                                    : ""
+                                }`,
+                                name,
+                              ]}
+                              labelFormatter={(label) => String(label)}
+                              contentStyle={{
+                                borderRadius: "8px",
+                                borderColor: "hsl(var(--border))",
+                                background: "hsl(var(--popover))",
+                                color: "hsl(var(--popover-foreground))",
+                                fontSize: "12px",
+                              }}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="projected"
+                              name="Projected realized"
+                              stroke="#0f9f9a"
+                              strokeWidth={3}
+                              dot={{ r: 2, fill: "#0f9f9a", strokeWidth: 0 }}
+                              activeDot={{ r: 4 }}
+                              isAnimationActive={false}
+                            />
+                            <Line
+                              type="stepAfter"
+                              dataKey="street"
+                              name="Street Rate"
+                              stroke="#7c3aed"
+                              strokeWidth={2}
+                              strokeDasharray="5 4"
+                              dot={{ r: 1.5, fill: "#7c3aed", strokeWidth: 0 }}
+                              isAnimationActive={false}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="mt-1 flex items-center gap-4 text-[11px] text-muted-foreground">
+                        <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 bg-[#0f9f9a]" />Projected realized</span>
+                        <span className="inline-flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-[#7c3aed]" />Street Rate</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
           {/* ── Feasibility ─────────────────────────────────────────── */}
           {allFeasible ? (
             <Alert className="border-emerald-500/40 bg-emerald-500/10">

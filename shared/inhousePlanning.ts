@@ -228,6 +228,17 @@ export interface QuarterResult extends QuarterRef {
   };
 }
 
+export interface MonthlyRateProjection {
+  /** Canonical YYYY-MM month in the planning horizon. */
+  month: string;
+  /** Weighted projected realized rate for this month, normalized monthly. */
+  projectedRateMonthly: number;
+  /** Street Rate in force at month end, normalized monthly. */
+  streetRateMonthly: number;
+  /** Change from today's weighted-average in-house rate. */
+  growthFromCurrentPct: number;
+}
+
 export interface QuarterRoomProjection {
   key: string;
   location: string;
@@ -371,6 +382,8 @@ export interface PlanResult {
   requiredWeightedAvgIncreasePct: number;
 
   quarters: QuarterResult[];
+  /** Exact monthly view of the same daily turnover/effective-date simulation. */
+  monthlyRateProjection?: MonthlyRateProjection[];
   bindingQuarterLabel: string | null;
 
   summary: PlanSummary;
