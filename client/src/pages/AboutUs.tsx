@@ -192,14 +192,26 @@ export default function AboutUs() {
           </CardHeader>
           <CardContent className="space-y-4 text-sm leading-relaxed text-[var(--trilogy-grey)]">
             <p>
-              Modulo uses account-based access with password verification and authenticator-app multi-factor authentication. New and existing users enroll with a time-based code and receive single-use recovery codes that are displayed once.
+              Modulo enforces application-layer identity, tenant isolation, role checks, and request auditing on the server. The controls below describe the current implementation so security teams can evaluate what the application does—and what still depends on the hosting environment and organizational policy.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {[
-                ["Session protection", "Authenticated sessions use server-side storage, secure production cookie settings, expiration, rotation after sign-in, and revocation after account changes."],
-                ["Access boundaries", "Accounts have explicit roles and each account is scoped to its client environment. Administrative and sensitive operations are checked on the server."],
-                ["Request safeguards", "State-changing browser requests are checked for same-site origin or a session CSRF token. Responses include browser security headers."],
-                ["Audit and data handling", "Sign-in, MFA, recovery, password, session, and authorization events are recorded with tenant context without storing passwords, codes, secrets, session tokens, or resident data in the event details."],
+                [
+                  "Identity and MFA",
+                  "Passwords are stored as bcrypt hashes (cost factor 12). Authentication requires a 6-digit, 30-second TOTP from a standard authenticator app. TOTP replay is rejected. MFA secrets are encrypted at rest by the application; recovery codes are stored as hashes, are single-use, and are displayed only when issued.",
+                ],
+                [
+                  "Session controls",
+                  "Session data is stored in PostgreSQL, not in the browser. The cookie is HttpOnly, SameSite=Lax, Secure in production, and has a rolling 7-day expiration. The session identifier is regenerated after authentication. Logout, password resets, account changes, and explicit session termination revoke server-side session records.",
+                ],
+                [
+                  "Tenant and role enforcement",
+                  "Each authenticated request resolves the user by both user ID and client ID and rejects inactive or revoked accounts. Data access is scoped by client ID. Roles are operator, admin, and security_admin; administrative routes require an admin role. State changes, exports, and administrative operations require MFA verification within the previous 15 minutes.",
+                ],
+                [
+                  "Request and audit controls",
+                  "State-changing requests require either a same-host Origin/Referer or the session CSRF token. Security events record event type, success, client and user IDs, timestamp, IP address, user agent, and limited operation metadata. Passwords, TOTP values, recovery codes, MFA secrets, session tokens, and resident records are not written to security-event metadata.",
+                ],
               ].map(([title, body]) => (
                 <div key={title} className="rounded-lg border border-[var(--trilogy-grey)]/20 bg-gray-50 p-4">
                   <h3 className="font-semibold text-[var(--trilogy-dark-blue)] mb-1">{title}</h3>
@@ -207,9 +219,9 @@ export default function AboutUs() {
                 </div>
               ))}
             </div>
-            <p className="text-xs">
-              These are application controls implemented in Modulo. This page does not make certification, regulatory, infrastructure-encryption, or legal-compliance claims.
-            </p>
+            <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-4 py-3 text-xs text-amber-950">
+              <strong>Scope of this statement:</strong> These are application controls verified in the Modulo codebase. This statement is not a SOC 2, HIPAA, or other certification claim and does not define hosting-provider controls, network architecture, infrastructure encryption, backups, disaster recovery, vulnerability-management cadence, audit-log retention, or your organization&apos;s access-review and incident-response procedures. Those items should be evaluated separately during vendor and deployment review.
+            </div>
           </CardContent>
         </Card>
 
