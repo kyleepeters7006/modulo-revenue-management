@@ -120,6 +120,25 @@ function FormulaValue({
     </Tooltip>
   );
 }
+
+function HeaderHelp({ label, explanation }: { label: string; explanation: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className="inline-flex cursor-help items-center gap-1 border-b border-dotted border-current/40 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {label}
+          <Info className="h-3 w-3" aria-hidden="true" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[340px] text-left text-xs normal-case leading-relaxed tracking-normal">
+        {explanation}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 const SERVICE_LINES = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
 
 /** One service line's measured turnover, from /api/inhouse-planning/historical-turnover. */
@@ -1568,9 +1587,20 @@ export default function InhouseIncreases() {
                                           “New” is the modeled replacement share from the turnover assumption. Future resident identities are not yet known.
                                         </p>
                                       </div>
-                                      <div className="text-right text-xs text-muted-foreground">
-                                        <div>Room detail: <span className="font-mono text-foreground">{formatMoney(q.roomDetailProjectedRateMonthly ?? q.projectedRateMonthly)}</span></div>
-                                        <div>Quarter headline: <span className="font-mono text-foreground">{formatMoney(q.projectedRateMonthly)}</span></div>
+                                      <div className="flex items-center gap-3">
+                                        <div className="text-right text-xs text-muted-foreground">
+                                          <div>Room detail: <span className="font-mono text-foreground">{formatMoney(q.roomDetailProjectedRateMonthly ?? q.projectedRateMonthly)}</span></div>
+                                          <div>Quarter headline: <span className="font-mono text-foreground">{formatMoney(q.projectedRateMonthly)}</span></div>
+                                        </div>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          disabled={exportPlan.isPending || hasChangedPlanAssumptions}
+                                          onClick={() => exportPlan.mutate(sl)}
+                                        >
+                                          {exportPlan.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-2 h-3.5 w-3.5" />}
+                                          Export room tables
+                                        </Button>
                                       </div>
                                     </div>
                                     <TooltipProvider delayDuration={150}>
@@ -1578,16 +1608,16 @@ export default function InhouseIncreases() {
                                       <table className="w-full min-w-[1040px] text-xs">
                                         <thead className="sticky top-0 z-10 bg-background">
                                           <tr className="border-b text-left uppercase tracking-wide text-muted-foreground">
-                                            <th className="px-3 py-2 font-medium">Campus</th>
-                                            <th className="px-3 py-2 font-medium">Room</th>
-                                            <th className="px-3 py-2 font-medium">Current occupant</th>
-                                            <th className="px-3 py-2 text-right font-medium">Before</th>
-                                            <th className="px-3 py-2 text-right font-medium">Existing after</th>
-                                            <th className="px-3 py-2 text-right font-medium">Existing share</th>
-                                            <th className="px-3 py-2 text-right font-medium">New share</th>
-                                            <th className="px-3 py-2 text-right font-medium">Move-in rate</th>
-                                            <th className="px-3 py-2 text-right font-medium">Blended after</th>
-                                            <th className="px-3 py-2 text-right font-medium">Change</th>
+                                            <th className="px-3 py-2 font-medium"><HeaderHelp label="Campus" explanation="The campus in the calculated plan scope. Portfolio plans show the campus assigned to each room." /></th>
+                                            <th className="px-3 py-2 font-medium"><HeaderHelp label="Room" explanation="The occupied room or bed from the source-month Rent Roll. This is the unit used to bridge the current occupant to modeled future turnover." /></th>
+                                            <th className="px-3 py-2 font-medium"><HeaderHelp label="Current occupant" explanation="The current resident's move-in date from the source-month Rent Roll. Future resident identities are unknown and represented by the modeled New share." /></th>
+                                            <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Before" explanation="The current resident's in-house room rate from the source-month Rent Roll, before the proposed annual increase." /></th>
+                                            <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Existing after" explanation="The quarter-average rate for today's occupant after applying the proposed resident increase on its effective date. If the increase begins during the quarter, this averages the before and after periods." /></th>
+                                            <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Existing share" explanation="The expected portion of the quarter still occupied by today's resident cohort. Existing share = 100% − modeled New share." /></th>
+                                            <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="New share" explanation="The expected portion occupied by replacement move-ins, calculated from the annual turnover assumption and averaged across the quarter. It is a modeled share, not a named future resident." /></th>
+                                            <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Move-in rate" explanation="The average Street Rate in force on the modeled replacement move-in dates. It reflects the Street Rate effective date when that date falls within the projection." /></th>
+                                            <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Blended after" explanation="Projected room rate = (Existing share × Existing-after rate) + (New share × Move-in rate)." /></th>
+                                            <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Change" explanation="Blended-after projected rate minus the Before rate for this room." /></th>
                                           </tr>
                                         </thead>
                                         <tbody>
