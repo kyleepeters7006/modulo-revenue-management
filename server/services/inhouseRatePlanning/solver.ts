@@ -376,6 +376,8 @@ export interface SolveInput {
   currentStreetRateMonthly: number;
   /** Average street rate in January of the year before the proposal. */
   priorJanuaryStreetRateMonthly?: number;
+  /** Matched Top Competitor benchmark for this exact scope, normalized monthly. */
+  topCompetitorRateMonthly?: number | null;
 }
 
 export interface SolveOutput {
@@ -526,7 +528,24 @@ export function solvePlan(input: SolveInput): SolveOutput {
         )
       : ordinaryCeiling;
   const ceilStreet = Math.min(ordinaryCeiling, yoyCeiling);
-  const floorStreet = Math.min(Math.max(0, ctx.target), ceilStreet);
+  const configuredMinimum = Math.max(0, input.assumptions.minStreetIncreasePct / 100);
+  const desiredCompetitiveRate =
+    input.topCompetitorRateMonthly != null && input.topCompetitorRateMonthly > 0
+      ? input.topCompetitorRateMonthly *
+        (1 + input.assumptions.desiredVarianceToTopCompetitorPct / 100)
+      : null;
+  // The competitor position is a directional floor, never a ceiling. A scope
+  // further below its desired position is pushed more; a scope already above
+  // it is not reduced or prevented from increasing further when the growth
+  // objective requires it.
+  const competitivePush =
+    desiredCompetitiveRate != null && currentStreet > 0
+      ? Math.max(0, desiredCompetitiveRate / currentStreet - 1)
+      : 0;
+  const floorStreet = Math.min(
+    Math.max(0, ctx.target, configuredMinimum, competitivePush),
+    ceilStreet,
+  );
 
   /** Best average increase the guardrails permit at a given street increase. */
   const maxAvgAt = (g: number) => allocationFor(ctx, g, Number.POSITIVE_INFINITY).maxAvgIncrease;

@@ -708,6 +708,10 @@ app.use((req, res, next) => {
     await db.execute(sql.raw(`
       ALTER TABLE inhouse_planning_assumptions
         ADD COLUMN IF NOT EXISTS max_yoy_street_increase_pct real NOT NULL DEFAULT 15`));
+    await db.execute(sql.raw(`
+      ALTER TABLE inhouse_planning_assumptions
+        ADD COLUMN IF NOT EXISTS min_street_increase_pct real NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS desired_variance_to_top_competitor_pct real NOT NULL DEFAULT 0`));
     // NULLS NOT DISTINCT so the campus-wide and portfolio-wide rows collide
     // with themselves and upsert cleanly instead of accumulating duplicates.
     await db.execute(sql.raw(`

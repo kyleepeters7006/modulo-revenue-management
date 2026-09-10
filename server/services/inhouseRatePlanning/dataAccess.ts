@@ -475,6 +475,37 @@ export async function fetchCurrentStreetRate(
   return Number(res.rows[0]?.avg_rate) || 0;
 }
 
+/**
+ * Authoritative matched Top Competitor rate for this planning scope, normalized
+ * to monthly. The matching/reprocessing pipeline has already written the
+ * product-appropriate benchmark to each rent-roll row; averaging the same
+ * base-rate population keeps this signal on the planner's exact scope.
+ */
+export async function fetchTopCompetitorRate(
+  scope: ScopeFilter,
+  month: string,
+): Promise<number | null> {
+  const params: any[] = [scope.clientId, month, scope.serviceLine];
+  let locSql = "";
+  if (scope.location) {
+    params.push(scope.location);
+    locSql = ` AND rr.location = $${params.length}`;
+  }
+  const res = await pool.query<{ avg_rate: string | null }>(
+    `SELECT AVG(${monthlyRateExpr("rr.competitor_final_rate")}) AS avg_rate
+       FROM rent_roll_data rr
+      WHERE rr.client_id = $1
+        AND rr.upload_month = $2
+        AND rr.service_line = $3
+        AND rr.competitor_final_rate > 0
+        AND ${privatePaySql("rr.payor_type")}
+        AND ${baseRateExclusionSql("rr.")}${locSql}`,
+    params,
+  );
+  const value = Number(res.rows[0]?.avg_rate);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 export interface MonthlyRealized {
   month: string;
   rateMonthly: number;

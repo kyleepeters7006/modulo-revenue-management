@@ -25,6 +25,7 @@ import { isDailyRateServiceLine } from "../rateNormalization";
 import {
   buildResidents,
   fetchCurrentStreetRate,
+  fetchTopCompetitorRate,
   fetchMonthlyRealizedRates,
   fetchProductStreetBaselines,
   fetchResidentRows,
@@ -154,11 +155,12 @@ export async function calculatePlanDetailed(
 
   const proposalYear = Number(assumptions.streetRateEffectiveDate.slice(0, 4));
   const priorJanuaryMonth = `${proposalYear - 1}-01`;
-  const [rawRows, currentStreetRateMonthly, priorJanuaryStreetRateMonthly, productBaselines, formulas] =
+  const [rawRows, currentStreetRateMonthly, priorJanuaryStreetRateMonthly, topCompetitorRateMonthly, productBaselines, formulas] =
     await Promise.all([
       fetchResidentRows(scope, sourceMonth),
       fetchCurrentStreetRate(scope, sourceMonth),
       fetchCurrentStreetRate(scope, priorJanuaryMonth),
+      fetchTopCompetitorRate(scope, sourceMonth),
       fetchProductStreetBaselines(scope, sourceMonth),
       getDerivedRateFormulas((s, p) => pool.query(s, p), input.clientId),
     ]);
@@ -246,6 +248,7 @@ export async function calculatePlanDetailed(
     anchorMs,
     currentStreetRateMonthly,
     priorJanuaryStreetRateMonthly,
+    topCompetitorRateMonthly,
   });
 
   const daily = isDailyRateServiceLine(input.serviceLine);

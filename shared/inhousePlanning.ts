@@ -80,6 +80,17 @@ export interface PlanningAssumptions {
    */
   maxStreetIncreasePct: number;
   /**
+   * Minimum increase the combined plan should apply to Street Rate, subject to
+   * the hard annual and January-to-January guardrails.
+   */
+  minStreetIncreasePct: number;
+  /**
+   * Desired position versus the authoritative Top Competitor, in percent.
+   * This is a directional target, not a cap: being further below it pushes the
+   * Street Rate recommendation higher, while hard guardrails remain separate.
+   */
+  desiredVarianceToTopCompetitorPct: number;
+  /**
    * Maximum increase from the prior January rate to the proposed January rate,
    * in percent. This catches street increases already taken during the year
    * instead of treating today's rate as a fresh baseline.
@@ -98,6 +109,8 @@ export const DEFAULT_ASSUMPTIONS: PlanningAssumptions = {
   equalizationStrength: "medium",
   allowInhouseAboveStreet: true,
   maxStreetIncreasePct: 15,
+  minStreetIncreasePct: 0,
+  desiredVarianceToTopCompetitorPct: 0,
   maxYoYStreetIncreasePct: 15,
 };
 
@@ -371,6 +384,8 @@ export const SUBMISSION_ASSUMPTION_KEYS: Array<keyof PlanningAssumptions> = [
   "maxInhouseIncreasePct",
   "equalizationStrength",
   "maxStreetIncreasePct",
+  "minStreetIncreasePct",
+  "desiredVarianceToTopCompetitorPct",
   "maxYoYStreetIncreasePct",
 ];
 

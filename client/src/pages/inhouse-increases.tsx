@@ -700,8 +700,6 @@ export default function InhouseIncreases() {
           locationId: scopeLocationId,
           serviceLine: sl,
           assumptions: assumptionsForLine(sl),
-          maximumPremiumAboveTopCompetitorPct: maximumPremiumPct,
-          recommendations: streetRecommendations.filter((row) => row.serviceLine === sl),
         }),
       });
       if (!res.ok) {
@@ -953,8 +951,6 @@ export default function InhouseIncreases() {
             locationId: scopeLocationId,
             serviceLine: sl,
             assumptions: assumptionsForLine(sl),
-            maximumPremiumAboveTopCompetitorPct: maximumPremiumPct,
-            recommendations: streetRecommendations.filter((row) => row.serviceLine === sl),
           }).then((r) => r.json()),
         ),
       );
@@ -1055,6 +1051,8 @@ export default function InhouseIncreases() {
   const rangeError =
     assumptions.minInhouseIncreasePct > assumptions.maxInhouseIncreasePct
       ? "The minimum increase cannot be larger than the maximum."
+      : assumptions.minStreetIncreasePct > assumptions.maxStreetIncreasePct
+        ? "The minimum Street Rate increase cannot be larger than the maximum."
       : null;
 
   // Combine residents from all plans, tagging each with its service line.
@@ -1135,7 +1133,12 @@ export default function InhouseIncreases() {
     <div className="mx-auto max-w-[1400px] space-y-6 px-4 py-6 sm:px-6">
       <header className="space-y-1 text-center">
         <div className="flex justify-start">
-          <Button variant="ghost" size="sm" onClick={() => window.history.back()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setLocation("/overview")}
+            data-testid="button-back"
+          >
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
           </Button>
@@ -1420,6 +1423,22 @@ export default function InhouseIncreases() {
               hint="No resident is ever raised past this, even if the target needs it."
             />
             <NumberField
+              testId="input-min-street"
+              label="Minimum street increase"
+              value={assumptions.minStreetIncreasePct}
+              onChange={(v) => update("minStreetIncreasePct", v)}
+              suffix="%"
+              hint="Minimum Street Rate movement when the plan is calculated; hard maximums still apply."
+            />
+            <NumberField
+              testId="input-desired-top-comp-variance"
+              label="Desired variance to Top Competitor"
+              value={assumptions.desiredVarianceToTopCompetitorPct}
+              onChange={(v) => update("desiredVarianceToTopCompetitorPct", v)}
+              suffix="%"
+              hint="Directional target: negative stays below Top Competitor, positive moves above. It pushes underpriced rates more but never caps an increase."
+            />
+            <NumberField
               testId="input-max-street"
               label="Maximum street increase"
               value={assumptions.maxStreetIncreasePct}
@@ -1490,143 +1509,6 @@ export default function InhouseIncreases() {
               Save assumptions
             </Button>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* ── One-time competitive recommendation run ─────────────────── */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">AI-informed Street Rate recommendations</CardTitle>
-          <CardDescription>
-            Draft push, measured-increase, and hold choices using the current
-            authoritative Top Competitor benchmark. This is a one-time planning
-            assumption; it does not create or publish a rule.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="w-56 space-y-1.5">
-              <Label className="text-xs font-medium">Maximum premium above Top Competitor</Label>
-              <div className="flex items-center gap-1">
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step="0.1"
-                  value={maximumPremiumPct}
-                  onChange={(e) => {
-                    setMaximumPremiumPct(Math.max(0, Math.min(100, Number(e.target.value) || 0)));
-                    setStreetRecommendations([]);
-                    setStreetRebalance(null);
-                  }}
-                  className="h-9"
-                  data-testid="input-max-premium-top-competitor"
-                />
-                <span className="text-sm text-muted-foreground">%</span>
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              onClick={() => recommendStreetRates.mutate(undefined)}
-              disabled={recommendStreetRates.isPending || !!rangeError}
-              data-testid="button-recommend-street-rates"
-            >
-              {recommendStreetRates.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <TrendingUp className="mr-2 h-4 w-4" />}
-              Recommend Street Rates
-            </Button>
-            {streetRebalance && (
-              <div className={cn(
-                "rounded-md border px-3 py-2 text-xs",
-                streetRebalance.feasible
-                  ? "border-emerald-500/40 bg-emerald-500/10"
-                  : "border-amber-500/40 bg-amber-500/10",
-              )}>
-                <span className="font-medium">
-                  {streetRebalance.achievedGrowthPct.toFixed(2)}% projected growth
-                </span>
-                <span className="ml-2 text-muted-foreground">
-                  target {streetRebalance.targetGrowthPct.toFixed(2)}%
-                </span>
-              </div>
-            )}
-          </div>
-
-          {streetRebalance && !streetRebalance.feasible && (
-            <Alert>
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>{streetRebalance.message}</AlertDescription>
-            </Alert>
-          )}
-
-          {streetRecommendations.length > 0 && (
-            <div className="overflow-x-auto rounded-md border">
-              <table className="w-full min-w-[920px] text-xs">
-                <thead className="bg-muted/50 text-left">
-                  <tr>
-                    <th className="px-3 py-2">Campus / product</th>
-                    <th className="px-3 py-2">Current</th>
-                    <th className="px-3 py-2">Top competitor</th>
-                    <th className="px-3 py-2">Premium ceiling</th>
-                    <th className="px-3 py-2">Recommendation</th>
-                    <th className="px-3 py-2">Suggested</th>
-                    <th className="px-3 py-2">Lock</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {streetRecommendations.map((row) => (
-                    <tr key={row.id} className="border-t">
-                      <td className="px-3 py-2">
-                        <div className="font-medium">{row.location} · {row.serviceLine}</div>
-                        <div className="text-muted-foreground">{row.product}</div>
-                      </td>
-                      <td className="px-3 py-2">${Math.round(row.currentStreetRate).toLocaleString()}</td>
-                      <td className="px-3 py-2">{row.topCompetitorRate == null ? "Unavailable" : `$${Math.round(row.topCompetitorRate).toLocaleString()}`}</td>
-                      <td className="px-3 py-2">{row.premiumCeilingRate == null ? "Unavailable" : `$${Math.round(row.premiumCeilingRate).toLocaleString()}`}</td>
-                      <td className="px-3 py-2">
-                        <Badge variant={row.action === "hold" ? "secondary" : "default"}>
-                          {row.action === "measured_increase" ? "Measured increase" : row.action}
-                        </Badge>
-                        <div className="mt-1 max-w-[260px] text-muted-foreground">{row.rationale}</div>
-                      </td>
-                      <td className="px-3 py-2">
-                        <Input
-                          type="number"
-                          min={row.currentStreetRate}
-                          max={Number.isFinite(row.hardCeiling) ? row.hardCeiling : undefined}
-                          step="1"
-                          value={Math.round(row.suggestedRate)}
-                          disabled={row.locked}
-                          onChange={(e) => updateStreetRecommendation(row.id, Number(e.target.value) || row.currentStreetRate, row.locked)}
-                          onBlur={() => {
-                            const current = streetRecommendations.find((candidate) => candidate.id === row.id);
-                            if (current) saveStreetRecommendation.mutate(current);
-                          }}
-                          className="h-8 w-28"
-                          aria-label={`Suggested Street Rate for ${row.location} ${row.serviceLine} ${row.product}`}
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <Checkbox
-                          checked={row.locked}
-                          onCheckedChange={(checked) => {
-                            const locked = checked === true;
-                            updateStreetRecommendation(row.id, row.suggestedRate, locked);
-                            saveStreetRecommendation.mutate({ ...row, locked });
-                          }}
-                          aria-label={`Lock ${row.location} ${row.serviceLine} ${row.product}`}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="border-t bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                {saveStreetRecommendation.isPending
-                  ? "Saving edit…"
-                  : "Edits are saved and capped by the server. Locking a row preserves its value while the remaining unlocked rows can be rebalanced."}
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -1943,7 +1825,7 @@ export default function InhouseIncreases() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Submit this plan as proposals</CardTitle>
               <CardDescription>
-                Submitting saves the street recommendation and every resident increase as a
+                Submitting saves the calculated Street Rate and every resident increase as a
                 numbered plan plus linked proposals. It does not change any live rate until the
                 proposals are implemented and published.
                 {plans.length > 1 && " Each service line is saved as a separate versioned plan."}
@@ -2014,14 +1896,12 @@ export default function InhouseIncreases() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Plan history</CardTitle>
             <CardDescription>
-              Reopen a still-fresh saved Street Rate review without generating a new recommendation set.
+              Versioned Street Rate and resident increase plans previously submitted from this workflow.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <ul className="space-y-1.5 text-sm">
               {plansQuery.data!.plans.map((p) => {
-                const review = p.streetRateReview;
-                const reviewAvailable = review?.status === "available";
                 return (
                   <li
                     key={p.id}
@@ -2051,39 +1931,6 @@ export default function InhouseIncreases() {
                       <Badge variant="outline" className="text-[11px] font-normal">
                         Superseded
                       </Badge>
-                    )}
-                    {review && (
-                      <>
-                        <Badge
-                          variant={reviewAvailable ? "secondary" : "outline"}
-                          className={cn(
-                            "text-[11px] font-normal",
-                            !reviewAvailable && "text-muted-foreground",
-                          )}
-                        >
-                          {streetRateReviewStatusLabel(review.status)}
-                        </Badge>
-                        {reviewAvailable ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="ml-auto h-7"
-                            onClick={() => reopenStreetRateReview.mutate(p)}
-                            disabled={reopenStreetRateReview.isPending}
-                            data-testid={`button-reopen-street-review-${p.id}`}
-                          >
-                            {reopenStreetRateReview.isPending ? (
-                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                            ) : null}
-                            Reopen review
-                          </Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            {review.reason}
-                          </span>
-                        )}
-                      </>
                     )}
                   </li>
                 );

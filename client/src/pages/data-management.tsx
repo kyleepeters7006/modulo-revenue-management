@@ -874,14 +874,19 @@ export default function DataManagement() {
               <CardDescription>
                 Upload monthly rent roll data including occupancy, rates, and unit details
               </CardDescription>
-              {uploadSummary?.rent_roll?.lastUploadAt && (
+              {(uploadSummary?.rent_roll?.lastUploadAt ||
+                (uploadSummary?.rent_roll?.periods?.length ?? 0) > 0) && (
                 <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
-                  <Clock className="w-3 h-3 shrink-0" />
-                  <span>Last upload: {formatUploadTime(uploadSummary.rent_roll.lastUploadAt)}</span>
-                  {uploadSummary.rent_roll.lastFileName && (
-                    <span className="truncate max-w-[20rem]" title={uploadSummary.rent_roll.lastFileName}>
-                      {uploadSummary.rent_roll.lastFileName}
-                    </span>
+                  {uploadSummary.rent_roll.lastUploadAt && (
+                    <>
+                      <Clock className="w-3 h-3 shrink-0" />
+                      <span>Last upload: {formatUploadTime(uploadSummary.rent_roll.lastUploadAt)}</span>
+                      {uploadSummary.rent_roll.lastFileName && (
+                        <span className="truncate max-w-[20rem]" title={uploadSummary.rent_roll.lastFileName}>
+                          {uploadSummary.rent_roll.lastFileName}
+                        </span>
+                      )}
+                    </>
                   )}
                   {uploadSummary.rent_roll.periods.length > 0 && (
                     <button

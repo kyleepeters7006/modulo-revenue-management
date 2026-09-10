@@ -149,3 +149,20 @@ without recalculation, invalidates the resident-level result.
 implemented and both effective dates are due. Replace any prior unpublished pair
 for the same scope on resubmission, clear its derived rule rates if it had been
 implemented, and publish/apply/archive the complete pair atomically.
+
+## Top Competitor position is a directional floor, not a ceiling
+
+Calculate Plan jointly solves Street Rate and resident increases. Its desired
+variance to Top Competitor converts the matched benchmark into a target rate and
+can push an underpriced scope higher; it must never cap Street Rate or resident
+increases. A configured minimum Street Rate increase is also a floor.
+
+**Why:** the competitive assumption expresses where the operator wants the rate
+to move toward, while the current-rate maximum and January-to-January maximum
+are the explicit safety limits. Treating the competitor target as a ceiling
+silently blocks valid growth above the market benchmark.
+
+**How to apply:** combine the growth objective, configured minimum, and positive
+gap to the desired competitor position as candidate floors, then clamp the result
+only by the two Street Rate guardrails. Missing competitor data removes only the
+competitive signal; ordinary calculation continues.

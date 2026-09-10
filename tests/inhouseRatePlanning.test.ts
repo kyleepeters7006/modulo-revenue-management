@@ -323,6 +323,82 @@ console.log("\n-- 6. An achievable target is solved without touching the street 
   );
 }
 
+console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rate inputs --");
+{
+  const minimum = solvePlan({
+    residents: roomyPopulation(),
+    assumptions: assumptions({
+      rateGrowthTargetPct: 2,
+      minStreetIncreasePct: 4,
+      desiredVarianceToTopCompetitorPct: 0,
+    }),
+    baselineByQuarter: flatBaseline(4200),
+    quarters: QUARTERS,
+    anchorMs: ANCHOR_MS,
+    currentStreetRateMonthly: 5000,
+    topCompetitorRateMonthly: null,
+  });
+  near("minimum Street Rate increase is honored", minimum.streetIncrease * 100, 4, 0.01);
+
+  const competitive = solvePlan({
+    residents: roomyPopulation(),
+    assumptions: assumptions({
+      rateGrowthTargetPct: 2,
+      minStreetIncreasePct: 0,
+      desiredVarianceToTopCompetitorPct: -2,
+    }),
+    baselineByQuarter: flatBaseline(4200),
+    quarters: QUARTERS,
+    anchorMs: ANCHOR_MS,
+    currentStreetRateMonthly: 5000,
+    topCompetitorRateMonthly: 5500,
+  });
+  near(
+    "scope below its desired Top Competitor position is pushed to that position",
+    competitive.recommendedStreetMonthly,
+    5500 * 0.98,
+    0.01,
+  );
+
+  const aboveDesired = solvePlan({
+    residents: roomyPopulation(),
+    assumptions: assumptions({
+      rateGrowthTargetPct: 7,
+      desiredVarianceToTopCompetitorPct: -5,
+    }),
+    baselineByQuarter: flatBaseline(4200),
+    quarters: QUARTERS,
+    anchorMs: ANCHOR_MS,
+    currentStreetRateMonthly: 5000,
+    topCompetitorRateMonthly: 5000,
+  });
+  near(
+    "desired competitor position does not cap a larger required increase",
+    aboveDesired.streetIncrease * 100,
+    7,
+    0.01,
+  );
+
+  const noBenchmark = solvePlan({
+    residents: roomyPopulation(),
+    assumptions: assumptions({
+      rateGrowthTargetPct: 3,
+      desiredVarianceToTopCompetitorPct: 10,
+    }),
+    baselineByQuarter: flatBaseline(4200),
+    quarters: QUARTERS,
+    anchorMs: ANCHOR_MS,
+    currentStreetRateMonthly: 5000,
+    topCompetitorRateMonthly: null,
+  });
+  near(
+    "missing Top Competitor falls back to the ordinary growth solve",
+    noBenchmark.streetIncrease * 100,
+    3,
+    0.01,
+  );
+}
+
 // ── 7. Impossible because the maximum increase is too low ──────────────────
 console.log("\n-- 7. An unreachable target is reported, not silently approximated --");
 {

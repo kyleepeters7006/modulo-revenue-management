@@ -685,6 +685,8 @@ export const inhousePlanningAssumptions = pgTable("inhouse_planning_assumptions"
   equalizationStrength: text("equalization_strength").notNull().default("medium"), // low | medium | high
   allowInhouseAboveStreet: boolean("allow_inhouse_above_street").notNull().default(false),
   maxStreetIncreasePct: real("max_street_increase_pct").notNull().default(15),
+  minStreetIncreasePct: real("min_street_increase_pct").notNull().default(0),
+  desiredVarianceToTopCompetitorPct: real("desired_variance_to_top_competitor_pct").notNull().default(0),
   maxYoYStreetIncreasePct: real("max_yoy_street_increase_pct").notNull().default(15),
   updatedBy: text("updated_by"),
   createdAt: timestamp("created_at").defaultNow(),

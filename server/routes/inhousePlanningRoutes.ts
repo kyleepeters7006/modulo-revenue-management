@@ -68,9 +68,13 @@ const assumptionsSchema = z.object({
   equalizationStrength: z.enum(["low", "medium", "high"]),
   allowInhouseAboveStreet: z.boolean().optional().default(true),
   maxStreetIncreasePct: z.number().min(0).max(100),
+  minStreetIncreasePct: z.number().min(0).max(100),
+  desiredVarianceToTopCompetitorPct: z.number().min(-100).max(100),
   maxYoYStreetIncreasePct: z.number().min(0).max(100),
 }).refine((d) => d.minInhouseIncreasePct <= d.maxInhouseIncreasePct, {
   message: "Minimum increase cannot exceed maximum increase",
+}).refine((d) => d.minStreetIncreasePct <= d.maxStreetIncreasePct, {
+  message: "Minimum Street Rate increase cannot exceed maximum Street Rate increase",
 });
 
 const scopeSchema = z.object({
@@ -174,6 +178,13 @@ export function rowToAssumptions(row: any): PlanningAssumptions {
     equalizationStrength: row.equalizationStrength,
     allowInhouseAboveStreet: true,
     maxStreetIncreasePct: Number(row.maxStreetIncreasePct),
+    minStreetIncreasePct: Number(
+      row.minStreetIncreasePct ?? DEFAULT_ASSUMPTIONS.minStreetIncreasePct,
+    ),
+    desiredVarianceToTopCompetitorPct: Number(
+      row.desiredVarianceToTopCompetitorPct ??
+      DEFAULT_ASSUMPTIONS.desiredVarianceToTopCompetitorPct,
+    ),
     maxYoYStreetIncreasePct: Number(
       row.maxYoYStreetIncreasePct ?? DEFAULT_ASSUMPTIONS.maxYoYStreetIncreasePct,
     ),
@@ -181,7 +192,7 @@ export function rowToAssumptions(row: any): PlanningAssumptions {
 }
 
 function enforceCurrentPlanningPolicy(assumptions: PlanningAssumptions): PlanningAssumptions {
-  return { ...assumptions, allowInhouseAboveStreet: true };
+  return { ...DEFAULT_ASSUMPTIONS, ...assumptions, allowInhouseAboveStreet: true };
 }
 
 /**
@@ -319,6 +330,8 @@ export function registerInhousePlanningRoutes(app: Express) {
         equalizationStrength: assumptions.equalizationStrength,
         allowInhouseAboveStreet: true,
         maxStreetIncreasePct: assumptions.maxStreetIncreasePct,
+        minStreetIncreasePct: assumptions.minStreetIncreasePct,
+        desiredVarianceToTopCompetitorPct: assumptions.desiredVarianceToTopCompetitorPct,
         maxYoYStreetIncreasePct: assumptions.maxYoYStreetIncreasePct,
         updatedBy: req.session?.userId || null,
         updatedAt: new Date(),
