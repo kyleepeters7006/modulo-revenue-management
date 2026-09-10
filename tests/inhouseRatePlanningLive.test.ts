@@ -39,6 +39,8 @@ import type {
 import {
   buildResidents,
   calculatePlan,
+  fetchCurrentStreetRate,
+  fetchMixStandardizedStreetComparison,
   fetchResidentRows,
   getLatestMonthForScope,
   horizonQuarters,
@@ -51,6 +53,10 @@ import {
   quarterStartMs,
 } from "../server/services/inhouseRatePlanning/dates";
 import { isDailyRateServiceLine } from "../server/services/rateNormalization";
+import {
+  buildRateBaselineJoin,
+  streetRateGate,
+} from "../server/services/rateBaselineView";
 import { baseRateExclusionSql } from "../shared/baseRate";
 import { privatePaySql } from "../shared/payerScope";
 import { classifyRateProduct, rateProductSql } from "../shared/rateProduct";
@@ -77,6 +83,19 @@ function near(description: string, actual: number, expected: number, tolerance: 
     Math.abs(actual - expected) <= tolerance,
     `Expected ${expected} ± ${tolerance}, got ${actual}`,
   );
+}
+
+function standardizeMatchedMovement(
+  currentAverageMonthly: number,
+  comparison: {
+    priorMatchedMonthly: number;
+    currentMatchedMonthly: number;
+  },
+): number {
+  return comparison.currentMatchedMonthly > 0
+    ? currentAverageMonthly *
+        (comparison.priorMatchedMonthly / comparison.currentMatchedMonthly)
+    : 0;
 }
 
 // ── Scope discovery ─────────────────────────────────────────────────────────
@@ -549,6 +568,264 @@ async function assertProductClassifierParity(clientId: string) {
   );
 }
 
+/**
+ * The Bedford HC failure was a room-mix failure, not a pricing failure. Keep a
+ * real production-shaped fixture here: West Lafayette's April 2025 current
+ * cohort has the same room-level Street Rates as January, but several rooms
+ * changed payer. January's portfolio average contains a different room mix and
+ * is therefore not a valid annual-ceiling baseline.
+ */
+async function assertCurrentRoomMixStreetBaseline(clientId: string) {
+  const scope = {
+    clientId,
+    location: "West Lafayette - 2135",
+    serviceLine: "HC",
+  };
+  const baselineMonth = "2025-01";
+  const currentMonth = "2025-04";
+  const fixture = await pool.query<{
+    room_number: string;
+    current_rate: string;
+    historical_rate: string;
+    current_payer: string | null;
+    historical_payer: string | null;
+  }>(
+    `SELECT cur.room_number,
+            cur.street_rate AS current_rate,
+            hist.street_rate AS historical_rate,
+            cur.payor_type AS current_payer,
+            hist.payor_type AS historical_payer
+       FROM rent_roll_data cur
+       JOIN rent_roll_data hist
+         ON hist.client_id = cur.client_id
+        AND hist.location = cur.location
+        AND hist.service_line = cur.service_line
+        AND hist.upload_month = $3
+        AND hist.room_number = cur.room_number
+      WHERE cur.client_id = $1
+        AND cur.location = $4
+        AND cur.service_line = $5
+        AND cur.upload_month = $2
+        AND cur.street_rate > 0
+        AND ${privatePaySql("cur.payor_type")}
+        AND ${baseRateExclusionSql("cur.")}
+        AND hist.street_rate > 0
+        AND ${baseRateExclusionSql("hist.")}`,
+    [clientId, currentMonth, baselineMonth, scope.location, scope.serviceLine],
+  );
+
+  ok(
+    "the room-mix regression fixture exists",
+    fixture.rows.length > 0,
+    `expected ${scope.location} ${scope.serviceLine} rows for ${currentMonth}`,
+  );
+  if (fixture.rows.length === 0) return;
+
+  const unchanged = fixture.rows.every(
+    (r) => Math.abs(Number(r.current_rate) - Number(r.historical_rate)) < 0.01,
+  );
+  const payerChanges = fixture.rows.filter(
+    (r) => r.current_payer !== r.historical_payer,
+  ).length;
+  ok(
+    "the fixture keeps room-level Street Rates unchanged",
+    unchanged,
+    fixture.rows
+      .filter((r) => Math.abs(Number(r.current_rate) - Number(r.historical_rate)) >= 0.01)
+      .slice(0, 2)
+      .map((r) => `${r.room_number}: ${r.historical_rate} → ${r.current_rate}`)
+      .join(", "),
+  );
+  ok(
+    "the fixture changes the payer mix",
+    payerChanges > 0,
+    `${payerChanges} of ${fixture.rows.length} matched rooms changed payer`,
+  );
+
+  const rawJanuary = await pool.query<{ avg_rate: string | null }>(
+    `SELECT AVG(street_rate) AS avg_rate
+       FROM rent_roll_data
+      WHERE client_id = $1
+        AND location = $2
+        AND service_line = $3
+        AND upload_month = $4
+        AND street_rate > 0`,
+    [clientId, scope.location, scope.serviceLine, baselineMonth],
+  );
+  const independentlyWeightedJanuaryAverage =
+    Number(rawJanuary.rows[0]?.avg_rate) * DAYS_PER_MONTH;
+  const comparison = await fetchMixStandardizedStreetComparison(
+    scope,
+    baselineMonth,
+    currentMonth,
+  );
+  const currentAverageMonthly = await fetchCurrentStreetRate(scope, currentMonth);
+  const standardizedJanuaryAverage = standardizeMatchedMovement(
+    currentAverageMonthly,
+    comparison,
+  );
+  const expectedHistoricalMonthly =
+    (fixture.rows.reduce((sum, r) => sum + Number(r.historical_rate), 0) /
+      fixture.rows.length) *
+    DAYS_PER_MONTH;
+  near(
+    "the January baseline is averaged over the current eligible room cohort",
+    standardizedJanuaryAverage,
+    expectedHistoricalMonthly,
+    0.01,
+  );
+  ok(
+    "the room-mix baseline differs from the independently weighted January average",
+    Math.abs(standardizedJanuaryAverage - independentlyWeightedJanuaryAverage) > 1,
+    `cohort=${standardizedJanuaryAverage}, independent=${independentlyWeightedJanuaryAverage}`,
+  );
+  near(
+    "unchanged room prices do not consume Street Rate ceiling headroom",
+    standardizedJanuaryAverage,
+    await fetchCurrentStreetRate(scope, currentMonth),
+    0.01,
+  );
+}
+/**
+ * Current rent rolls can contain more than one eligible row for a physical
+ * room. The annual baseline and today's Street Rate must not weight those
+ * rooms by row count. Find a real duplicate-row scope and compare production
+ * output with an independently room-weighted SQL calculation.
+ */
+async function assertDuplicateRowsUseRoomWeights(clientId: string) {
+  const duplicates = await pool.query<{
+    location: string;
+    service_line: string;
+    upload_month: string;
+    row_count: string;
+    room_count: string;
+  }>(
+    `SELECT rr.location,
+            rr.service_line,
+            rr.upload_month,
+            COUNT(*) AS row_count,
+            COUNT(DISTINCT rr.room_number) AS room_count
+       FROM rent_roll_data rr
+      WHERE rr.client_id = $1
+        AND rr.street_rate > 0
+        AND ${privatePaySql("rr.payor_type")}
+        AND ${baseRateExclusionSql("rr.")}
+      GROUP BY rr.location, rr.service_line, rr.upload_month
+     HAVING COUNT(*) > COUNT(DISTINCT rr.room_number)
+      ORDER BY COUNT(*) - COUNT(DISTINCT rr.room_number) DESC
+      LIMIT 1`,
+    [clientId],
+  );
+  ok(
+    "a duplicate-row room-weight regression fixture exists",
+    duplicates.rows.length > 0,
+    "no eligible scope has multiple rows for a physical room",
+  );
+  if (duplicates.rows.length === 0) return;
+
+  const fixture = duplicates.rows[0];
+  const scope = {
+    clientId,
+    location: fixture.location,
+    serviceLine: fixture.service_line,
+  };
+  const params = [clientId, fixture.upload_month, fixture.service_line, fixture.location];
+  const join = buildRateBaselineJoin({
+    rr: "rr.",
+    clientSql: "$1",
+    monthSql: "$2",
+  });
+  const expected = await pool.query<{ avg_rate: string | null }>(
+    `WITH eligible AS (
+       SELECT rr.location,
+              rr.service_line,
+              rr.room_number,
+              AVG(
+                CASE WHEN rr.service_line IN ('HC', 'HC/MC')
+                  THEN rr.street_rate * ${DAYS_PER_MONTH}
+                  ELSE rr.street_rate
+                END
+              ) AS room_rate
+         FROM rent_roll_data rr
+         ${join}
+        WHERE rr.client_id = $1
+          AND rr.upload_month = $2
+          AND rr.service_line = $3
+          AND rr.location = $4
+          AND rr.street_rate > 0
+          AND ${privatePaySql("rr.payor_type")}
+          AND ${baseRateExclusionSql("rr.")}
+          AND ${streetRateGate()}
+        GROUP BY rr.location, rr.service_line, rr.room_number
+     )
+     SELECT AVG(room_rate) AS avg_rate FROM eligible`,
+    params,
+  );
+  const actual = await fetchCurrentStreetRate(scope, fixture.upload_month);
+  near(
+    "duplicate current rows are weighted once per physical room",
+    actual,
+    Number(expected.rows[0]?.avg_rate) || 0,
+    0.01,
+  );
+}
+async function assertRealPriceIncreaseUsesStreetHeadroom(clientId: string) {
+  const scope = {
+    clientId,
+    location: "Bedford - 115",
+    serviceLine: "HC",
+  };
+  const comparison = await fetchMixStandardizedStreetComparison(
+    scope,
+    "2025-01",
+    "2026-08",
+  );
+  const current = await fetchCurrentStreetRate(scope, "2026-08");
+  const priorJanuary = standardizeMatchedMovement(current, comparison);
+  const plan = await calculatePlan({
+    clientId,
+    locationId: null,
+    location: scope.location,
+    serviceLine: scope.serviceLine,
+    assumptions: assumptions(),
+  });
+  ok(
+    "a real Bedford Street Rate increase consumes the January-to-January allowance",
+    current > priorJanuary * (1 + assumptions().maxYoYStreetIncreasePct / 100),
+    `January=${priorJanuary}, current=${current}`,
+  );
+  ok(
+    "a real Street Rate increase is not erased by room-mix standardization",
+    plan.streetIncreasePct <= EPS_PCT,
+    `recommended increase=${plan.streetIncreasePct}%`,
+  );
+}
+
+function assertSyntheticRoomMixArithmetic() {
+  // A duplicate current row and a current room without a January match must
+  // not look like price movement when matched room prices are unchanged.
+  const currentAverageMonthly = (100 + 200 + 300) / 3;
+  const comparison = {
+    priorMatchedMonthly: (100 + 200) / 2,
+    currentMatchedMonthly: (100 + 200) / 2,
+  };
+  near(
+    "unmatched rooms and duplicate current rows do not manufacture price movement",
+    standardizeMatchedMovement(currentAverageMonthly, comparison),
+    currentAverageMonthly,
+    0.0001,
+  );
+
+  near(
+    "a real matched-room price increase remains measurable",
+    standardizeMatchedMovement(200, {
+      priorMatchedMonthly: 135,
+      currentMatchedMonthly: 150,
+    }),
+    180,
+    0.0001,
+  );
+}
 async function main() {
   console.log("\n=== In-House Rate Planning — live-data guardrails ===\n");
 
@@ -558,6 +835,7 @@ async function main() {
     return;
   }
   console.log(`Client under test: ${clientId}\n`);
+  assertSyntheticRoomMixArithmetic();
 
   // Both billing bases are REQUIRED. Each is resolved by actually building a plan,
   // so "the data no longer supports this scope" fails the run instead of
@@ -575,6 +853,9 @@ async function main() {
     await candidateScopes(clientId, ["HC", "HC/MC"], { byCampus: true }),
   );
   await assertProductClassifierParity(clientId);
+  await assertCurrentRoomMixStreetBaseline(clientId);
+  await assertDuplicateRowsUseRoomWeights(clientId);
+  await assertRealPriceIncreaseUsesStreetHeadroom(clientId);
 
   ok(
     "a monthly service line and a daily-rate service line are plannable",

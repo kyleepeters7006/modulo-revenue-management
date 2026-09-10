@@ -469,8 +469,10 @@ export function makeProductStreetResolver(
  *
  * B-bed companion rows are excluded here — this IS a street-rate average, and
  * counting the half-price second-occupant row against a room already counted
- * drags the level down. Outlier-gated through `rate_baseline_v` so a junk row
- * cannot move the recommendation.
+ * drags the level down. Multiple eligible rent-roll rows for one physical room
+ * are collapsed before the portfolio average, so this uses the same room-level
+ * weighting as the January baseline below. Outlier-gated through
+ * `rate_baseline_v` so a junk row cannot move the recommendation.
  */
 export async function fetchCurrentStreetRate(
   scope: ScopeFilter,
@@ -484,16 +486,24 @@ export async function fetchCurrentStreetRate(
   }
   const join = buildRateBaselineJoin({ rr: "rr.", clientSql: "$1", monthSql: "$2" });
   const res = await pool.query<{ avg_rate: string | null }>(
-    `SELECT AVG(${monthlyRateExpr("rr.street_rate")}) AS avg_rate
-       FROM rent_roll_data rr
-       ${join}
-      WHERE rr.client_id = $1
-        AND rr.upload_month = $2
-        AND rr.service_line = $3
-        AND rr.street_rate > 0
-        AND ${privatePaySql("rr.payor_type")}
-         AND ${baseRateExclusionSql("rr.")}
-        AND ${streetRateGate()}${locSql}`,
+    `WITH current_room_rates AS (
+       SELECT rr.location,
+              rr.service_line,
+              rr.room_number,
+              AVG(${monthlyRateExpr("rr.street_rate")}) AS rate_monthly
+         FROM rent_roll_data rr
+         ${join}
+        WHERE rr.client_id = $1
+          AND rr.upload_month = $2
+          AND rr.service_line = $3
+          AND rr.street_rate > 0
+          AND ${privatePaySql("rr.payor_type")}
+          AND ${baseRateExclusionSql("rr.")}
+          AND ${streetRateGate()}${locSql}
+        GROUP BY rr.location, rr.service_line, rr.room_number
+     )
+     SELECT AVG(rate_monthly) AS avg_rate
+       FROM current_room_rates`,
     params,
   );
   return Number(res.rows[0]?.avg_rate) || 0;

@@ -189,7 +189,6 @@ whole-page calculation failure.
 
 **How to apply:** use settled per-line requests for the multi-line calculate action,
 while retaining the server's precise `PlanningDataError` for the skipped-line message.
-
 ## Annual street and in-house decisions are one proposal
 
 An annual plan's street recommendation and resident-specific in-house increases
