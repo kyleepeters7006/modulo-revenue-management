@@ -56,6 +56,413 @@ async function warnIfLegacyRentRollMonthIsEmpty(stats: ImportStats, uploadMonth:
   }
 }
 
+export interface MatrixCareRateProductLabelRow {
+  line: number;
+  location: string;
+  serviceLine: string;
+  roomNumber: string;
+  levelOfCare1: string | null;
+  actualLevel1: string | null;
+  bedSpecialization1: string | null;
+}
+
+export interface RateProductLabelBackfillResult {
+  clientId: string;
+  uploadMonth: string;
+  dryRun: boolean;
+  sourceRows: number;
+  matchedSourceRows: number;
+  updatedRows: number;
+  updatedFields: number;
+  alreadyCompleteRows: number;
+  unresolvedRows: number;
+  unresolved: Array<{
+    line?: number;
+    location?: string;
+    serviceLine?: string;
+    roomNumber?: string;
+    reason: string;
+    tables?: string[];
+  }>;
+}
+
+function sourceText(value: unknown): string | null {
+  const text = value == null ? '' : String(value).trim();
+  return text || null;
+}
+
+function matrixCareServiceLine(value: unknown): string {
+  const service = String(value ?? '').trim().toUpperCase();
+  if (service === 'HC/MC' || service.includes('HC/MC')) return 'HC/MC';
+  if (service === 'HC/TCU' || service.includes('HC/TCU') || service.includes('TCU')) return 'HC';
+  if (service === 'AL/MC' || service.includes('AL/MC') || (service.includes('AL') && service.includes('MC'))) return 'AL/MC';
+  if (service.includes('HC') && /\bMC\b/.test(service)) return 'HC/MC';
+  if (service === 'MC' || /\bMC\b/.test(service)) return 'AL/MC';
+  if (service === 'HC' || service.includes('HC') || service.includes('SKILLED') || service.includes('SNF')) return 'HC';
+  if (service === 'AL' || service.includes('AL')) return 'AL';
+  if (service === 'VIL' || service.includes('VIL') || service.includes('VILLA') || service.includes('VILLAGE')) return 'VIL';
+  if (service === 'SL' || service === 'IL' || service.includes('IL_')) return 'SL';
+  if (service.includes('SL')) return 'SL';
+  if (service.includes('PATIO')) return 'Patio Homes';
+  return service || 'AL';
+}
+
+function matrixCareRowValue(row: Record<string, unknown>, ...names: string[]): unknown {
+  for (const name of names) {
+    if (row[name] !== undefined && row[name] !== null && String(row[name]).trim() !== '') {
+      return row[name];
+    }
+  }
+  return null;
+}
+
+/**
+ * Read the original MatrixCare export without changing the database. Keeping
+ * this parser separate lets the repair endpoint support both the CSV files
+ * used by the legacy importer and the original XLS/XLSX workbook when one is
+ * still available.
+ */
+export function parseMatrixCareRateProductLabelRows(
+  fileBuffer: Buffer,
+  fileName = '',
+): MatrixCareRateProductLabelRow[] {
+  const isWorkbook = /\.(xlsx?|xlsm)$/i.test(fileName) ||
+    fileBuffer.subarray(0, 2).toString('latin1') === 'PK';
+  let rows: Array<Record<string, unknown>>;
+
+  if (isWorkbook) {
+    const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    rows = sheet ? XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' }) : [];
+  } else {
+    const parsed = Papa.parse<Record<string, unknown>>(fileBuffer.toString('utf8'), {
+      header: true,
+      skipEmptyLines: true,
+    });
+    if (parsed.errors.length > 0) {
+      throw new Error(`CSV parsing failed: ${parsed.errors[0].message}`);
+    }
+    rows = parsed.data;
+  }
+
+  return rows.map((row, index) => ({
+    line: index + 2,
+    location: String(matrixCareRowValue(row, 'location', 'Location') ?? '').trim(),
+    serviceLine: matrixCareServiceLine(matrixCareRowValue(row, 'Service1', 'Service Line', 'service_line')),
+    roomNumber: String(matrixCareRowValue(row, 'Room_Bed', 'Room Number', 'room_number') ?? '').trim(),
+    levelOfCare1: sourceText(matrixCareRowValue(row, 'LevelOfCare1', 'Level of Care', 'level_of_care')),
+    actualLevel1: sourceText(matrixCareRowValue(row, 'ActualLevel1', 'Actual Level', 'actual_level')),
+    bedSpecialization1: sourceText(matrixCareRowValue(row, 'BedSpecialization1', 'Bed Specialization', 'bed_specialization')),
+  }));
+}
+
+function rateProductLabelKey(location: string, serviceLine: string, roomNumber: string): string {
+  return `${location.trim().toLowerCase()}|${serviceLine.trim().toUpperCase()}|${roomNumber.trim().toUpperCase()}`;
+}
+
+function legacyRateProductLabelKey(location: string, serviceLine: string, roomNumber: string): string {
+  const legacyRoomNumber = roomNumber.split('/')[0]?.trim() || roomNumber.trim();
+  return rateProductLabelKey(location, serviceLine, legacyRoomNumber);
+}
+
+function sameSourceLabels(a: MatrixCareRateProductLabelRow, b: MatrixCareRateProductLabelRow): boolean {
+  return a.levelOfCare1 === b.levelOfCare1 &&
+    a.actualLevel1 === b.actualLevel1 &&
+    a.bedSpecialization1 === b.bedSpecialization1;
+}
+
+/**
+ * Restore labels that were present in the MatrixCare source but lost during
+ * older imports. A source row is only applied when its location/service-line/
+ * room identity resolves to one row in each tenant-owned table. Existing
+ * values are fill-only: this repair never replaces a value already recorded.
+ */
+export async function backfillMatrixCareRateProductLabels(
+  fileBuffer: Buffer,
+  uploadMonth: string,
+  clientId: string,
+  options: { fileName?: string; dryRun?: boolean } = {},
+): Promise<RateProductLabelBackfillResult> {
+  const sourceRows = parseMatrixCareRateProductLabelRows(fileBuffer, options.fileName);
+  const dryRun = options.dryRun !== false;
+  const unresolved: RateProductLabelBackfillResult['unresolved'] = [];
+  const grouped = new Map<string, MatrixCareRateProductLabelRow[]>();
+
+  for (const row of sourceRows) {
+    if (!row.location || !row.roomNumber) {
+      unresolved.push({
+        line: row.line,
+        location: row.location,
+        serviceLine: row.serviceLine,
+        roomNumber: row.roomNumber,
+        reason: 'source_row_missing_location_or_room_identity',
+      });
+      continue;
+    }
+    const key = rateProductLabelKey(row.location, row.serviceLine, row.roomNumber);
+    const group = grouped.get(key) || [];
+    group.push(row);
+    grouped.set(key, group);
+  }
+
+  return await db.transaction(async (tx) => {
+    const currentRows = await tx
+      .select({
+        id: rentRollData.id,
+        location: rentRollData.location,
+        serviceLine: rentRollData.serviceLine,
+        roomNumber: rentRollData.roomNumber,
+        levelOfCare: rentRollData.levelOfCare,
+        careLevel: rentRollData.careLevel,
+        otherPremiumFeature: rentRollData.otherPremiumFeature,
+      })
+      .from(rentRollData)
+      .where(and(
+        eq(rentRollData.clientId, clientId),
+        eq(rentRollData.uploadMonth, uploadMonth),
+      ));
+
+    // rent_roll_history predates tenant ownership. Only rows whose location
+    // is currently owned by this client are eligible for a repair.
+    const historyRows = await tx
+      .select({
+        id: rentRollHistory.id,
+        location: rentRollHistory.location,
+        serviceLine: rentRollHistory.serviceLine,
+        roomNumber: rentRollHistory.roomNumber,
+        levelOfCare: rentRollHistory.levelOfCare,
+        careLevel: rentRollHistory.careLevel,
+        otherPremiumFeature: rentRollHistory.otherPremiumFeature,
+      })
+      .from(rentRollHistory)
+      .innerJoin(locations, eq(rentRollHistory.locationId, locations.id))
+      .where(and(
+        eq(rentRollHistory.uploadMonth, uploadMonth),
+        eq(locations.clientId, clientId),
+      ));
+
+    const currentByKey = new Map<string, typeof currentRows>();
+    const historyByKey = new Map<string, typeof historyRows>();
+    const currentByLegacyKey = new Map<string, typeof currentRows>();
+    const historyByLegacyKey = new Map<string, typeof historyRows>();
+    for (const row of currentRows) {
+      const key = rateProductLabelKey(row.location, row.serviceLine, row.roomNumber);
+      currentByKey.set(key, [...(currentByKey.get(key) || []), row]);
+      const legacyKey = legacyRateProductLabelKey(row.location, row.serviceLine, row.roomNumber);
+      currentByLegacyKey.set(legacyKey, [...(currentByLegacyKey.get(legacyKey) || []), row]);
+    }
+    for (const row of historyRows) {
+      const key = rateProductLabelKey(row.location, row.serviceLine, row.roomNumber);
+      historyByKey.set(key, [...(historyByKey.get(key) || []), row]);
+      const legacyKey = legacyRateProductLabelKey(row.location, row.serviceLine, row.roomNumber);
+      historyByLegacyKey.set(legacyKey, [...(historyByLegacyKey.get(legacyKey) || []), row]);
+    }
+    const sourceByLegacyKey = new Map<string, MatrixCareRateProductLabelRow[]>();
+    for (const row of sourceRows) {
+      if (!row.location || !row.roomNumber) continue;
+      const legacyKey = legacyRateProductLabelKey(row.location, row.serviceLine, row.roomNumber);
+      sourceByLegacyKey.set(legacyKey, [...(sourceByLegacyKey.get(legacyKey) || []), row]);
+    }
+
+    let matchedSourceRows = 0;
+    let updatedRows = 0;
+    let updatedFields = 0;
+    let alreadyCompleteRows = 0;
+    const pendingUpdates: Array<{
+      table: 'rent_roll_data' | 'rent_roll_history';
+      id: string;
+      levelOfCare: string | null;
+      careLevel: string | null;
+      otherPremiumFeature: string | null;
+    }> = [];
+
+    for (const [key, candidates] of Array.from(grouped.entries())) {
+      const source = candidates[0];
+      const legacyKey = legacyRateProductLabelKey(source.location, source.serviceLine, source.roomNumber);
+      const legacySources = sourceByLegacyKey.get(legacyKey) || [];
+
+      if (candidates.some((candidate: MatrixCareRateProductLabelRow) => !sameSourceLabels(candidate, source))) {
+        unresolved.push({
+          line: source.line,
+          location: source.location,
+          serviceLine: source.serviceLine,
+          roomNumber: source.roomNumber,
+          reason: 'conflicting_source_rows_for_same_unit',
+        });
+        continue;
+      }
+      if (!source.levelOfCare1 && !source.actualLevel1 && !source.bedSpecialization1) {
+        unresolved.push({
+          line: source.line,
+          location: source.location,
+          serviceLine: source.serviceLine,
+          roomNumber: source.roomNumber,
+          reason: 'source_row_has_no_recoverable_rate_product_labels',
+        });
+        continue;
+      }
+
+      const canUseLegacyRoomIdentity = source.roomNumber.includes('/');
+      const tables: Array<{
+        name: 'rent_roll_data' | 'rent_roll_history';
+        rows: any[];
+        usingLegacyRoomIdentity: boolean;
+      }> = [
+        {
+          name: 'rent_roll_data',
+          rows: currentByKey.get(key) || [],
+          usingLegacyRoomIdentity: false,
+        },
+        {
+          name: 'rent_roll_history',
+          rows: historyByKey.get(key) || [],
+          usingLegacyRoomIdentity: false,
+        },
+      ];
+
+      // Resolve exact-vs-legacy identities independently for each destination
+      // table. A promoted current row can retain "101/A" while its historical
+      // counterpart still stores "101", and both must be considered.
+      for (const table of tables) {
+        if (table.rows.length === 0 && canUseLegacyRoomIdentity) {
+          table.rows = table.name === 'rent_roll_data'
+            ? currentByLegacyKey.get(legacyKey) || []
+            : historyByLegacyKey.get(legacyKey) || [];
+          table.usingLegacyRoomIdentity = table.rows.length > 0;
+        }
+      }
+
+      const missingTables = tables.filter((table) => table.rows.length === 0);
+      if (missingTables.length > 0) {
+        unresolved.push({
+          line: source.line,
+          location: source.location,
+          serviceLine: source.serviceLine,
+          roomNumber: source.roomNumber,
+          reason: 'no_tenant_owned_row_for_upload_month',
+          tables: missingTables.map((table) => table.name),
+        });
+      }
+
+      let matchedThisSource = false;
+      for (const table of tables.filter((candidate) => candidate.rows.length > 0)) {
+        if (table.usingLegacyRoomIdentity &&
+          legacySources.some((candidate) => !sameSourceLabels(candidate, legacySources[0]))) {
+          unresolved.push({
+            line: source.line,
+            location: source.location,
+            serviceLine: source.serviceLine,
+            roomNumber: source.roomNumber,
+            reason: 'conflicting_source_rows_for_legacy_room_identity',
+            tables: [table.name],
+          });
+          continue;
+        }
+        if (table.usingLegacyRoomIdentity && legacySources[0] !== source) {
+          // Identical A/B source rows resolve to one legacy target. Process
+          // the fallback target once so the write batch has no duplicate IDs.
+          continue;
+        }
+        if (table.rows.length > 1) {
+          unresolved.push({
+            line: source.line,
+            location: source.location,
+            serviceLine: source.serviceLine,
+            roomNumber: source.roomNumber,
+            reason: 'multiple_tenant_rows_match_source_identity',
+            tables: [table.name],
+          });
+          continue;
+        }
+
+        matchedThisSource = true;
+        const target = table.rows[0];
+        const patch: Record<string, string> = {};
+        if (!target.levelOfCare && (source.levelOfCare1 || source.actualLevel1)) {
+          patch.levelOfCare = source.levelOfCare1 || source.actualLevel1!;
+        }
+        if (!target.careLevel && (source.actualLevel1 || source.levelOfCare1)) {
+          patch.careLevel = source.actualLevel1 || source.levelOfCare1!;
+        }
+        if (!target.otherPremiumFeature && source.bedSpecialization1) {
+          patch.otherPremiumFeature = source.bedSpecialization1;
+        }
+
+        if (Object.keys(patch).length === 0) {
+          alreadyCompleteRows++;
+          continue;
+        }
+        updatedRows++;
+        updatedFields += Object.keys(patch).length;
+        if (!dryRun) {
+          pendingUpdates.push({
+            table: table.name,
+            id: target.id,
+            levelOfCare: patch.levelOfCare || null,
+            careLevel: patch.careLevel || null,
+            otherPremiumFeature: patch.otherPremiumFeature || null,
+          });
+        }
+      }
+      if (matchedThisSource) matchedSourceRows++;
+    }
+
+    if (!dryRun && pendingUpdates.length > 0) {
+      for (const tableName of ['rent_roll_data', 'rent_roll_history'] as const) {
+        const values = pendingUpdates
+          .filter((update) => update.table === tableName)
+          .map((update) => sql`(
+            ${update.id},
+            ${update.levelOfCare},
+            ${update.careLevel},
+            ${update.otherPremiumFeature}
+          )`);
+        const table = tableName === 'rent_roll_data'
+          ? sql.raw('rent_roll_data')
+          : sql.raw('rent_roll_history');
+        for (let offset = 0; offset < values.length; offset += 5000) {
+          const chunk = values.slice(offset, offset + 5000);
+          await tx.execute(sql`
+            UPDATE ${table} AS target
+            SET
+              level_of_care = CASE
+                WHEN NULLIF(BTRIM(target.level_of_care), '') IS NULL
+                  THEN COALESCE(source.level_of_care, target.level_of_care)
+                ELSE target.level_of_care
+              END,
+              care_level = CASE
+                WHEN NULLIF(BTRIM(target.care_level), '') IS NULL
+                  THEN COALESCE(source.care_level, target.care_level)
+                ELSE target.care_level
+              END,
+              other_premium_feature = CASE
+                WHEN NULLIF(BTRIM(target.other_premium_feature), '') IS NULL
+                  THEN COALESCE(source.other_premium_feature, target.other_premium_feature)
+                ELSE target.other_premium_feature
+              END
+            FROM (VALUES ${sql.join(chunk, sql`, `)})
+              AS source(id, level_of_care, care_level, other_premium_feature)
+            WHERE target.id = source.id
+          `);
+        }
+      }
+    }
+
+    return {
+      clientId,
+      uploadMonth,
+      dryRun,
+      sourceRows: sourceRows.length,
+      matchedSourceRows,
+      updatedRows,
+      updatedFields,
+      alreadyCompleteRows,
+      unresolvedRows: unresolved.length,
+      unresolved,
+    };
+  });
+}
+
 interface SurveyRoomType {
   name: string;
   rate: any;
@@ -1119,27 +1526,7 @@ export async function importMatrixCareRentRollCSV(
 
   // Helper function to map Service1 to service line (IL maps to SL per requirement)
   const mapServiceLine = (service1: string): string => {
-    const svc = (service1 || '').toUpperCase().trim();
-    // Order matters - check more specific matches first
-    // Based on mapping: AL→AL, AL/MC→AL/MC, HC→HC, HC/MC→HC/MC, HC/TCU→HC, SL→SL, VIL→VIL
-    if (svc === 'HC/MC') return 'HC/MC';
-    if (svc === 'HC/TCU') return 'HC'; // HC/TCU maps to HC
-    if (svc === 'AL/MC') return 'AL/MC';
-    if (svc === 'HC') return 'HC';
-    if (svc === 'AL') return 'AL';
-    if (svc === 'SL') return 'SL';
-    if (svc === 'VIL') return 'VIL';
-    // Fallback to includes-based matching for variations
-    if (svc.includes('HC/MC')) return 'HC/MC';
-    if (svc.includes('HC/TCU') || svc.includes('TCU')) return 'HC';
-    if (svc.includes('AL/MC') || (svc.includes('AL') && svc.includes('MC'))) return 'AL/MC';
-    if (svc.includes('HC')) return 'HC';
-    if (svc.includes('AL')) return 'AL';
-    if (svc.includes('IL')) return 'SL'; // IL maps to SL per requirement
-    if (svc.includes('SL')) return 'SL';
-    if (svc.includes('VIL') || svc.includes('VILLA') || svc.includes('VILLAGE')) return 'VIL';
-    if (svc.includes('PATIO')) return 'Patio Homes';
-    return svc || 'AL'; // Default to AL if unknown
+    return matrixCareServiceLine(service1);
   };
 
   return new Promise((resolve) => {
@@ -1297,7 +1684,7 @@ export async function importMatrixCareRentRollCSV(
                       locDesc.toLowerCase().includes('lvl 2') ||
                       locDesc === '2'
                     );
-                    return isL2 ? locDesc : (row['LevelOfCare1'] || row['ActualLevel1'] || null);
+                    return isL2 ? locDesc : (row['ActualLevel1'] || row['LevelOfCare1'] || null);
                   })(),
                   careRate: locRate,
                   rentAndCareRate: finalRate || (roomRate + locRate),
@@ -1310,7 +1697,7 @@ export async function importMatrixCareRentRollCSV(
                   moveOutDate: row['MoveOutDate'] || null,
                   payorType: row['PayerName'] || row['DisplayPayer'] || null,
                   admissionStatus: null,
-                  levelOfCare: row['LevelOfCare1'] || null,
+                  levelOfCare: row['LevelOfCare1'] || row['ActualLevel1'] || null,
                   medicaidRate: null,
                   medicareRate: null,
                   assessmentDate: null,

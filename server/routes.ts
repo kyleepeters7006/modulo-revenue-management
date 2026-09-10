@@ -567,6 +567,7 @@ const SEED_SECRET_PATHS = new Set([
   "/admin/generate-demo-data",
   "/admin/backfill-location-ids",
   "/admin/backfill-care-level-rates",
+  "/admin/backfill-rate-product-labels",
   "/admin/reimport-competitive-survey",
   "/admin/bust-ref-data-cache",
 ]);
@@ -3868,6 +3869,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error('[backfill-care-level-rates] Error:', error);
       return res.status(500).json({ error: 'Backfill failed', details: error.message });
+    }
+  });
+
+  // Restore MatrixCare's LevelOfCare1, ActualLevel1, and BedSpecialization1
+  // labels from an original source workbook. The repair is dry-run by default
+  // and is always restricted to one authenticated client and upload month.
+  app.post('/api/admin/backfill-rate-product-labels', upload.single('file'), async (req: any, res) => {
+    const hasSeedSecret = hasValidSeedSecret(req);
+    if (!hasSeedSecret && !(await isRuleAdmin(req))) {
+      return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
+    }
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'No source workbook uploaded',
+        message: 'Upload the original MatrixCare CSV/XLS/XLSX file; upload history stores the filename but not the source workbook.',
+      });
+    }
+
+    const uploadMonth = String(req.body?.uploadMonth || '').trim();
+    if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(uploadMonth)) {
+      return res.status(400).json({ error: 'Invalid uploadMonth format; expected YYYY-MM' });
+    }
+    const clientId = hasSeedSecret
+      ? String(req.body?.clientId || '').trim()
+      : String((req.session as any)?.clientId || req.clientId || '').trim();
+    if (!clientId) {
+      return res.status(400).json({ error: 'Client is required' });
+    }
+
+    const dryRun = req.body?.dryRun !== false && req.body?.dryRun !== 'false' &&
+      req.query?.dryRun !== 'false';
+    try {
+      const { backfillMatrixCareRateProductLabels } = await import('./dataImport');
+      const result = await backfillMatrixCareRateProductLabels(
+        req.file.buffer,
+        uploadMonth,
+        clientId,
+        { fileName: req.file.originalname, dryRun },
+      );
+      if (!dryRun) {
+        invalidateRefDataCache();
+        warmRefDataCacheForClient(clientId);
+      }
+      console.log(
+        `[backfill-rate-product-labels] ${dryRun ? 'Preview' : 'Applied'} client=${clientId} month=${uploadMonth} ` +
+        `updatedRows=${result.updatedRows} unresolvedRows=${result.unresolvedRows}`,
+      );
+      return res.json({
+        success: true,
+        sourceFile: req.file.originalname,
+        ...result,
+        message: dryRun
+          ? `Preview complete. ${result.updatedRows} row(s) can be updated; no database changes were made.`
+          : `Backfill complete. Updated ${result.updatedRows} row(s); ${result.unresolvedRows} source row(s) could not be recovered safely.`,
+      });
+    } catch (error: any) {
+      console.error('[backfill-rate-product-labels] Error:', error);
+      return res.status(400).json({ error: 'Rate-product label backfill failed', details: error.message });
     }
   });
 
@@ -10606,7 +10665,7 @@ ${campusOccLines.join('\n')}
           streetRate: streetRate,
           inHouseRate: inHouseRate,
           discountToStreetRate: parseFloat(getRowValue(row, 'Discount to Street Rate', 'discount to street rate')) || 0,
-          careLevel: getRowValue(row, 'Care Level', 'care level') || null,
+          careLevel: getRowValue(row, 'Care Level', 'care level', 'ActualLevel1', 'LevelOfCare1') || null,
           careRate: parseFloat(getRowValue(row, 'Care Rate', 'care rate')) || 0,
           rentAndCareRate: parseFloat(getRowValue(row, 'Rent and Care Rate', 'rent and care rate')) || 0,
           competitorRate: parseFloat(competitorRateValue) || 0,

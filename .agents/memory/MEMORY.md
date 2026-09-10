@@ -102,3 +102,4 @@
 - [Rule publishing safety](rule-publishing-safety.md) — publish is serialized, audited, and tenant-scoped; claim legacy global rules once and never rebuild the unscoped rate-card cache.
 - [External benchmark feeds](industry-context-benchmark-feeds.md) — public BLS requests can exhaust anonymous quotas; preserve reviewed snapshots and explicit unavailable/last-known states.
 - [Security pool transactions](security-pool-transactions.md) — MFA and recovery mutations must use one checked-out Neon client; pool-level BEGIN/COMMIT can split across connections.
+- [MatrixCare label recovery](matrixcare-label-recovery.md) — upload metadata keeps filenames, not workbook bytes; repairs must be dry-run, tenant/month-scoped, fill-only, and report unresolved rows.
