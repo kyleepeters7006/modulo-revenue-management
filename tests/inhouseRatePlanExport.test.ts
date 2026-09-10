@@ -481,8 +481,8 @@ async function checkScope(scope: { clientId: string; serviceLine: string; label:
 
   const names = wb.worksheets.map((w) => w.name);
   ok(
-    "all five sheets present",
-    ["Plan summary", "Resident detail", "Move-in trends", "Rate history", "Method"].every((n) =>
+    "all six sheets present",
+    ["Plan summary", "Resident detail", "Move-in trends", "Rate history", "Quarter reconciliation", "Method"].every((n) =>
       names.includes(n),
     ),
     names.join(", "),
@@ -751,6 +751,41 @@ async function checkScope(scope: { clientId: string; serviceLine: string; label:
   ok("move-in trend sheet has cohort rows", moveIn.rowCount > 8, `${moveIn.rowCount} rows`);
   const history = wb.getWorksheet("Rate history")!;
   ok("rate history sheet has the realized months", history.rowCount > 8, `${history.rowCount} rows`);
+  const reconciliation = wb.getWorksheet("Quarter reconciliation")!;
+  ok(
+    "quarter reconciliation has one section per projected quarter",
+    plan.quarters.every((q) => reconciliation.getColumn(1).values
+      .some((value) => value === `${q.label} total`)),
+  );
+  const reconciliationHeaders = new Set<string>();
+  reconciliation.getRow(5).eachCell((cell) => reconciliationHeaders.add(String(cell.value ?? "")));
+  ok(
+    "reconciliation labels future occupants as modeled replacement shares",
+    reconciliationHeaders.has("Modeled replacement share"),
+  );
+  ok(
+    "reconciliation keeps the monthly-vs-daily weighting basis explicit",
+    reconciliation.getColumn(12).values.some((value) => value === "Resident-months" || value === "Resident-days"),
+  );
+  const reconciliationTotalsMatch = plan.quarters.every((quarter) => {
+    let totalRow = 0;
+    reconciliation.eachRow((row, rowNumber) => {
+      if (row.getCell(1).value === `${quarter.label} total`) totalRow = rowNumber;
+    });
+    if (!totalRow) return false;
+    const roomTotal = num(ev.cell("Quarter reconciliation", `J${totalRow}`));
+    const headline = num(ev.cell("Quarter reconciliation", `O${totalRow}`));
+    const variance = num(ev.cell("Quarter reconciliation", `P${totalRow}`));
+    return (
+      Math.abs(roomTotal - quarter.projectedRateMonthly) < EPS &&
+      Math.abs(headline - quarter.projectedRateMonthly) < EPS &&
+      Math.abs(variance) < EPS,
+    );
+  });
+  ok(
+    "each quarter room total reconciles to its projected headline rate",
+    reconciliationTotalsMatch,
+  );
   ok("method sheet documents each step", (wb.getWorksheet("Method")!.rowCount ?? 0) >= 13);
 }
 

@@ -250,6 +250,7 @@ export async function buildRatePlanWorkbook(input: BuildExportInput): Promise<Bu
   const wsDetail = wb.addWorksheet("Resident detail");
   const wsMoveIn = wb.addWorksheet("Move-in trends");
   const wsHistory = wb.addWorksheet("Rate history");
+  const wsQuarterRooms = wb.addWorksheet("Quarter reconciliation");
   const wsMethod = wb.addWorksheet("Method");
 
   // Detail is built first: the summary's totals are formulas over its rows.
@@ -257,6 +258,7 @@ export async function buildRatePlanWorkbook(input: BuildExportInput): Promise<Bu
   buildSummarySheet(wsSummary, plan, audit, daily, detail, input.generatedBy);
   const moveIn = buildMoveInSheet(wsMoveIn, plan, audit);
   const history = buildHistorySheet(wsHistory, plan, audit);
+  buildQuarterReconciliationSheet(wsQuarterRooms, plan, audit, daily);
   buildMethodSheet(wsMethod, plan, audit, daily, detail);
 
   const buffer = Buffer.from(await wb.xlsx.writeBuffer());
@@ -976,6 +978,202 @@ function buildMoveInSheet(ws: ExcelJS.Worksheet, plan: PlanResult, audit: PlanAu
   };
 }
 
+// ── Quarter room reconciliation ───────────────────────────────────────────
+
+/**
+ * Keep the room-by-room bridge shown in the planner beside the workbook's
+ * quarter headlines. The room rows are snapshots from the server-side
+ * projection, but their total is a live weighted formula so a reviewer can
+ * audit exactly how the headline is assembled.
+ */
+function buildQuarterReconciliationSheet(
+  ws: ExcelJS.Worksheet,
+  plan: PlanResult,
+  audit: PlanAudit,
+  daily: boolean,
+) {
+  const dailyColumns = daily
+    ? [
+        { key: "beforeDaily", header: "Before (daily)", width: 13, fmt: FMT_NUM2 },
+        { key: "existingAfterDaily", header: "Existing after (daily)", width: 16, fmt: FMT_NUM2 },
+        { key: "replacementDaily", header: "Modeled replacement (daily)", width: 19, fmt: FMT_NUM2 },
+        { key: "projectedDaily", header: "Blended projected (daily)", width: 19, fmt: FMT_NUM2 },
+      ]
+    : [];
+  const columns: Array<{ key: string; header: string; width: number; fmt?: string }> = [
+    { key: "quarter", header: "Quarter", width: 13 },
+    { key: "campus", header: "Campus", width: 24 },
+    { key: "room", header: "Room", width: 12 },
+    { key: "occupant", header: "Current occupant", width: 19 },
+    { key: "before", header: "Before\n(monthly equivalent)", width: 15, fmt: FMT_MONEY },
+    { key: "existingAfter", header: "Existing after\n(monthly equivalent)", width: 17, fmt: FMT_MONEY },
+    { key: "existingShare", header: "Existing share", width: 13, fmt: FMT_PCT },
+    {
+      key: "replacementShare",
+      header: "Modeled replacement share",
+      width: 19,
+      fmt: FMT_PCT,
+    },
+    {
+      key: "replacementRate",
+      header: "Modeled replacement rate\n(monthly equivalent)",
+      width: 21,
+      fmt: FMT_MONEY,
+    },
+    {
+      key: "projected",
+      header: "Blended projected rate\n(monthly equivalent)",
+      width: 21,
+      fmt: FMT_MONEY,
+    },
+    { key: "change", header: "Change\n(monthly equivalent)", width: 17, fmt: FMT_DELTA },
+    {
+      key: "weightBasis",
+      header: "Weight basis",
+      width: 18,
+    },
+    { key: "weight", header: "Occupancy weight", width: 16, fmt: FMT_NUM2 },
+    { key: "weightedProjected", header: "Weighted projected rate", width: 19, fmt: FMT_NUM2 },
+    { key: "headline", header: "Projected headline rate", width: 19, fmt: FMT_MONEY },
+    { key: "reconciliation", header: "Reconciliation\n(room total − headline)", width: 21, fmt: FMT_DELTA },
+    ...dailyColumns,
+  ];
+
+  columns.forEach((column, index) => {
+    const excelColumn = ws.getColumn(index + 1);
+    excelColumn.width = column.width;
+    if (column.fmt) excelColumn.numFmt = column.fmt;
+  });
+
+  const lastColumn = columns.length;
+  ws.getRow(1).getCell(1).value = "Quarter room reconciliation";
+  ws.getRow(1).getCell(1).font = { bold: true, size: 14, color: { argb: "FF1F3864" } };
+  ws.getRow(2).getCell(1).value =
+    "The modeled replacement share represents future occupants whose identities are not yet known. " +
+    "All room rates are monthly equivalents; HC also includes daily-equivalent columns. " +
+    `Weight basis: ${daily ? "resident-days for HC" : "resident-months for senior housing"}.`;
+  ws.getRow(2).getCell(1).font = { italic: true, size: 10, color: { argb: "FF666666" } };
+  ws.getRow(2).getCell(1).alignment = { wrapText: true, vertical: "middle" };
+  ws.mergeCells(2, 1, 2, lastColumn);
+  ws.getRow(2).height = 32;
+
+  let rowIx = 4;
+  const auditWeightByKey = new Map(audit.residents.map((resident) => [resident.key, resident.weight]));
+  const weightBasis = daily ? "Resident-days" : "Resident-months";
+  const dailyRate = (monthly: number) => monthly / DAYS_PER_MONTH;
+
+  for (const quarter of plan.quarters) {
+    const rooms = quarter.roomDetails ?? [];
+    sectionTitle(
+      ws,
+      rowIx,
+      `${quarter.label} — room-level before and after`,
+      lastColumn,
+    );
+    rowIx++;
+    const headerRow = rowIx;
+    columns.forEach((column, index) => {
+      ws.getRow(headerRow).getCell(index + 1).value = column.header;
+    });
+    styleHeaderRow(ws.getRow(headerRow));
+    rowIx++;
+    const firstDataRow = rowIx;
+
+    for (const room of rooms) {
+      const row = ws.getRow(rowIx);
+      const weight = auditWeightByKey.get(room.key) ?? 0;
+      const values: Record<string, ExcelJS.CellValue> = {
+        quarter: quarter.label,
+        campus: room.location,
+        room: room.roomNumber,
+        occupant: room.moveInDate ? `Since ${room.moveInDate}` : "Current resident",
+        before: room.currentRateMonthly,
+        existingAfter: room.existingRateUsedMonthly,
+        existingShare: room.existingSharePct / 100,
+        replacementShare: room.replacementSharePct / 100,
+        replacementRate: room.replacementRateMonthly,
+        projected: room.projectedRateMonthly,
+        change: room.changeMonthly,
+        weightBasis,
+        // A constant conversion keeps the displayed unit distinct for monthly
+        // plans without changing the weighted average used by the UI.
+        weight: daily ? weight : weight / DAYS_PER_MONTH,
+      };
+      columns.forEach((column, index) => {
+        const cell = row.getCell(index + 1);
+        const value = values[column.key];
+        if (value !== undefined) cell.value = value;
+        if (column.fmt) cell.numFmt = column.fmt;
+      });
+
+      const col = (key: string) => colLetter(columns.findIndex((column) => column.key === key) + 1);
+      row.getCell(columns.findIndex((column) => column.key === "weightedProjected") + 1).value = {
+        formula: `${col("projected")}${rowIx}*${col("weight")}${rowIx}`,
+      } as ExcelJS.CellFormulaValue;
+      if (daily) {
+        row.getCell(columns.findIndex((column) => column.key === "beforeDaily") + 1).value = {
+          formula: `${col("before")}${rowIx}/${DAYS_PER_MONTH}`,
+        } as ExcelJS.CellFormulaValue;
+        row.getCell(columns.findIndex((column) => column.key === "existingAfterDaily") + 1).value = {
+          formula: `${col("existingAfter")}${rowIx}/${DAYS_PER_MONTH}`,
+        } as ExcelJS.CellFormulaValue;
+        row.getCell(columns.findIndex((column) => column.key === "replacementDaily") + 1).value = {
+          formula: `${col("replacementRate")}${rowIx}/${DAYS_PER_MONTH}`,
+        } as ExcelJS.CellFormulaValue;
+        row.getCell(columns.findIndex((column) => column.key === "projectedDaily") + 1).value = {
+          formula: `${col("projected")}${rowIx}/${DAYS_PER_MONTH}`,
+        } as ExcelJS.CellFormulaValue;
+      }
+      if ((rowIx - firstDataRow) % 2 === 1) {
+        row.eachCell({ includeEmpty: true }, (cell) => {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BAND_FILL } };
+        });
+      }
+      rowIx++;
+    }
+
+    if (rooms.length === 0) {
+      const row = ws.getRow(rowIx++);
+      row.getCell(1).value = "Room detail unavailable — recalculate the plan to include this evidence.";
+      row.getCell(1).font = { italic: true, color: { argb: "FF666666" } };
+      ws.mergeCells(row.number, 1, row.number, lastColumn);
+      continue;
+    }
+
+    const lastDataRow = rowIx - 1;
+    const totalRow = ws.getRow(rowIx++);
+    const col = (key: string) => colLetter(columns.findIndex((column) => column.key === key) + 1);
+    totalRow.getCell(1).value = `${quarter.label} total`;
+    totalRow.getCell(columns.findIndex((column) => column.key === "weightBasis") + 1).value = weightBasis;
+    totalRow.getCell(columns.findIndex((column) => column.key === "weight") + 1).value = {
+      formula: `SUM(${col("weight")}${firstDataRow}:${col("weight")}${lastDataRow})`,
+    } as ExcelJS.CellFormulaValue;
+    totalRow.getCell(columns.findIndex((column) => column.key === "weightedProjected") + 1).value = {
+      formula: `SUM(${col("weightedProjected")}${firstDataRow}:${col("weightedProjected")}${lastDataRow})`,
+    } as ExcelJS.CellFormulaValue;
+    totalRow.getCell(columns.findIndex((column) => column.key === "projected") + 1).value = {
+      formula: `IF(${col("weight")}${totalRow.number}=0,0,${col("weightedProjected")}${totalRow.number}/${col("weight")}${totalRow.number})`,
+    } as ExcelJS.CellFormulaValue;
+    totalRow.getCell(columns.findIndex((column) => column.key === "headline") + 1).value =
+      quarter.projectedRateMonthly;
+    totalRow.getCell(columns.findIndex((column) => column.key === "reconciliation") + 1).value = {
+      formula: `${col("projected")}${totalRow.number}-${col("headline")}${totalRow.number}`,
+    } as ExcelJS.CellFormulaValue;
+    totalRow.eachCell({ includeEmpty: true }, (cell) => {
+      cell.font = { bold: true };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TOTAL_FILL } };
+      cell.border = { top: { style: "double", color: { argb: "FF1F3864" } } };
+    });
+    totalRow.getCell(columns.findIndex((column) => column.key === "projected") + 1).numFmt = FMT_MONEY;
+    totalRow.getCell(columns.findIndex((column) => column.key === "headline") + 1).numFmt = FMT_MONEY;
+    totalRow.getCell(columns.findIndex((column) => column.key === "reconciliation") + 1).numFmt = FMT_DELTA;
+    rowIx++;
+  }
+
+  ws.views = [{ state: "frozen", ySplit: 4 }];
+  ws.autoFilter = undefined;
+}
+
 // ── Rate history ───────────────────────────────────────────────────────────
 
 interface HistoryLayout {
@@ -1046,7 +1244,7 @@ function buildHistorySheet(ws: ExcelJS.Worksheet, plan: PlanResult, audit: PlanA
   const mh = ws.getRow(monthHeaderRow);
   const history = audit.monthlyRealized;
   const monthlyWeightBasis = history[0]?.weightBasis ?? (
-    input.serviceLine === "HC" || input.serviceLine === "HC/MC"
+    plan.scope.serviceLine === "HC" || plan.scope.serviceLine === "HC/MC"
       ? "resident_days"
       : "resident_months"
   );
