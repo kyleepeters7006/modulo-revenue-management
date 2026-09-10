@@ -1260,7 +1260,7 @@ export default function InhouseIncreases() {
           {/* Rate growth target + Annual turnover: per-line when multiple SLs selected */}
           {serviceLines.length > 1 ? (
             <div className="space-y-2">
-              <div className="grid grid-cols-[6rem_1fr_1fr] gap-x-3 gap-y-0.5 text-xs font-medium text-muted-foreground">
+              <div className="grid grid-cols-[5rem_minmax(8rem,12rem)_minmax(20rem,1fr)] gap-x-4 gap-y-0.5 text-xs font-medium text-muted-foreground">
                 <HeaderHelp
                   label="Service line"
                   explanation="The level of care being planned. Each selected service line is calculated independently using its own rates, residents, turnover, and competitive benchmark."
@@ -1281,7 +1281,7 @@ export default function InhouseIncreases() {
                 };
                 const hist = turnoverBySl.get(sl);
                 return (
-                  <div key={sl} className="grid grid-cols-[6rem_1fr_1fr] items-baseline gap-x-3">
+                  <div key={sl} className="grid grid-cols-[5rem_minmax(8rem,12rem)_minmax(20rem,1fr)] items-baseline gap-x-4">
                     <span className="pt-1.5 text-sm font-medium">{sl}</span>
                     <div className="flex items-center gap-1">
                       <Input
