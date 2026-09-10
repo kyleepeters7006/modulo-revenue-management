@@ -1020,13 +1020,16 @@ export default function InhouseIncreases() {
     let streetRecommendedMonthly = 0;
     let inhouseCurrentMonthly = 0;
     let inhouseNewMonthly = 0;
+    let projectedAnnualMonthly = 0;
     for (const { plan } of plans) {
       const count = plan.summary.residentCount;
+      const finalProjection = plan.monthlyRateProjection?.[plan.monthlyRateProjection.length - 1];
       residents += count;
       streetCurrentMonthly += plan.currentStreetRateMonthly * count;
       streetRecommendedMonthly += plan.recommendedStreetRateMonthly * count;
       inhouseCurrentMonthly += plan.summary.currentAvgInhouseRateMonthly * count;
       inhouseNewMonthly += plan.summary.newAvgInhouseRateMonthly * count;
+      projectedAnnualMonthly += (finalProjection?.projectedRateMonthly ?? plan.summary.newAvgInhouseRateMonthly) * count;
     }
     return {
       residents,
@@ -1039,6 +1042,9 @@ export default function InhouseIncreases() {
       inhouseNewMonthly,
       inhouseGrowthPct: inhouseCurrentMonthly > 0
         ? (inhouseNewMonthly / inhouseCurrentMonthly - 1) * 100
+        : 0,
+      annualIncreasePct: inhouseCurrentMonthly > 0
+        ? (projectedAnnualMonthly / inhouseCurrentMonthly - 1) * 100
         : 0,
     };
   }, [plans]);
@@ -1457,16 +1463,17 @@ export default function InhouseIncreases() {
             </CardHeader>
             <CardContent>
               <div className="mx-auto mb-6 max-w-4xl overflow-hidden rounded-lg border">
-                <div className="grid grid-cols-[minmax(90px,1.2fr)_repeat(2,minmax(110px,1fr))] bg-muted/40 px-4 py-2 text-center text-xs font-medium text-muted-foreground">
+                <div className="grid grid-cols-[minmax(90px,1.2fr)_repeat(3,minmax(110px,1fr))] bg-muted/40 px-4 py-2 text-center text-xs font-medium text-muted-foreground">
                   <span>Service line</span>
                   <span>Street Rate</span>
                   <span>In-house rate</span>
+                  <span>Annual increase</span>
                 </div>
                 {plans.map(({ sl, plan }) => {
                   const daily = plan.rateBasis === "daily";
                   const rate = (monthly: number) => formatMoney(daily ? monthly / DAYS_PER_MONTH : monthly);
                   return (
-                    <div key={`growth-${sl}`} className="grid grid-cols-[minmax(90px,1.2fr)_repeat(2,minmax(110px,1fr))] items-center border-t px-4 py-3 text-center">
+                    <div key={`growth-${sl}`} className="grid grid-cols-[minmax(90px,1.2fr)_repeat(3,minmax(110px,1fr))] items-center border-t px-4 py-3 text-center">
                       <div>
                         <p className="font-semibold">{sl}</p>
                         <p className="text-[11px] text-muted-foreground">{daily ? "Daily rates" : "Monthly rates"}</p>
@@ -1479,11 +1486,18 @@ export default function InhouseIncreases() {
                         <p className="font-semibold text-[#0f9f9a]">+{plan.summary.weightedAvgIncreasePct.toFixed(1)}%</p>
                         <p className="text-xs text-muted-foreground">{rate(plan.summary.currentAvgInhouseRateMonthly)} → {rate(plan.summary.newAvgInhouseRateMonthly)}</p>
                       </div>
+                      <div>
+                        <p className="font-semibold text-foreground">
+                          {(plan.monthlyRateProjection?.at(-1)?.growthFromCurrentPct ?? plan.summary.weightedAvgIncreasePct) >= 0 ? "+" : ""}
+                          {(plan.monthlyRateProjection?.at(-1)?.growthFromCurrentPct ?? plan.summary.weightedAvgIncreasePct).toFixed(1)}%
+                        </p>
+                        <p className="text-xs text-muted-foreground">End of projection</p>
+                      </div>
                     </div>
                   );
                 })}
                 {growthSnapshot && (
-                  <div className="grid grid-cols-[minmax(90px,1.2fr)_repeat(2,minmax(110px,1fr))] items-center border-t-2 bg-muted/30 px-4 py-3 text-center">
+                  <div className="grid grid-cols-[minmax(90px,1.2fr)_repeat(3,minmax(110px,1fr))] items-center border-t-2 bg-muted/30 px-4 py-3 text-center">
                     <div>
                       <p className="font-semibold">Combined total</p>
                       <p className="text-[11px] text-muted-foreground">{growthSnapshot.residents.toLocaleString()} residents · monthly equivalent</p>
@@ -1495,6 +1509,12 @@ export default function InhouseIncreases() {
                     <div>
                       <p className="font-semibold text-[#0f9f9a]">+{growthSnapshot.inhouseGrowthPct.toFixed(1)}%</p>
                       <p className="text-xs text-muted-foreground">{formatMoney(growthSnapshot.inhouseCurrentMonthly)} → {formatMoney(growthSnapshot.inhouseNewMonthly)}</p>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-foreground">
+                        {growthSnapshot.annualIncreasePct >= 0 ? "+" : ""}{growthSnapshot.annualIncreasePct.toFixed(1)}%
+                      </p>
+                      <p className="text-xs text-muted-foreground">End of projection</p>
                     </div>
                   </div>
                 )}
