@@ -10,3 +10,18 @@ Browser-cached planning results must be scoped by authenticated client and user,
 Persisted results must retain the exact assumptions used to calculate them. Approval must block when the current editor assumptions differ from the displayed result; otherwise a user may review one recommendation and approve another.
 
 **How to apply:** Any future client-side draft/result cache for pricing or planning should follow the identity-scoped storage and assumption-match gate, or use an authorized server-backed draft instead.
+
+Save calculated plans at the individual campus + service-line level even when
+the user calculated several lines together. Restore a multi-line selection by
+composing the latest cached result for each selected line.
+
+**Why:** a cache keyed only to the exact multi-select combination makes an AL
+plan calculated under “All service lines” disappear when the user filters to AL,
+forcing an unnecessary recalculation. A completed request must still be saved if
+the user changes filters while it is running, but it must never render under the
+new scope.
+
+**How to apply:** persist both the exact requested selection and each successful
+line separately. On filter change, prefer the exact cached selection and fill
+missing combinations from the line-level entries. Keep assumption-drift approval
+blocking active for every restored line.

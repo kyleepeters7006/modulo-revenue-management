@@ -559,28 +559,56 @@ export default function InhouseIncreases() {
     }
   }, [storageIdentityKey]);
 
-  // Calculations are restored only for the active campus + service-line scope.
-  // This runs on initial entry and whenever the operator changes scope; it
-  // never calls the calculator or replaces the stored result.
+  // Restore the last calculation for every selected campus + service-line.
+  // A multi-line calculation is also saved one line at a time, so calculating
+  // "All service lines" once means AL, HC, etc. are immediately available when
+  // the operator later filters to either line individually (and vice versa).
   useEffect(() => {
     let cancelled = false;
     setPlans(null);
     setVisibleCount(50);
     setExpandedResident(null);
     setExpandedQuarter(null);
-    void readInhousePlan<PlanWithSl[]>(storageIdentityKey, calculatedPlanKey).then((stored) => {
+    void (async () => {
+      const stored = await readInhousePlan<PlanWithSl[]>(storageIdentityKey, calculatedPlanKey);
+      let restored =
+        Array.isArray(stored) &&
+        stored.every(isStoredPlan) &&
+        stored.every(({ sl }) => serviceLines.includes(sl))
+          ? stored
+          : null;
+
+      // Older cache entries and individually calculated lines may not have a
+      // combined entry for the current multi-select. Compose it from each
+      // line's most recent result rather than forcing another Calculate.
+      if (!restored || restored.length !== serviceLines.length) {
+        const perLine = await Promise.all(
+          serviceLines.map(async (sl) => {
+            const lineKey = calculatedPlanScopeKey(scopeLocationId, [sl]);
+            const lineStored = await readInhousePlan<PlanWithSl[]>(
+              storageIdentityKey,
+              lineKey,
+            );
+            return Array.isArray(lineStored)
+              ? lineStored.find((candidate) => isStoredPlan(candidate) && candidate.sl === sl) ?? null
+              : null;
+          }),
+        );
+        const available = perLine.filter((plan): plan is PlanWithSl => plan !== null);
+        restored = available.length > 0 ? available : restored;
+      }
+
       if (cancelled) return;
-      const restored = Array.isArray(stored) && stored.every(isStoredPlan) ? stored : null;
       setPlans(restored);
       const first = restored?.find((r) => r.plan.feasible) ?? restored?.[0];
       setExpandedQuarter(first?.plan.bindingQuarterLabel
         ? `${first.sl}-${first.plan.bindingQuarterLabel}`
         : null);
-    });
+    })();
     return () => {
       cancelled = true;
     };
-  }, [calculatedPlanKey, storageIdentityKey]);
+  }, [calculatedPlanKey, scopeLocationId, serviceLines, storageIdentityKey]);
 
   function toggleServiceLine(sl: string) {
     setServiceLines((prev) => {
@@ -807,6 +835,21 @@ export default function InhouseIncreases() {
       return { identityKey: request.identityKey, scopeKey: requestedScopeKey, results, skipped };
     },
     onSuccess: ({ identityKey, scopeKey, results, skipped }) => {
+      // Persist the completed request even if the operator switched filters
+      // while it was running. Save both the exact selection and each line so
+      // any later filter combination can restore the last available plans.
+      if (identityKey) {
+        void Promise.all([
+          writeInhousePlan(identityKey, scopeKey, results),
+          ...results.map((result) =>
+            writeInhousePlan(
+              identityKey,
+              calculatedPlanScopeKey(result.plan.scope.locationId ?? null, [result.sl]),
+              [result],
+            ),
+          ),
+        ]);
+      }
       // If the operator changed scope while the request was running, retain
       // the result under its original scope but never render it under the new
       // one.
@@ -815,7 +858,6 @@ export default function InhouseIncreases() {
         scopeKey !== calculatedPlanKey ||
         !identityKey
       ) return;
-      void writeInhousePlan(identityKey, scopeKey, results);
       setPlans(results);
       setVisibleCount(50);
       setExpandedResident(null);
