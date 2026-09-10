@@ -650,12 +650,15 @@ function explainQuarter(
   avgIncrease: number,
 ): CalcExplanation {
   const prior = base.realizedRateMonthly;
+  const priorQuarterIsIncomplete = quarterEndMs(base) > ctx.input.anchorMs;
   const basisNote =
     base.basis === "actual"
       ? "All three months of that quarter are in the rent roll."
       : base.basis === "partial"
         ? `Only ${base.monthsAvailable} of 3 months are in the rent roll, so this is a short-window actual.`
-        : "No rent roll data exists for that quarter, so the baseline is projected from trend and is not an actual.";
+        : priorQuarterIsIncomplete
+          ? "That quarter is not complete yet, so its baseline is projected from the available rate trend and is not an actual."
+          : "No rent roll data exists for that completed quarter, so the baseline is projected from trend and is not an actual.";
 
   const steps: CalcExplanation["steps"] = [
     {
