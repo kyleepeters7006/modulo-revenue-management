@@ -651,11 +651,25 @@ function explainQuarter(
 ): CalcExplanation {
   const prior = base.realizedRateMonthly;
   const priorQuarterIsIncomplete = quarterEndMs(base) > ctx.input.anchorMs;
+  const partialCoverageNote = (() => {
+    const available = new Set(base.availableMonths ?? []);
+    const startMonth = (base.quarter - 1) * 3 + 1;
+    const quarterMonths = Array.from({ length: 3 }, (_, index) => {
+      const monthNumber = startMonth + index;
+      const key = `${base.year}-${String(monthNumber).padStart(2, "0")}`;
+      const label = new Date(Date.UTC(base.year, monthNumber - 1, 1))
+        .toLocaleString("en-US", { month: "long", timeZone: "UTC" });
+      return { key, label };
+    });
+    const usable = quarterMonths.filter(({ key }) => available.has(key)).map(({ label }) => label);
+    const missing = quarterMonths.filter(({ key }) => !available.has(key)).map(({ label }) => label);
+    return `Usable resident rows are present for ${usable.join(" and ") || "none of the quarter"}; ${missing.join(" and ")} ${missing.length === 1 ? "has" : "have"} no usable rows in current Rent Roll storage. A file upload record alone cannot supply a realized rate, so this is a short-window actual.`;
+  })();
   const basisNote =
     base.basis === "actual"
       ? "All three months of that quarter are in the rent roll."
       : base.basis === "partial"
-        ? `Only ${base.monthsAvailable} of 3 months are in the rent roll, so this is a short-window actual.`
+        ? partialCoverageNote
         : priorQuarterIsIncomplete
           ? "That quarter is not complete yet, so its baseline is projected from the available rate trend and is not an actual."
           : "No rent roll data exists for that completed quarter, so the baseline is projected from trend and is not an actual.";
