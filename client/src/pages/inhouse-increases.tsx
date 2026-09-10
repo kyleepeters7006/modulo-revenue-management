@@ -1527,7 +1527,68 @@ export default function InhouseIncreases() {
                             </tr>,
                             open ? (
                               <tr key={`${qKey}-detail`} className="border-b bg-muted/30">
-                                <td colSpan={7} className="px-4 py-4"><Explanation explanation={q.explanation} /></td>
+                                <td colSpan={7} className="space-y-4 px-4 py-4">
+                                  <Explanation explanation={q.explanation} />
+                                  <div className="rounded-md border bg-background">
+                                    <div className="flex flex-wrap items-start justify-between gap-2 border-b px-3 py-2.5">
+                                      <div>
+                                        <p className="text-sm font-medium">Room-level before and after</p>
+                                        <p className="text-xs text-muted-foreground">
+                                          “New” is the modeled replacement share from the turnover assumption. Future resident identities are not yet known.
+                                        </p>
+                                      </div>
+                                      <div className="text-right text-xs text-muted-foreground">
+                                        <div>Room detail: <span className="font-mono text-foreground">{formatMoney(q.roomDetailProjectedRateMonthly ?? q.projectedRateMonthly)}</span></div>
+                                        <div>Quarter headline: <span className="font-mono text-foreground">{formatMoney(q.projectedRateMonthly)}</span></div>
+                                      </div>
+                                    </div>
+                                    <div className="max-h-[420px] overflow-auto">
+                                      <table className="w-full min-w-[1040px] text-xs">
+                                        <thead className="sticky top-0 z-10 bg-background">
+                                          <tr className="border-b text-left uppercase tracking-wide text-muted-foreground">
+                                            <th className="px-3 py-2 font-medium">Campus</th>
+                                            <th className="px-3 py-2 font-medium">Room</th>
+                                            <th className="px-3 py-2 font-medium">Current occupant</th>
+                                            <th className="px-3 py-2 text-right font-medium">Before</th>
+                                            <th className="px-3 py-2 text-right font-medium">Existing after</th>
+                                            <th className="px-3 py-2 text-right font-medium">Existing share</th>
+                                            <th className="px-3 py-2 text-right font-medium">New share</th>
+                                            <th className="px-3 py-2 text-right font-medium">Move-in rate</th>
+                                            <th className="px-3 py-2 text-right font-medium">Blended after</th>
+                                            <th className="px-3 py-2 text-right font-medium">Change</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {(q.roomDetails ?? []).map((room) => (
+                                            <tr key={`${qKey}-${room.key}`} className="border-b last:border-0">
+                                              <td className="px-3 py-2">{room.location}</td>
+                                              <td className="px-3 py-2 font-medium">{room.roomNumber}</td>
+                                              <td className="px-3 py-2 text-muted-foreground">
+                                                {room.moveInDate ? `Since ${room.moveInDate}` : "Current resident"}
+                                              </td>
+                                              <td className="px-3 py-2 text-right font-mono">{formatMoney(room.currentRateMonthly)}</td>
+                                              <td className="px-3 py-2 text-right font-mono">{formatMoney(room.existingRateUsedMonthly)}</td>
+                                              <td className="px-3 py-2 text-right font-mono">{formatPct(room.existingSharePct, 1)}</td>
+                                              <td className="px-3 py-2 text-right">
+                                                <Badge variant="outline" className="border-blue-500/30 bg-blue-500/10 font-mono text-[10px] font-normal text-blue-600 dark:text-blue-400">
+                                                  {formatPct(room.replacementSharePct, 1)} new
+                                                </Badge>
+                                              </td>
+                                              <td className="px-3 py-2 text-right font-mono">{formatMoney(room.replacementRateMonthly)}</td>
+                                              <td className="px-3 py-2 text-right font-mono font-medium">{formatMoney(room.projectedRateMonthly)}</td>
+                                              <td className={cn("px-3 py-2 text-right font-mono", room.changeMonthly >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>
+                                                {room.changeMonthly >= 0 ? "+" : ""}{formatMoney(room.changeMonthly)}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                          {(q.roomDetails ?? []).length === 0 && (
+                                            <tr><td colSpan={10} className="px-3 py-6 text-center text-muted-foreground">Room detail is unavailable for this saved calculation. Recalculate the plan.</td></tr>
+                                          )}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                </td>
                               </tr>
                             ) : null,
                           ];

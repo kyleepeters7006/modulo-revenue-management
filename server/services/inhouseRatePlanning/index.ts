@@ -50,6 +50,7 @@ import {
 } from "./dates";
 import {
   EQUALIZATION_EXPONENT,
+  projectQuarterlyRealizedRates,
   residentDayWeightedAverageRate,
   solvePlan,
   type ResidentAllocation,
@@ -270,6 +271,88 @@ export async function calculatePlanDetailed(
     }),
   );
 
+  const projectionCommon = {
+    anchorMs,
+    quarters,
+    inhouseEffectiveMs: isoToMs(assumptions.inhouseEffectiveDate),
+    currentStreetMonthly: currentStreetRateMonthly,
+    newStreetMonthly: solved.recommendedStreetMonthly,
+    streetEffectiveMs: isoToMs(assumptions.streetRateEffectiveDate),
+    annualTurnover: assumptions.annualTurnoverPct / 100,
+    weightBasis: daily ? "resident_days" as const : "resident_months" as const,
+  };
+  // A unit-rate projection isolates the expected future-move-in share. A
+  // street-rate projection then supplies the exact replacement contribution
+  // used by every room. Future people are unknowable, so this is deliberately
+  // labelled as a modeled share rather than inventing resident identities.
+  const replacementShareByQuarter = projectQuarterlyRealizedRates({
+    ...projectionCommon,
+    existingAvgRateMonthly: 0,
+    postIncreaseAvgRateMonthly: 0,
+    currentStreetMonthly: 1,
+    newStreetMonthly: 1,
+  });
+  const replacementContributionByQuarter = projectQuarterlyRealizedRates({
+    ...projectionCommon,
+    existingAvgRateMonthly: 0,
+    postIncreaseAvgRateMonthly: 0,
+  });
+  const recommendationByKey = new Map(recommendations.map((r) => [r.key, r]));
+  const roomProjectionByKey = new Map(
+    recommendations.map((r) => [
+      r.key,
+      projectQuarterlyRealizedRates({
+        ...projectionCommon,
+        existingAvgRateMonthly: r.currentRateMonthly,
+        postIncreaseAvgRateMonthly: r.newRateMonthly,
+      }),
+    ]),
+  );
+  const residentWeightByKey = new Map(residents.map((r) => [r.key, r.weight]));
+  const quartersWithRoomDetail = solved.quarterResults.map((quarter) => {
+    const replacementShare = replacementShareByQuarter.get(quarter.label) ?? 0;
+    const existingShare = Math.max(0, 1 - replacementShare);
+    const replacementContribution = replacementContributionByQuarter.get(quarter.label) ?? 0;
+    const replacementRate = replacementShare > 0
+      ? replacementContribution / replacementShare
+      : 0;
+    const roomDetails = residents.map((resident) => {
+      const recommendation = recommendationByKey.get(resident.key)!;
+      const projectedRate = roomProjectionByKey.get(resident.key)?.get(quarter.label)
+        ?? resident.currentRateMonthly;
+      const existingRateUsed = existingShare > 0
+        ? (projectedRate - replacementContribution) / existingShare
+        : 0;
+      return {
+        key: resident.key,
+        location: resident.location,
+        roomNumber: resident.roomNumber,
+        roomType: resident.roomType,
+        moveInDate: resident.moveInDate,
+        currentRateMonthly: resident.currentRateMonthly,
+        plannedExistingRateMonthly: recommendation.newRateMonthly,
+        existingRateUsedMonthly: existingRateUsed,
+        existingSharePct: existingShare * 100,
+        replacementSharePct: replacementShare * 100,
+        replacementRateMonthly: replacementRate,
+        projectedRateMonthly: projectedRate,
+        changeMonthly: projectedRate - resident.currentRateMonthly,
+      };
+    });
+    let weightedProjected = 0;
+    let weight = 0;
+    for (const room of roomDetails) {
+      const roomWeight = residentWeightByKey.get(room.key) ?? 0;
+      weightedProjected += room.projectedRateMonthly * roomWeight;
+      weight += roomWeight;
+    }
+    return {
+      ...quarter,
+      roomDetails,
+      roomDetailProjectedRateMonthly: weight > 0 ? weightedProjected / weight : 0,
+    };
+  });
+
   const summary = summarize(residents, recommendations, solved.existingAvgRateMonthly);
 
   const warnings = buildWarnings({
@@ -305,7 +388,7 @@ export async function calculatePlanDetailed(
 
     requiredWeightedAvgIncreasePct: solved.requiredAvgIncrease * 100,
 
-    quarters: solved.quarterResults,
+    quarters: quartersWithRoomDetail,
     bindingQuarterLabel: solved.bindingQuarterLabel,
 
     summary,

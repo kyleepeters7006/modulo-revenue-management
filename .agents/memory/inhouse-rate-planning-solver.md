@@ -166,3 +166,20 @@ silently blocks valid growth above the market benchmark.
 gap to the desired competitor position as candidate floors, then clamp the result
 only by the two Street Rate guardrails. Missing competitor data removes only the
 competitive signal; ordinary calculation continues.
+
+## Rate weighting follows the billing basis
+
+Senior-housing service lines use resident-month weighting for both historical
+quarter baselines and forward quarter projections. HC and HC/MC use
+resident-day weighting. Daily turnover simulation may remain for timing
+precision, but each senior-housing calendar month's daily slices must sum to
+one month so February does not receive less weight than a 31-day month.
+
+**Why:** senior-housing rates are monthly while health-care rates are daily.
+Using one resident-day basis for both creates artificial quarter differences
+from calendar length rather than pricing.
+
+**How to apply:** keep historical calculations, solver projections, room-level
+reconciliations, and exports on the same service-line basis. Room audits must
+label future occupants as modeled replacement shares—their identities are not
+known—and their weighted total must reconcile to the quarter headline.

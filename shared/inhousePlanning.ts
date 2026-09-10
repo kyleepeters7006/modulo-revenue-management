@@ -213,6 +213,33 @@ export interface QuarterResult extends QuarterRef {
   shortfallPct: number;
   isBinding: boolean;
   explanation: CalcExplanation;
+  /** Room-level bridge from today's occupant rate to this quarter's projection. */
+  roomDetails?: QuarterRoomProjection[];
+  /** Weighted average of roomDetails; should equal projectedRateMonthly. */
+  roomDetailProjectedRateMonthly?: number;
+}
+
+export interface QuarterRoomProjection {
+  key: string;
+  location: string;
+  roomNumber: string;
+  roomType: string | null;
+  moveInDate: string | null;
+  /** Rate paid by today's occupant before the plan. */
+  currentRateMonthly: number;
+  /** Rate for today's occupant after their planned increase is effective. */
+  plannedExistingRateMonthly: number;
+  /** Existing-occupant rate actually active on average during this quarter. */
+  existingRateUsedMonthly: number;
+  /** Expected share of the quarter still occupied by today's cohort. */
+  existingSharePct: number;
+  /** Expected share occupied by future move-ins under the turnover assumption. */
+  replacementSharePct: number;
+  /** Average move-in rate used for the replacement share in this quarter. */
+  replacementRateMonthly: number;
+  /** Blended existing + replacement rate for this room. */
+  projectedRateMonthly: number;
+  changeMonthly: number;
 }
 
 export interface ResidentRecommendation {
