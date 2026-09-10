@@ -1033,14 +1033,19 @@ export default function DataManagement() {
               <CardDescription>
                 Upload inquiry and tour data to track lead sources and conversion metrics
               </CardDescription>
-              {uploadSummary?.inquiry_metrics?.lastUploadAt && (
+              {(uploadSummary?.inquiry_metrics?.lastUploadAt ||
+                (uploadSummary?.inquiry_metrics?.periods?.length ?? 0) > 0) && (
                 <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
-                  <Clock className="w-3 h-3 shrink-0" />
-                  <span>Last upload: {formatUploadTime(uploadSummary.inquiry_metrics.lastUploadAt)}</span>
-                  {uploadSummary.inquiry_metrics.lastFileName && (
-                    <span className="truncate max-w-[20rem]" title={uploadSummary.inquiry_metrics.lastFileName}>
-                      {uploadSummary.inquiry_metrics.lastFileName}
-                    </span>
+                  {uploadSummary.inquiry_metrics.lastUploadAt && (
+                    <>
+                      <Clock className="w-3 h-3 shrink-0" />
+                      <span>Last upload: {formatUploadTime(uploadSummary.inquiry_metrics.lastUploadAt)}</span>
+                      {uploadSummary.inquiry_metrics.lastFileName && (
+                        <span className="truncate max-w-[20rem]" title={uploadSummary.inquiry_metrics.lastFileName}>
+                          {uploadSummary.inquiry_metrics.lastFileName}
+                        </span>
+                      )}
+                    </>
                   )}
                   {uploadSummary.inquiry_metrics.periods.length > 0 && (
                     <button
@@ -1102,10 +1107,15 @@ export default function DataManagement() {
               <CardDescription>
                 Upload competitor pricing and market analysis data
               </CardDescription>
-              {uploadSummary?.competitors?.lastUploadAt && (
+              {(uploadSummary?.competitors?.lastUploadAt ||
+                (uploadSummary?.competitors?.periods?.length ?? 0) > 0) && (
                 <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
-                  <Clock className="w-3 h-3 shrink-0" />
-                  <span>Last upload: {formatUploadTime(uploadSummary.competitors.lastUploadAt)}</span>
+                  {uploadSummary.competitors.lastUploadAt && (
+                    <>
+                      <Clock className="w-3 h-3 shrink-0" />
+                      <span>Last upload: {formatUploadTime(uploadSummary.competitors.lastUploadAt)}</span>
+                    </>
+                  )}
                   {uploadSummary.competitors.periods.length > 0 && (
                     <button
                       onClick={() => setPeriodsDialog({ label: 'Competitive Data', periods: uploadSummary.competitors.periods, lastUploadAt: uploadSummary.competitors.lastUploadAt })}
@@ -1166,10 +1176,15 @@ export default function DataManagement() {
               <CardDescription>
                 Upload VO "Avg Occ by Room Type" report data to track occupancy trends by room type
               </CardDescription>
-              {uploadSummary?.room_type_occupancy?.lastUploadAt && (
+              {(uploadSummary?.room_type_occupancy?.lastUploadAt ||
+                (uploadSummary?.room_type_occupancy?.periods?.length ?? 0) > 0) && (
                 <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
-                  <Clock className="w-3 h-3 shrink-0" />
-                  <span>Last upload: {formatUploadTime(uploadSummary.room_type_occupancy.lastUploadAt)}</span>
+                  {uploadSummary.room_type_occupancy.lastUploadAt && (
+                    <>
+                      <Clock className="w-3 h-3 shrink-0" />
+                      <span>Last upload: {formatUploadTime(uploadSummary.room_type_occupancy.lastUploadAt)}</span>
+                    </>
+                  )}
                   {uploadSummary.room_type_occupancy.periods.length > 0 && (
                     <button
                       onClick={() => setPeriodsDialog({ label: 'Room Type Occupancy', periods: uploadSummary.room_type_occupancy.periods, lastUploadAt: uploadSummary.room_type_occupancy.lastUploadAt })}
@@ -1230,10 +1245,16 @@ export default function DataManagement() {
               <CardDescription>
                 Upload a Move Ins or Move Outs export file (Export sheet) to track admissions and discharges
               </CardDescription>
-              {uploadSummary?.move_in_out?.lastUploadAt && (
+              {(uploadSummary?.move_in_out?.lastUploadAt ||
+                (uploadSummary?.move_in_out?.periods?.length ?? 0) > 0 ||
+                (uploadSummary?.move_in_out?.count ?? 0) > 0) && (
                 <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
-                  <Clock className="w-3 h-3 shrink-0" />
-                  <span>Last upload: {formatUploadTime(uploadSummary.move_in_out.lastUploadAt)}</span>
+                  {uploadSummary.move_in_out.lastUploadAt && (
+                    <>
+                      <Clock className="w-3 h-3 shrink-0" />
+                      <span>Last upload: {formatUploadTime(uploadSummary.move_in_out.lastUploadAt)}</span>
+                    </>
+                  )}
                   {(uploadSummary.move_in_out.count ?? 0) > 0 && (
                     <span className="text-gray-400">· {(uploadSummary.move_in_out.count ?? 0).toLocaleString()} events</span>
                   )}
@@ -1857,7 +1878,9 @@ export default function DataManagement() {
             )}
             {periodsDialog && periodsDialog.periods.length > 0 ? (
               <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
-                {periodsDialog.periods.map(period => (
+                {[...periodsDialog.periods]
+                  .sort((a, b) => a.localeCompare(b))
+                  .map(period => (
                   <div
                     key={period}
                     className="flex items-center gap-2 px-3 py-2 rounded-md bg-teal-50 border border-teal-200 text-sm text-teal-800 font-medium"
@@ -1865,7 +1888,7 @@ export default function DataManagement() {
                     <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
                     {formatPeriodLabel(period)}
                   </div>
-                ))}
+                  ))}
               </div>
             ) : (
               <p className="text-sm text-gray-500 text-center py-6">No periods found.</p>
