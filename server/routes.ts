@@ -10588,7 +10588,16 @@ ${campusOccLines.join('\n')}
           size: getRowValue(row, 'Size', 'size') || '',
           view: getRowValue(row, 'View', 'view') || null,
           renovated: (getRowValue(row, 'Renovated', 'renovated') || '').toString().toLowerCase() === 'y' || (getRowValue(row, 'Renovated', 'renovated') || '').toString().toLowerCase() === 'yes',
-          otherPremiumFeature: getRowValue(row, 'Other Premium Feature', 'other premium feature') || null,
+          // MatrixCare's BedSpecialization1 carries product/status distinctions
+          // such as Skilled/Active. Preserve it so non-base charges are not
+          // silently treated as ordinary single-occupant room rates.
+          otherPremiumFeature: getRowValue(
+            row,
+            'BedSpecialization1',
+            'Bed Specialization',
+            'Other Premium Feature',
+            'other premium feature',
+          ) || null,
           locationRating: locationRating,
           sizeRating: sizeRating,
           viewRating: viewRating,
@@ -10620,7 +10629,15 @@ ${campusOccLines.join('\n')}
           })(),
           payorType: getRowValue(row, 'DisplayPayer', 'PayerName', 'Payor Type', 'payor type', 'PayorType', 'payorType', 'Payer', 'payer', 'Payor', 'payor') || null,
           admissionStatus: getRowValue(row, 'Admission Status', 'admission status', 'AdmissionStatus', 'admissionStatus') || null,
-          levelOfCare: getRowValue(row, 'Level of Care', 'level of care', 'LevelOfCare', 'levelOfCare') || null,
+          levelOfCare: getRowValue(
+            row,
+            'LevelOfCare1',
+            'ActualLevel1',
+            'Level of Care',
+            'level of care',
+            'LevelOfCare',
+            'levelOfCare',
+          ) || null,
           medicaidRate: parseFloat(getRowValue(row, 'Medicaid Rate', 'medicaid rate', 'MedicaidRate', 'medicaidRate')) || null,
           medicareRate: parseFloat(getRowValue(row, 'Medicare Rate', 'medicare rate', 'MedicareRate', 'medicareRate')) || null,
           assessmentDate: getRowValue(row, 'Assessment Date', 'assessment date', 'AssessmentDate', 'assessmentDate') || null,

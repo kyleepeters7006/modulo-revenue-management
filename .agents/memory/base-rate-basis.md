@@ -53,6 +53,23 @@ anywhere. COALESCE every column referenced in the predicate to `''`.
 **How to apply:** any time you write a SQL predicate that has a JS counterpart, check the
 nullable columns explicitly. Passing tests on non-null fixtures prove nothing here.
 
+## Lost product descriptors can make daily charges look monthly
+
+**The rule:** a monthly service-line planning row is not a valid base-rate resident when
+its in-house and Street Rates are the same value, that value fails the product-matched
+Street Rate floor, and the single-occupant benchmark is materially higher. Treat this
+narrow pattern as a mislabeled daily/non-base product, not as a discounted resident.
+
+**Why:** MatrixCare can attach a Skilled daily charge to a room whose physical service
+line is AL. If the import drops its level-of-care/product descriptor, both rate fields can
+become a value such as $189 and the planner otherwise presents it as $189/month beside
+$5,000 AL rooms. A true discount normally keeps a valid published Street Rate distinct
+from the resident's lower in-house rate.
+
+**How to apply:** preserve MatrixCare product/status descriptors during import. Keep
+low positive resident rates when their product-matched Street Rate is valid; only reject
+the identical-rate, failed-product-benchmark pattern from monthly base-rate cohorts.
+
 ## Expected magnitude
 
 Correcting the basis raises HC street rate roughly 6.8% (blended $387 → base $413) and

@@ -936,6 +936,58 @@ console.log("\n-- 14. Move-out dates decide who is in the plan and how much they
   ok("an implausible in-house rate remains in the plan", gated.residents.length === 1);
   ok("it is not reported as an excluded resident", gated.excluded.implausibleRate === 0);
 
+  // A daily Skilled/non-base charge can be attached to a room whose physical
+  // service line is monthly AL. When it overwrites BOTH the in-house and street
+  // fields, it is not a discounted AL resident and must not enter the
+  // single-occupant base cohort.
+  const mislabeledSkilled = buildResidents(
+    [
+      row({
+        room_number: "F2",
+        service_line: "AL",
+        in_house_rate: 189,
+        street_rate: 189,
+        passes_ih_gate: false,
+        passes_street_gate: false,
+      }),
+    ],
+    {
+      horizonStartMs,
+      horizonEndMs,
+      productStreet: () => ({ rate: 4999, source: "product_median" }),
+    },
+  );
+  ok(
+    "a daily non-base charge mislabeled as a monthly base rate is excluded",
+    mislabeledSkilled.residents.length === 0,
+  );
+  ok(
+    "the mislabeled product is reported as an implausible-rate exclusion",
+    mislabeledSkilled.excluded.implausibleRate === 1,
+  );
+
+  const legitimateDiscount = buildResidents(
+    [
+      row({
+        room_number: "F3",
+        service_line: "AL",
+        in_house_rate: 189,
+        street_rate: 4999,
+        passes_ih_gate: false,
+        passes_street_gate: true,
+      }),
+    ],
+    {
+      horizonStartMs,
+      horizonEndMs,
+      productStreet: () => ({ rate: 4999, source: "product_median" }),
+    },
+  );
+  ok(
+    "a low resident rate remains when its published base Street Rate is valid",
+    legitimateDiscount.residents.length === 1,
+  );
+
   // A failed street gate leaves the resident in, but with no usable street cap.
   const noStreet = build([row({ room_number: "G", passes_street_gate: false })]);
   ok("a failed street gate keeps the resident", noStreet.residents.length === 1);

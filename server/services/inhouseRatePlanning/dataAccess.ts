@@ -251,6 +251,30 @@ export function buildResidents(
         ? streetRaw >= RATE_OUTLIER_FLOOR_RATIO * productStreet.rate
         : row.passes_street_gate;
 
+    // A MatrixCare non-base charge can occasionally land in both FinalRate and
+    // BaseRate1 while the row still carries the building's monthly service line.
+    // Example: a $189/day Skilled charge on an AL room. Its two stored rates are
+    // then identical, but the product-matched AL single-occupant benchmark is
+    // roughly $5,000/month. This is not a deeply discounted AL resident: it is a
+    // daily non-base product whose source descriptor was lost at import, and it
+    // must not enter the base-rate planning cohort.
+    //
+    // Keep the guard deliberately narrow. A genuinely discounted resident stays
+    // in the plan when their published Street Rate is valid and differs from
+    // their in-house rate.
+    const mislabeledDailyProductInMonthlyLine =
+      !daily &&
+      product === "base" &&
+      productStreet != null &&
+      productStreet.rate > 0 &&
+      streetRaw > 0 &&
+      !plausible &&
+      Math.abs(rate - streetRaw) < 0.01;
+    if (mislabeledDailyProductInMonthlyLine) {
+      excluded.implausibleRate++;
+      continue;
+    }
+
     let usableStreet = streetRaw > 0 && plausible ? streetRaw : 0;
     let streetRateSource: StreetRateSource = usableStreet > 0 ? "unit" : "none";
 
