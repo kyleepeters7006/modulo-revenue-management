@@ -1013,6 +1013,36 @@ export default function InhouseIncreases() {
     };
   }, [plans]);
 
+  const growthSnapshot = useMemo(() => {
+    if (!plans || plans.length === 0) return null;
+    let residents = 0;
+    let streetCurrentMonthly = 0;
+    let streetRecommendedMonthly = 0;
+    let inhouseCurrentMonthly = 0;
+    let inhouseNewMonthly = 0;
+    for (const { plan } of plans) {
+      const count = plan.summary.residentCount;
+      residents += count;
+      streetCurrentMonthly += plan.currentStreetRateMonthly * count;
+      streetRecommendedMonthly += plan.recommendedStreetRateMonthly * count;
+      inhouseCurrentMonthly += plan.summary.currentAvgInhouseRateMonthly * count;
+      inhouseNewMonthly += plan.summary.newAvgInhouseRateMonthly * count;
+    }
+    return {
+      residents,
+      streetCurrentMonthly,
+      streetRecommendedMonthly,
+      streetGrowthPct: streetCurrentMonthly > 0
+        ? (streetRecommendedMonthly / streetCurrentMonthly - 1) * 100
+        : 0,
+      inhouseCurrentMonthly,
+      inhouseNewMonthly,
+      inhouseGrowthPct: inhouseCurrentMonthly > 0
+        ? (inhouseNewMonthly / inhouseCurrentMonthly - 1) * 100
+        : 0,
+    };
+  }, [plans]);
+
   const allFeasible = plans ? plans.every((p) => p.plan.feasible) : false;
   const anyFeasible = plans ? plans.some((p) => p.plan.feasible) : false;
   const allWarnings = plans ? Array.from(new Set(plans.flatMap((p) => p.plan.warnings))) : [];
@@ -1419,14 +1449,64 @@ export default function InhouseIncreases() {
       {plans && plans.length > 0 && combinedSummary && (
         <>
           <Card data-testid="monthly-rate-growth-chart">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Monthly rate growth</CardTitle>
+            <CardHeader className="pb-2 text-center">
+              <CardTitle className="text-base">Rate growth snapshot</CardTitle>
               <CardDescription>
-                Projected realized rate and Street Rate by month, using the same turnover and effective-date assumptions as the quarter results.
+                Street and in-house growth by service line, followed by the weighted total for all selected lines.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className={cn("grid gap-5", plans.length > 1 && "lg:grid-cols-2")}>
+              <div className="mx-auto mb-6 max-w-4xl overflow-hidden rounded-lg border">
+                <div className="grid grid-cols-[minmax(90px,1.2fr)_repeat(2,minmax(110px,1fr))] bg-muted/40 px-4 py-2 text-center text-xs font-medium text-muted-foreground">
+                  <span>Service line</span>
+                  <span>Street Rate</span>
+                  <span>In-house rate</span>
+                </div>
+                {plans.map(({ sl, plan }) => {
+                  const daily = plan.rateBasis === "daily";
+                  const rate = (monthly: number) => formatMoney(daily ? monthly / DAYS_PER_MONTH : monthly);
+                  return (
+                    <div key={`growth-${sl}`} className="grid grid-cols-[minmax(90px,1.2fr)_repeat(2,minmax(110px,1fr))] items-center border-t px-4 py-3 text-center">
+                      <div>
+                        <p className="font-semibold">{sl}</p>
+                        <p className="text-[11px] text-muted-foreground">{daily ? "Daily rates" : "Monthly rates"}</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold text-blue-600">+{plan.streetIncreasePct.toFixed(1)}%</p>
+                        <p className="text-xs text-muted-foreground">{rate(plan.currentStreetRateMonthly)} → {rate(plan.recommendedStreetRateMonthly)}</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold text-[#0f9f9a]">+{plan.summary.weightedAvgIncreasePct.toFixed(1)}%</p>
+                        <p className="text-xs text-muted-foreground">{rate(plan.summary.currentAvgInhouseRateMonthly)} → {rate(plan.summary.newAvgInhouseRateMonthly)}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+                {growthSnapshot && (
+                  <div className="grid grid-cols-[minmax(90px,1.2fr)_repeat(2,minmax(110px,1fr))] items-center border-t-2 bg-muted/30 px-4 py-3 text-center">
+                    <div>
+                      <p className="font-semibold">Combined total</p>
+                      <p className="text-[11px] text-muted-foreground">{growthSnapshot.residents.toLocaleString()} residents · monthly equivalent</p>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-blue-600">+{growthSnapshot.streetGrowthPct.toFixed(1)}%</p>
+                      <p className="text-xs text-muted-foreground">{formatMoney(growthSnapshot.streetCurrentMonthly)} → {formatMoney(growthSnapshot.streetRecommendedMonthly)}</p>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-[#0f9f9a]">+{growthSnapshot.inhouseGrowthPct.toFixed(1)}%</p>
+                      <p className="text-xs text-muted-foreground">{formatMoney(growthSnapshot.inhouseCurrentMonthly)} → {formatMoney(growthSnapshot.inhouseNewMonthly)}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mb-3 text-center">
+                <h3 className="text-sm font-semibold">Monthly rate growth</h3>
+                <p className="text-xs text-muted-foreground">
+                  Each chart begins one month before its Street Rate effective date so the increase is visible.
+                </p>
+              </div>
+              <div className={cn("mx-auto grid max-w-5xl justify-items-center gap-4", plans.length > 1 && "md:grid-cols-2")}>
                 {plans.map(({ sl, plan }) => {
                   const daily = plan.rateBasis === "daily";
                   const display = (monthly: number) => daily ? monthly / DAYS_PER_MONTH : monthly;
@@ -1441,8 +1521,8 @@ export default function InhouseIncreases() {
                     street: display(point.streetRateMonthly),
                   }));
                   return (
-                    <div key={sl} className="min-w-0 rounded-lg border p-3">
-                      <div className="mb-2 flex items-center justify-between gap-2">
+                    <div key={sl} className="w-full max-w-[460px] min-w-0 rounded-lg border p-3">
+                      <div className="mb-2 flex items-center justify-center gap-3 text-center">
                         <div>
                           <p className="text-sm font-medium">{sl}</p>
                           <p className="text-xs text-muted-foreground">
@@ -1455,7 +1535,7 @@ export default function InhouseIncreases() {
                             : "No monthly data"}
                         </Badge>
                       </div>
-                      <div className="h-56">
+                      <div className="h-44">
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart data={chartData} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
                             <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
@@ -1518,7 +1598,7 @@ export default function InhouseIncreases() {
                           </LineChart>
                         </ResponsiveContainer>
                       </div>
-                      <div className="mt-1 flex items-center gap-4 text-[11px] text-muted-foreground">
+                      <div className="mt-1 flex items-center justify-center gap-4 text-[11px] text-muted-foreground">
                         <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 bg-[#0f9f9a]" />Projected realized</span>
                         <span className="inline-flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-[#2563eb]" />Street Rate</span>
                       </div>
@@ -1726,7 +1806,7 @@ export default function InhouseIncreases() {
                                     </div>
                                     <TooltipProvider delayDuration={150}>
                                     <div className="max-h-[420px] overflow-auto">
-                                      <table className="w-full min-w-[1040px] text-xs">
+                                      <table className="w-full min-w-[1240px] text-xs">
                                         <thead className="sticky top-0 z-10 bg-background">
                                           <tr className="border-b text-left uppercase tracking-wide text-muted-foreground">
                                             <th className="px-3 py-2 font-medium"><HeaderHelp label="Campus" explanation="The campus in the calculated plan scope. Portfolio plans show the campus assigned to each room." /></th>
@@ -1734,9 +1814,11 @@ export default function InhouseIncreases() {
                                             <th className="px-3 py-2 font-medium"><HeaderHelp label="Current occupant" explanation="The current resident's move-in date from the source-month Rent Roll. Future resident identities are unknown and represented by the modeled New share." /></th>
                                             <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Before" explanation="The current resident's in-house room rate from the source-month Rent Roll, before the proposed annual increase." /></th>
                                             <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Existing after" explanation="The quarter-average rate for today's occupant after applying the proposed resident increase on its effective date. If the increase begins during the quarter, this averages the before and after periods." /></th>
+                                            <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Existing growth" explanation="Percentage growth from the room's Before rate to its Existing-after rate. Existing growth = (Existing after ÷ Before − 1) × 100." /></th>
                                             <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Existing share" explanation="The expected portion of the quarter still occupied by today's resident cohort. Existing share = 100% − modeled New share." /></th>
                                             <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="New share" explanation="The expected portion occupied by replacement move-ins, calculated from the annual turnover assumption and averaged across the quarter. It is a modeled share, not a named future resident." /></th>
                                             <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Move-in rate" explanation="The average Street Rate in force on the modeled replacement move-in dates. It reflects the Street Rate effective date when that date falls within the projection." /></th>
+                                            <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Move-in growth" explanation="Percentage growth from the room's Before rate to the modeled Move-in rate. Move-in growth = (Move-in rate ÷ Before − 1) × 100." /></th>
                                             <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Blended after" explanation="Projected room rate = (Existing share × Existing-after rate) + (New share × Move-in rate)." /></th>
                                             <th className="px-3 py-2 text-right font-medium"><HeaderHelp label="Change" explanation="Blended-after projected rate minus the Before rate for this room." /></th>
                                           </tr>
@@ -1763,6 +1845,12 @@ export default function InhouseIncreases() {
                                               </td>
                                               <td className="px-3 py-2 text-right font-mono">
                                                 <FormulaValue
+                                                  value={formatPct(room.currentRateMonthly > 0 ? (room.existingRateUsedMonthly / room.currentRateMonthly - 1) * 100 : 0, 1)}
+                                                  formula={`Existing growth = (${formatMoney(room.existingRateUsedMonthly)} existing after ÷ ${formatMoney(room.currentRateMonthly)} before − 1) × 100 = ${formatPct(room.currentRateMonthly > 0 ? (room.existingRateUsedMonthly / room.currentRateMonthly - 1) * 100 : 0, 1)}`}
+                                                />
+                                              </td>
+                                              <td className="px-3 py-2 text-right font-mono">
+                                                <FormulaValue
                                                   value={formatPct(room.existingSharePct, 1)}
                                                   formula={`Existing share = 100.0% − ${formatPct(room.replacementSharePct, 1)} new = ${formatPct(room.existingSharePct, 1)}`}
                                                 />
@@ -1777,6 +1865,12 @@ export default function InhouseIncreases() {
                                                 <FormulaValue
                                                   value={formatMoney(room.replacementRateMonthly)}
                                                   formula={`Move-in rate = replacement-rate contribution ÷ new share. Street rate in force on each modeled move-in date, including the ${plan.assumptions.streetRateEffectiveDate} change = ${formatMoney(room.replacementRateMonthly)}`}
+                                                />
+                                              </td>
+                                              <td className="px-3 py-2 text-right font-mono">
+                                                <FormulaValue
+                                                  value={formatPct(room.currentRateMonthly > 0 ? (room.replacementRateMonthly / room.currentRateMonthly - 1) * 100 : 0, 1)}
+                                                  formula={`Move-in growth = (${formatMoney(room.replacementRateMonthly)} move-in rate ÷ ${formatMoney(room.currentRateMonthly)} before − 1) × 100 = ${formatPct(room.currentRateMonthly > 0 ? (room.replacementRateMonthly / room.currentRateMonthly - 1) * 100 : 0, 1)}`}
                                                 />
                                               </td>
                                               <td className="px-3 py-2 text-right font-mono font-medium">
@@ -1794,7 +1888,7 @@ export default function InhouseIncreases() {
                                             </tr>
                                           ))}
                                           {(q.roomDetails ?? []).length === 0 && (
-                                            <tr><td colSpan={10} className="px-3 py-6 text-center text-muted-foreground">Room detail is unavailable for this saved calculation. Recalculate the plan.</td></tr>
+                                            <tr><td colSpan={12} className="px-3 py-6 text-center text-muted-foreground">Room detail is unavailable for this saved calculation. Recalculate the plan.</td></tr>
                                           )}
                                         </tbody>
                                         {q.roomDetailTotals && (
@@ -1805,9 +1899,11 @@ export default function InhouseIncreases() {
                                               <td className="px-3 py-2.5 text-muted-foreground">Quarter rate bridge</td>
                                               <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatMoney(q.roomDetailTotals.currentRateMonthly)} formula={`Weighted before = Σ(room before × room weight) ÷ Σ(room weight) = ${formatMoney(q.roomDetailTotals.currentRateMonthly)}`} /></td>
                                               <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatMoney(q.roomDetailTotals.existingRateUsedMonthly)} formula={`Weighted existing after = Σ(room existing-after rate × room weight) ÷ Σ(room weight) = ${formatMoney(q.roomDetailTotals.existingRateUsedMonthly)}`} /></td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatPct(q.roomDetailTotals.currentRateMonthly > 0 ? (q.roomDetailTotals.existingRateUsedMonthly / q.roomDetailTotals.currentRateMonthly - 1) * 100 : 0, 1)} formula={`Weighted existing growth = (${formatMoney(q.roomDetailTotals.existingRateUsedMonthly)} existing after ÷ ${formatMoney(q.roomDetailTotals.currentRateMonthly)} before − 1) × 100`} /></td>
                                               <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatPct(q.roomDetailTotals.existingSharePct, 1)} formula={`Existing share = 100.0% − ${formatPct(q.roomDetailTotals.replacementSharePct, 1)} new = ${formatPct(q.roomDetailTotals.existingSharePct, 1)}`} /></td>
                                               <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatPct(q.roomDetailTotals.replacementSharePct, 1)} formula={`Modeled new share averaged across ${q.label} at ${formatPct(plan.assumptions.annualTurnoverPct, 1)} annual turnover = ${formatPct(q.roomDetailTotals.replacementSharePct, 1)}`} /></td>
                                               <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatMoney(q.roomDetailTotals.replacementRateMonthly)} formula={`Move-in rate = replacement-rate contribution ÷ modeled new share = ${formatMoney(q.roomDetailTotals.replacementRateMonthly)}`} /></td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatPct(q.roomDetailTotals.currentRateMonthly > 0 ? (q.roomDetailTotals.replacementRateMonthly / q.roomDetailTotals.currentRateMonthly - 1) * 100 : 0, 1)} formula={`Weighted move-in growth = (${formatMoney(q.roomDetailTotals.replacementRateMonthly)} move-in rate ÷ ${formatMoney(q.roomDetailTotals.currentRateMonthly)} before − 1) × 100`} /></td>
                                               <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatMoney(q.roomDetailTotals.projectedRateMonthly)} formula={`Blended after = (${formatPct(q.roomDetailTotals.existingSharePct, 1)} × ${formatMoney(q.roomDetailTotals.existingRateUsedMonthly)}) + (${formatPct(q.roomDetailTotals.replacementSharePct, 1)} × ${formatMoney(q.roomDetailTotals.replacementRateMonthly)}) = ${formatMoney(q.roomDetailTotals.projectedRateMonthly)}; matches quarter headline ${formatMoney(q.projectedRateMonthly)}`} /></td>
                                               <td className={cn("px-3 py-2.5 text-right font-mono", q.roomDetailTotals.changeMonthly >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>
                                                 <FormulaValue value={`${q.roomDetailTotals.changeMonthly >= 0 ? "+" : ""}${formatMoney(q.roomDetailTotals.changeMonthly)}`} formula={`Weighted change = ${formatMoney(q.roomDetailTotals.projectedRateMonthly)} blended after − ${formatMoney(q.roomDetailTotals.currentRateMonthly)} before = ${q.roomDetailTotals.changeMonthly >= 0 ? "+" : ""}${formatMoney(q.roomDetailTotals.changeMonthly)}`} />

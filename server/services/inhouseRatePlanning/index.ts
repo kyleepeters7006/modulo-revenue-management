@@ -282,10 +282,16 @@ export async function calculatePlanDetailed(
     annualTurnover: assumptions.annualTurnoverPct / 100,
     weightBasis: daily ? "resident_days" as const : "resident_months" as const,
   };
-  const horizonMonths: string[] = [];
   const firstHorizonMonth = `${quarters[0].year}-${String((quarters[0].quarter - 1) * 3 + 1).padStart(2, "0")}`;
-  for (let i = 0; i < quarters.length * 3; i++) {
-    horizonMonths.push(addMonths(firstHorizonMonth, i));
+  const lastHorizonMonth = addMonths(firstHorizonMonth, quarters.length * 3 - 1);
+  const streetEffectiveMonth = assumptions.streetRateEffectiveDate.slice(0, 7);
+  // Include the month immediately before the Street Rate change so the chart
+  // visibly steps from the current rate to the recommendation.
+  const preStreetMonth = addMonths(streetEffectiveMonth, -1);
+  const chartStartMonth = preStreetMonth < firstHorizonMonth ? preStreetMonth : firstHorizonMonth;
+  const horizonMonths: string[] = [];
+  for (let month = chartStartMonth; month <= lastHorizonMonth; month = addMonths(month, 1)) {
+    horizonMonths.push(month);
   }
   const monthlyProjected = projectMonthlyRealizedRates(
     {

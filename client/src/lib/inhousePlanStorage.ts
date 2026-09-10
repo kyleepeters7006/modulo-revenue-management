@@ -1,5 +1,6 @@
-const STORAGE_KEY = "inhouse-rate-planning:calculated-plans:v10";
+const STORAGE_KEY = "inhouse-rate-planning:calculated-plans:v11";
 const LEGACY_STORAGE_KEYS = [
+  "inhouse-rate-planning:calculated-plans:v10",
   "inhouse-rate-planning:calculated-plans:v9",
   "inhouse-rate-planning:calculated-plans:v8",
   "inhouse-rate-planning:calculated-plans:v7",
@@ -10,8 +11,9 @@ const LEGACY_STORAGE_KEYS = [
   "inhouse-rate-planning:calculated-plans:v2",
   "inhouse-rate-planning:calculated-plans:v1",
 ];
-const DB_NAME = "inhouse-rate-planning:v10";
+const DB_NAME = "inhouse-rate-planning:v11";
 const LEGACY_DB_NAMES = [
+  "inhouse-rate-planning:v10",
   "inhouse-rate-planning:v9",
   "inhouse-rate-planning:v8",
   "inhouse-rate-planning:v7",
