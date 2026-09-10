@@ -1558,6 +1558,14 @@ export default function InhouseIncreases() {
                               ]}
                             />
                             <RechartsTooltip
+                              wrapperStyle={{
+                                top: "auto",
+                                right: 8,
+                                bottom: 28,
+                                left: "auto",
+                                transform: "none",
+                                pointerEvents: "none",
+                              }}
                               formatter={(value: number, name: string, item: any) => [
                                 `${formatMoney(Number(value))}${daily ? "/day" : "/mo"}${
                                   name === "Projected realized"

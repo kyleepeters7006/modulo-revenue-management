@@ -25,6 +25,7 @@ import { isDailyRateServiceLine } from "../rateNormalization";
 import {
   buildResidents,
   fetchCurrentStreetRate,
+  fetchMixStandardizedPriorStreetRate,
   fetchTopCompetitorRate,
   fetchMonthlyRealizedRates,
   fetchProductStreetBaselines,
@@ -155,13 +156,16 @@ export async function calculatePlanDetailed(
   // and the plan's first quarter is modelled rather than ignored.
   const anchorMs = monthBoundsMs(addMonths(sourceMonth, 1)).startMs;
 
-  const proposalYear = Number(assumptions.streetRateEffectiveDate.slice(0, 4));
-  const priorJanuaryMonth = `${proposalYear - 1}-01`;
+  // The Street Rate may take effect in the fall before the in-house plan year.
+  // Its annual ceiling still compares the plan year with the January immediately
+  // preceding that plan year. Using the Street effective-date year minus one
+  // incorrectly sent an October 2026 change back to January 2025.
+  const priorJanuaryMonth = `${quarters[0].year - 1}-01`;
   const [rawRows, currentStreetRateMonthly, priorJanuaryStreetRateMonthly, topCompetitorRateMonthly, productBaselines, formulas] =
     await Promise.all([
       fetchResidentRows(scope, sourceMonth),
       fetchCurrentStreetRate(scope, sourceMonth),
-      fetchCurrentStreetRate(scope, priorJanuaryMonth),
+      fetchMixStandardizedPriorStreetRate(scope, priorJanuaryMonth, sourceMonth),
       fetchTopCompetitorRate(scope, sourceMonth),
       fetchProductStreetBaselines(scope, sourceMonth),
       getDerivedRateFormulas((s, p) => pool.query(s, p), input.clientId),

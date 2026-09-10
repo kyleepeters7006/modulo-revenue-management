@@ -500,6 +500,62 @@ export async function fetchCurrentStreetRate(
 }
 
 /**
+ * Historical Street Rate on today's private-pay base-room mix.
+ *
+ * The payer occupying a room and the mix of priced products can change between
+ * January and the source month. Comparing two independently weighted averages
+ * makes the annual ceiling move even when room prices do not. Match today's
+ * eligible cohort back to the same physical rooms in January instead.
+ */
+export async function fetchMixStandardizedPriorStreetRate(
+  scope: ScopeFilter,
+  baselineMonth: string,
+  currentMonth: string,
+): Promise<number> {
+  const params: any[] = [scope.clientId, currentMonth, scope.serviceLine, baselineMonth];
+  let locSql = "";
+  if (scope.location) {
+    params.push(scope.location);
+    locSql = ` AND cur.location = $${params.length}`;
+  }
+  const currentBaselineJoin = buildRateBaselineJoin({
+    rr: "cur.",
+    clientSql: "$1",
+    monthSql: "$2",
+    alias: "cur_rb",
+  });
+  const historicalBaselineJoin = buildRateBaselineJoin({
+    rr: "hist.",
+    clientSql: "$1",
+    monthSql: "$4",
+    alias: "hist_rb",
+  });
+  const res = await pool.query<{ avg_rate: string | null }>(
+    `SELECT AVG(${monthlyRateExpr("hist.street_rate", "hist.service_line")}) AS avg_rate
+       FROM rent_roll_data cur
+       ${currentBaselineJoin}
+       JOIN rent_roll_data hist
+         ON hist.client_id = cur.client_id
+        AND hist.upload_month = $4
+        AND hist.location = cur.location
+        AND hist.service_line IS NOT DISTINCT FROM cur.service_line
+        AND hist.room_number = cur.room_number
+       ${historicalBaselineJoin}
+      WHERE cur.client_id = $1
+        AND cur.upload_month = $2
+        AND cur.service_line = $3
+        AND cur.street_rate > 0
+        AND ${privatePaySql("cur.payor_type")}
+        AND ${baseRateExclusionSql("cur.")}
+        AND ${streetRateGate("cur.", "cur_rb")}
+        AND hist.street_rate > 0
+        AND ${streetRateGate("hist.", "hist_rb")}${locSql}`,
+    params,
+  );
+  return Number(res.rows[0]?.avg_rate) || 0;
+}
+
+/**
  * Authoritative matched Top Competitor rate for this planning scope, normalized
  * to monthly. The matching/reprocessing pipeline has already written the
  * product-appropriate benchmark to each rent-roll row; averaging the same

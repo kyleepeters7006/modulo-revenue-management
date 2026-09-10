@@ -78,14 +78,20 @@ from today's rate, and the maximum proposed January rate versus January of the
 prior year. The tighter remaining allowance wins. If today's rate has already
 reached the Jan-to-Jan ceiling, the solver must not push it further.
 
-**Why:** treating today's Street Rate as a fresh baseline ignores increases
-already taken during the year and can produce an excessive year-over-year move.
+The prior January comparison must use the January immediately before the plan
+year, even when the Street Rate takes effect in the preceding fall, and must be
+standardized to today's eligible room mix.
 
-**How to apply:** use January of the year before the Street Rate effective date
-as the baseline, translate its absolute ceiling into remaining headroom from
-today's rate, then clamp the search by both limits. Refuse to calculate when
-that January baseline is unavailable; never substitute another month or flatten
-resident-specific increases.
+**Why:** treating today's Street Rate as a fresh baseline ignores increases
+already taken during the year. Conversely, using the Street effective-date year
+minus one can select January two years before the plan, while independently
+weighted January/current averages turn payer and product-mix changes into fake
+price movement.
+
+**How to apply:** match today's eligible private-pay base rooms back to the same
+physical rooms in the January immediately before the plan year, calculate the
+historical average on that fixed mix, translate its absolute ceiling into
+remaining headroom from today's rate, then clamp the search by both limits.
 
 ## `computed || fallback` erases a legitimate zero
 
