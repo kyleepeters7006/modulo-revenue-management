@@ -440,6 +440,15 @@ export async function calculatePlanDetailed(
     januaryMatchCoverage: matchCoverage,
   });
 
+  // The asking rate is supposed to clear the planned in-house average. When a
+  // ceiling stops that happening the operator has to see it, because the plan
+  // then prices new move-ins at or under current residents.
+  if (solved.streetPremiumBelowMinimum) {
+    warnings.push(
+      `The recommended Street Rate ends ${solved.streetPremiumOverInhousePct.toFixed(1)}% from the planned average in-house rate, short of the 1.0% minimum premium. The Street Rate ceiling (maximum increase or the January-to-January limit) is what stops it clearing.`,
+    );
+  }
+
   const planScope: PlanScope = {
     clientId: input.clientId,
     locationId: input.locationId,
@@ -460,6 +469,8 @@ export async function calculatePlanDetailed(
     streetIncreaseDollarsMonthly: solved.recommendedStreetMonthly - currentStreetRateMonthly,
     currentStreetRateDisplay: toDisplay(currentStreetRateMonthly),
     recommendedStreetRateDisplay: toDisplay(solved.recommendedStreetMonthly),
+    adjustedTopCompetitorRateMonthly: topCompetitorRateMonthly,
+    streetPremiumOverInhousePct: solved.streetPremiumOverInhousePct,
 
     requiredWeightedAvgIncreasePct: solved.requiredAvgIncrease * 100,
 

@@ -402,14 +402,74 @@ console.log("\n-- 6. An achievable target is balanced across Street and in-house
     currentStreetRateMonthly: 5000,
   });
   ok("plan is feasible", result.feasible);
-  near("Street Rate aims at the growth target", result.streetIncrease * 100, 5, 0.01);
-  ok("in-house solves only the remaining quarterly gap", result.requiredAvgIncrease >= 0);
+  ok(
+    "the in-house lever carries at least the growth objective",
+    result.requiredAvgIncrease * 100 >= 5 - 0.01,
+  );
+  ok(
+    "Street Rate is not pushed past the objective to do in-house's work",
+    result.streetIncrease * 100 <= 5 + 0.01,
+  );
+  ok(
+    "the recommended Street Rate still clears the planned in-house average by 1%",
+    result.streetPremiumOverInhousePct >= 1 - 1e-6,
+  );
+  ok("the premium is not reported as short", !result.streetPremiumBelowMinimum);
   ok("every quarter passes", result.quarterResults.every((q) => q.passes));
   ok("no infeasibility block", result.infeasibility === null);
   ok(
     "the required increase is within the configured maximum",
     result.requiredAvgIncrease * 100 <= 8 + 1e-6,
   );
+}
+
+// ── 6a. Street Rate must stay above the in-house average ───────────────────
+console.log("\n-- 6a. Street Rate keeps a 1% premium over the planned in-house average --");
+{
+  // These residents already pay within a whisker of the asking rate, so the
+  // in-house increase would otherwise carry the average past it.
+  const atStreet = solvePlan({
+    residents: [
+      resident("A", 4950, 5000),
+      resident("B", 4980, 5000),
+      resident("C", 5000, 5000),
+      resident("D", 5020, 5000),
+    ],
+    assumptions: assumptions({ rateGrowthTargetPct: 5, minStreetIncreasePct: 0 }),
+    baselineByQuarter: flatBaseline(4800),
+    quarters: QUARTERS,
+    anchorMs: ANCHOR_MS,
+    currentStreetRateMonthly: 5000,
+  });
+  const plannedInhouse = atStreet.postIncreaseAvgRateMonthly;
+  ok(
+    "the asking rate is lifted above the residents it would otherwise sit under",
+    atStreet.recommendedStreetMonthly >= plannedInhouse * 1.01 - 0.01,
+  );
+  near(
+    "the reported premium is the same comparison the table shows",
+    atStreet.streetPremiumOverInhousePct,
+    (atStreet.recommendedStreetMonthly / plannedInhouse - 1) * 100,
+    1e-9,
+  );
+  ok("and it is not flagged as short", !atStreet.streetPremiumBelowMinimum);
+
+  // With the Street Rate ceiling at zero the premium cannot be honored, and
+  // that has to be reported rather than quietly ignored.
+  const capped = solvePlan({
+    residents: [resident("A", 5000, 5000), resident("B", 5100, 5000)],
+    assumptions: assumptions({
+      rateGrowthTargetPct: 5,
+      maxStreetIncreasePct: 0,
+      maxYoYStreetIncreasePct: 0,
+    }),
+    baselineByQuarter: flatBaseline(4800),
+    quarters: QUARTERS,
+    anchorMs: ANCHOR_MS,
+    currentStreetRateMonthly: 5000,
+  });
+  near("the ceiling holds Street Rate flat", capped.streetIncrease * 100, 0, 1e-9);
+  ok("the shortfall against the 1% premium is reported", capped.streetPremiumBelowMinimum);
 }
 
 console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rate inputs --");
@@ -442,14 +502,16 @@ console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rat
     currentStreetRateMonthly: 5000,
     topCompetitorRateMonthly: 5500,
   });
-  near(
-    "scope below its desired Top Competitor position is pushed to that position",
-    competitive.recommendedStreetMonthly,
-    5500 * 0.98,
-    0.01,
+  ok(
+    "a scope below its desired Top Competitor position moves toward that position",
+    competitive.streetIncrease > 0,
+  );
+  ok(
+    "but competitive position cannot push Street Rate past the growth objective",
+    competitive.streetIncrease * 100 <= 2 + 0.01,
   );
 
-  // Street aims at the target even when the competitive floor is lower.
+  // In-house is capped hard, so Street Rate has to carry the objective here.
   const aboveDesired = solvePlan({
     residents: roomyPopulation(),
     assumptions: assumptions({
@@ -464,8 +526,8 @@ console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rat
     topCompetitorRateMonthly: 5000,
   });
   ok(
-    "desired competitor position does not hold Street below its target",
-    aboveDesired.streetIncrease * 100 >= 6 - 0.01,
+    "Street Rate still rises when a capped in-house lever cannot reach the objective",
+    aboveDesired.streetIncrease * 100 > 6,
   );
   ok("resident increases remain within their configured cap", aboveDesired.requiredAvgIncrease * 100 <= 1.5 + 0.01);
 
@@ -481,7 +543,12 @@ console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rat
     currentStreetRateMonthly: 5000,
     topCompetitorRateMonthly: null,
   });
-  near("missing Top Competitor leaves Street Rate at its target", noBenchmark.streetIncrease * 100, 3, 0.01);
+  near(
+    "missing Top Competitor leaves Street Rate on its configured minimum",
+    noBenchmark.streetIncrease * 100,
+    0,
+    0.01,
+  );
   ok(
     "and the plan still clears every quarter from in-house increases",
     noBenchmark.feasible && noBenchmark.quarterResults.every((q) => q.passes),
@@ -514,16 +581,21 @@ console.log("\n-- 6d. Variance to Top Competitor decides Street vs in-house --")
   const wellBelow = solveAtVariance(40);
 
   ok(
-    "no competitive room still aims at the growth target",
-    Math.abs(wellAbove.streetIncrease * 100 - 5) < 0.01,
+    "no competitive room leaves Street Rate on its floor",
+    wellAbove.streetIncrease * 100 < 1,
   );
   ok(
-    "competitive room pushes Street Rate up instead",
+    "competitive room pulls Street Rate up",
     wellBelow.streetIncrease > wellAbove.streetIncrease + 1e-6,
   );
   ok(
-    "and the in-house increase carries less when Street Rate carries more",
-    wellBelow.requiredAvgIncrease < wellAbove.requiredAvgIncrease - 1e-6,
+    "but never past the growth objective",
+    wellBelow.streetIncrease * 100 <= 5 + 0.01,
+  );
+  ok(
+    "the in-house lever carries the objective in both directions",
+    wellAbove.requiredAvgIncrease * 100 >= 5 - 0.01 &&
+      wellBelow.requiredAvgIncrease * 100 >= 5 - 0.01,
   );
   ok(
     "both directions still clear every quarter",

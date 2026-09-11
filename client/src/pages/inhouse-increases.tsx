@@ -1278,6 +1278,10 @@ export default function InhouseIncreases() {
     let streetRecommendedMonthly = 0;
     let inhouseCurrentMonthly = 0;
     let inhouseNewMonthly = 0;
+    let adjustedTopCompCurrentMonthly = 0;
+    let adjustedTopCompProjectedMonthly = 0;
+    let streetAfterForCompMonthly = 0;
+    let adjustedTopCompResidents = 0;
     let priorFullYearMonthly = 0;
     let projectedFullYearMonthly = 0;
     let quarterlyGoalWeighted = 0;
@@ -1298,6 +1302,16 @@ export default function InhouseIncreases() {
       streetRecommendedMonthly += plan.recommendedStreetRateMonthly * count;
       inhouseCurrentMonthly += plan.summary.currentAvgInhouseRateMonthly * count;
       inhouseNewMonthly += plan.summary.newAvgInhouseRateMonthly * count;
+      if (
+        plan.adjustedTopCompetitorRateMonthly != null &&
+        plan.adjustedTopCompetitorRateMonthly > 0
+      ) {
+        adjustedTopCompCurrentMonthly += plan.adjustedTopCompetitorRateMonthly * count;
+        adjustedTopCompProjectedMonthly +=
+          plan.adjustedTopCompetitorRateMonthly * (1 + plan.streetIncreasePct / 100) * count;
+        streetAfterForCompMonthly += plan.recommendedStreetRateMonthly * count;
+        adjustedTopCompResidents += count;
+      }
       priorFullYearMonthly += fullYearYoy.priorRateMonthly * count;
       projectedFullYearMonthly += fullYearYoy.projectedRateMonthly * count;
       quarterlyGoalWeighted += plan.assumptions.rateGrowthTargetPct * count;
@@ -1317,6 +1331,24 @@ export default function InhouseIncreases() {
       inhouseGrowthPct: inhouseCurrentMonthly > 0
         ? (inhouseNewMonthly / inhouseCurrentMonthly - 1) * 100
         : 0,
+      // Both sides are resident-weighted monthly equivalents, so the combined
+      // premium is the same comparison each service line makes on its own row.
+      streetPremiumOverInhousePct: inhouseNewMonthly > 0
+        ? (streetRecommendedMonthly / inhouseNewMonthly - 1) * 100
+        : null,
+      adjustedTopCompCurrentMonthly: adjustedTopCompResidents > 0
+        ? adjustedTopCompCurrentMonthly / adjustedTopCompResidents
+        : null,
+      adjustedTopCompProjectedMonthly: adjustedTopCompResidents > 0
+        ? adjustedTopCompProjectedMonthly / adjustedTopCompResidents
+        : null,
+      streetAfterForCompMonthly: adjustedTopCompResidents > 0
+        ? streetAfterForCompMonthly / adjustedTopCompResidents
+        : null,
+      adjustedTopCompVariancePct:
+        adjustedTopCompProjectedMonthly > 0
+          ? (streetAfterForCompMonthly / adjustedTopCompProjectedMonthly - 1) * 100
+          : null,
       fullYearYoyPct: priorFullYearMonthly > 0
         ? (projectedFullYearMonthly / priorFullYearMonthly - 1) * 100
         : 0,
@@ -1763,14 +1795,18 @@ export default function InhouseIncreases() {
             </CardHeader>
             <CardContent>
               <div className="mx-auto mb-6 max-w-7xl overflow-x-auto rounded-lg border">
-                <div className="grid min-w-[1160px] grid-cols-[minmax(110px,1.2fr)_repeat(6,minmax(125px,1fr))] bg-muted/40 px-4 py-2 text-center text-xs font-medium text-muted-foreground">
+                <div className="grid min-w-[1320px] grid-cols-[minmax(110px,1.2fr)_repeat(7,minmax(135px,1fr))] bg-muted/40 px-4 py-2 text-center text-xs font-medium text-muted-foreground">
                   <HeaderHelp
                     label="Service line"
                     explanation="The level of care, shown with its monthly or daily rate basis."
                   />
                   <HeaderHelp
                     label="Street Rate"
-                    explanation="Current versus recommended rate for new move-ins."
+                    explanation="Current versus recommended rate for new move-ins, with how far the recommended rate ends above the planned average in-house rate. Planning holds that premium to at least 1%."
+                  />
+                  <HeaderHelp
+                    label="Adjusted Top Competitor"
+                    explanation="Product-matched, care-adjusted Top Competitor rate; projected forward by the recommended Street Rate increase, then compared with the recommended Street Rate."
                   />
                   <HeaderHelp
                     label="In-house rate"
@@ -1805,8 +1841,22 @@ export default function InhouseIncreases() {
                   const fullYearYoy = fullYearYoyFromQuarters(plan.quarters, plan.rateBasis);
                   const planYear = plan.quarters[0]?.year;
                   const quartersMeetingGoal = plan.quarters.filter((quarter) => quarter.passes).length;
+                  const adjustedTopComp = plan.adjustedTopCompetitorRateMonthly;
+                  const projectedAdjustedTopComp =
+                    adjustedTopComp != null
+                      ? adjustedTopComp * (1 + plan.streetIncreasePct / 100)
+                      : null;
+                  const varianceToProjectedTopComp =
+                    projectedAdjustedTopComp != null && projectedAdjustedTopComp > 0
+                      ? (plan.recommendedStreetRateMonthly / projectedAdjustedTopComp - 1) * 100
+                      : null;
+                  // Recompute rather than trusting the stored field, so a plan
+                  // calculated before this comparison existed still shows it.
+                  const streetPremium = plan.summary.newAvgInhouseRateMonthly > 0
+                    ? (plan.recommendedStreetRateMonthly / plan.summary.newAvgInhouseRateMonthly - 1) * 100
+                    : null;
                   return (
-                    <div key={`growth-${sl}`} className="grid min-w-[1160px] grid-cols-[minmax(110px,1.2fr)_repeat(6,minmax(125px,1fr))] items-center border-t px-4 py-3 text-center">
+                    <div key={`growth-${sl}`} className="grid min-w-[1320px] grid-cols-[minmax(110px,1.2fr)_repeat(7,minmax(135px,1fr))] items-center border-t px-4 py-3 text-center">
                       <div>
                         <p className="font-semibold">{sl}</p>
                         <p className="text-[11px] text-muted-foreground">{daily ? "Daily rates" : "Monthly rates"}</p>
@@ -1814,6 +1864,28 @@ export default function InhouseIncreases() {
                       <div>
                         <p className="font-semibold text-blue-600">+{plan.streetIncreasePct.toFixed(1)}%</p>
                         <p className="text-xs text-muted-foreground">{rate(plan.currentStreetRateMonthly)} → {rate(plan.recommendedStreetRateMonthly)}</p>
+                        {streetPremium != null && (
+                          <p className={cn("text-[11px]", streetPremium >= 1 ? "text-muted-foreground" : "text-amber-600")}>
+                            {formatPct(streetPremium, 1)} over in-house
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-0.5">
+                        {adjustedTopComp != null && projectedAdjustedTopComp != null && varianceToProjectedTopComp != null ? (
+                          <>
+                            <p className="text-xs text-muted-foreground">
+                              {rate(adjustedTopComp)} → {rate(projectedAdjustedTopComp)}
+                            </p>
+                            <p className="text-xs">
+                              Street after: <span className="font-semibold">{rate(plan.recommendedStreetRateMonthly)}</span>
+                            </p>
+                            <p className={cn("text-xs font-semibold", varianceToProjectedTopComp >= 0 ? "text-emerald-600" : "text-amber-600")}>
+                              {formatPct(varianceToProjectedTopComp, 1)} variance
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">No matched benchmark</p>
+                        )}
                       </div>
                       <div>
                         <p className="font-semibold text-[#0f9f9a]">+{plan.summary.weightedAvgIncreasePct.toFixed(1)}%</p>
@@ -1848,7 +1920,7 @@ export default function InhouseIncreases() {
                   );
                 })}
                 {growthSnapshot && (
-                  <div className="grid min-w-[1160px] grid-cols-[minmax(110px,1.2fr)_repeat(6,minmax(125px,1fr))] items-center border-t-2 bg-muted/30 px-4 py-3 text-center">
+                  <div className="grid min-w-[1320px] grid-cols-[minmax(110px,1.2fr)_repeat(7,minmax(135px,1fr))] items-center border-t-2 bg-muted/30 px-4 py-3 text-center">
                     <div>
                       <p className="font-semibold">Combined total</p>
                       <p className="text-[11px] text-muted-foreground">{growthSnapshot.residents.toLocaleString()} residents · monthly equivalent</p>
@@ -1856,6 +1928,31 @@ export default function InhouseIncreases() {
                     <div>
                       <p className="font-semibold text-blue-600">+{growthSnapshot.streetGrowthPct.toFixed(1)}%</p>
                       <p className="text-xs text-muted-foreground">{formatMoney(growthSnapshot.streetCurrentMonthly)} → {formatMoney(growthSnapshot.streetRecommendedMonthly)}</p>
+                      {growthSnapshot.streetPremiumOverInhousePct != null && (
+                        <p className={cn("text-[11px]", growthSnapshot.streetPremiumOverInhousePct >= 1 ? "text-muted-foreground" : "text-amber-600")}>
+                          {formatPct(growthSnapshot.streetPremiumOverInhousePct, 1)} over in-house
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-0.5">
+                      {growthSnapshot.adjustedTopCompCurrentMonthly != null &&
+                      growthSnapshot.adjustedTopCompProjectedMonthly != null &&
+                      growthSnapshot.streetAfterForCompMonthly != null &&
+                      growthSnapshot.adjustedTopCompVariancePct != null ? (
+                        <>
+                          <p className="text-xs text-muted-foreground">
+                            {formatMoney(growthSnapshot.adjustedTopCompCurrentMonthly)} → {formatMoney(growthSnapshot.adjustedTopCompProjectedMonthly)}
+                          </p>
+                          <p className="text-xs">
+                            Street after: <span className="font-semibold">{formatMoney(growthSnapshot.streetAfterForCompMonthly)}</span>
+                          </p>
+                          <p className={cn("text-xs font-semibold", growthSnapshot.adjustedTopCompVariancePct >= 0 ? "text-emerald-600" : "text-amber-600")}>
+                            {formatPct(growthSnapshot.adjustedTopCompVariancePct, 1)} variance
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">No matched benchmark</p>
+                      )}
                     </div>
                     <div>
                       <p className="font-semibold text-[#0f9f9a]">+{growthSnapshot.inhouseGrowthPct.toFixed(1)}%</p>

@@ -486,6 +486,10 @@ export interface SolveOutput {
   infeasibility: Infeasibility | null;
   existingAvgRateMonthly: number;
   postIncreaseAvgRateMonthly: number;
+  /** Recommended Street Rate as a percentage above the post-increase in-house average. */
+  streetPremiumOverInhousePct: number;
+  /** True when a ceiling stopped that premium reaching its required minimum. */
+  streetPremiumBelowMinimum: boolean;
 }
 
 interface EvalContext {
@@ -603,12 +607,23 @@ function requiredAvgIncreaseAt(ctx: EvalContext, streetIncrease: number, ceiling
   return hi;
 }
 
+/**
+ * The recommended Street Rate must stay at least this far above the planned
+ * average in-house rate. In-house increases are contracted revenue while a
+ * Street Rate increase still has to be sold, but an asking rate at or below
+ * what current residents pay prices new move-ins under the people already
+ * living there.
+ */
+export const MIN_STREET_PREMIUM_OVER_INHOUSE = 0.01;
+
 export function solvePlan(input: SolveInput): SolveOutput {
   const ctx = buildContext(input);
-  // Balance the two growth levers by aiming Street Rate at the growth objective,
-  // while the resident allocation solves the remaining quarterly gap. This is
-  // a preferred target, not a replacement for the configured minimum. Market
-  // position may call for more; hard and January YoY ceilings still win.
+  // In-house increases carry the growth objective, because that revenue is
+  // already contracted with residents who are here. Street Rate is the
+  // secondary lever: it takes the configured minimum, whatever competitive
+  // position calls for up to the objective, the required premium over
+  // in-house, and any remaining gap the resident guardrails cannot close.
+  // Hard and January YoY ceilings still win over all of it.
   const currentStreet = input.currentStreetRateMonthly;
   const ordinaryCeiling = Math.max(0, input.assumptions.maxStreetIncreasePct / 100);
   const priorJanuaryStreet = input.priorJanuaryStreetRateMonthly;
@@ -639,12 +654,13 @@ export function solvePlan(input: SolveInput): SolveOutput {
     desiredCompetitiveRate != null && currentStreet > 0
       ? Math.max(0, desiredCompetitiveRate / currentStreet - 1)
       : 0;
+  // Competitive position may pull the asking rate up, but only as far as the
+  // growth objective. Chasing a competitive gap beyond the objective is what
+  // let Street Rate run away from the in-house increase and left the
+  // guaranteed lever sitting on its configured minimum.
+  const competitiveFloor = Math.min(competitivePush, Math.max(0, ctx.target));
   const floorStreet = Math.min(
-    Math.max(0, configuredMinimum, competitivePush),
-    ceilStreet,
-  );
-  const targetStreet = Math.min(
-    Math.max(floorStreet, Math.max(0, ctx.target)),
+    Math.max(0, configuredMinimum, competitiveFloor),
     ceilStreet,
   );
 
@@ -653,14 +669,14 @@ export function solvePlan(input: SolveInput): SolveOutput {
   const feasibleAt = (g: number) =>
     worstMargin(ctx, projectFor(ctx, g, maxAvgAt(g))).margin >= -PASS_EPSILON;
 
-  let streetIncrease = targetStreet;
-  let feasible = feasibleAt(targetStreet);
+  let streetIncrease = floorStreet;
+  let feasible = feasibleAt(floorStreet);
 
-  if (!feasible && ceilStreet > targetStreet && feasibleAt(ceilStreet)) {
+  if (!feasible && ceilStreet > floorStreet && feasibleAt(ceilStreet)) {
     // Monotone in g: the achievable average and the projected rate both rise
     // with the street rate. Bisect for the smallest street move that works,
     // because recommending more increase than necessary is its own error.
-    let lo = targetStreet;
+    let lo = floorStreet;
     let hi = ceilStreet;
     for (let i = 0; i < 40; i++) {
       const mid = (lo + hi) / 2;
@@ -673,14 +689,42 @@ export function solvePlan(input: SolveInput): SolveOutput {
     streetIncrease = ceilStreet;
   }
 
-  // The in-house average is deliberately NOT held below the asking rate. A
-  // resident may be raised past street; that is an accepted outcome, not a
-  // reason to push the asking rate up to meet them.
-  const headroomCeiling = maxAvgAt(streetIncrease);
-  const rawRequired = feasible
-    ? requiredAvgIncreaseAt(ctx, streetIncrease, Math.max(headroomCeiling, ctx.max))
-    : headroomCeiling;
-  const allocation = allocationFor(ctx, streetIncrease, rawRequired);
+  /**
+   * What the in-house lever should carry at a given Street Rate. Aiming at the
+   * growth objective itself — rather than at whatever remainder the asking rate
+   * leaves behind — is what keeps the guaranteed lever off its configured
+   * minimum. Resident guardrails still bound it, and a target the asking rate
+   * cannot reach on its own still raises it further.
+   *
+   * Individual residents are deliberately NOT held below the asking rate; a
+   * resident may be raised past street. Only the scope average is coupled to
+   * the asking rate, through the premium below.
+   */
+  const plannedAvgAt = (g: number) => {
+    const headroom = maxAvgAt(g);
+    const required = feasible
+      ? requiredAvgIncreaseAt(ctx, g, Math.max(headroom, ctx.max))
+      : headroom;
+    const preferred = clamp(ctx.target, ctx.min, ctx.max);
+    return Math.min(Math.max(required, preferred), Math.max(headroom, 0));
+  };
+
+  /** Street increase that puts the asking rate the required margin above in-house. */
+  const premiumStreetFor = (avg: number) =>
+    currentStreet > 0
+      ? (ctx.baseAvg * (1 + avg) * (1 + MIN_STREET_PREMIUM_OVER_INHOUSE)) / currentStreet - 1
+      : streetIncrease;
+
+  let allocation = allocationFor(ctx, streetIncrease, plannedAvgAt(streetIncrease));
+  // Raising Street Rate only widens resident headroom, so this settles in a
+  // pass or two. It raises the asking rate and never drops it back below the
+  // competitive, minimum, or feasibility floors already established.
+  for (let pass = 0; pass < 4; pass++) {
+    const needed = Math.min(premiumStreetFor(allocation.achievedAvgIncrease), ceilStreet);
+    if (needed <= streetIncrease + 1e-9) break;
+    streetIncrease = needed;
+    allocation = allocationFor(ctx, streetIncrease, plannedAvgAt(streetIncrease));
+  }
   const appliedAvg = allocation.achievedAvgIncrease;
 
   const projected = projectFor(ctx, streetIncrease, appliedAvg);
@@ -693,17 +737,27 @@ export function solvePlan(input: SolveInput): SolveOutput {
     ? null
     : buildInfeasibility(ctx, streetIncrease, ceilStreet, allocation, projected, worst);
 
+  const recommendedStreetMonthly = input.currentStreetRateMonthly * (1 + streetIncrease);
+  const postIncreaseAvgRateMonthly = ctx.baseAvg * (1 + appliedAvg);
+  const streetPremiumOverInhousePct =
+    postIncreaseAvgRateMonthly > 0
+      ? (recommendedStreetMonthly / postIncreaseAvgRateMonthly - 1) * 100
+      : 0;
+
   return {
     feasible,
     streetIncrease,
-    recommendedStreetMonthly: input.currentStreetRateMonthly * (1 + streetIncrease),
+    recommendedStreetMonthly,
     requiredAvgIncrease: appliedAvg,
     allocation,
     quarterResults,
     bindingQuarterLabel: worst.label,
     infeasibility,
     existingAvgRateMonthly: ctx.baseAvg,
-    postIncreaseAvgRateMonthly: ctx.baseAvg * (1 + appliedAvg),
+    postIncreaseAvgRateMonthly,
+    streetPremiumOverInhousePct,
+    streetPremiumBelowMinimum:
+      streetPremiumOverInhousePct < MIN_STREET_PREMIUM_OVER_INHOUSE * 100 - 1e-6,
   };
 }
 
