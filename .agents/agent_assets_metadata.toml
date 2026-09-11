@@ -280,14 +280,14 @@ logical_id = "437afb27-56e1-48ea-97ce-12123535cf7b"
 id = "eP94rbepJspGI4P1t4rkS"
 uri = "file://attached_assets/generated_videos/reconcept/modulo-pricing-intelligence-professional.mp4"
 type = "video"
-title = "Modulo Pricing Intelligence — AI Philosophy Cut"
-description = "A sharper 30-second product film explaining data decomposition, AI prioritization, elasticity, operator control, and measured learning."
+title = "Modulo Pricing Intelligence — Zoomed-Out Cut"
+description = "Updated 30-second product film with every application screen fully contained, unobstructed, and consistently zoomed out."
 logical_id = "cb3d4cfb-94a2-4de4-a3ba-1ff6b2c4df40"
-content_hash = "sha256:e1454dbe177f9ca372f6afc3245a7b5613f730adb3bd1093413e410a49b1c80b"
-size = 949467
-mtime_ms = 1789091975239
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/cb3d4cfb-94a2-4de4-a3ba-1ff6b2c4df40/b93835cd-f754-4d89-97f2-9023de24be91"
-storage_version_token = "1789092030572495"
+content_hash = "sha256:45275b9d026e2236344b61a151007874cc56ee8af258b4e760ec846e7dd04d4a"
+size = 932250
+mtime_ms = 1789092227194
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/cb3d4cfb-94a2-4de4-a3ba-1ff6b2c4df40/f68f5570-edd3-4fa7-bfa4-4f98b976e99a"
+storage_version_token = "1789092260131007"
 content_type = "video/mp4"
 
 [[outputs]]
