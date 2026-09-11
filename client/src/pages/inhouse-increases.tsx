@@ -10,7 +10,7 @@
  * unreachable target is shown as unreachable with the smallest change that
  * would fix it — never quietly rounded down to something achievable.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
@@ -144,6 +144,30 @@ function HeaderHelp({ label, explanation }: { label: string; explanation: string
         </span>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-[340px] text-left text-xs normal-case leading-relaxed tracking-normal">
+        {explanation}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function MetricHelp({
+  children,
+  explanation,
+}: {
+  children: ReactNode;
+  explanation: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          tabIndex={0}
+          className="cursor-help rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {children}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[360px] text-left text-xs leading-relaxed">
         {explanation}
       </TooltipContent>
     </Tooltip>
@@ -474,7 +498,7 @@ function CommitNumberInput({
   id,
   min,
   max,
-  step,
+  step = 0.5,
   "data-testid": testId,
 }: {
   value: number | "";
@@ -495,9 +519,17 @@ function CommitNumberInput({
   }, [displayValue, editing]);
 
   const commit = () => {
-    const next = draft === "" ? NaN : Number(draft);
+    const raw = draft === "" ? NaN : Number(draft);
+    const stepped = Number.isFinite(raw) && step
+      ? Math.round(raw / step) * step
+      : raw;
+    const bounded = Number.isFinite(stepped)
+      ? Math.min(max ?? stepped, Math.max(min ?? stepped, stepped))
+      : stepped;
+    const next = Number.isFinite(bounded) ? Number(bounded.toFixed(10)) : bounded;
     if (Number.isFinite(next) && next !== value) onCommit(next);
     else if (!Number.isFinite(next)) setDraft(displayValue);
+    if (Number.isFinite(next)) setDraft(String(next));
   };
 
   return (
@@ -619,6 +651,8 @@ export default function InhouseIncreases() {
     Record<string, { rateGrowthTargetPct: number; annualTurnoverPct: number }>
   >({});
   const [assumptionsTouched, setAssumptionsTouched] = useState(false);
+  const [, startAssumptionTransition] = useTransition();
+  const [planCacheReady, setPlanCacheReady] = useState(false);
   const [plans, setPlans] = useState<PlanWithSl[] | null>(null);
   const [expandedQuarter, setExpandedQuarter] = useState<string | null>(null);
   const [expandedResident, setExpandedResident] = useState<string | null>(null);
@@ -659,6 +693,7 @@ export default function InhouseIncreases() {
   // the operator later filters to either line individually (and vice versa).
   useEffect(() => {
     let cancelled = false;
+    setPlanCacheReady(false);
     setPlans(null);
     setVisibleCount(50);
     setExpandedResident(null);
@@ -698,6 +733,7 @@ export default function InhouseIncreases() {
       setExpandedQuarter(first?.plan.bindingQuarterLabel
         ? `${first.sl}-${first.plan.bindingQuarterLabel}`
         : null);
+      setPlanCacheReady(true);
     })();
     return () => {
       cancelled = true;
@@ -796,6 +832,12 @@ export default function InhouseIncreases() {
       scopeLocationId === null
         ? readCachedCompanyTurnover(storageIdentityKey)
         : undefined,
+    enabled: planCacheReady,
+    // Paint the identity-scoped browser cache immediately, then refresh it
+    // after the faster IndexedDB plan restore has completed.
+    staleTime: 0,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: true,
     queryFn: async () => {
       const params = new URLSearchParams();
       if (scopeLocationId) params.set("locationId", scopeLocationId);
@@ -1072,14 +1114,19 @@ export default function InhouseIncreases() {
 
   function updatePerLine(sl: string, field: "rateGrowthTargetPct" | "annualTurnoverPct", value: number) {
     setAssumptionsTouched(true);
-    setPerLineTargets((prev) => ({
-      ...prev,
-      [sl]: {
-        rateGrowthTargetPct: prev[sl]?.rateGrowthTargetPct ?? assumptions.rateGrowthTargetPct,
-        annualTurnoverPct: prev[sl]?.annualTurnoverPct ?? assumptions.annualTurnoverPct,
-        [field]: value,
-      },
-    }));
+    // A committed assumption invalidates summaries, charts, and thousands of
+    // resident rows. Keep focus/typing urgent and render that derived work at
+    // transition priority so moving between fields remains immediate.
+    startAssumptionTransition(() => {
+      setPerLineTargets((prev) => ({
+        ...prev,
+        [sl]: {
+          rateGrowthTargetPct: prev[sl]?.rateGrowthTargetPct ?? assumptions.rateGrowthTargetPct,
+          annualTurnoverPct: prev[sl]?.annualTurnoverPct ?? assumptions.annualTurnoverPct,
+          [field]: value,
+        },
+      }));
+    });
   }
 
   /** Merge shared assumptions with a service line's per-line overrides. */
@@ -1227,6 +1274,18 @@ export default function InhouseIncreases() {
   const allFeasible = plans ? plans.every((p) => p.plan.feasible) : false;
   const anyFeasible = plans ? plans.some((p) => p.plan.feasible) : false;
   const allWarnings = plans ? Array.from(new Set(plans.flatMap((p) => p.plan.warnings))) : [];
+  const projectionMonths = plans?.flatMap(({ plan }) =>
+    (plan.monthlyRateProjection ?? []).map(({ month }) => month),
+  ) ?? [];
+  const projectionStart = projectionMonths.length > 0
+    ? formatMonth([...projectionMonths].sort()[0])
+    : "the first projected month";
+  const projectionEnd = projectionMonths.length > 0
+    ? formatMonth([...projectionMonths].sort().at(-1) ?? null)
+    : "the final projected month";
+  const quarterlyComparisonPeriods = plans?.[0]?.plan.quarters
+    .map(({ quarter, year }) => `Q${quarter} ${year} vs Q${quarter} ${year - 1}`)
+    .join("; ") || "each projected quarter versus the same quarter one year earlier";
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 px-4 py-6 sm:px-6">
@@ -1660,19 +1719,19 @@ export default function InhouseIncreases() {
                   />
                   <HeaderHelp
                     label="Annual increase"
-                    explanation="End-of-plan growth from resident increases and new move-ins."
+                    explanation={`Growth from ${projectionStart} through ${projectionEnd}, including resident increases and new move-ins.`}
                   />
                   <HeaderHelp
                     label="Quarterly YoY goal"
-                    explanation="Minimum YoY rate growth required each quarter."
+                    explanation={`Minimum YoY growth required for: ${quarterlyComparisonPeriods}.`}
                   />
                   <HeaderHelp
                     label="Average quarterly YoY"
-                    explanation="Average projected YoY growth across all quarters."
+                    explanation={`Average of: ${quarterlyComparisonPeriods}.`}
                   />
                   <HeaderHelp
                     label="Quarters at goal"
-                    explanation="Projected quarters meeting or exceeding the goal."
+                    explanation={`Periods meeting the goal: ${quarterlyComparisonPeriods}.`}
                   />
                 </div>
                 {plans.map(({ sl, plan }) => {
@@ -1691,76 +1750,76 @@ export default function InhouseIncreases() {
                         <p className="font-semibold">{sl}</p>
                         <p className="text-[11px] text-muted-foreground">{daily ? "Daily rates" : "Monthly rates"}</p>
                       </div>
-                      <div>
+                      <MetricHelp explanation={`${sl} Street Rate increases from ${rate(plan.currentStreetRateMonthly)} to ${rate(plan.recommendedStreetRateMonthly)} for new move-ins.`}>
                         <p className="font-semibold text-blue-600">+{plan.streetIncreasePct.toFixed(1)}%</p>
                         <p className="text-xs text-muted-foreground">{rate(plan.currentStreetRateMonthly)} → {rate(plan.recommendedStreetRateMonthly)}</p>
-                      </div>
-                      <div>
+                      </MetricHelp>
+                      <MetricHelp explanation={`${sl} resident-weighted in-house rate increases from ${rate(plan.summary.currentAvgInhouseRateMonthly)} to ${rate(plan.summary.newAvgInhouseRateMonthly)}.`}>
                         <p className="font-semibold text-[#0f9f9a]">+{plan.summary.weightedAvgIncreasePct.toFixed(1)}%</p>
                         <p className="text-xs text-muted-foreground">{rate(plan.summary.currentAvgInhouseRateMonthly)} → {rate(plan.summary.newAvgInhouseRateMonthly)}</p>
-                      </div>
-                      <div>
+                      </MetricHelp>
+                      <MetricHelp explanation={`${sl} realized-rate growth from ${projectionStart} through ${projectionEnd}, including resident increases and replacement move-ins.`}>
                         <p className="font-semibold text-foreground">
                           {(plan.monthlyRateProjection?.at(-1)?.growthFromCurrentPct ?? plan.summary.weightedAvgIncreasePct) >= 0 ? "+" : ""}
                           {(plan.monthlyRateProjection?.at(-1)?.growthFromCurrentPct ?? plan.summary.weightedAvgIncreasePct).toFixed(1)}%
                         </p>
                         <p className="text-xs text-muted-foreground">End of projection</p>
-                      </div>
-                      <div>
+                      </MetricHelp>
+                      <MetricHelp explanation={`${sl} must achieve ${formatPct(plan.assumptions.rateGrowthTargetPct, 1)} in each period: ${plan.quarters.map(({ quarter, year }) => `Q${quarter} ${year} vs Q${quarter} ${year - 1}`).join("; ")}.`}>
                         <p className="font-semibold">{formatPct(plan.assumptions.rateGrowthTargetPct, 1)}</p>
                         <p className="text-xs text-muted-foreground">Each quarter</p>
-                      </div>
-                      <div>
+                      </MetricHelp>
+                      <MetricHelp explanation={plan.quarters.map(({ quarter, year, yoyGrowthPct }) => `Q${quarter} ${year} vs Q${quarter} ${year - 1}: ${formatPct(yoyGrowthPct, 1)}`).join("; ")}>
                         <p className="font-semibold">{formatPct(averageQuarterlyYoy, 1)}</p>
                         <p className="text-xs text-muted-foreground">
                           {formatPct(averageQuarterlyYoy - plan.assumptions.rateGrowthTargetPct, 1)} vs goal
                         </p>
-                      </div>
-                      <div>
+                      </MetricHelp>
+                      <MetricHelp explanation={plan.quarters.map(({ quarter, year, yoyGrowthPct, passes }) => `Q${quarter} ${year}: ${formatPct(yoyGrowthPct, 1)} — ${passes ? "meets goal" : "below goal"}`).join("; ")}>
                         <p className={cn("font-semibold", quartersMeetingGoal === plan.quarters.length ? "text-emerald-600" : "text-amber-600")}>
                           {quartersMeetingGoal} / {plan.quarters.length}
                         </p>
                         <p className="text-xs text-muted-foreground">Projected quarters</p>
-                      </div>
+                      </MetricHelp>
                     </div>
                   );
                 })}
                 {growthSnapshot && (
                   <div className="grid min-w-[1160px] grid-cols-[minmax(110px,1.2fr)_repeat(6,minmax(125px,1fr))] items-center border-t-2 bg-muted/30 px-4 py-3 text-center">
-                    <div>
+                    <MetricHelp explanation={`${growthSnapshot.residents.toLocaleString()} private-pay residents represented; daily-rate service lines are converted to monthly equivalents.`}>
                       <p className="font-semibold">Combined total</p>
                       <p className="text-[11px] text-muted-foreground">{growthSnapshot.residents.toLocaleString()} residents · monthly equivalent</p>
-                    </div>
-                    <div>
+                    </MetricHelp>
+                    <MetricHelp explanation={`Resident-weighted Street Rate increases from ${formatMoney(growthSnapshot.streetCurrentMonthly)} to ${formatMoney(growthSnapshot.streetRecommendedMonthly)} across selected service lines.`}>
                       <p className="font-semibold text-blue-600">+{growthSnapshot.streetGrowthPct.toFixed(1)}%</p>
                       <p className="text-xs text-muted-foreground">{formatMoney(growthSnapshot.streetCurrentMonthly)} → {formatMoney(growthSnapshot.streetRecommendedMonthly)}</p>
-                    </div>
-                    <div>
+                    </MetricHelp>
+                    <MetricHelp explanation={`Resident-weighted in-house rate increases from ${formatMoney(growthSnapshot.inhouseCurrentMonthly)} to ${formatMoney(growthSnapshot.inhouseNewMonthly)} across selected service lines.`}>
                       <p className="font-semibold text-[#0f9f9a]">+{growthSnapshot.inhouseGrowthPct.toFixed(1)}%</p>
                       <p className="text-xs text-muted-foreground">{formatMoney(growthSnapshot.inhouseCurrentMonthly)} → {formatMoney(growthSnapshot.inhouseNewMonthly)}</p>
-                    </div>
-                    <div>
+                    </MetricHelp>
+                    <MetricHelp explanation={`Resident-weighted realized-rate growth from ${projectionStart} through ${projectionEnd}.`}>
                       <p className="font-semibold text-foreground">
                         {growthSnapshot.annualIncreasePct >= 0 ? "+" : ""}{growthSnapshot.annualIncreasePct.toFixed(1)}%
                       </p>
                       <p className="text-xs text-muted-foreground">End of projection</p>
-                    </div>
-                    <div>
+                    </MetricHelp>
+                    <MetricHelp explanation={`Resident-weighted quarterly goal across selected service lines for: ${quarterlyComparisonPeriods}.`}>
                       <p className="font-semibold">{formatPct(growthSnapshot.quarterlyGoalPct, 1)}</p>
                       <p className="text-xs text-muted-foreground">Resident weighted</p>
-                    </div>
-                    <div>
+                    </MetricHelp>
+                    <MetricHelp explanation={`Resident-weighted average of all service-line quarterly YoY results for: ${quarterlyComparisonPeriods}.`}>
                       <p className="font-semibold">{formatPct(growthSnapshot.averageQuarterlyYoyPct, 1)}</p>
                       <p className="text-xs text-muted-foreground">
                         {formatPct(growthSnapshot.averageQuarterlyYoyPct - growthSnapshot.quarterlyGoalPct, 1)} vs goal
                       </p>
-                    </div>
-                    <div>
+                    </MetricHelp>
+                    <MetricHelp explanation={`${growthSnapshot.quartersMeetingGoal} of ${growthSnapshot.projectedQuarterCount} service-line quarter results meet the goal for: ${quarterlyComparisonPeriods}.`}>
                       <p className={cn("font-semibold", growthSnapshot.quartersMeetingGoal === growthSnapshot.projectedQuarterCount ? "text-emerald-600" : "text-amber-600")}>
                         {growthSnapshot.quartersMeetingGoal} / {growthSnapshot.projectedQuarterCount}
                       </p>
                       <p className="text-xs text-muted-foreground">Service-line quarters</p>
-                    </div>
+                    </MetricHelp>
                   </div>
                 )}
               </div>
