@@ -103,3 +103,4 @@
 - [External benchmark feeds](industry-context-benchmark-feeds.md) — public BLS requests can exhaust anonymous quotas; preserve reviewed snapshots and explicit unavailable/last-known states.
 - [Security pool transactions](security-pool-transactions.md) — MFA and recovery mutations must use one checked-out Neon client; pool-level BEGIN/COMMIT can split across connections.
 - [MatrixCare label recovery](matrixcare-label-recovery.md) — upload metadata keeps filenames, not workbook bytes; repairs must be dry-run, tenant/month-scoped, fill-only, and report unresolved rows.
+- [Move-in date validation](malformed-move-in-dates.md) — PostgreSQL to_date throws on impossible dates; validate calendar components before conversion so turnover skips safely.

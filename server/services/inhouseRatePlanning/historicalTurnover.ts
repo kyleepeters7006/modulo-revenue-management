@@ -146,6 +146,12 @@ export interface HistoricalTurnoverResult {
   /** Last complete month of the measurement window, YYYY-MM. */
   windowEnd: string;
   monthsInWindow: number;
+  /**
+   * Occupied-room transitions skipped because at least one move-in date was
+   * non-empty but malformed or in an unsupported format. This is capped so a
+   * corrupt source file cannot turn a diagnostic into an oversized response.
+   */
+  invalidMoveInDateTransitions: number;
   byServiceLine: ServiceLineTurnover[];
 }
 
@@ -174,6 +180,7 @@ export interface HistoricalTurnoverResult {
  * found, flagged, and the saved assumption stands.
  */
 const MIN_MONTHS_COVERED = 6;
+const MAX_INVALID_MOVE_IN_DATE_TRANSITIONS = 1000;
 
 /**
  * Event rows use the admissions vocabulary, occupancy history uses the
@@ -284,6 +291,55 @@ export function isMassDefaultMoveInDate(sharedRooms: number, lineRooms: number):
   );
 }
 
+/**
+ * The rent-roll sources currently provide either an ISO date or a US
+ * month/day/year date. Do not use `new Date(value)` here: it accepts
+ * browser/runtime-specific formats and normalizes impossible calendar dates.
+ *
+ * The returned value is canonical so callers can compare dates safely.
+ */
+export function parseSupportedMoveInDate(value: unknown): string | null {
+  const raw = value == null ? "" : String(value).trim();
+  if (!raw) return null;
+
+  let year: number;
+  let month: number;
+  let day: number;
+  let match: RegExpExecArray | null;
+
+  if ((match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw))) {
+    year = Number(match[1]);
+    month = Number(match[2]);
+    day = Number(match[3]);
+  } else if ((match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw))) {
+    month = Number(match[1]);
+    day = Number(match[2]);
+    year = Number(match[3]);
+  } else {
+    return null;
+  }
+
+  if (year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    candidate.getUTCFullYear() !== year ||
+    candidate.getUTCMonth() !== month - 1 ||
+    candidate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+export function isMalformedMoveInDate(value: unknown): boolean {
+  const raw = value == null ? "" : String(value).trim();
+  return raw.length > 0 && parseSupportedMoveInDate(raw) === null;
+}
+
 function monthStart(month: string): Date | null {
   if (!/^\d{4}-\d{2}$/.test(month)) return null;
   const [year, monthNumber] = month.split("-").map(Number);
@@ -301,7 +357,9 @@ function isDateInTransitionInterval(
   const nextMonthStart = new Date(
     Date.UTC(currentStart.getUTCFullYear(), currentStart.getUTCMonth() + 1, 1),
   );
-  const moveIn = new Date(`${moveInDate}T00:00:00Z`);
+  const canonical = parseSupportedMoveInDate(moveInDate);
+  if (!canonical) return false;
+  const moveIn = new Date(`${canonical}T00:00:00Z`);
   return moveIn > priorStart && moveIn < nextMonthStart;
 }
 
@@ -321,11 +379,14 @@ export function shouldInferMissingDeparture(
   const currentSl = transition.serviceLine.trim().toUpperCase();
   if (!transition.currentOccupied || !transition.priorOccupied) return false;
   if (!transition.currentMoveInDate || !transition.priorMoveInDate) return false;
+  const currentMoveInDate = parseSupportedMoveInDate(transition.currentMoveInDate);
+  const priorMoveInDate = parseSupportedMoveInDate(transition.priorMoveInDate);
+  if (!currentMoveInDate || !priorMoveInDate) return false;
   if (!isConsecutiveMonth(transition.priorMonth, transition.currentMonth)) return false;
-  if (transition.currentMoveInDate <= transition.priorMoveInDate) return false;
+  if (currentMoveInDate <= priorMoveInDate) return false;
   if (
     !isDateInTransitionInterval(
-      transition.currentMoveInDate,
+      currentMoveInDate,
       transition.priorMonth,
       transition.currentMonth,
     )
@@ -433,21 +494,69 @@ export async function computeHistoricalTurnover(
   // rooms. `suspicious_dates` rejects any line/date shared by more than both 25
   // rooms and 5% of the line's physical rooms. A real portfolio does not move
   // that many residents into one service line on one day.
-  const inferredMoveOutSql = `
-    WITH rent_roll AS MATERIALIZED (
-      SELECT DISTINCT ON (rr.location, rr.service_line, rr.room_number, rr.upload_month)
-             rr.location,
+  const rentRollCte = `
+    WITH rent_roll_parsed AS MATERIALIZED (
+      SELECT rr.location,
              UPPER(rr.service_line) AS sl,
              BTRIM(rr.room_number) AS room_number,
              rr.upload_month AS m,
              rr.occupied_yn,
              rr.payor_type,
              rr.in_house_rate,
+             BTRIM(rr.move_in_date) AS move_in_date_raw,
              CASE
-               WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-                 THEN TO_DATE(rr.move_in_date, 'YYYY-MM-DD')
-               WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$'
-                 THEN TO_DATE(rr.move_in_date, 'MM/DD/YYYY')
+               WHEN BTRIM(rr.move_in_date) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN
+                 CASE
+                   WHEN SUBSTRING(BTRIM(rr.move_in_date) FROM 1 FOR 4)::int
+                        BETWEEN 1 AND 9999 THEN
+                     CASE
+                       WHEN SUBSTRING(BTRIM(rr.move_in_date) FROM 6 FOR 2)::int
+                            BETWEEN 1 AND 12 THEN
+                         CASE
+                           WHEN SUBSTRING(BTRIM(rr.move_in_date) FROM 9 FOR 2)::int
+                                BETWEEN 1 AND EXTRACT(
+                                  DAY FROM (
+                                    MAKE_DATE(
+                                      SUBSTRING(BTRIM(rr.move_in_date) FROM 1 FOR 4)::int,
+                                      SUBSTRING(BTRIM(rr.move_in_date) FROM 6 FOR 2)::int,
+                                      1
+                                    ) + INTERVAL '1 month' - INTERVAL '1 day'
+                                  )
+                                )
+                             THEN MAKE_DATE(
+                               SUBSTRING(BTRIM(rr.move_in_date) FROM 1 FOR 4)::int,
+                               SUBSTRING(BTRIM(rr.move_in_date) FROM 6 FOR 2)::int,
+                               SUBSTRING(BTRIM(rr.move_in_date) FROM 9 FOR 2)::int
+                             )
+                         END
+                     END
+                 END
+               WHEN BTRIM(rr.move_in_date) ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$' THEN
+                 CASE
+                   WHEN SPLIT_PART(BTRIM(rr.move_in_date), '/', 3)::int
+                        BETWEEN 1 AND 9999 THEN
+                     CASE
+                       WHEN SPLIT_PART(BTRIM(rr.move_in_date), '/', 1)::int
+                            BETWEEN 1 AND 12 THEN
+                         CASE
+                           WHEN SPLIT_PART(BTRIM(rr.move_in_date), '/', 2)::int
+                                BETWEEN 1 AND EXTRACT(
+                                  DAY FROM (
+                                    MAKE_DATE(
+                                      SPLIT_PART(BTRIM(rr.move_in_date), '/', 3)::int,
+                                      SPLIT_PART(BTRIM(rr.move_in_date), '/', 1)::int,
+                                      1
+                                    ) + INTERVAL '1 month' - INTERVAL '1 day'
+                                  )
+                                )
+                             THEN MAKE_DATE(
+                               SPLIT_PART(BTRIM(rr.move_in_date), '/', 3)::int,
+                               SPLIT_PART(BTRIM(rr.move_in_date), '/', 1)::int,
+                               SPLIT_PART(BTRIM(rr.move_in_date), '/', 2)::int
+                             )
+                         END
+                     END
+                 END
              END AS move_in_date
         FROM rent_roll_data rr
        WHERE rr.client_id = $1
@@ -457,22 +566,17 @@ export async function computeHistoricalTurnover(
          AND rr.room_number IS NOT NULL
          AND ${bBedExclusionSql("rr.")}
          ${locationName ? "AND rr.location = $4" : ""}
-       ORDER BY rr.location, rr.service_line, rr.room_number, rr.upload_month,
-                rr.occupied_yn DESC,
-                CASE
-                  WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-                    OR rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$'
-                    THEN 1
-                  ELSE 0
-                END DESC,
-                CASE
-                  WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-                    THEN TO_DATE(rr.move_in_date, 'YYYY-MM-DD')
-                  WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$'
-                    THEN TO_DATE(rr.move_in_date, 'MM/DD/YYYY')
-                END DESC NULLS LAST
-                ,
-                (rr.in_house_rate IS NOT NULL) DESC
+    ),
+    rent_roll AS MATERIALIZED (
+      SELECT DISTINCT ON (location, sl, room_number, m)
+             location, sl, room_number, m, occupied_yn, payor_type,
+             in_house_rate, move_in_date_raw, move_in_date
+        FROM rent_roll_parsed
+       ORDER BY location, sl, room_number, m,
+                occupied_yn DESC,
+                (move_in_date IS NOT NULL) DESC,
+                move_in_date DESC NULLS LAST,
+                (in_house_rate IS NOT NULL) DESC
     ),
     line_room_counts AS (
       SELECT sl, COUNT(DISTINCT location || '|' || room_number)::float AS rooms
@@ -512,6 +616,13 @@ export async function computeHistoricalTurnover(
              current.payor_type,
              to_char(current.move_in_date, 'YYYY-MM-DD') AS current_move_in_date,
              to_char(prior.move_in_date, 'YYYY-MM-DD') AS prior_move_in_date,
+             (
+               (current.move_in_date_raw IS NOT NULL AND current.move_in_date_raw <> ''
+                AND current.move_in_date IS NULL)
+               OR
+               (prior.move_in_date_raw IS NOT NULL AND prior.move_in_date_raw <> ''
+                AND prior.move_in_date IS NULL)
+             ) AS invalid_move_in_date,
              bad.move_in_date IS NOT NULL AS suspicious_date,
              o.room_number IS NOT NULL AS recorded_departure,
              prior.m AS prior_m
@@ -532,14 +643,51 @@ export async function computeHistoricalTurnover(
          AND o.room_number = current.room_number
        WHERE current.occupied_yn = true
          AND prior.occupied_yn = true
-         AND current.move_in_date IS NOT NULL
-         AND prior.move_in_date IS NOT NULL
-         AND current.move_in_date > prior.move_in_date
-         AND current.move_in_date > to_date(prior.m, 'YYYY-MM')
-         AND current.move_in_date <
-             to_date(current.m, 'YYYY-MM') + interval '1 month'
-    )
+         AND (
+           (current.move_in_date_raw IS NOT NULL AND current.move_in_date_raw <> ''
+            AND current.move_in_date IS NULL)
+           OR
+           (prior.move_in_date_raw IS NOT NULL AND prior.move_in_date_raw <> ''
+            AND prior.move_in_date IS NULL)
+           OR (
+             current.move_in_date IS NOT NULL
+             AND prior.move_in_date IS NOT NULL
+             AND current.move_in_date > prior.move_in_date
+             AND current.move_in_date > to_date(prior.m, 'YYYY-MM')
+             AND current.move_in_date <
+                 to_date(current.m, 'YYYY-MM') + interval '1 month'
+           )
+         )
+    )`;
+
+  const inferredMoveOutSql = `
+    ${rentRollCte}
     SELECT * FROM missing_room_months`;
+
+  const invalidMoveInDateSql = `
+    ${rentRollCte},
+    invalid_move_in_date_transitions AS (
+      SELECT 1
+        FROM rent_roll current
+        JOIN rent_roll prior
+          ON prior.location = current.location
+         AND prior.sl = current.sl
+         AND prior.room_number = current.room_number
+         AND to_date(prior.m, 'YYYY-MM') =
+             to_date(current.m, 'YYYY-MM') - interval '1 month'
+       WHERE current.occupied_yn = true
+         AND prior.occupied_yn = true
+         AND (
+           (current.move_in_date_raw IS NOT NULL AND current.move_in_date_raw <> ''
+            AND current.move_in_date IS NULL)
+           OR
+           (prior.move_in_date_raw IS NOT NULL AND prior.move_in_date_raw <> ''
+            AND prior.move_in_date IS NULL)
+         )
+       LIMIT ${MAX_INVALID_MOVE_IN_DATE_TRANSITIONS}
+    )
+    SELECT COUNT(*)::int AS invalid_move_in_date_transitions
+      FROM invalid_move_in_date_transitions`;
 
   // Occupied units per month from the authoritative occupancy source. Left
   // per-month rather than pre-averaged: a campus whose history lags has fewer
@@ -575,9 +723,10 @@ export async function computeHistoricalTurnover(
   const inferredParams: any[] = locationName
     ? [clientId, windowStart, windowEnd, locationName]
     : [clientId, windowStart, windowEnd];
-  const [moveOutRes, inferredMoveOutRes, occRes, shareRes] = await Promise.all([
+  const [moveOutRes, inferredMoveOutRes, invalidMoveInDateRes, occRes, shareRes] = await Promise.all([
     pool.query(moveOutSql, eventParams),
     pool.query(inferredMoveOutSql, inferredParams),
+    pool.query(invalidMoveInDateSql, inferredParams),
     pool.query(occSql, occParams),
     pool.query(shareSql, shareParams),
   ]);
@@ -595,8 +744,20 @@ export async function computeHistoricalTurnover(
     }
     byMonth.set(r.m, (byMonth.get(r.m) ?? 0) + Number(r.n));
   }
+  const invalidMoveInDateTransitions = Math.min(
+    Number(invalidMoveInDateRes.rows[0]?.invalid_move_in_date_transitions ?? 0),
+    MAX_INVALID_MOVE_IN_DATE_TRANSITIONS,
+  );
+  if (invalidMoveInDateTransitions > 0) {
+    console.warn(
+      `[historical-turnover] skipped ${invalidMoveInDateTransitions} occupied-room transition(s) with malformed or unsupported move-in dates ` +
+      `(client=${clientId}, window=${windowStart}..${windowEnd})`,
+    );
+  }
+
   const inferredBySlMonth = new Map<string, Map<string, number>>();
   for (const r of inferredMoveOutRes.rows) {
+    if (r.invalid_move_in_date) continue;
     if (
       !shouldInferMissingDeparture({
         serviceLine: r.sl,
@@ -726,5 +887,11 @@ export async function computeHistoricalTurnover(
   }
 
   out.sort((a, b) => a.serviceLine.localeCompare(b.serviceLine));
-  return { windowStart, windowEnd, monthsInWindow, byServiceLine: out };
+  return {
+    windowStart,
+    windowEnd,
+    monthsInWindow,
+    invalidMoveInDateTransitions,
+    byServiceLine: out,
+  };
 }

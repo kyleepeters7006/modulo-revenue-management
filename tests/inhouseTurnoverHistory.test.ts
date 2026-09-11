@@ -48,7 +48,9 @@ import { pool } from "../server/db";
 import { privatePaySql } from "../shared/payerScope";
 import {
   computeHistoricalTurnover,
+  isMalformedMoveInDate,
   isMassDefaultMoveInDate,
+  parseSupportedMoveInDate,
   moveOutPayerScopeSql,
   shouldInferMissingDeparture,
 } from "../server/services/inhouseRatePlanning/historicalTurnover";
@@ -110,6 +112,11 @@ function verifyMoveInDateInferenceFixtures() {
       true,
     ],
     [
+      "a supported month/day/year replacement",
+      { ...base, currentMoveInDate: "2/15/2026" },
+      true,
+    ],
+    [
       "a rate-only change for the same resident",
       {
         ...base,
@@ -131,6 +138,16 @@ function verifyMoveInDateInferenceFixtures() {
     [
       "a mass-default date replacement",
       { ...base, suspiciousDate: true },
+      false,
+    ],
+    [
+      "an impossible calendar date",
+      { ...base, currentMoveInDate: "2026-02-31" },
+      false,
+    ],
+    [
+      "an unsupported date format",
+      { ...base, currentMoveInDate: "2026.02.15" },
       false,
     ],
     [
@@ -160,8 +177,8 @@ function verifyMoveInDateInferenceFixtures() {
     );
   }
   ok(
-    "the fixture produces exactly two inferred departures",
-    inferred.length === 2,
+    "the fixture produces exactly three inferred departures",
+    inferred.length === 3,
     `inferred ${inferred.length} of ${cases.length}`,
   );
   ok(
@@ -175,6 +192,26 @@ function verifyMoveInDateInferenceFixtures() {
   ok(
     "the mass-default threshold is strict at exactly 5% of a line",
     !isMassDefaultMoveInDate(26, 520),
+  );
+  ok(
+    "ISO move-in dates are canonicalized without changing the date",
+    parseSupportedMoveInDate("2026-02-15") === "2026-02-15",
+  );
+  ok(
+    "US move-in dates are canonicalized for turnover comparisons",
+    parseSupportedMoveInDate("2/15/2026") === "2026-02-15",
+  );
+  ok(
+    "impossible move-in dates are reported as malformed",
+    isMalformedMoveInDate("2026-02-31"),
+  );
+  ok(
+    "unsupported move-in date formats are reported as malformed",
+    isMalformedMoveInDate("2026.02.15"),
+  );
+  ok(
+    "missing move-in dates are not reported as malformed",
+    !isMalformedMoveInDate(null) && !isMalformedMoveInDate(""),
   );
 }
 
@@ -364,6 +401,13 @@ async function runLiveDataAudit() {
   const result = await computeHistoricalTurnover(clientId, null, null);
   ok("a client with events produces a result", result !== null);
   if (!result) return;
+  ok(
+    "turnover exposes a bounded malformed-date transition diagnostic",
+    Number.isInteger(result.invalidMoveInDateTransitions) &&
+      result.invalidMoveInDateTransitions >= 0 &&
+      result.invalidMoveInDateTransitions <= 1000,
+    `got ${result.invalidMoveInDateTransitions}`,
+  );
 
   // ── The measurement window ────────────────────────────────────────────────
 

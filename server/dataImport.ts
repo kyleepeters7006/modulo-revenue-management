@@ -16,6 +16,7 @@ import {
 } from '@shared/schema';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import { normalizeRoomType } from '@shared/roomTypes';
+import { isMalformedMoveInDate } from './services/inhouseRatePlanning/historicalTurnover';
 
 export interface ImportStats {
   totalRecords: number;
@@ -26,6 +27,52 @@ export interface ImportStats {
   errors: string[];
   warning?: string;
   columnWarning?: string;
+  moveInDateValidation?: MoveInDateValidation;
+}
+
+export interface MoveInDateValidation {
+  clientId: string | null;
+  uploadMonth: string;
+  malformedCount: number;
+  sampleValues: string[];
+}
+
+const MOVE_IN_DATE_SAMPLE_LIMIT = 5;
+
+function newMoveInDateValidation(
+  clientId: string | undefined,
+  uploadMonth: string,
+): MoveInDateValidation {
+  return {
+    clientId: clientId ?? null,
+    uploadMonth,
+    malformedCount: 0,
+    sampleValues: [],
+  };
+}
+
+function recordMoveInDateValidation(
+  validation: MoveInDateValidation,
+  value: unknown,
+): void {
+  if (!isMalformedMoveInDate(value)) return;
+  validation.malformedCount++;
+  const raw = String(value).trim();
+  if (
+    validation.sampleValues.length < MOVE_IN_DATE_SAMPLE_LIMIT &&
+    !validation.sampleValues.includes(raw)
+  ) {
+    validation.sampleValues.push(raw);
+  }
+}
+
+function logMoveInDateValidation(validation: MoveInDateValidation): void {
+  if (validation.malformedCount === 0) return;
+  console.warn(
+    `[rent-roll-import] malformed or unsupported move-in dates: ` +
+    `client=${validation.clientId ?? 'unknown'} uploadMonth=${validation.uploadMonth} ` +
+    `count=${validation.malformedCount} samples=${validation.sampleValues.join(', ')}`,
+  );
 }
 
 /**
@@ -489,7 +536,7 @@ export async function importRentRollCSV(
   fileBuffer: Buffer,
   uploadMonth: string,
   fileName: string,
-  _clientId?: string
+  clientId?: string
 ): Promise<ImportStats> {
   const stats: ImportStats = {
     totalRecords: 0,
@@ -498,6 +545,7 @@ export async function importRentRollCSV(
     mappedRecords: 0,
     unmappedRecords: 0,
     errors: [],
+    moveInDateValidation: newMoveInDateValidation(clientId, uploadMonth),
   };
 
   return new Promise((resolve) => {
@@ -520,6 +568,9 @@ export async function importRentRollCSV(
               try {
                 const locationName = row['Location'] || row['location'] || '';
                 const locationId = locationMap.get(locationName.toLowerCase());
+
+                const moveInDate = row['Move In Date'] || row['move_in_date'] || null;
+                recordMoveInDateValidation(stats.moveInDateValidation!, moveInDate);
 
                 const record: InsertRentRollHistory = {
                   uploadMonth,
@@ -552,7 +603,7 @@ export async function importRentRollCSV(
                   competitorFinalRate: parseFloat(row['Competitor Final Rate'] || row['competitor_final_rate']) || null,
                   residentId: row['Resident ID'] || row['resident_id'] || null,
                   residentName: row['Resident Name'] || row['resident_name'] || null,
-                  moveInDate: row['Move In Date'] || row['move_in_date'] || null,
+                  moveInDate,
                   moveOutDate: (() => {
                     const dv = parseInt(row['Days Vacant'] || row['days_vacant']) || 0;
                     const occupied = parseBoolean(row['Occupied Y/N'] || row['occupied_yn']);
@@ -589,6 +640,7 @@ export async function importRentRollCSV(
           stats.errors.push(`Transaction error: ${txError.message}`);
         }
 
+        logMoveInDateValidation(stats.moveInDateValidation!);
         await warnIfLegacyRentRollMonthIsEmpty(stats, uploadMonth, fileName);
         resolve(stats);
       },
@@ -1562,6 +1614,8 @@ export async function importMatrixCareRentRollCSV(
                 const serviceLine = mapServiceLine(row['Service1']);
                 const roomBed = row['Room_Bed'] || '';
                 const roomNumber = roomBed.split('/')[0] || roomBed; // "101/A" -> "101"
+                const moveInDate = row['MoveInDate'] || null;
+                recordMoveInDateValidation(stats.moveInDateValidation!, moveInDate);
                 
                 // Check for duplicates - use locationName as fallback to prevent cross-campus collisions
                 const locationKey = locationId || locationName || 'unknown';
@@ -1693,7 +1747,7 @@ export async function importMatrixCareRentRollCSV(
                   competitorFinalRate: null,
                   residentId: patientId || null,
                   residentName: null, // Not available in this export
-                  moveInDate: row['MoveInDate'] || null,
+                  moveInDate,
                   moveOutDate: row['MoveOutDate'] || null,
                   payorType: row['PayerName'] || row['DisplayPayer'] || null,
                   admissionStatus: null,
@@ -1737,6 +1791,7 @@ export async function importMatrixCareRentRollCSV(
           stats.errors.push(`Transaction error: ${txError.message}`);
         }
 
+        logMoveInDateValidation(stats.moveInDateValidation!);
         await warnIfLegacyRentRollMonthIsEmpty(stats, uploadMonth, fileName);
         resolve(stats);
       },
