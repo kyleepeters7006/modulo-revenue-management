@@ -706,7 +706,6 @@ export default function InhouseIncreases() {
   >({});
   const [assumptionsTouched, setAssumptionsTouched] = useState(false);
   const [, startAssumptionTransition] = useTransition();
-  const [planCacheReady, setPlanCacheReady] = useState(false);
   const [plans, setPlans] = useState<PlanWithSl[] | null>(null);
   const [expandedQuarter, setExpandedQuarter] = useState<string | null>(null);
   const [expandedResident, setExpandedResident] = useState<string | null>(null);
@@ -747,7 +746,6 @@ export default function InhouseIncreases() {
   // the operator later filters to either line individually (and vice versa).
   useEffect(() => {
     let cancelled = false;
-    setPlanCacheReady(false);
     setPlans(null);
     setVisibleCount(50);
     setExpandedResident(null);
@@ -787,7 +785,6 @@ export default function InhouseIncreases() {
       setExpandedQuarter(first?.plan.bindingQuarterLabel
         ? `${first.sl}-${first.plan.bindingQuarterLabel}`
         : null);
-      setPlanCacheReady(true);
     })();
     return () => {
       cancelled = true;
@@ -886,9 +883,12 @@ export default function InhouseIncreases() {
       scopeLocationId === null
         ? readCachedCompanyTurnover(storageIdentityKey)
         : undefined,
-    enabled: planCacheReady,
+    // Turnover is independent of restoring the last calculated plan. Start
+    // both requests together so a slow IndexedDB read cannot add latency to
+    // the historical assumptions request.
+    enabled: true,
     // Paint the identity-scoped browser cache immediately, then refresh it
-    // after the faster IndexedDB plan restore has completed.
+    // while the independent IndexedDB plan restore continues.
     staleTime: 0,
     gcTime: 30 * 60 * 1000,
     refetchOnMount: true,

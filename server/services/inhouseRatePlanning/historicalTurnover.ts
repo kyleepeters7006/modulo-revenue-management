@@ -995,11 +995,13 @@ export async function computeHistoricalTurnover(
          )
     )`;
 
+  // The malformed-date diagnostic is derived from the same transition rows as
+  // inference. Keeping it as a second query used to parse and sort the entire
+  // rent roll a second time, which dominated the portfolio request on large
+  // clients. The invalid transition CTE is still capped exactly as before;
+  // it now shares the materialized rent_roll and consecutive-month join with
+  // the inferred departure result.
   const inferredMoveOutSql = `
-    ${rentRollCte}
-    SELECT * FROM missing_room_months`;
-
-  const invalidMoveInDateSql = `
     ${rentRollCte},
     invalid_move_in_date_transitions AS (
       SELECT 1
@@ -1021,8 +1023,10 @@ export async function computeHistoricalTurnover(
          )
        LIMIT ${MAX_INVALID_MOVE_IN_DATE_TRANSITIONS}
     )
-    SELECT COUNT(*)::int AS invalid_move_in_date_transitions
-      FROM invalid_move_in_date_transitions`;
+    SELECT missing_room_months.*,
+           (SELECT COUNT(*)::int FROM invalid_move_in_date_transitions)
+             AS invalid_move_in_date_transitions
+      FROM missing_room_months`;
 
   // Occupied units per month from the authoritative occupancy source. Left
   // per-month rather than pre-averaged: a campus whose history lags has fewer
@@ -1058,10 +1062,9 @@ export async function computeHistoricalTurnover(
   const inferredParams: any[] = locationName
     ? [clientId, windowStart, windowEnd, locationName]
     : [clientId, windowStart, windowEnd];
-  const [moveOutRes, inferredMoveOutRes, invalidMoveInDateRes, occRes, shareRes] = await Promise.all([
+  const [moveOutRes, inferredMoveOutRes, occRes, shareRes] = await Promise.all([
     pool.query(moveOutSql, eventParams),
     pool.query(inferredMoveOutSql, inferredParams),
-    pool.query(invalidMoveInDateSql, inferredParams),
     pool.query(occSql, occParams),
     pool.query(shareSql, shareParams),
   ]);
@@ -1080,7 +1083,7 @@ export async function computeHistoricalTurnover(
     byMonth.set(r.m, (byMonth.get(r.m) ?? 0) + Number(r.n));
   }
   const invalidMoveInDateTransitions = Math.min(
-    Number(invalidMoveInDateRes.rows[0]?.invalid_move_in_date_transitions ?? 0),
+    Number(inferredMoveOutRes.rows[0]?.invalid_move_in_date_transitions ?? 0),
     MAX_INVALID_MOVE_IN_DATE_TRANSITIONS,
   );
   if (invalidMoveInDateTransitions > 0) {
