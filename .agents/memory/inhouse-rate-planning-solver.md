@@ -108,26 +108,32 @@ Three rules make that room match trustworthy:
   private pay is precisely the artifact being removed. Hold the historical side
   to the same base-product and plausibility rules, but not the same payer.
 
-## Street Rate is the last lever; the competitive gap decides the balance
+## Favor in-house growth; portfolio service lines keep a 1% Street premium
 
 Growth is taken from in-house resident increases wherever the guardrails allow.
 The quarterly growth target is NOT a Street Rate floor. Street only moves for
 one of three reasons: the operator's configured minimum, a positive gap to the
 desired position versus the Top Competitor, or in-house being exhausted while
-quarters still fail.
+quarters still fail. Competitive pressure is capped at the growth objective.
+
+For a whole-portfolio service-line plan only, the resident-weighted recommended
+Street Rate must finish at least 1% above that service line's resident-weighted
+planned in-house average. This is not a location-level rule.
 
 **Why:** using the growth objective as a street floor raised the asking rate by
 the full target on every scope, even when resident increases alone cleared every
-quarter. That prices the scope against its market for no gain. The variance to
-Top Competitor is what expresses whether raising the asking rate is competitively
-justified, so it — not the growth target — decides how much street carries.
+quarter. Letting competitive pressure exceed the objective pushed Street Rate
+too hard despite weaker sales certainty. Conversely, enforcing the 1% premium
+at every location needlessly raised local asking rates; the product owner
+explicitly confirmed that the relationship is by service line at portfolio level.
 
-**How to apply:** keep the floor at max(configured minimum, positive competitive
-gap) and let feasibility (which already models move-ins arriving at street) pull
-street higher only as a last resort. Bisection stays valid: maximum in-house
-capacity is constant in the street increase while replacement revenue is
-nondecreasing in it. In-house rates are explicitly allowed to finish above
-Street Rate — never add a parity guard that lifts street to meet them.
+**How to apply:** anchor the planned average in-house increase at the growth
+objective within resident guardrails. Keep the Street floor at the maximum of
+the configured minimum and the positive competitive gap capped at the objective;
+let feasibility pull Street higher only as a last resort. Apply the 1% premium
+only when location scope is absent, and keep both Street ceilings authoritative.
+Warn if a ceiling prevents the service-line portfolio premium. Individual
+locations and residents may legitimately finish above Street Rate.
 
 ## `computed || fallback` erases a legitimate zero
 

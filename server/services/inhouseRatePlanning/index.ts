@@ -272,6 +272,7 @@ export async function calculatePlanDetailed(
     currentStreetRateMonthly,
     priorJanuaryStreetRateMonthly,
     topCompetitorRateMonthly,
+    enforcePortfolioStreetPremium: input.location == null && input.locationId == null,
     rateWeightBasis: daily ? "resident_days" : "resident_months",
   });
 
@@ -439,13 +440,17 @@ export async function calculatePlanDetailed(
     priorJanuaryMonth,
     januaryMatchCoverage: matchCoverage,
   });
-
-  // The asking rate is supposed to clear the planned in-house average. When a
-  // ceiling stops that happening the operator has to see it, because the plan
-  // then prices new move-ins at or under current residents.
-  if (solved.streetPremiumBelowMinimum) {
+  if (
+    input.location == null &&
+    input.locationId == null &&
+    solved.recommendedStreetMonthly < solved.postIncreaseAvgRateMonthly * 1.01 - 0.01
+  ) {
+    const premiumPct =
+      solved.postIncreaseAvgRateMonthly > 0
+        ? (solved.recommendedStreetMonthly / solved.postIncreaseAvgRateMonthly - 1) * 100
+        : 0;
     warnings.push(
-      `The recommended Street Rate ends ${solved.streetPremiumOverInhousePct.toFixed(1)}% from the planned average in-house rate, short of the 1.0% minimum premium. The Street Rate ceiling (maximum increase or the January-to-January limit) is what stops it clearing.`,
+      `${input.serviceLine} portfolio Street Rate ends ${premiumPct.toFixed(1)}% above its planned average in-house rate, below the 1.0% floor because the configured Street Rate ceiling or January-to-January limit binds.`,
     );
   }
 
@@ -470,7 +475,6 @@ export async function calculatePlanDetailed(
     currentStreetRateDisplay: toDisplay(currentStreetRateMonthly),
     recommendedStreetRateDisplay: toDisplay(solved.recommendedStreetMonthly),
     adjustedTopCompetitorRateMonthly: topCompetitorRateMonthly,
-    streetPremiumOverInhousePct: solved.streetPremiumOverInhousePct,
 
     requiredWeightedAvgIncreasePct: solved.requiredAvgIncrease * 100,
 

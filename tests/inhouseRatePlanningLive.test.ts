@@ -877,6 +877,20 @@ async function main() {
       `${scope.label}: only single-occupant standard-stay base rates enter the plan`,
       base.residents.every((r) => r.rateProduct === "base" && !r.isCompanionBed),
     );
+    if (scope.location == null) {
+      const premiumPct =
+        (base.recommendedStreetRateMonthly / base.summary.newAvgInhouseRateMonthly - 1) * 100;
+      ok(
+        `${scope.label}: portfolio Street Rate is at least 1% above planned in-house, or names the binding ceiling`,
+        premiumPct >= 1 - EPS_PCT ||
+          base.warnings.some(
+            (warning) =>
+              warning.includes("below the 1.0% floor") &&
+              warning.includes("ceiling"),
+          ),
+        `premium=${premiumPct.toFixed(3)}%; warnings=${base.warnings.join(" | ")}`,
+      );
+    }
 
     // A non-zero minimum, which must still not push anyone through street.
     await runScope(scope, "min 2% / max 5%", {

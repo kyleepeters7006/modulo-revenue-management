@@ -29,7 +29,7 @@ async function main() {
       const premium =
         (plan.recommendedStreetRateMonthly / plan.summary.newAvgInhouseRateMonthly - 1) * 100;
       console.log(
-        `${sl.padEnd(8)} street +${plan.streetIncreasePct.toFixed(2)}%  inhouse +${plan.summary.weightedAvgIncreasePct.toFixed(2)}%  premium ${premium.toFixed(2)}%  reported ${(plan.streetPremiumOverInhousePct ?? NaN).toFixed(2)}%  feasible=${plan.feasible}`,
+        `${sl.padEnd(8)} street +${plan.streetIncreasePct.toFixed(2)}%  inhouse +${plan.summary.weightedAvgIncreasePct.toFixed(2)}%  premium ${premium.toFixed(2)}%  feasible=${plan.feasible}`,
       );
     } catch (err) {
       console.log(`${sl.padEnd(8)} skipped: ${(err as Error).message.slice(0, 80)}`);

@@ -1331,11 +1331,6 @@ export default function InhouseIncreases() {
       inhouseGrowthPct: inhouseCurrentMonthly > 0
         ? (inhouseNewMonthly / inhouseCurrentMonthly - 1) * 100
         : 0,
-      // Both sides are resident-weighted monthly equivalents, so the combined
-      // premium is the same comparison each service line makes on its own row.
-      streetPremiumOverInhousePct: inhouseNewMonthly > 0
-        ? (streetRecommendedMonthly / inhouseNewMonthly - 1) * 100
-        : null,
       adjustedTopCompCurrentMonthly: adjustedTopCompResidents > 0
         ? adjustedTopCompCurrentMonthly / adjustedTopCompResidents
         : null,
@@ -1802,7 +1797,7 @@ export default function InhouseIncreases() {
                   />
                   <HeaderHelp
                     label="Street Rate"
-                    explanation="Current versus recommended rate for new move-ins, with how far the recommended rate ends above the planned average in-house rate. Planning holds that premium to at least 1%."
+                    explanation="Current versus recommended rate for new move-ins. For a portfolio view, each service line stays at least 1% above its resident-weighted planned in-house average; individual locations are not forced to meet that floor."
                   />
                   <HeaderHelp
                     label="Adjusted Top Competitor"
@@ -1864,9 +1859,9 @@ export default function InhouseIncreases() {
                       <div>
                         <p className="font-semibold text-blue-600">+{plan.streetIncreasePct.toFixed(1)}%</p>
                         <p className="text-xs text-muted-foreground">{rate(plan.currentStreetRateMonthly)} → {rate(plan.recommendedStreetRateMonthly)}</p>
-                        {streetPremium != null && (
+                        {scopeLocationId == null && streetPremium != null && (
                           <p className={cn("text-[11px]", streetPremium >= 1 ? "text-muted-foreground" : "text-amber-600")}>
-                            {formatPct(streetPremium, 1)} over in-house
+                            {formatPct(streetPremium, 1)} over in-house portfolio avg
                           </p>
                         )}
                       </div>
@@ -1928,11 +1923,6 @@ export default function InhouseIncreases() {
                     <div>
                       <p className="font-semibold text-blue-600">+{growthSnapshot.streetGrowthPct.toFixed(1)}%</p>
                       <p className="text-xs text-muted-foreground">{formatMoney(growthSnapshot.streetCurrentMonthly)} → {formatMoney(growthSnapshot.streetRecommendedMonthly)}</p>
-                      {growthSnapshot.streetPremiumOverInhousePct != null && (
-                        <p className={cn("text-[11px]", growthSnapshot.streetPremiumOverInhousePct >= 1 ? "text-muted-foreground" : "text-amber-600")}>
-                          {formatPct(growthSnapshot.streetPremiumOverInhousePct, 1)} over in-house
-                        </p>
-                      )}
                     </div>
                     <div className="space-y-0.5">
                       {growthSnapshot.adjustedTopCompCurrentMonthly != null &&

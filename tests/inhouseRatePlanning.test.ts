@@ -400,6 +400,7 @@ console.log("\n-- 6. An achievable target is balanced across Street and in-house
     quarters: QUARTERS,
     anchorMs: ANCHOR_MS,
     currentStreetRateMonthly: 5000,
+    enforcePortfolioStreetPremium: true,
   });
   ok("plan is feasible", result.feasible);
   ok(
@@ -412,9 +413,8 @@ console.log("\n-- 6. An achievable target is balanced across Street and in-house
   );
   ok(
     "the recommended Street Rate still clears the planned in-house average by 1%",
-    result.streetPremiumOverInhousePct >= 1 - 1e-6,
+    result.recommendedStreetMonthly >= result.postIncreaseAvgRateMonthly * 1.01 - 0.01,
   );
-  ok("the premium is not reported as short", !result.streetPremiumBelowMinimum);
   ok("every quarter passes", result.quarterResults.every((q) => q.passes));
   ok("no infeasibility block", result.infeasibility === null);
   ok(
@@ -440,6 +440,7 @@ console.log("\n-- 6a. Street Rate keeps a 1% premium over the planned in-house a
     quarters: QUARTERS,
     anchorMs: ANCHOR_MS,
     currentStreetRateMonthly: 5000,
+    enforcePortfolioStreetPremium: true,
   });
   const plannedInhouse = atStreet.postIncreaseAvgRateMonthly;
   ok(
@@ -447,12 +448,30 @@ console.log("\n-- 6a. Street Rate keeps a 1% premium over the planned in-house a
     atStreet.recommendedStreetMonthly >= plannedInhouse * 1.01 - 0.01,
   );
   near(
-    "the reported premium is the same comparison the table shows",
-    atStreet.streetPremiumOverInhousePct,
+    "the portfolio service-line premium reaches 1%",
     (atStreet.recommendedStreetMonthly / plannedInhouse - 1) * 100,
-    1e-9,
+    1,
+    0.001,
   );
-  ok("and it is not flagged as short", !atStreet.streetPremiumBelowMinimum);
+
+  const local = solvePlan({
+    residents: [
+      resident("A", 4950, 5000),
+      resident("B", 4980, 5000),
+      resident("C", 5000, 5000),
+      resident("D", 5020, 5000),
+    ],
+    assumptions: assumptions({ rateGrowthTargetPct: 5, minStreetIncreasePct: 0 }),
+    baselineByQuarter: flatBaseline(4800),
+    quarters: QUARTERS,
+    anchorMs: ANCHOR_MS,
+    currentStreetRateMonthly: 5000,
+    enforcePortfolioStreetPremium: false,
+  });
+  ok(
+    "a location-level plan is not pushed up merely to clear its own in-house average",
+    local.streetIncrease < atStreet.streetIncrease - 1e-6,
+  );
 
   // With the Street Rate ceiling at zero the premium cannot be honored, and
   // that has to be reported rather than quietly ignored.
@@ -467,9 +486,13 @@ console.log("\n-- 6a. Street Rate keeps a 1% premium over the planned in-house a
     quarters: QUARTERS,
     anchorMs: ANCHOR_MS,
     currentStreetRateMonthly: 5000,
+    enforcePortfolioStreetPremium: true,
   });
   near("the ceiling holds Street Rate flat", capped.streetIncrease * 100, 0, 1e-9);
-  ok("the shortfall against the 1% premium is reported", capped.streetPremiumBelowMinimum);
+  ok(
+    "the hard ceiling still wins when the portfolio premium cannot be reached",
+    capped.recommendedStreetMonthly < capped.postIncreaseAvgRateMonthly * 1.01,
+  );
 }
 
 console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rate inputs --");

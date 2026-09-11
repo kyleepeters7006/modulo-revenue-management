@@ -471,6 +471,8 @@ export interface SolveInput {
   priorJanuaryStreetRateMonthly?: number;
   /** Matched Top Competitor benchmark for this exact scope, normalized monthly. */
   topCompetitorRateMonthly?: number | null;
+  /** Enforce a 1% Street-over-in-house floor for a portfolio service-line aggregate. */
+  enforcePortfolioStreetPremium?: boolean;
   /** Monthly for AL/AL-MC/SL/VIL, daily for HC/HC-MC. */
   rateWeightBasis?: "resident_months" | "resident_days";
 }
@@ -486,10 +488,6 @@ export interface SolveOutput {
   infeasibility: Infeasibility | null;
   existingAvgRateMonthly: number;
   postIncreaseAvgRateMonthly: number;
-  /** Recommended Street Rate as a percentage above the post-increase in-house average. */
-  streetPremiumOverInhousePct: number;
-  /** True when a ceiling stopped that premium reaching its required minimum. */
-  streetPremiumBelowMinimum: boolean;
 }
 
 interface EvalContext {
@@ -607,22 +605,13 @@ function requiredAvgIncreaseAt(ctx: EvalContext, streetIncrease: number, ceiling
   return hi;
 }
 
-/**
- * The recommended Street Rate must stay at least this far above the planned
- * average in-house rate. In-house increases are contracted revenue while a
- * Street Rate increase still has to be sold, but an asking rate at or below
- * what current residents pay prices new move-ins under the people already
- * living there.
- */
-export const MIN_STREET_PREMIUM_OVER_INHOUSE = 0.01;
-
 export function solvePlan(input: SolveInput): SolveOutput {
   const ctx = buildContext(input);
   // In-house increases carry the growth objective, because that revenue is
   // already contracted with residents who are here. Street Rate is the
   // secondary lever: it takes the configured minimum, whatever competitive
-  // position calls for up to the objective, the required premium over
-  // in-house, and any remaining gap the resident guardrails cannot close.
+  // position calls for up to the objective, and any remaining gap the resident
+  // guardrails cannot close.
   // Hard and January YoY ceilings still win over all of it.
   const currentStreet = input.currentStreetRateMonthly;
   const ordinaryCeiling = Math.max(0, input.assumptions.maxStreetIncreasePct / 100);
@@ -696,9 +685,10 @@ export function solvePlan(input: SolveInput): SolveOutput {
    * minimum. Resident guardrails still bound it, and a target the asking rate
    * cannot reach on its own still raises it further.
    *
-   * Individual residents are deliberately NOT held below the asking rate; a
-   * resident may be raised past street. Only the scope average is coupled to
-   * the asking rate, through the premium below.
+   * Individual residents and location/service-line averages are deliberately
+   * NOT held below the asking rate. Only the resident guardrails limit them;
+   * the portfolio-wide relationship is reported after aggregation rather than
+   * forcing every local plan to satisfy it.
    */
   const plannedAvgAt = (g: number) => {
     const headroom = maxAvgAt(g);
@@ -709,23 +699,23 @@ export function solvePlan(input: SolveInput): SolveOutput {
     return Math.min(Math.max(required, preferred), Math.max(headroom, 0));
   };
 
-  /** Street increase that puts the asking rate the required margin above in-house. */
-  const premiumStreetFor = (avg: number) =>
-    currentStreet > 0
-      ? (ctx.baseAvg * (1 + avg) * (1 + MIN_STREET_PREMIUM_OVER_INHOUSE)) / currentStreet - 1
-      : streetIncrease;
+  const allocation = allocationFor(ctx, streetIncrease, plannedAvgAt(streetIncrease));
+  let finalAllocation = allocation;
 
-  let allocation = allocationFor(ctx, streetIncrease, plannedAvgAt(streetIncrease));
-  // Raising Street Rate only widens resident headroom, so this settles in a
-  // pass or two. It raises the asking rate and never drops it back below the
-  // competitive, minimum, or feasibility floors already established.
-  for (let pass = 0; pass < 4; pass++) {
-    const needed = Math.min(premiumStreetFor(allocation.achievedAvgIncrease), ceilStreet);
-    if (needed <= streetIncrease + 1e-9) break;
-    streetIncrease = needed;
-    allocation = allocationFor(ctx, streetIncrease, plannedAvgAt(streetIncrease));
+  // This relationship belongs only to a service line's portfolio aggregate.
+  // A location-level solve must not raise its asking rate merely because its
+  // own resident average happens to sit close to (or above) Street Rate.
+  if (input.enforcePortfolioStreetPremium && currentStreet > 0) {
+    for (let pass = 0; pass < 4; pass++) {
+      const requiredStreet =
+        (ctx.baseAvg * (1 + finalAllocation.achievedAvgIncrease) * 1.01) / currentStreet - 1;
+      const nextStreet = Math.min(Math.max(streetIncrease, requiredStreet), ceilStreet);
+      if (nextStreet <= streetIncrease + 1e-9) break;
+      streetIncrease = nextStreet;
+      finalAllocation = allocationFor(ctx, streetIncrease, plannedAvgAt(streetIncrease));
+    }
   }
-  const appliedAvg = allocation.achievedAvgIncrease;
+  const appliedAvg = finalAllocation.achievedAvgIncrease;
 
   const projected = projectFor(ctx, streetIncrease, appliedAvg);
   const worst = worstMargin(ctx, projected);
@@ -735,29 +725,19 @@ export function solvePlan(input: SolveInput): SolveOutput {
 
   const infeasibility = feasible
     ? null
-    : buildInfeasibility(ctx, streetIncrease, ceilStreet, allocation, projected, worst);
-
-  const recommendedStreetMonthly = input.currentStreetRateMonthly * (1 + streetIncrease);
-  const postIncreaseAvgRateMonthly = ctx.baseAvg * (1 + appliedAvg);
-  const streetPremiumOverInhousePct =
-    postIncreaseAvgRateMonthly > 0
-      ? (recommendedStreetMonthly / postIncreaseAvgRateMonthly - 1) * 100
-      : 0;
+    : buildInfeasibility(ctx, streetIncrease, ceilStreet, finalAllocation, projected, worst);
 
   return {
     feasible,
     streetIncrease,
-    recommendedStreetMonthly,
+    recommendedStreetMonthly: input.currentStreetRateMonthly * (1 + streetIncrease),
     requiredAvgIncrease: appliedAvg,
-    allocation,
+    allocation: finalAllocation,
     quarterResults,
     bindingQuarterLabel: worst.label,
     infeasibility,
     existingAvgRateMonthly: ctx.baseAvg,
-    postIncreaseAvgRateMonthly,
-    streetPremiumOverInhousePct,
-    streetPremiumBelowMinimum:
-      streetPremiumOverInhousePct < MIN_STREET_PREMIUM_OVER_INHOUSE * 100 - 1e-6,
+    postIncreaseAvgRateMonthly: ctx.baseAvg * (1 + appliedAvg),
   };
 }
 

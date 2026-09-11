@@ -380,8 +380,6 @@ export interface PlanResult {
   recommendedStreetRateDisplay: number;
   /** Product-matched, care-adjusted Top Competitor benchmark, normalized monthly. */
   adjustedTopCompetitorRateMonthly?: number | null;
-  /** Recommended Street Rate as a percentage above the post-increase in-house average. */
-  streetPremiumOverInhousePct?: number;
 
   requiredWeightedAvgIncreasePct: number;
 
