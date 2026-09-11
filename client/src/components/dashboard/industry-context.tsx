@@ -1,13 +1,11 @@
 import { useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ChevronDown, ExternalLink, Info, Maximize2, RefreshCw, Upload } from "lucide-react";
+import { ArrowRight, ChevronDown, ExternalLink, Maximize2, RefreshCw, Upload } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Metric = {
   id: string;
@@ -87,22 +85,9 @@ function ContextCard({ metric, canEdit, onEdit }: { metric: Metric; canEdit: boo
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <TooltipProvider delayDuration={150}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="cursor-help border-b border-dotted border-current text-left text-xs font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]"
-                  aria-label={`${metric.label}: ${metric.note || metric.comparison}`}
-                >
-                  {metric.label}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-[280px] text-xs leading-relaxed">
-                {metric.note || metric.comparison}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]">
+            {metric.label}
+          </p>
           <p className="mt-2 text-2xl font-light text-[var(--dashboard-text)]">{formatValue(metric)}</p>
         </div>
         <span
@@ -118,6 +103,9 @@ function ContextCard({ metric, canEdit, onEdit }: { metric: Metric; canEdit: boo
         </span>
       </div>
       <p className="mt-2 text-xs font-medium text-[var(--dashboard-text)]">{metric.comparison}</p>
+      <p className="mt-1 text-[11px] leading-relaxed text-[var(--dashboard-muted)]">
+        {metric.note || "No definition provided."}
+      </p>
       <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-[var(--dashboard-muted)]">
         <span>As of {metric.asOf}</span>
         <span className="inline-flex items-center gap-2">
@@ -129,17 +117,6 @@ function ContextCard({ metric, canEdit, onEdit }: { metric: Metric; canEdit: boo
               Revised {metric.revisionCount}×
             </span>
           ) : null}
-           <Popover>
-             <PopoverTrigger asChild>
-               <button type="button" className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:text-[var(--dashboard-text)]" aria-label={`Definition for ${metric.label}`}>
-                 <Info className="h-3 w-3" /> Definition
-               </button>
-             </PopoverTrigger>
-             <PopoverContent align="end" className="w-72 text-xs leading-relaxed">
-               <p className="font-semibold text-[var(--dashboard-text)]">Definition</p>
-               <p className="mt-1 text-[var(--dashboard-muted)]">{metric.note || "No definition provided."}</p>
-             </PopoverContent>
-           </Popover>
         </span>
       </div>
       <a
