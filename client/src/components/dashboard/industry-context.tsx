@@ -255,13 +255,13 @@ export default function IndustryContext() {
   return (
     <Card className="dashboard-card" data-testid="industry-context">
       <CardHeader className="gap-3 pb-4 sm:flex-row sm:items-start sm:justify-between">
-         <div>
+          <div>
            <button
              type="button"
              onClick={() => setExpanded((value) => !value)}
              aria-expanded={expanded}
              aria-controls="industry-context-trends"
-             className="group flex items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--trilogy-teal)]"
+              className="group flex items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--trilogy-teal)]"
            >
              <CardTitle className="flex items-center gap-2 text-xl font-semibold text-[var(--dashboard-text)]">
                Industry Context <img src="/industry-context-icon.png" alt="" className="h-11 w-11 object-contain" />
@@ -273,7 +273,7 @@ export default function IndustryContext() {
             </p>
            {feedback && !editing ? <p className={`mt-2 text-xs ${feedback.includes("failed") || feedback.includes("Choose") ? "text-red-700" : "text-[var(--trilogy-teal)]"}`} role="status">{feedback}</p> : null}
         </div>
-         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
          <Link href="/inhouse-increases">
           <span className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md bg-[var(--trilogy-teal)] px-3 py-2 text-sm font-medium text-white hover:opacity-90">
             Set our targets <ArrowRight className="h-4 w-4" />
@@ -283,14 +283,14 @@ export default function IndustryContext() {
       </CardHeader>
        {expanded ? <CardContent id="industry-context-trends" className="space-y-5">
         {groups.map((group) => (
-          <section key={group.category} aria-labelledby={`industry-${group.category}`}>
+           <section key={group.category} aria-labelledby={`industry-${group.category}`} className="mx-auto w-full max-w-5xl">
             <div className="mb-3">
               <h3 id={`industry-${group.category}`} className="text-sm font-semibold text-[var(--dashboard-text)]">
                 {group.title}
               </h3>
               <p className="text-xs text-[var(--dashboard-muted)]">{group.description}</p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+             <div className="grid gap-3 sm:grid-cols-2">
                {group.metrics.map((metric) => (
                  metric.label.toLowerCase().includes("peer") && metric.label.toLowerCase().includes("same-store") ? (
                    <PeerGraphic key={metric.id} isAdmin={isAdmin} uploading={uploading} fileRef={fileRef} onFile={uploadGraphic} version={graphicVersion} />
@@ -382,7 +382,7 @@ function PeerGraphic({ isAdmin, uploading, fileRef, onFile, version }: { isAdmin
 
   return (
     <>
-      <div className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] p-3 sm:col-span-2 lg:col-span-3">
+      <div className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] p-3 sm:col-span-2">
         <div className="mb-2 flex items-center justify-between gap-3">
           <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]">Peer same-store revenue growth</p><p className="mt-1 text-xs text-[var(--dashboard-muted)]">Quarterly comparison across senior housing operators</p></div>
           <div className="flex shrink-0 items-center gap-2">
