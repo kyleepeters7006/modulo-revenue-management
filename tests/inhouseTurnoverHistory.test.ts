@@ -38,8 +38,9 @@
  *      counting both put AL at 153% a year. Only the newer feed separates the
  *      memory-care neighbourhoods, so it wins any campus-month both cover.
  *
- * Scopes are DISCOVERED, so the suite keeps testing something after a
- * re-import rather than pinning values that a new upload invalidates.
+ * The core regression uses a small isolated database fixture so coverage
+ * cannot disappear when a client is smaller or a fresh environment is empty.
+ * A discovered live-data audit runs afterward as a supplementary parity check.
  *
  * Run with: npx tsx tests/inhouseTurnoverHistory.test.ts
  */
@@ -177,6 +178,168 @@ function verifyMoveInDateInferenceFixtures() {
   );
 }
 
+const FIXTURE_CLIENT = "turnover-regression-fixture";
+const FIXTURE_LOCATION_ID = "turnover-regression-location";
+const FIXTURE_LOCATION_NAME = "Turnover Regression Fixture";
+const FIXTURE_ANCHOR_MONTH = "2026-12";
+
+type FixtureRentRollRow = {
+  roomNumber: string;
+  uploadMonth: string;
+  occupied: boolean;
+  moveInDate: string;
+};
+
+function fixtureMonths(): string[] {
+  return Array.from({ length: 12 }, (_, index) => {
+    const month = index + 1;
+    return `2026-${String(month).padStart(2, "0")}`;
+  });
+}
+
+function fixtureRentRollRows(): FixtureRentRollRow[] {
+  const months = fixtureMonths();
+  const rows: FixtureRentRollRow[] = [];
+
+  for (const [monthIndex, uploadMonth] of months.entries()) {
+    const monthRows = [
+      ["101", true, "2024-01-01"],
+      ["102", true, monthIndex === 1 ? "2026-02-15" : "2024-02-01"],
+      ["103/B", true, monthIndex === 1 ? "2026-02-15" : "2024-03-01"],
+      ["104", true, "2024-04-01"],
+      ["105", monthIndex === 0 ? false : true, monthIndex === 0 ? "" : "2026-01-20"],
+    ];
+
+    // Room 106 has no February snapshot. The March date change must not be
+    // inferred because there is no pair of consecutive snapshots.
+    if (monthIndex !== 1) {
+      monthRows.push(["106", true, monthIndex >= 2 ? "2026-03-15" : "2024-06-01"]);
+    }
+
+    for (const [roomNumber, occupied, moveInDate] of monthRows) {
+      rows.push({ roomNumber, uploadMonth, occupied, moveInDate });
+    }
+
+    // Twenty-six rooms receive the same date in May. This exceeds both mass
+    // default thresholds for this line and must reject all 26 transitions.
+    for (let room = 200; room <= 225; room++) {
+      rows.push({
+        roomNumber: String(room),
+        uploadMonth,
+        occupied: true,
+        moveInDate: monthIndex >= 4 ? "2026-05-15" : "2024-05-01",
+      });
+    }
+  }
+
+  return rows;
+}
+
+async function cleanupTurnoverFixture() {
+  await pool.query("DELETE FROM move_in_out_events WHERE client_id = $1", [FIXTURE_CLIENT]);
+  await pool.query("DELETE FROM rent_roll_data WHERE client_id = $1", [FIXTURE_CLIENT]);
+  await pool.query("DELETE FROM room_type_occupancy_history WHERE client_id = $1", [FIXTURE_CLIENT]);
+  await pool.query("DELETE FROM locations WHERE id = $1", [FIXTURE_LOCATION_ID]);
+  await pool.query("DELETE FROM clients WHERE id = $1", [FIXTURE_CLIENT]);
+}
+
+async function seedTurnoverFixture() {
+  await cleanupTurnoverFixture();
+  await pool.query(
+    `INSERT INTO clients (id, name) VALUES ($1, 'Turnover Regression Fixture')`,
+    [FIXTURE_CLIENT],
+  );
+  await pool.query(
+    `INSERT INTO locations (id, name, client_id, total_units)
+     VALUES ($1, $2, $3, 32)`,
+    [FIXTURE_LOCATION_ID, FIXTURE_LOCATION_NAME, FIXTURE_CLIENT],
+  );
+
+  const months = fixtureMonths();
+  for (const uploadMonth of months) {
+    const [year, month] = uploadMonth.split("-").map(Number);
+    await pool.query(
+      `INSERT INTO room_type_occupancy_history
+       (client_id, location_id, location_name, service_line, raw_room_type,
+        normalized_room_type, month, year, occ_units, available_units)
+       VALUES ($1, $2, $3, 'AL', 'Studio', 'Studio', $4, $5, 32, 32)`,
+      [FIXTURE_CLIENT, FIXTURE_LOCATION_ID, FIXTURE_LOCATION_NAME, month, year],
+    );
+  }
+
+  for (const row of fixtureRentRollRows()) {
+    await pool.query(
+      `INSERT INTO rent_roll_data
+       (client_id, location_id, upload_month, date, location, room_number,
+        room_type, service_line, occupied_yn, size, street_rate, in_house_rate,
+        move_in_date, payor_type)
+       VALUES ($1, $2, $3, $4, $5, $6, 'Studio', 'AL', $7, 'Studio',
+               3000, 2800, NULLIF($8, ''), 'PRIVATE PAY')`,
+      [
+        FIXTURE_CLIENT,
+        FIXTURE_LOCATION_ID,
+        row.uploadMonth,
+        `${row.uploadMonth}-15`,
+        FIXTURE_LOCATION_NAME,
+        row.roomNumber,
+        row.occupied,
+        row.moveInDate,
+      ],
+    );
+  }
+
+  // This is the one explicit same-room departure. The anchor event has no
+  // service line, so it makes the window deterministic without affecting the
+  // AL numerator.
+  await pool.query(
+    `INSERT INTO move_in_out_events
+     (client_id, event_type, census_id, location, service_line, room_name,
+      payer, event_date, counted, import_format, superseded)
+     VALUES
+       ($1, 'move_out', 'fixture-explicit-101', $2, 'AL', '101',
+        'PRIVATE PAY', '2026-02-15', true, 'export', false),
+       ($1, 'move_out', 'fixture-anchor', $2, NULL, NULL,
+        'PRIVATE PAY', '2026-12-31', true, 'export', false)`,
+    [FIXTURE_CLIENT, FIXTURE_LOCATION_NAME],
+  );
+}
+
+async function verifyDeterministicFixture() {
+  console.log("\n── deterministic turnover fixture ──");
+  try {
+    await seedTurnoverFixture();
+    const result = await computeHistoricalTurnover(
+      FIXTURE_CLIENT,
+      FIXTURE_LOCATION_ID,
+      FIXTURE_LOCATION_NAME,
+    );
+    ok("the isolated fixture produces a result", result !== null);
+    if (!result) return;
+
+    const line = result.byServiceLine.find((row) => row.serviceLine === "AL");
+    ok("the fixture resolves the expected twelve-month window", result.windowStart === "2026-01" && result.windowEnd === FIXTURE_ANCHOR_MONTH);
+    ok("the fixture has exactly twelve months of history", line?.monthsCovered === 12);
+    ok(
+      "one explicit departure and one valid replacement are counted",
+      line?.explicitMoveOuts === 1 && line.inferredMoveOuts === 1 && line.moveOuts === 2,
+      `explicit=${line?.explicitMoveOuts}, inferred=${line?.inferredMoveOuts}, total=${line?.moveOuts}`,
+    );
+    ok(
+      "excluded replacement candidates do not change the inferred count",
+      line?.inferredMoveOuts === 1,
+      "B-bed, mass-default, static-date, vacancy-fill, and snapshot-gap rows leaked into turnover",
+    );
+    ok(
+      "the fixture denominator comes from occupancy history",
+      line?.avgOccupiedUnits === 32,
+      `expected 32 occupied units, got ${line?.avgOccupiedUnits}`,
+    );
+    verifyMoveInDateInferenceFixtures();
+  } finally {
+    await cleanupTurnoverFixture();
+  }
+}
+
 /** The client with the most move-out events — i.e. the real data set. */
 async function largestEventClient(): Promise<string | null> {
   const res = await pool.query<{ client_id: string }>(
@@ -190,13 +353,13 @@ async function largestEventClient(): Promise<string | null> {
   return res.rows[0]?.client_id ?? null;
 }
 
-async function main() {
+async function runLiveDataAudit() {
   const clientId = await largestEventClient();
   if (!clientId) {
-    console.log("No move-out events in the database — nothing to verify.");
+    console.log("No move-out events in the database — live parity audit skipped.");
     return;
   }
-  console.log(`\n── measuring turnover for client "${clientId}" ──`);
+  console.log(`\n── supplementary live parity audit for client "${clientId}" ──`);
 
   const result = await computeHistoricalTurnover(clientId, null, null);
   ok("a client with events produces a result", result !== null);
@@ -359,8 +522,6 @@ async function main() {
       `${line.turnoverPct}% flagged plausible=${line.plausible}, saturating=${line.saturating}`,
     );
   }
-
-  verifyMoveInDateInferenceFixtures();
 
   // ── The floor has to bite, not just the ceiling ───────────────────────────
   //
@@ -955,6 +1116,11 @@ async function main() {
     result.byServiceLine.every((l) => l.plannedPct <= MODEL_MAX_TURNOVER_PCT),
     "a line would feed the solver a rate it cannot represent",
   );
+}
+
+async function main() {
+  await verifyDeterministicFixture();
+  await runLiveDataAudit();
 }
 
 main()
