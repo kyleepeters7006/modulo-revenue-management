@@ -359,6 +359,7 @@ export async function computeHistoricalTurnover(
              rr.upload_month AS m,
              rr.occupied_yn,
              rr.payor_type,
+             rr.in_house_rate,
              CASE
                WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
                  THEN TO_DATE(rr.move_in_date, 'YYYY-MM-DD')
@@ -375,6 +376,7 @@ export async function computeHistoricalTurnover(
          ${locationName ? "AND rr.location = $4" : ""}
        ORDER BY rr.location, rr.service_line, rr.room_number, rr.upload_month,
                 rr.occupied_yn DESC,
+                (rr.in_house_rate IS NOT NULL) DESC,
                 CASE
                   WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
                     THEN TO_DATE(rr.move_in_date, 'YYYY-MM-DD')
@@ -432,6 +434,12 @@ export async function computeHistoricalTurnover(
          AND current.move_in_date IS NOT NULL
          AND prior.move_in_date IS NOT NULL
          AND current.move_in_date > prior.move_in_date
+         -- Campus + line + primary room + move-in date is the resident-episode
+         -- fingerprint available on the standard upload. In-house rate is
+         -- retained as corroborating evidence and for deterministic row
+         -- selection, but is deliberately not required to change: annual
+         -- increases change a continuing resident's rate, while two different
+         -- residents can legitimately have the same rate.
          AND current.move_in_date > to_date(prior.m, 'YYYY-MM')
          AND current.move_in_date <
              to_date(current.m, 'YYYY-MM') + interval '1 month'

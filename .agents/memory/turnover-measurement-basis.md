@@ -59,6 +59,11 @@ date used by both more than 25 rooms and more than 5% of a service line's rooms.
 Report recorded versus inferred counts separately and keep occupancy history as the
 denominator.
 
+The cross-snapshot resident episode key is campus + service line + primary room +
+move-in date. Retain in-house rate as corroborating evidence and for deterministic
+duplicate selection, but never require it to change: annual increases alter a continuing
+resident's rate, and a replacement can enter at the same rate.
+
 ### LOS is the sanity-check lever
 `losMonths = 1200 / turnoverPct` (12 months × 100 / pct). Show it beside every turnover figure
 so operators can spot-check against their intuition. AL at 153% implies ≈ 7.8 mo avg stay, which
