@@ -1648,31 +1648,31 @@ export default function InhouseIncreases() {
                 <div className="grid min-w-[1160px] grid-cols-[minmax(110px,1.2fr)_repeat(6,minmax(125px,1fr))] bg-muted/40 px-4 py-2 text-center text-xs font-medium text-muted-foreground">
                   <HeaderHelp
                     label="Service line"
-                    explanation="The level of care calculated independently. The note below each line shows whether its rates are displayed monthly or daily."
+                    explanation="The level of care, shown with its monthly or daily rate basis."
                   />
                   <HeaderHelp
                     label="Street Rate"
-                    explanation="The current published Street Rate compared with the recommended Street Rate. The percentage is the increase applied to new move-ins."
+                    explanation="Current versus recommended rate for new move-ins."
                   />
                   <HeaderHelp
                     label="In-house rate"
-                    explanation="The revenue-weighted average rate paid by current residents before and after the planned annual increase."
+                    explanation="Average current-resident rate before and after the increase."
                   />
                   <HeaderHelp
                     label="Annual increase"
-                    explanation="The projected realized rate at the end of the planning horizon compared with the current in-house rate. It includes both resident increases and replacement move-ins at Street Rate."
+                    explanation="End-of-plan growth from resident increases and new move-ins."
                   />
                   <HeaderHelp
                     label="Quarterly YoY goal"
-                    explanation="The minimum year-over-year realized-rate growth the plan is required to achieve in every projected quarter."
+                    explanation="Minimum YoY rate growth required each quarter."
                   />
                   <HeaderHelp
                     label="Average quarterly YoY"
-                    explanation="The average of the projected quarter-by-quarter year-over-year growth rates. The line below shows its percentage-point margin above or below the goal."
+                    explanation="Average projected YoY growth across all quarters."
                   />
                   <HeaderHelp
                     label="Quarters at goal"
-                    explanation="The number of projected quarters that meet or exceed the quarterly YoY goal. The combined row counts every service-line quarter separately."
+                    explanation="Projected quarters meeting or exceeding the goal."
                   />
                 </div>
                 {plans.map(({ sl, plan }) => {
