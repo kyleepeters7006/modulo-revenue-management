@@ -1693,7 +1693,7 @@ export default function InhouseIncreases() {
                     explanation="Average current-resident rate before and after the increase."
                   />
                   <HeaderHelp
-                    label="Annual increase"
+                    label="End realized growth"
                     explanation={`Growth from ${projectionStart} through ${projectionEnd}, including resident increases and new move-ins.`}
                   />
                   <HeaderHelp
@@ -1738,7 +1738,7 @@ export default function InhouseIncreases() {
                           {(plan.monthlyRateProjection?.at(-1)?.growthFromCurrentPct ?? plan.summary.weightedAvgIncreasePct) >= 0 ? "+" : ""}
                           {(plan.monthlyRateProjection?.at(-1)?.growthFromCurrentPct ?? plan.summary.weightedAvgIncreasePct).toFixed(1)}%
                         </p>
-                        <p className="text-xs text-muted-foreground">End of projection</p>
+                        <p className="text-xs text-muted-foreground">Rates + turnover</p>
                       </div>
                       <div>
                         <p className="font-semibold">{formatPct(plan.assumptions.rateGrowthTargetPct, 1)}</p>
@@ -1777,7 +1777,7 @@ export default function InhouseIncreases() {
                       <p className="font-semibold text-foreground">
                         {growthSnapshot.annualIncreasePct >= 0 ? "+" : ""}{growthSnapshot.annualIncreasePct.toFixed(1)}%
                       </p>
-                      <p className="text-xs text-muted-foreground">End of projection</p>
+                      <p className="text-xs text-muted-foreground">Rates + turnover</p>
                     </div>
                     <div>
                       <p className="font-semibold">{formatPct(growthSnapshot.quarterlyGoalPct, 1)}</p>
