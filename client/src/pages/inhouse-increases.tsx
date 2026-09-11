@@ -318,10 +318,12 @@ function TurnoverEvidence({
   hist,
   applied,
   saved,
+  loading = false,
 }: {
   serviceLine: string;
   hist: ServiceLineTurnover | undefined;
   applied: number;
+  loading?: boolean;
   /**
    * The stored assumption for this scope, or null when none was ever saved.
    * Measured history outranks it, so this is shown whenever the two differ —
@@ -345,7 +347,14 @@ function TurnoverEvidence({
     : "";
 
   let history: JSX.Element;
-  if (!hist) {
+  if (!hist && loading) {
+    history = (
+      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading turnover history…
+      </span>
+    );
+  } else if (!hist) {
     history = (
       <span className="text-muted-foreground">
         No measured history — using the saved assumption.
@@ -401,7 +410,7 @@ function TurnoverEvidence({
   const appliedLos = formatLos(applied);
 
   return (
-    <div className="mt-1 space-y-0.5 text-[11px] leading-tight">
+    <div className="mt-1 min-h-8 space-y-0.5 text-[11px] leading-tight">
       <p>{history}</p>
       {appliedWarning && (
         <p className="text-amber-500" data-testid={`turnover-out-of-band-${serviceLine}`}>
@@ -1526,6 +1535,7 @@ export default function InhouseIncreases() {
                         hist={hist}
                         applied={vals.annualTurnoverPct}
                         saved={savedTurnoverPct}
+                        loading={turnoverQuery.isPending && !turnoverQuery.data}
                       />
                     </div>
                   </div>
@@ -1569,6 +1579,7 @@ export default function InhouseIncreases() {
                   hist={turnoverBySl.get(firstLine)}
                   applied={assumptionsForLine(firstLine).annualTurnoverPct}
                   saved={savedTurnoverPct}
+                  loading={turnoverQuery.isPending && !turnoverQuery.data}
                 />
               </div>
             </div>
@@ -1722,10 +1733,22 @@ export default function InhouseIncreases() {
         </CardContent>
       </Card>
 
-      {calculate.isPending && (
+      {calculate.isPending && !plans?.length && (
         <div className="flex items-center gap-3 rounded-md border p-6 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Reading the rent roll and solving for {serviceLines.length > 1 ? `${serviceLines.length} service lines` : serviceLines[0]}…
+        </div>
+      )}
+
+      {calculate.isPending && !!plans?.length && (
+        <div
+          className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-lg border bg-background px-4 py-3 text-sm shadow-lg"
+          role="status"
+          aria-live="polite"
+          data-testid="plan-updating-status"
+        >
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          Updating plan…
         </div>
       )}
 
