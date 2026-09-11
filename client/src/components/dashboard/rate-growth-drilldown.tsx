@@ -26,6 +26,13 @@ type Series = {
 };
 type RateGrowthResponse = { level: DrillLevel; selection: Selection; series: Series[] };
 
+class RateGrowthError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "RateGrowthError";
+  }
+}
+
 const LEVEL_LABEL: Record<DrillLevel, string> = {
   group: "Portfolio",
   serviceLine: "Service line",
@@ -118,7 +125,7 @@ export default function RateGrowthDrilldown() {
   const [selection, setSelection] = useState<Selection>({});
   const [history, setHistory] = useState<Selection[]>([]);
 
-  const query = useQuery<RateGrowthResponse>({
+  const query = useQuery<RateGrowthResponse, RateGrowthError>({
     queryKey: ["/api/overview/rate-growth", selection],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -127,9 +134,16 @@ export default function RateGrowthDrilldown() {
         credentials: "include",
         cache: "no-store",
       });
-      if (!response.ok) throw new Error("Unable to load rate history");
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new RateGrowthError(
+          payload?.error || "Unable to load rate history",
+          response.status,
+        );
+      }
       return response.json();
     },
+    retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
   });
 
   const data = query.data;
@@ -165,12 +179,11 @@ export default function RateGrowthDrilldown() {
               Street and in-house rates, by month · select a row to continue down to the room
             </p>
           </div>
-          {data && data.level !== "group" && (
+          {history.length > 0 && (
             <Button
               variant="outline"
               size="sm"
               onClick={goBack}
-              disabled={history.length === 0}
               data-testid="rate-growth-back"
               className="h-8 self-start text-xs"
             >
@@ -213,7 +226,17 @@ export default function RateGrowthDrilldown() {
         {query.isError && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-8 text-center text-sm text-red-700" data-testid="rate-growth-error">
             <p className="font-medium">Rate history is unavailable.</p>
-            <button type="button" onClick={() => query.refetch()} className="mt-1 underline underline-offset-2">Try again</button>
+            <p className="mt-1 text-xs text-red-600">{query.error.message}</p>
+            <div className="mt-3 flex justify-center gap-2">
+              {history.length > 0 && (
+                <Button type="button" variant="outline" size="sm" onClick={goBack} className="h-8 border-red-300 bg-white text-xs text-red-700 hover:bg-red-100">
+                  <ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Back
+                </Button>
+              )}
+              <Button type="button" variant="outline" size="sm" onClick={() => query.refetch()} className="h-8 border-red-300 bg-white text-xs text-red-700 hover:bg-red-100">
+                Try again
+              </Button>
+            </div>
           </div>
         )}
         {!query.isLoading && !query.isError && data && data.series.length === 0 && (

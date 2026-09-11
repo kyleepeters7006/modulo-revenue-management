@@ -1198,7 +1198,10 @@ export async function computeHistoricalTurnover(
       moveOuts,
       explicitMoveOuts,
       inferredMoveOuts,
-      avgOccupiedUnits: Math.round(avgOcc),
+      // Keep one decimal so the denominator shown to operators reconciles to
+      // the reported turnover and implied LOS instead of hiding material
+      // differences at small campuses behind whole-unit rounding.
+      avgOccupiedUnits: Math.round(avgOcc * 10) / 10,
       privatePayBasis: ppBasis,
       privatePaySharePct: share !== undefined ? Math.round(share * 1000) / 10 : 0,
       monthsCovered,

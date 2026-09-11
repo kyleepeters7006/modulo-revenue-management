@@ -592,6 +592,62 @@ interface CalculateRequest {
   assumptionsByLine: Record<string, PlanningAssumptions>;
 }
 
+function quarterPeriodWeight(
+  year: number,
+  quarter: number,
+  rateBasis: PlanResult["rateBasis"],
+): number {
+  if (rateBasis === "monthly") return 3;
+  const startMonth = (quarter - 1) * 3;
+  return (
+    Date.UTC(year, startMonth + 3, 1) - Date.UTC(year, startMonth, 1)
+  ) / 86_400_000;
+}
+
+function fullYearYoyFromQuarters(
+  quarters: PlanResult["quarters"],
+  rateBasis: PlanResult["rateBasis"],
+): {
+  priorRateMonthly: number;
+  projectedRateMonthly: number;
+  growthPct: number;
+} {
+  let priorWeighted = 0;
+  let projectedWeighted = 0;
+  let priorPeriodWeight = 0;
+  let projectedPeriodWeight = 0;
+
+  for (const quarter of quarters) {
+    const prior = quarter.priorYear.realizedRateMonthly;
+    if (prior == null || prior <= 0 || !Number.isFinite(quarter.projectedRateMonthly)) continue;
+    // Weight complete calendar periods, not resident volume. Quarter rates are
+    // already normalized averages; using census here would reintroduce
+    // occupancy/payer mix into a rate-growth measure.
+    const priorWeight = quarterPeriodWeight(
+      quarter.priorYear.year,
+      quarter.priorYear.quarter,
+      rateBasis,
+    );
+    const projectedWeight = quarterPeriodWeight(quarter.year, quarter.quarter, rateBasis);
+    priorWeighted += prior * priorWeight;
+    projectedWeighted += quarter.projectedRateMonthly * projectedWeight;
+    priorPeriodWeight += priorWeight;
+    projectedPeriodWeight += projectedWeight;
+  }
+
+  const priorRateMonthly = priorPeriodWeight > 0 ? priorWeighted / priorPeriodWeight : 0;
+  const projectedRateMonthly = projectedPeriodWeight > 0
+    ? projectedWeighted / projectedPeriodWeight
+    : 0;
+  return {
+    priorRateMonthly,
+    projectedRateMonthly,
+    growthPct: priorRateMonthly > 0
+      ? (projectedRateMonthly / priorRateMonthly - 1) * 100
+      : 0,
+  };
+}
+
 /** A ResidentRecommendation tagged with the service line it came from. */
 type TaggedResident = ResidentRecommendation & { _sl: string };
 /**
@@ -1213,14 +1269,15 @@ export default function InhouseIncreases() {
     let streetRecommendedMonthly = 0;
     let inhouseCurrentMonthly = 0;
     let inhouseNewMonthly = 0;
-    let projectedAnnualMonthly = 0;
+    let priorFullYearMonthly = 0;
+    let projectedFullYearMonthly = 0;
     let quarterlyGoalWeighted = 0;
     let quarterlyYoyWeighted = 0;
     let quartersMeetingGoal = 0;
     let projectedQuarterCount = 0;
     for (const { plan } of plans) {
       const count = plan.summary.residentCount;
-      const finalProjection = plan.monthlyRateProjection?.[plan.monthlyRateProjection.length - 1];
+      const fullYearYoy = fullYearYoyFromQuarters(plan.quarters, plan.rateBasis);
       const quarterlyYoyValues = plan.quarters
         .map((quarter) => quarter.yoyGrowthPct)
         .filter(Number.isFinite);
@@ -1232,7 +1289,8 @@ export default function InhouseIncreases() {
       streetRecommendedMonthly += plan.recommendedStreetRateMonthly * count;
       inhouseCurrentMonthly += plan.summary.currentAvgInhouseRateMonthly * count;
       inhouseNewMonthly += plan.summary.newAvgInhouseRateMonthly * count;
-      projectedAnnualMonthly += (finalProjection?.projectedRateMonthly ?? plan.summary.newAvgInhouseRateMonthly) * count;
+      priorFullYearMonthly += fullYearYoy.priorRateMonthly * count;
+      projectedFullYearMonthly += fullYearYoy.projectedRateMonthly * count;
       quarterlyGoalWeighted += plan.assumptions.rateGrowthTargetPct * count;
       quarterlyYoyWeighted += averageQuarterlyYoy * count;
       quartersMeetingGoal += plan.quarters.filter((quarter) => quarter.passes).length;
@@ -1250,8 +1308,8 @@ export default function InhouseIncreases() {
       inhouseGrowthPct: inhouseCurrentMonthly > 0
         ? (inhouseNewMonthly / inhouseCurrentMonthly - 1) * 100
         : 0,
-      annualIncreasePct: inhouseCurrentMonthly > 0
-        ? (projectedAnnualMonthly / inhouseCurrentMonthly - 1) * 100
+      fullYearYoyPct: priorFullYearMonthly > 0
+        ? (projectedFullYearMonthly / priorFullYearMonthly - 1) * 100
         : 0,
       quarterlyGoalPct: residents > 0 ? quarterlyGoalWeighted / residents : 0,
       averageQuarterlyYoyPct: residents > 0 ? quarterlyYoyWeighted / residents : 0,
@@ -1263,15 +1321,6 @@ export default function InhouseIncreases() {
   const allFeasible = plans ? plans.every((p) => p.plan.feasible) : false;
   const anyFeasible = plans ? plans.some((p) => p.plan.feasible) : false;
   const allWarnings = plans ? Array.from(new Set(plans.flatMap((p) => p.plan.warnings))) : [];
-  const projectionMonths = plans?.flatMap(({ plan }) =>
-    (plan.monthlyRateProjection ?? []).map(({ month }) => month),
-  ) ?? [];
-  const projectionStart = projectionMonths.length > 0
-    ? formatMonth([...projectionMonths].sort()[0])
-    : "the first projected month";
-  const projectionEnd = projectionMonths.length > 0
-    ? formatMonth([...projectionMonths].sort().at(-1) ?? null)
-    : "the final projected month";
   const quarterlyComparisonPeriods = plans?.[0]?.plan.quarters
     .map(({ quarter, year }) => `Q${quarter} ${year} vs Q${quarter} ${year - 1}`)
     .join("; ") || "each projected quarter versus the same quarter one year earlier";
@@ -1705,8 +1754,8 @@ export default function InhouseIncreases() {
                     explanation="Average current-resident rate before and after the increase."
                   />
                   <HeaderHelp
-                    label="End realized growth"
-                    explanation={`Growth from ${projectionStart} through ${projectionEnd}, including resident increases and new move-ins.`}
+                    label="Full-year YoY growth"
+                    explanation="Weighted projected realized rate for the full plan year versus the weighted realized rate for the full prior year."
                   />
                   <HeaderHelp
                     label="Quarterly YoY goal"
@@ -1730,6 +1779,8 @@ export default function InhouseIncreases() {
                   const averageQuarterlyYoy = quarterlyYoyValues.length > 0
                     ? quarterlyYoyValues.reduce((sum, value) => sum + value, 0) / quarterlyYoyValues.length
                     : 0;
+                  const fullYearYoy = fullYearYoyFromQuarters(plan.quarters, plan.rateBasis);
+                  const planYear = plan.quarters[0]?.year;
                   const quartersMeetingGoal = plan.quarters.filter((quarter) => quarter.passes).length;
                   return (
                     <div key={`growth-${sl}`} className="grid min-w-[1160px] grid-cols-[minmax(110px,1.2fr)_repeat(6,minmax(125px,1fr))] items-center border-t px-4 py-3 text-center">
@@ -1747,10 +1798,12 @@ export default function InhouseIncreases() {
                       </div>
                       <div>
                         <p className="font-semibold text-foreground">
-                          {(plan.monthlyRateProjection?.at(-1)?.growthFromCurrentPct ?? plan.summary.weightedAvgIncreasePct) >= 0 ? "+" : ""}
-                          {(plan.monthlyRateProjection?.at(-1)?.growthFromCurrentPct ?? plan.summary.weightedAvgIncreasePct).toFixed(1)}%
+                          {fullYearYoy.growthPct >= 0 ? "+" : ""}
+                          {fullYearYoy.growthPct.toFixed(1)}%
                         </p>
-                        <p className="text-xs text-muted-foreground">Rates + turnover</p>
+                        <p className="text-xs text-muted-foreground">
+                          {planYear ? `${planYear - 1} → ${planYear}` : "Full year"}
+                        </p>
                       </div>
                       <div>
                         <p className="font-semibold">{formatPct(plan.assumptions.rateGrowthTargetPct, 1)}</p>
@@ -1787,9 +1840,9 @@ export default function InhouseIncreases() {
                     </div>
                     <div>
                       <p className="font-semibold text-foreground">
-                        {growthSnapshot.annualIncreasePct >= 0 ? "+" : ""}{growthSnapshot.annualIncreasePct.toFixed(1)}%
+                        {growthSnapshot.fullYearYoyPct >= 0 ? "+" : ""}{growthSnapshot.fullYearYoyPct.toFixed(1)}%
                       </p>
-                      <p className="text-xs text-muted-foreground">Rates + turnover</p>
+                      <p className="text-xs text-muted-foreground">Full year vs prior year</p>
                     </div>
                     <div>
                       <p className="font-semibold">{formatPct(growthSnapshot.quarterlyGoalPct, 1)}</p>
@@ -2047,7 +2100,10 @@ export default function InhouseIncreases() {
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">Quarterly realized rate vs prior year{plans.length > 1 ? ` · ${sl}` : ""}</CardTitle>
-                  <CardDescription>Each quarter compared against the same quarter one year earlier. Binding quarter sets the plan.</CardDescription>
+                  <CardDescription>
+                    Each quarter compared against the same quarter one year earlier. Binding quarter sets the plan.
+                    {plan.rateBasis === "daily" ? " Rates are shown per day." : " Rates are shown per month."}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0 sm:p-6 sm:pt-0">
                   <div className="overflow-x-auto">
@@ -2067,6 +2123,8 @@ export default function InhouseIncreases() {
                         {plan.quarters.flatMap((q) => {
                           const qKey = `${sl}-${q.label}`;
                           const open = expandedQuarter === qKey;
+                          const displayRate = (monthly: number) =>
+                            formatMoney(plan.rateBasis === "daily" ? monthly / DAYS_PER_MONTH : monthly);
                           return [
                             <tr key={qKey} data-testid={`row-quarter-${q.label.replace(/\s/g, "-")}`}
                               className={cn("cursor-pointer border-b transition-colors hover:bg-muted/50", q.isBinding && "bg-amber-500/[0.07]")}
@@ -2088,9 +2146,9 @@ export default function InhouseIncreases() {
                                   )}
                                 </span>
                               </td>
-                              <td className="px-4 py-2.5 text-right font-mono">{q.priorYear.realizedRateMonthly === null ? "—" : formatMoney(q.priorYear.realizedRateMonthly)}</td>
-                              <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">{formatMoney(q.requiredRateMonthly)}</td>
-                              <td className="px-4 py-2.5 text-right font-mono font-medium">{formatMoney(q.projectedRateMonthly)}</td>
+                              <td className="px-4 py-2.5 text-right font-mono">{q.priorYear.realizedRateMonthly === null ? "—" : displayRate(q.priorYear.realizedRateMonthly)}</td>
+                              <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">{displayRate(q.requiredRateMonthly)}</td>
+                              <td className="px-4 py-2.5 text-right font-mono font-medium">{displayRate(q.projectedRateMonthly)}</td>
                               <td className={cn("px-4 py-2.5 text-right font-mono font-medium", q.passes ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>{formatPct(q.yoyGrowthPct, 2)}</td>
                               <td className="px-4 py-2.5">
                                 <span className="flex flex-wrap gap-1.5">
@@ -2113,8 +2171,8 @@ export default function InhouseIncreases() {
                                       </div>
                                       <div className="flex items-center gap-3">
                                         <div className="text-right text-xs text-muted-foreground">
-                                          <div>Room detail: <span className="font-mono text-foreground">{formatMoney(q.roomDetailProjectedRateMonthly ?? q.projectedRateMonthly)}</span></div>
-                                          <div>Quarter headline: <span className="font-mono text-foreground">{formatMoney(q.projectedRateMonthly)}</span></div>
+                                          <div>Room detail: <span className="font-mono text-foreground">{displayRate(q.roomDetailProjectedRateMonthly ?? q.projectedRateMonthly)}</span></div>
+                                          <div>Quarter headline: <span className="font-mono text-foreground">{displayRate(q.projectedRateMonthly)}</span></div>
                                         </div>
                                         <Button
                                           variant="outline"
@@ -2156,20 +2214,20 @@ export default function InhouseIncreases() {
                                               </td>
                                               <td className="px-3 py-2 text-right font-mono">
                                                 <FormulaValue
-                                                  value={formatMoney(room.currentRateMonthly)}
-                                                  formula={`Before = current occupied-room rate from ${plan.scope.sourceMonth} = ${formatMoney(room.currentRateMonthly)}`}
+                                                  value={displayRate(room.currentRateMonthly)}
+                                                  formula={`Before = current occupied-room rate from ${plan.scope.sourceMonth} = ${displayRate(room.currentRateMonthly)}`}
                                                 />
                                               </td>
                                               <td className="px-3 py-2 text-right font-mono">
                                                 <FormulaValue
-                                                  value={formatMoney(room.existingRateUsedMonthly)}
-                                                  formula={`Existing after = quarter-average rate for today's occupant = ${formatMoney(room.existingRateUsedMonthly)}. Full planned rate after ${plan.assumptions.inhouseEffectiveDate} = ${formatMoney(room.plannedExistingRateMonthly)}.`}
+                                                  value={displayRate(room.existingRateUsedMonthly)}
+                                                  formula={`Existing after = quarter-average rate for today's occupant = ${displayRate(room.existingRateUsedMonthly)}. Full planned rate after ${plan.assumptions.inhouseEffectiveDate} = ${displayRate(room.plannedExistingRateMonthly)}.`}
                                                 />
                                               </td>
                                               <td className="px-3 py-2 text-right font-mono">
                                                 <FormulaValue
                                                   value={formatPct(room.currentRateMonthly > 0 ? (room.existingRateUsedMonthly / room.currentRateMonthly - 1) * 100 : 0, 1)}
-                                                  formula={`Existing growth = (${formatMoney(room.existingRateUsedMonthly)} existing after ÷ ${formatMoney(room.currentRateMonthly)} before − 1) × 100 = ${formatPct(room.currentRateMonthly > 0 ? (room.existingRateUsedMonthly / room.currentRateMonthly - 1) * 100 : 0, 1)}`}
+                                                  formula={`Existing growth = (${displayRate(room.existingRateUsedMonthly)} existing after ÷ ${displayRate(room.currentRateMonthly)} before − 1) × 100 = ${formatPct(room.currentRateMonthly > 0 ? (room.existingRateUsedMonthly / room.currentRateMonthly - 1) * 100 : 0, 1)}`}
                                                 />
                                               </td>
                                               <td className="px-3 py-2 text-right font-mono">
@@ -2186,26 +2244,26 @@ export default function InhouseIncreases() {
                                               </td>
                                               <td className="px-3 py-2 text-right font-mono">
                                                 <FormulaValue
-                                                  value={formatMoney(room.replacementRateMonthly)}
-                                                  formula={`Move-in rate = replacement-rate contribution ÷ new share. Street rate in force on each modeled move-in date, including the ${plan.assumptions.streetRateEffectiveDate} change = ${formatMoney(room.replacementRateMonthly)}`}
+                                                  value={displayRate(room.replacementRateMonthly)}
+                                                  formula={`Move-in rate = replacement-rate contribution ÷ new share. Street rate in force on each modeled move-in date, including the ${plan.assumptions.streetRateEffectiveDate} change = ${displayRate(room.replacementRateMonthly)}`}
                                                 />
                                               </td>
                                               <td className="px-3 py-2 text-right font-mono">
                                                 <FormulaValue
                                                   value={formatPct(room.currentRateMonthly > 0 ? (room.replacementRateMonthly / room.currentRateMonthly - 1) * 100 : 0, 1)}
-                                                  formula={`Move-in growth = (${formatMoney(room.replacementRateMonthly)} move-in rate ÷ ${formatMoney(room.currentRateMonthly)} before − 1) × 100 = ${formatPct(room.currentRateMonthly > 0 ? (room.replacementRateMonthly / room.currentRateMonthly - 1) * 100 : 0, 1)}`}
+                                                  formula={`Move-in growth = (${displayRate(room.replacementRateMonthly)} move-in rate ÷ ${displayRate(room.currentRateMonthly)} before − 1) × 100 = ${formatPct(room.currentRateMonthly > 0 ? (room.replacementRateMonthly / room.currentRateMonthly - 1) * 100 : 0, 1)}`}
                                                 />
                                               </td>
                                               <td className="px-3 py-2 text-right font-mono font-medium">
                                                 <FormulaValue
-                                                  value={formatMoney(room.projectedRateMonthly)}
-                                                  formula={`Blended after = (${formatPct(room.existingSharePct, 1)} × ${formatMoney(room.existingRateUsedMonthly)}) + (${formatPct(room.replacementSharePct, 1)} × ${formatMoney(room.replacementRateMonthly)}) = ${formatMoney(room.projectedRateMonthly)}`}
+                                                  value={displayRate(room.projectedRateMonthly)}
+                                                  formula={`Blended after = (${formatPct(room.existingSharePct, 1)} × ${displayRate(room.existingRateUsedMonthly)}) + (${formatPct(room.replacementSharePct, 1)} × ${displayRate(room.replacementRateMonthly)}) = ${displayRate(room.projectedRateMonthly)}`}
                                                 />
                                               </td>
                                               <td className={cn("px-3 py-2 text-right font-mono", room.changeMonthly >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>
                                                 <FormulaValue
-                                                  value={`${room.changeMonthly >= 0 ? "+" : ""}${formatMoney(room.changeMonthly)}`}
-                                                  formula={`Change = ${formatMoney(room.projectedRateMonthly)} blended after − ${formatMoney(room.currentRateMonthly)} before = ${room.changeMonthly >= 0 ? "+" : ""}${formatMoney(room.changeMonthly)}`}
+                                                  value={`${room.changeMonthly >= 0 ? "+" : ""}${displayRate(room.changeMonthly)}`}
+                                                  formula={`Change = ${displayRate(room.projectedRateMonthly)} blended after − ${displayRate(room.currentRateMonthly)} before = ${room.changeMonthly >= 0 ? "+" : ""}${displayRate(room.changeMonthly)}`}
                                                 />
                                               </td>
                                             </tr>
@@ -2220,16 +2278,16 @@ export default function InhouseIncreases() {
                                               <td className="px-3 py-2.5">Weighted total</td>
                                               <td className="px-3 py-2.5">{q.roomDetails?.length ?? 0} rooms</td>
                                               <td className="px-3 py-2.5 text-muted-foreground">Quarter rate bridge</td>
-                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatMoney(q.roomDetailTotals.currentRateMonthly)} formula={`Weighted before = Σ(room before × room weight) ÷ Σ(room weight) = ${formatMoney(q.roomDetailTotals.currentRateMonthly)}`} /></td>
-                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatMoney(q.roomDetailTotals.existingRateUsedMonthly)} formula={`Weighted existing after = Σ(room existing-after rate × room weight) ÷ Σ(room weight) = ${formatMoney(q.roomDetailTotals.existingRateUsedMonthly)}`} /></td>
-                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatPct(q.roomDetailTotals.currentRateMonthly > 0 ? (q.roomDetailTotals.existingRateUsedMonthly / q.roomDetailTotals.currentRateMonthly - 1) * 100 : 0, 1)} formula={`Weighted existing growth = (${formatMoney(q.roomDetailTotals.existingRateUsedMonthly)} existing after ÷ ${formatMoney(q.roomDetailTotals.currentRateMonthly)} before − 1) × 100`} /></td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={displayRate(q.roomDetailTotals.currentRateMonthly)} formula={`Weighted before = Σ(room before × room weight) ÷ Σ(room weight) = ${displayRate(q.roomDetailTotals.currentRateMonthly)}`} /></td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={displayRate(q.roomDetailTotals.existingRateUsedMonthly)} formula={`Weighted existing after = Σ(room existing-after rate × room weight) ÷ Σ(room weight) = ${displayRate(q.roomDetailTotals.existingRateUsedMonthly)}`} /></td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatPct(q.roomDetailTotals.currentRateMonthly > 0 ? (q.roomDetailTotals.existingRateUsedMonthly / q.roomDetailTotals.currentRateMonthly - 1) * 100 : 0, 1)} formula={`Weighted existing growth = (${displayRate(q.roomDetailTotals.existingRateUsedMonthly)} existing after ÷ ${displayRate(q.roomDetailTotals.currentRateMonthly)} before − 1) × 100`} /></td>
                                               <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatPct(q.roomDetailTotals.existingSharePct, 1)} formula={`Existing share = 100.0% − ${formatPct(q.roomDetailTotals.replacementSharePct, 1)} new = ${formatPct(q.roomDetailTotals.existingSharePct, 1)}`} /></td>
                                               <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatPct(q.roomDetailTotals.replacementSharePct, 1)} formula={`Modeled new share averaged across ${q.label} at ${formatPct(plan.assumptions.annualTurnoverPct, 1)} annual turnover = ${formatPct(q.roomDetailTotals.replacementSharePct, 1)}`} /></td>
-                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatMoney(q.roomDetailTotals.replacementRateMonthly)} formula={`Move-in rate = replacement-rate contribution ÷ modeled new share = ${formatMoney(q.roomDetailTotals.replacementRateMonthly)}`} /></td>
-                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatPct(q.roomDetailTotals.currentRateMonthly > 0 ? (q.roomDetailTotals.replacementRateMonthly / q.roomDetailTotals.currentRateMonthly - 1) * 100 : 0, 1)} formula={`Weighted move-in growth = (${formatMoney(q.roomDetailTotals.replacementRateMonthly)} move-in rate ÷ ${formatMoney(q.roomDetailTotals.currentRateMonthly)} before − 1) × 100`} /></td>
-                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatMoney(q.roomDetailTotals.projectedRateMonthly)} formula={`Blended after = (${formatPct(q.roomDetailTotals.existingSharePct, 1)} × ${formatMoney(q.roomDetailTotals.existingRateUsedMonthly)}) + (${formatPct(q.roomDetailTotals.replacementSharePct, 1)} × ${formatMoney(q.roomDetailTotals.replacementRateMonthly)}) = ${formatMoney(q.roomDetailTotals.projectedRateMonthly)}; matches quarter headline ${formatMoney(q.projectedRateMonthly)}`} /></td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={displayRate(q.roomDetailTotals.replacementRateMonthly)} formula={`Move-in rate = replacement-rate contribution ÷ modeled new share = ${displayRate(q.roomDetailTotals.replacementRateMonthly)}`} /></td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={formatPct(q.roomDetailTotals.currentRateMonthly > 0 ? (q.roomDetailTotals.replacementRateMonthly / q.roomDetailTotals.currentRateMonthly - 1) * 100 : 0, 1)} formula={`Weighted move-in growth = (${displayRate(q.roomDetailTotals.replacementRateMonthly)} move-in rate ÷ ${displayRate(q.roomDetailTotals.currentRateMonthly)} before − 1) × 100`} /></td>
+                                              <td className="px-3 py-2.5 text-right font-mono"><FormulaValue value={displayRate(q.roomDetailTotals.projectedRateMonthly)} formula={`Blended after = (${formatPct(q.roomDetailTotals.existingSharePct, 1)} × ${displayRate(q.roomDetailTotals.existingRateUsedMonthly)}) + (${formatPct(q.roomDetailTotals.replacementSharePct, 1)} × ${displayRate(q.roomDetailTotals.replacementRateMonthly)}) = ${displayRate(q.roomDetailTotals.projectedRateMonthly)}; matches quarter headline ${displayRate(q.projectedRateMonthly)}`} /></td>
                                               <td className={cn("px-3 py-2.5 text-right font-mono", q.roomDetailTotals.changeMonthly >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>
-                                                <FormulaValue value={`${q.roomDetailTotals.changeMonthly >= 0 ? "+" : ""}${formatMoney(q.roomDetailTotals.changeMonthly)}`} formula={`Weighted change = ${formatMoney(q.roomDetailTotals.projectedRateMonthly)} blended after − ${formatMoney(q.roomDetailTotals.currentRateMonthly)} before = ${q.roomDetailTotals.changeMonthly >= 0 ? "+" : ""}${formatMoney(q.roomDetailTotals.changeMonthly)}`} />
+                                                <FormulaValue value={`${q.roomDetailTotals.changeMonthly >= 0 ? "+" : ""}${displayRate(q.roomDetailTotals.changeMonthly)}`} formula={`Weighted change = ${displayRate(q.roomDetailTotals.projectedRateMonthly)} blended after − ${displayRate(q.roomDetailTotals.currentRateMonthly)} before = ${q.roomDetailTotals.changeMonthly >= 0 ? "+" : ""}${displayRate(q.roomDetailTotals.changeMonthly)}`} />
                                               </td>
                                             </tr>
                                           </tfoot>

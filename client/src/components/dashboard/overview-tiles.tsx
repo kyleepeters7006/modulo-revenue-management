@@ -229,7 +229,7 @@ export default function OverviewTiles() {
           return (
             <Card 
               key={tile.title} 
-              className="dashboard-card cursor-pointer hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-200 group"
+              className="dashboard-card !p-0 cursor-pointer hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-200 group"
               onClick={() => handleTileClick(tile.tileType, tile.title)}
               onMouseEnter={() => prefetchTileDetails(tile.tileType)}
               data-testid={`tile-clickable-${tile.tileType}`}
