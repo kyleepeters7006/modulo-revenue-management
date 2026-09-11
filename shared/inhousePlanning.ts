@@ -30,6 +30,15 @@ export type QuarterBasis =
   | "actual"
   /** Some months present, some missing — a real number over a short window. */
   | "partial"
+  /**
+   * Measured, but on rooms too few to meet the matching standard.
+   *
+   * Reached only when a scope is small enough that every stratum failed its
+   * gate. The alternative is refusing to plan the scope at all, which helps
+   * nobody, so the number is shown and labelled rather than dressed as an
+   * actual.
+   */
+  | "ungated_fallback"
   /** No data at all; extrapolated from trend. Never present this as fact. */
   | "projected";
 
@@ -400,7 +409,7 @@ export interface PlanResult {
 }
 
 /**
- * One month-over-month link in the chain-linked rate index, decomposed.
+ * One quarter-to-quarter matched comparison, decomposed.
  *
  * Mix is reported, never suppressed. A portfolio whose realized rate rose
  * because expensive rooms filled and cheap ones emptied really did earn more;
@@ -408,43 +417,73 @@ export interface PlanResult {
  * is not is evidence that anyone raised a price, so it is reported beside the
  * rate effect rather than folded into it.
  */
-export interface RateMixLink {
-  month: string;
-  priorMonth: string;
+export interface RateMixComparison {
+  /** The historical quarter. */
+  baseQuarterLabel: string;
+  /** The quarter it is measured against — the latest complete one. */
+  endingQuarterLabel: string;
   /** Unrestricted change, every qualifying row, no room matching. */
   rawChangePct: number | null;
-  /** Matched-cohort price movement — the chain link itself. */
-  rateEffectPct: number;
+  /** Stratified matched-room price movement, on ending-quarter weights. */
+  rateEffectPct: number | null;
   /** Raw minus rate: what composition contributed. */
   mixEffectPct: number | null;
+  /** Same stratum ratios re-aggregated on base-quarter weights. */
+  baseWeightedRateEffectPct: number | null;
+  /** Spread between the two weightings. */
+  compositionEffectPct: number | null;
   matchedRooms: number;
-  /** Matched rooms over rooms observable in either month — the gated metric. */
-  coveragePct: number;
-  /** Matched rooms over every room priced today — reported for context. */
-  coverageOfCurrentPct: number;
-  belowFloor: boolean;
+  endingRooms: number;
+  /** Matched rooms over rooms priced in the ending quarter. */
+  coverageByCountPct: number;
+  /** The same share measured in ending-quarter revenue. */
+  coverageByRevenuePct: number;
+  suppressedStrata: Array<{ key: string; reasonCode: string }>;
+  usable: boolean;
+  reasonCode: string | null;
+}
+
+/** Per-stratum detail for the headline year-over-year comparison. */
+export interface RateMixStratum {
+  key: string;
+  unitType: string;
+  careLevel: string;
+  priceBand: number;
+  matchedRooms: number;
+  endingRooms: number;
+  coverageByCountPct: number;
+  coverageByRevenuePct: number;
+  rateEffectPct: number | null;
+  endingWeightSharePct: number;
+  baseWeightSharePct: number;
+  suppressed: boolean;
+  reasonCode: string | null;
 }
 
 export interface StandardizationDiagnostics {
-  method: "chain_linked";
-  /** The anchor period; its index is 1 and the level is today's average. */
-  baseMonth: string;
-  /** One base per 12-month segment — the chain re-bases annually. */
-  segmentBaseMonths: string[];
+  method: "two_point_matched_quarter";
+  /** The quarter every historical quarter is compared against. */
+  endingQuarterLabel: string;
+  /** Matched rooms a stratum needs before its ratio is believed. */
+  minMatchedRooms: number;
+  /** Coverage floor, applied only to strata large enough to have one. */
   coverageFloorPct: number;
-  links: RateMixLink[];
-  /** Quarters withheld because a link they depend on fell below the floor. */
+  /** One entry per prior-year quarter, plus the strict four-quarter pair. */
+  comparisons: RateMixComparison[];
+  /** The strict year-over-year pair: latest complete quarter vs four back. */
+  yearOverYear: RateMixComparison | null;
+  /** Stratum detail for the year-over-year pair. */
+  yearOverYearStrata: RateMixStratum[];
+  /** Quarters withheld because no stratum in them could be believed. */
   suppressedQuarters: Array<{ label: string; reasonCode: string }>;
-  /** Same-unit YoY: each room paired to itself twelve months earlier. */
-  sameUnitYoy: Array<{ month: string; yoyPct: number }>;
   /**
-   * Parallel run. The previous balanced-panel baselines beside the chained
+   * Parallel run. The previous balanced-panel baselines beside the matched-pair
    * ones; the gap between them is the entry/exit effect, and it needs to be
    * inspectable before the old series is retired.
    */
   parallelRun: Array<{
     label: string;
-    chainRateMonthly: number | null;
+    matchedPairRateMonthly: number | null;
     balancedPanelRateMonthly: number | null;
     differencePct: number | null;
   }>;

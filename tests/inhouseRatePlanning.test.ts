@@ -50,10 +50,11 @@ import {
   type RawResidentRow,
 } from "../server/services/inhouseRatePlanning/dataAccess";
 import {
-  buildChainIndex,
-  planChainSegments,
-  type BaseCohort,
-} from "../server/services/inhouseRatePlanning/chainIndex";
+  assignStrata,
+  compareQuarters,
+  type CoverageThresholds,
+  type RoomQuarterObservation,
+} from "../server/services/inhouseRatePlanning/twoPointIndex";
 import { classifyRateProduct } from "../shared/rateProduct";
 
 const PASS = "\x1b[32m✓\x1b[0m";
@@ -1307,172 +1308,202 @@ console.log("\n-- 15. Product-matched street comparison --");
   ok("and stays on the base product", base.residents[0].rateProduct === "base");
 }
 
-// ───────────────────────────── chain-linked index ─────────────────────────────
-// The index is what stops eligibility churn and room turnover from being read
-// as price movement, so the cases below are built so that a naive average gets
-// them WRONG. A test the old approach would also pass guards nothing.
+// ──────────────────────── two-point matched-quarter index ────────────────────
+// This engine exists to stop room turnover and eligibility churn from being
+// read as price movement, so every case below is built so that a naive average
+// gets it WRONG. A test the pooled average would also pass guards nothing.
 {
-  console.log("\n-- chain-linked rate index --");
+  console.log("\n-- two-point matched-quarter comparison --");
 
-  const cohort = (
-    baseMonth: string,
-    weights: Record<string, number>,
-    rows: Array<[string, string, number, number?]>,
-  ): BaseCohort => ({
-    baseMonth,
-    weights: new Map(Object.entries(weights)),
-    rows: rows.map(([month, unitKey, rateMonthly, weight]) => ({
-      month,
-      unitKey,
-      rateMonthly,
-      weight: weight ?? 1,
-    })),
+  const room = (
+    unitKey: string,
+    rateMonthly: number,
+    opts: { weight?: number; roomType?: string; careLevel?: string } = {},
+  ): RoomQuarterObservation => ({
+    unitKey,
+    rateMonthly,
+    weight: opts.weight ?? 1,
+    roomType: opts.roomType ?? "STUDIO",
+    careLevel: opts.careLevel ?? "1",
   });
-
-  // Prices never move; room B is simply empty in February. A plain average
-  // reads 1500 → 1000 → 1500, a 33% crash and a 50% rebound out of thin air.
-  const churn = buildChainIndex({
-    segments: [
-      cohort("2025-03", { A: 1, B: 1 }, [
-        ["2025-01", "A", 1000],
-        ["2025-01", "B", 2000],
-        ["2025-02", "A", 1000],
-        ["2025-03", "A", 1000],
-        ["2025-03", "B", 2000],
-      ]),
-    ],
-    currentRoomCount: 2,
-    rawMonthly: [
-      { month: "2025-01", rateMonthly: 1500 },
-      { month: "2025-02", rateMonthly: 1000 },
-      { month: "2025-03", rateMonthly: 1500 },
-    ],
+  /** Gates off by default; each case turns on only the one it is about. */
+  const thresholds = (o: Partial<CoverageThresholds> = {}): CoverageThresholds => ({
+    minMatchedRooms: 1,
     coverageFloorPct: 0,
+    percentageGateMinRooms: 100_000,
+    minStratumRooms: 1,
+    ...o,
   });
-  near("flat prices with a vacancy leave the index flat", churn.index.get("2025-01")!, 1, 1e-9);
-  near("in both directions", churn.index.get("2025-02")!, 1, 1e-9);
-  const feb = churn.links.find((l) => l.month === "2025-02")!;
-  near("the raw drop is still reported", feb.rawChangePct!, -33.3333333, 1e-5);
-  near("but attributed entirely to mix", feb.mixEffectPct!, -33.3333333, 1e-5);
-  near("with no rate effect", feb.rateEffectPct, 0, 1e-9);
-  ok("coverage counts rooms observable in the pair", feb.observableRooms === 2 && feb.matchedRooms === 1);
-  near("the reported coverage-of-current is a separate number", feb.coverageOfCurrentPct, 50, 1e-9);
 
-  // Base-period weights, not the observation weights that come with each row.
-  // Weighted by the rows, this ratio would be 1.0048 instead of 1.06.
-  const laspeyres = buildChainIndex({
-    segments: [
-      cohort("2025-02", { A: 3, B: 1 }, [
-        ["2025-01", "A", 1000, 1],
-        ["2025-01", "B", 2000, 10],
-        ["2025-02", "A", 1100, 1],
-        ["2025-02", "B", 2000, 10],
-      ]),
-    ],
-    currentRoomCount: 2,
-    rawMonthly: [],
-    coverageFloorPct: 0,
+  // Prices never move. One room departs and a pricier one arrives, which drags
+  // the pooled average up 25% out of thin air.
+  const churn = compareQuarters({
+    baseQuarterLabel: "Q2 2025",
+    endingQuarterLabel: "Q2 2026",
+    ending: [room("A", 1000), room("B", 2000), room("C", 2000)],
+    base: [room("A", 1000), room("B", 2000), room("D", 1000)],
+    rawEndingRate: 5000 / 3,
+    rawBaseRate: 4000 / 3,
+    thresholds: thresholds(),
   });
+  near("flat prices with turnover leave the matched rate flat", churn.rateEffectPct!, 0, 1e-9);
+  near("the raw move is still reported", churn.rawChangePct!, 25, 1e-9);
+  near("and attributed entirely to mix", churn.mixEffectPct!, 25, 1e-9);
   near(
-    "links use fixed base-period weights, never the current period's",
-    laspeyres.links[0].ratio,
-    1.06,
+    "rate effect plus mix effect reconciles to the raw change",
+    churn.rateEffectPct! + churn.mixEffectPct!,
+    churn.rawChangePct!,
+    1e-9,
+  );
+  ok("only rooms present in both quarters are matched", churn.matchedRooms === 2);
+  near("coverage is matched over rooms priced in the ENDING quarter", churn.coverageByCountPct, (2 / 3) * 100, 1e-9);
+
+  // Ratios are computed inside strata and only then combined. Pooling these two
+  // room types gives 1.0333; the stratified answer is 1.0342, and the pooled
+  // number is wrong because it lets the expensive type dominate the arithmetic
+  // rather than only its own share of the weight.
+  const stratified = compareQuarters({
+    baseQuarterLabel: "Q2 2025",
+    endingQuarterLabel: "Q2 2026",
+    ending: [room("A", 1100), room("B", 5100, { roomType: "TWO_BR" })],
+    base: [room("A", 1000), room("B", 5000, { roomType: "TWO_BR" })],
+    rawEndingRate: 3100,
+    rawBaseRate: 3000,
+    thresholds: thresholds(),
+  });
+  ok("each unit type is its own stratum", stratified.strata.length === 2);
+  near("strata are combined on ending-quarter weights", stratified.ratio!, 6412 / 6200, 1e-12);
+  near("and re-combined on base-quarter weights", stratified.baseWeightedRatio!, 6200 / 6000, 1e-12);
+  near(
+    "the spread between the two weightings is the composition effect",
+    stratified.compositionEffectPct!,
+    ((6412 / 6200) / (6200 / 6000) - 1) * 100,
     1e-9,
   );
 
-  // Chained growth over three months is the product of the three links.
-  const compounding = buildChainIndex({
-    segments: [
-      cohort("2025-04", { A: 1 }, [
-        ["2025-01", "A", 1000],
-        ["2025-02", "A", 1010],
-        ["2025-03", "A", 1020.1],
-        ["2025-04", "A", 1030.301],
-      ]),
+  // A stratum stands in for itself whether two of its rooms matched or all ten.
+  // Weighting by matched revenue instead would give 1.0167 here.
+  const renormalized = compareQuarters({
+    baseQuarterLabel: "Q2 2025",
+    endingQuarterLabel: "Q2 2026",
+    ending: [
+      ...Array.from({ length: 10 }, (_, i) => room(`X${i}`, 1000)),
+      ...Array.from({ length: 10 }, (_, i) => room(`Y${i}`, 1000, { roomType: "TWO_BR" })),
     ],
-    currentRoomCount: 1,
-    rawMonthly: [],
-    coverageFloorPct: 0,
+    base: [
+      room("X0", 1000 / 1.1),
+      room("X1", 1000 / 1.1),
+      ...Array.from({ length: 10 }, (_, i) => room(`Y${i}`, 1000, { roomType: "TWO_BR" })),
+    ],
+    rawEndingRate: null,
+    rawBaseRate: null,
+    thresholds: thresholds(),
   });
   near(
-    "a quarter of 1% links compounds, it does not add",
-    1 / compounding.index.get("2025-01")!,
-    1.01 ** 3,
-    1e-9,
+    "a stratum carries its full weight however few of its rooms matched",
+    renormalized.ratio!,
+    1.05,
+    1e-12,
   );
 
-  // One thin link poisons every month on the far side of it: the level at
-  // 2025-01 could only be reached by multiplying through a ratio we do not
-  // trust, so it is withheld rather than published with a footnote.
-  const gated = buildChainIndex({
-    segments: [
-      cohort("2025-04", { A: 1, B: 1, C: 1, D: 1 }, [
-        ["2025-01", "A", 1000],
-        ["2025-01", "B", 1000],
-        ["2025-01", "C", 1000],
-        ["2025-01", "D", 1000],
-        ["2025-02", "A", 1000],
-        ["2025-03", "A", 1000],
-        ["2025-03", "B", 1000],
-        ["2025-03", "C", 1000],
-        ["2025-03", "D", 1000],
-        ["2025-04", "A", 1000],
-        ["2025-04", "B", 1000],
-        ["2025-04", "C", 1000],
-        ["2025-04", "D", 1000],
-      ]),
-    ],
-    currentRoomCount: 4,
-    rawMonthly: [],
-    coverageFloorPct: 90,
+  // The historical rate is used exactly as recorded. Room B's base rate would
+  // fail any plausibility gate; substituting a stratum average for it would
+  // erase the very movement the comparison exists to measure.
+  const frozen = compareQuarters({
+    baseQuarterLabel: "Q2 2025",
+    endingQuarterLabel: "Q2 2026",
+    ending: [room("A", 1000), room("B", 1000)],
+    base: [room("A", 1000), room("B", 100)],
+    rawEndingRate: null,
+    rawBaseRate: null,
+    thresholds: thresholds(),
   });
-  ok("a link above the floor keeps its month", gated.index.has("2025-03"));
-  ok("the month under the failing link is suppressed", !gated.index.has("2025-02"));
-  ok(
-    "and the reason code names the failing pair",
-    gated.suppressed.get("2025-02") === "LINK_COVERAGE_BELOW_FLOOR:2025-02->2025-03",
-    gated.suppressed.get("2025-02"),
-  );
-  ok(
-    "suppression propagates past the failing link, carrying the same reason",
-    !gated.index.has("2025-01") &&
-      gated.suppressed.get("2025-01") === "LINK_COVERAGE_BELOW_FLOOR:2025-02->2025-03",
-    gated.suppressed.get("2025-01"),
-  );
+  near("historical rates are never re-gated or imputed", frozen.ratio!, 2000 / 1100, 1e-12);
 
-  // Annual re-basing: consecutive segments must SHARE their boundary month, or
-  // there is no common level to link them at.
-  const segments = planChainSegments("2026-08", "2024-06");
-  ok("the chain re-bases every twelve months", segments.length === 3, `${segments.length} segments`);
-  ok(
-    "each segment starts where the next one is based",
-    segments.every((s, i) => i === segments.length - 1 || s.months[0] === segments[i + 1].baseMonth),
-    segments.map((s) => `${s.months[0]}..${s.baseMonth}`).join(" "),
-  );
-  ok(
-    "and the oldest segment stops at the earliest month needed",
-    segments[segments.length - 1].months[0] === "2024-06",
-  );
-
-  // Same-unit YoY pairs a room to itself twelve months earlier. Room B only
-  // exists in the later year, so it must not appear on either side.
-  const yoy = buildChainIndex({
-    segments: [
-      cohort("2026-01", { A: 1, B: 1 }, [
-        ["2025-01", "A", 1000],
-        ["2026-01", "A", 1080],
-        ["2026-01", "B", 5000],
-      ]),
+  // A stratum with too few matched rooms is not believed, and its weight goes
+  // to its siblings in the same unit type rather than taking the scope down.
+  const gated = compareQuarters({
+    baseQuarterLabel: "Q2 2025",
+    endingQuarterLabel: "Q2 2026",
+    ending: [
+      ...Array.from({ length: 5 }, (_, i) => room(`P${i}`, 1000, { careLevel: "1" })),
+      ...Array.from({ length: 5 }, (_, i) => room(`Q${i}`, 1000, { careLevel: "2" })),
     ],
-    currentRoomCount: 2,
-    rawMonthly: [],
-    coverageFloorPct: 0,
+    base: [
+      ...Array.from({ length: 5 }, (_, i) => room(`P${i}`, 1000, { careLevel: "1" })),
+      room("Q0", 500, { careLevel: "2" }),
+    ],
+    rawEndingRate: null,
+    rawBaseRate: null,
+    thresholds: thresholds({ minMatchedRooms: 3 }),
   });
+  near("a thin stratum is dropped, not averaged in", gated.ratio!, 1, 1e-12);
+  ok(
+    "and the reason code names the count that failed",
+    gated.suppressedStrata.length === 1 &&
+      gated.suppressedStrata[0].reasonCode === "INSUFFICIENT_MATCHED_ROOMS:1<3",
+    gated.suppressedStrata[0]?.reasonCode,
+  );
+  ok(
+    "its weight is reassigned inside its own unit type",
+    gated.redistributedUnitTypes.join() === "STUDIO" && !gated.redistributedAcrossUnitTypes,
+  );
+
+  // The percentage floor is only a fair judge once a stratum is big enough to
+  // have one. Below that threshold the matched COUNT is the only gate, because
+  // a percentage over a handful of rooms measures portfolio size.
+  const thinPct = {
+    baseQuarterLabel: "Q2 2025",
+    endingQuarterLabel: "Q2 2026",
+    ending: Array.from({ length: 30 }, (_, i) => room(`R${i}`, 1000)),
+    base: Array.from({ length: 8 }, (_, i) => room(`R${i}`, 1000)),
+    rawEndingRate: null,
+    rawBaseRate: null,
+  };
+  const pctApplied = compareQuarters({
+    ...thinPct,
+    thresholds: thresholds({ minMatchedRooms: 3, coverageFloorPct: 60, percentageGateMinRooms: 20 }),
+  });
+  const pctWaived = compareQuarters({
+    ...thinPct,
+    thresholds: thresholds({ minMatchedRooms: 3, coverageFloorPct: 60, percentageGateMinRooms: 40 }),
+  });
+  ok(
+    "a large stratum below the coverage floor is suppressed",
+    !pctApplied.usable && pctApplied.reasonCode === "ALL_STRATA_SUPPRESSED",
+    pctApplied.reasonCode ?? "usable",
+  );
+  ok(
+    "the same coverage passes when the stratum is too small to judge on a ratio",
+    pctWaived.usable,
+  );
   near(
-    "same-unit YoY ignores rooms without a prior-year self",
-    yoy.sameUnitYoyPct.get("2026-01")!,
-    8,
-    1e-9,
+    "a fully suppressed comparison still exposes an ungated fallback ratio",
+    pctApplied.unsuppressedRatio!,
+    1,
+    1e-12,
+  );
+
+  // Unit type x care level x price band is right for a portfolio and ruinous
+  // for one campus, where it can make more strata than rooms. Each room takes
+  // the finest key whose group is still big enough to be one.
+  const manyTypes = Array.from({ length: 30 }, (_, i) =>
+    room(`Z${i}`, 1000, { roomType: `TYPE_${i % 10}` }),
+  );
+  const coarse = assignStrata(manyTypes, 12);
+  ok(
+    "over-thin strata coarsen to a single pooled group",
+    new Set(coarse.map((a) => a.key)).size === 1 && coarse[0].key === "ALL",
+    Array.from(new Set(coarse.map((a) => a.key))).join(","),
+  );
+  const banded = assignStrata(
+    [100, 200, 300, 400, 500, 600, 700, 800].map((r, i) => room(`W${i}`, r)),
+    1,
+  );
+  ok(
+    "and split into price bands when there is room to",
+    new Set(banded.map((a) => a.key)).size === 4,
+    Array.from(new Set(banded.map((a) => a.key))).join(","),
   );
 }
 

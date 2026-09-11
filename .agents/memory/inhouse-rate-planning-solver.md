@@ -20,12 +20,98 @@ current Street Rate, and historical realized rates. Match historical rows to the
 current base cohort and normalize each month to today's mix before calculating
 quarterly YoY growth.
 
-### Matched-pair standardization is not enough — hold the cohort constant
+### Standardization is a direct two-point quarter comparison
+
+The current engine compares exactly two quarters — a prior-year quarter and the
+latest complete one — with no chain-linking, no compounding, and no 12-month
+survival requirement. A room is matched only if it has a valid rate in all three
+months of *both* quarters; a quarter's rate is the simple average of its three
+monthly rates. Ratios are computed inside strata (unit type x care level x price
+band) and only then aggregated on fixed weights, renormalized so every stratum
+carries full weight however few of its rooms matched. The ending quarter is the
+latest quarter with all three months present, which rules out both the
+in-progress quarter and any quarter with a missing upload.
+
+Chain-linking, the Fisher composite, and the separate backcast view were deleted.
+Dropping the survival requirement roughly doubled matched coverage on the worst
+service line.
+
+**Why:** requiring a room to survive a long window makes coverage collapse on
+exactly the service lines with the most turnover, and chaining compounds every
+intermediate period's error into the endpoints. Two points need only two points.
+
+**How to apply:** adjudicate eligibility ONCE at the ending quarter and take base
+rates exactly as recorded — never re-gate or impute the historical side, or the
+churn the standardization exists to remove comes back in through the divisor.
+
+### Which weights go on which side is the easiest thing to get wrong
+
+Three distinct weightings coexist and are not interchangeable:
+
+- **Within a stratum**, both sides of the ratio use the ENDING weight, so the
+  stratum ratio is a pure price comparison and no occupancy change leaks into it.
+- **The primary aggregation** combines stratum ratios on ending-quarter weights.
+- **The secondary aggregation** must combine them on the BASE quarter's own
+  weights — base weight times base rate. Reusing the ending weight here (easy to
+  do, since the matched loop already has it in hand) makes the secondary figure
+  and therefore the reported composition spread quietly wrong whenever occupancy
+  moved between the quarters.
+
+The spread between primary and secondary IS the composition effect, so an error
+in the secondary basis is invisible in the headline and shows up only as a
+mis-attributed mix number.
+
+### A matching query has stricter row hygiene than an aggregate query
+
+Two rules that other rent-roll queries can ignore:
+
+- **A row with no room number must be dropped outright.** Elsewhere those rows
+  can fall into a per-location bucket harmlessly. Here they collapse into one
+  synthetic room that matches *itself* across the two quarters, inventing a price
+  observation from two unrelated residents.
+- **A room-month is worth one room-month on the monthly basis**, however many
+  rows the import produced for it. Summing row weights lets a duplicated row
+  count its room twice, in both the ratio and the stratum weight. On the daily
+  basis the extra rows are genuine companion residents, so there they do sum.
+
+### "Never recorded" must be read from the raw upload, not the filtered series
+
+Whether a quarter was recorded and whether it can be measured are different
+questions. A quarter that was uploaded but whose rows all failed the eligibility
+gate deserves a withheld number and a reason; a quarter that was never uploaded
+deserves a projection. Deciding between them from the already-filtered monthly
+series conflates the two and silently extrapolates over real data.
+
+Scope that presence query to the months actually being asked about — an unbounded
+`DISTINCT upload_month` over a client's whole rent roll is a seq scan on every
+plan build.
+
+### A fallback that ignores the gates must say so
+
+When a scope is small enough that every stratum fails its gate, the engine falls
+back to the ungated stratified ratio rather than refusing to plan. That result
+must carry its own basis label end to end. Reusing the "actual" label because the
+number came from real rows produces a plan that reads as measured to every
+downstream surface while its own diagnostics say otherwise.
+
+### Thresholds were set by measurement, not judgement
+
+The coverage floor was swept across all six service lines: the YoY answer holds
+flat from floor 0 through 60, then breaks at 70 where one line jumps by 1.3
+points while discarding 43% of its rooms. 60 is the last stable value, not a
+round number someone liked. Apply the count gate BEFORE the percentage gate — a
+percentage over a handful of rooms measures portfolio size, not data quality.
+
+**How to apply:** if you change a threshold, re-run the sweep. The defensible
+value is the last one where the answer is still stable, and that fact belongs in
+a comment next to the constant.
+
+### Historical note: why the cohort approach was replaced
 
 Dividing each historical month by the current rate of the rooms that qualified
-*in that month* is still composition-sensitive, because which rooms qualify
-changes every month. Require a room to qualify in every month of the comparison
-window instead, and warn when that cohort covers little of today's portfolio.
+*in that month* is composition-sensitive, because which rooms qualify changes
+every month. Requiring a room to qualify in every month of a long window fixed
+that but cost too much coverage — which is what the two-point design replaces.
 
 **Why:** payer scope, the base-rate exclusions and the relative outlier gate move
 rooms in and out while occupancy is flat. A few hundred low-current-rate rooms

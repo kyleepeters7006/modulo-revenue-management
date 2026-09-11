@@ -15,6 +15,7 @@ import type {
   PlanningAssumptions,
   PlanningResident,
   QuarterRef,
+  RateMixComparison,
   RateProduct,
   ResidentRecommendation,
   StreetRateSource,
@@ -27,7 +28,8 @@ import {
   fetchCurrentStreetRate,
   fetchMixStandardizedStreetComparison,
   fetchTopCompetitorRate,
-  fetchBaseAnchoredRoomRates,
+  fetchQuarterRoomRates,
+  fetchRecordedMonths,
   fetchCohortMonthlyRealizedRates,
   fetchMonthlyRealizedRates,
   fetchProductStreetBaselines,
@@ -42,7 +44,11 @@ import {
   type MonthlyRealized,
   type ScopeFilter,
 } from "./dataAccess";
-import { buildChainIndex, planChainSegments } from "./chainIndex";
+import {
+  DEFAULT_THRESHOLDS,
+  compareQuarters,
+  type QuarterComparison,
+} from "./twoPointIndex";
 import { pool } from "../../db";
 import { getDerivedRateFormulas } from "../derivedRateFormulasService";
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
@@ -52,6 +58,7 @@ import {
   isoToMs,
   monthBoundsMs,
   quarterEndMs,
+  quarterOfMonthKey,
   quarterStartMs,
 } from "./dates";
 import {
@@ -78,18 +85,8 @@ export interface CalculatePlanInput {
 
 export class PlanningDataError extends Error {}
 
-/**
- * A monthly link must match this share of the rooms it could have matched.
- *
- * Measured against the rooms observable in the pair, not against every room
- * priced today. The latter is the intuitive denominator and it is the wrong
- * one: rooms occupied today were not all occupied a year ago, so it decays with
- * distance from the base period regardless of data quality — 77%–82% twelve
- * months back on live data, which would suppress the entire series instead of
- * its unreliable parts. Against the observable pair the same links run 90%–97%,
- * and the ones that fall through are real gaps in the rent roll.
- */
-export const LINK_COVERAGE_FLOOR_PCT = 90;
+/** Gates a stratum must clear before its measured ratio is believed. */
+export const STANDARDIZATION_THRESHOLDS = DEFAULT_THRESHOLDS;
 
 /**
  * Everything the solver knew but the operator-facing result does not carry.
@@ -232,23 +229,16 @@ export async function calculatePlanDetailed(
   // month, and they do not: payer scope, base-rate exclusions and the outlier
   // gate move rooms in and out while occupancy is flat. Requiring survival
   // across the whole window removed that churn but kept only a biased remnant
-  // of the portfolio. A chain-linked index needs neither compromise — see
-  // chainIndex.ts. The window and the balanced panel are still computed so the
-  // two series can be compared before the old one is retired.
+  // of the portfolio, and chain-linking adjacent months made every level
+  // hostage to the worst month between it and today. Comparing two quarters
+  // directly has neither weakness — see twoPointIndex.ts. The balanced panel is
+  // still computed so the two series can be compared before the old one is
+  // retired.
   const cohortWindow = priorYearQuarters.flatMap((q) => expectedMonths(q));
-  const earliestChainMonth = cohortWindow.reduce(
-    (min, m) => (m < min ? m : min),
-    sourceMonth,
-  );
-  const segmentPlan = planChainSegments(sourceMonth, earliestChainMonth);
-  const [monthly, balancedPanel, segmentCohorts] = await Promise.all([
+  const [monthly, balancedPanel, recordedMonths] = await Promise.all([
     fetchMonthlyRealizedRates(scope, "2000-01", unitMix),
     fetchCohortMonthlyRealizedRates(scope, "2000-01", unitMix, cohortWindow),
-    Promise.all(
-      segmentPlan.map((segment) =>
-        fetchBaseAnchoredRoomRates(scope, segment.baseMonth, segment.months),
-      ),
-    ),
+    fetchRecordedMonths(scope, cohortWindow),
   ]);
   const currentPlanningAverage = residentDayWeightedAverageRate(residents);
   const standardize = (rows: MonthlyRealized[]) =>
@@ -260,43 +250,156 @@ export async function calculatePlanDetailed(
           : m.rateMonthly,
     }));
 
-  const chain = buildChainIndex({
-    segments: segmentCohorts.map((cohort) => ({
-      baseMonth: cohort.baseMonth,
-      weights: cohort.baseWeights,
-      rows: cohort.rows,
-    })),
-    currentRoomCount: unitMix.length,
-    rawMonthly: monthly.map((m) => ({ month: m.month, rateMonthly: m.rateMonthly })),
-    coverageFloorPct: LINK_COVERAGE_FLOOR_PCT,
-  });
+  // The ending quarter is the latest one the rent roll actually covers in full.
+  // Requiring all three months present rules out both the quarter in progress
+  // and any quarter with a missing upload, either of which would leave the
+  // matched set empty rather than merely thin.
+  const rawByMonth = new Map(monthly.map((m) => [m.month, m]));
+  let endingQuarter: QuarterRef | null = null;
+  for (let back = 0; back < 12 && endingQuarter == null; back += 1) {
+    const candidate = addQuarters(quarterOfMonthKey(sourceMonth), -back);
+    if (expectedMonths(candidate).every((m) => rawByMonth.has(m))) endingQuarter = candidate;
+  }
 
-  // Only the price RELATIONSHIP comes from the matched cohort; the level stays
+  // Every historical quarter is compared against that one quarter, and the
+  // strict four-quarters-apart pair is computed alongside as the headline
+  // year-over-year figure. Three of the four prior-year quarters are not four
+  // quarters from the ending one; the four-quarter gap is what makes a YoY
+  // number meaningful, but it is the matched pairing — not the gap — that does
+  // the standardizing, so the shorter spans are measured the same way.
+  const rawQuarterRate = (q: QuarterRef): number | null => {
+    let revenue = 0;
+    let days = 0;
+    for (const month of expectedMonths(q)) {
+      const row = rawByMonth.get(month);
+      if (!row) continue;
+      revenue += row.rateMonthly * row.residentDays;
+      days += row.residentDays;
+    }
+    return days > 0 ? revenue / days : null;
+  };
+  const yoyBaseQuarter = endingQuarter ? addQuarters(endingQuarter, -4) : null;
+  const baseQuarters = new Map<string, QuarterRef>();
+  for (const q of priorYearQuarters) {
+    if (q.label !== endingQuarter?.label) baseQuarters.set(q.label, q);
+  }
+  if (yoyBaseQuarter && yoyBaseQuarter.label !== endingQuarter?.label) {
+    baseQuarters.set(yoyBaseQuarter.label, yoyBaseQuarter);
+  }
+  const baseQuarterList = Array.from(baseQuarters.values());
+
+  const [endingRooms, baseRoomSets] = await Promise.all([
+    endingQuarter
+      ? fetchQuarterRoomRates(scope, expectedMonths(endingQuarter), { adjudicate: true })
+      : Promise.resolve(null),
+    Promise.all(
+      baseQuarterList.map((q) =>
+        // Never adjudicated: the historical side is taken as recorded.
+        fetchQuarterRoomRates(scope, expectedMonths(q), { adjudicate: false }),
+      ),
+    ),
+  ]);
+
+  const comparisons = new Map<string, QuarterComparison>();
+  if (endingQuarter && endingRooms) {
+    baseQuarterList.forEach((q, i) => {
+      comparisons.set(
+        q.label,
+        compareQuarters({
+          baseQuarterLabel: q.label,
+          endingQuarterLabel: endingQuarter!.label,
+          ending: endingRooms.rooms,
+          base: baseRoomSets[i].rooms,
+          rawEndingRate: rawQuarterRate(endingQuarter!),
+          rawBaseRate: rawQuarterRate(q),
+          thresholds: DEFAULT_THRESHOLDS,
+        }),
+      );
+    });
+  }
+
+  const yoyComparison = yoyBaseQuarter ? (comparisons.get(yoyBaseQuarter.label) ?? null) : null;
+
+  // Only the price RELATIONSHIP comes from the matched rooms; the level stays
   // anchored to today's full planning average, exactly as before.
   const weightBasis = realizedRateWeightBasis(input.serviceLine);
-  // A coverage floor expressed as a percentage is a poor judge of a small
-  // campus: at seven rooms one turnover costs fourteen points, so the floor
-  // ends up measuring portfolio size rather than data quality and can withhold
-  // every quarter a scope has. Withholding a number is right; refusing to plan
-  // at all is not, so a scope left with nothing keeps the untrusted levels and
-  // is told plainly that is what happened.
-  const suppressionWouldEmptyScope = priorYearQuarters.every((quarter) =>
-    expectedMonths(quarter).every(
-      (m) => !chain.index.has(m) || chain.suppressed.has(m),
-    ),
+  const quarterWeight = (q: QuarterRef) =>
+    expectedMonths(q).reduce((sum, m) => sum + (rawByMonth.get(m)?.residentDays ?? 0), 0);
+  const asBaseline = (
+    q: QuarterRef,
+    rateMonthly: number,
+    basis: BaselineQuarter["basis"] = "actual",
+  ): BaselineQuarter => ({
+    ...q,
+    realizedRateMonthly: rateMonthly,
+    basis,
+    monthsAvailable: 3,
+    monthsExpected: 3,
+    availableMonths: expectedMonths(q),
+    residentDays: quarterWeight(q),
+  });
+
+  // A percentage coverage floor is a poor judge of a small campus: at seven
+  // rooms one turnover costs fourteen points, so it ends up measuring portfolio
+  // size rather than data quality. The stratum gates already lead with a
+  // matched-room COUNT for that reason, but a scope small enough can still lose
+  // every quarter. Withholding a number is right; refusing to plan at all is
+  // not, so such a scope falls back to the ungated ratio and is told plainly.
+  const measurable = priorYearQuarters.filter((q) => {
+    if (q.label === endingQuarter?.label) return true;
+    return comparisons.get(q.label)?.usable === true;
+  });
+  const anyRecorded = priorYearQuarters.some(
+    (q) =>
+      q.label === endingQuarter?.label ||
+      (comparisons.get(q.label)?.unsuppressedRatio ?? 0) > 0,
   );
-  const chainLevelsUsable = Array.from(chain.index).filter(
-    ([month, level]) =>
-      level > 0 && (suppressionWouldEmptyScope || !chain.suppressed.has(month)),
-  );
-  const mixStandardizedMonthly: MonthlyRealized[] = chainLevelsUsable
-    .map(([month, level]) => ({
-      month,
-      weightBasis,
-      residentDays: chain.observedWeight.get(month) ?? 0,
-      rateMonthly: currentPlanningAverage * level,
-    }))
-    .filter((m) => m.residentDays > 0)
+  const suppressionWouldEmptyScope = measurable.length === 0 && anyRecorded;
+
+  const knownQuarters = new Map<string, BaselineQuarter>();
+  const suppressedQuarters = new Map<string, string>();
+  if (endingQuarter) {
+    knownQuarters.set(endingQuarter.label, asBaseline(endingQuarter, currentPlanningAverage));
+  }
+  for (const q of baseQuarterList) {
+    const comparison = comparisons.get(q.label);
+    const gated = comparison?.usable === true;
+    const ratio = gated
+      ? comparison!.ratio
+      : suppressionWouldEmptyScope
+        ? (comparison?.unsuppressedRatio ?? null)
+        : null;
+    if (ratio != null && ratio > 0) {
+      knownQuarters.set(
+        q.label,
+        asBaseline(q, currentPlanningAverage / ratio, gated ? "actual" : "ungated_fallback"),
+      );
+      continue;
+    }
+    // A quarter the rent roll never recorded is projected, not suppressed:
+    // projection is for quarters that were never measured, suppression for
+    // quarters that were measured and cannot be believed. Presence is read from
+    // the raw upload, never from the eligibility-filtered series — otherwise a
+    // quarter whose rows all failed the gate would be quietly extrapolated as
+    // though it had never been uploaded.
+    const recorded = expectedMonths(q).some((m) => recordedMonths.has(m));
+    if (!recorded || !priorYearQuarters.some((p) => p.label === q.label)) continue;
+    suppressedQuarters.set(q.label, comparison?.reasonCode ?? "NO_MATCHED_ROOMS");
+  }
+
+  // The model has no resolution below a quarter, so the monthly view of the
+  // standardized series is a step function by construction. It exists for the
+  // export's rate-history sheet, never as an input to a baseline.
+  const mixStandardizedMonthly: MonthlyRealized[] = Array.from(knownQuarters.values())
+    .flatMap((q) =>
+      (q.availableMonths ?? []).map((month) => ({
+        month,
+        weightBasis,
+        residentDays: rawByMonth.get(month)?.residentDays ?? 0,
+        rateMonthly: q.realizedRateMonthly ?? 0,
+      })),
+    )
+    .filter((m) => m.residentDays > 0 && m.rateMonthly > 0)
     .sort((a, b) => a.month.localeCompare(b.month));
 
   // Parallel run: the balanced panel this replaces, kept alongside so the
@@ -308,26 +411,6 @@ export async function calculatePlanDetailed(
   );
   const balancedPanelQuarters = rollMonthsIntoQuarters(balancedPanelMonthly);
 
-  // A quarter whose every observed month was suppressed must come back null
-  // with a reason, not be quietly extrapolated. Projection is for quarters that
-  // were never recorded; this one WAS recorded and is being withheld.
-  const suppressedQuarters = new Map<string, string>();
-  for (const quarter of suppressionWouldEmptyScope ? [] : priorYearQuarters) {
-    const observed = expectedMonths(quarter).filter(
-      (m) => (chain.observedWeight.get(m) ?? 0) > 0,
-    );
-    if (observed.length === 0) continue;
-    const usable = observed.filter(
-      (m) => chain.index.has(m) && !chain.suppressed.has(m),
-    );
-    if (usable.length > 0) continue;
-    const reason = observed
-      .map((m) => chain.suppressed.get(m))
-      .find((code): code is string => !!code);
-    suppressedQuarters.set(quarter.label, reason ?? "LINK_COVERAGE_BELOW_FLOOR");
-  }
-
-  const knownQuarters = rollMonthsIntoQuarters(mixStandardizedMonthly);
   const { baselines, quarterlyGrowthPct } = projectMissingQuarters(
     knownQuarters,
     priorYearQuarters.filter((q) => !suppressedQuarters.has(q.label)),
@@ -555,12 +638,18 @@ export async function calculatePlanDetailed(
     priorJanuaryMonth,
     januaryMatchCoverage: matchCoverage,
     suppressedQuarters,
-    failingLinks: chain.links.filter((l) => l.belowFloor),
-    coverageFloorPct: LINK_COVERAGE_FLOOR_PCT,
+    thinComparisons: Array.from(comparisons.values()).filter(
+      (c) => c.usable && c.suppressedStrata.length > 0,
+    ),
+    crossUnitRedistribution: Array.from(comparisons.values())
+      .filter((c) => c.usable && c.redistributedAcrossUnitTypes)
+      .map((c) => c.baseQuarterLabel),
+    minMatchedRooms: DEFAULT_THRESHOLDS.minMatchedRooms,
+    coverageFloorPct: DEFAULT_THRESHOLDS.coverageFloorPct,
   });
   if (suppressionWouldEmptyScope) {
     warnings.push(
-      `Every prior-year quarter for this scope failed the ${LINK_COVERAGE_FLOOR_PCT}% matched-room floor, so the baselines below are the best available rather than measurements that met the standard. Small populations trip this floor on ordinary turnover — treat the year-over-year figures as indicative.`,
+      `No prior-year quarter for this scope had enough matched rooms to measure price movement to the usual standard, so the baselines below are the best available rather than measurements that met it. A service line this small turns over a large share of its rooms in a year — treat the year-over-year figures as indicative.`,
     );
   }
   if (
@@ -618,39 +707,43 @@ export async function calculatePlanDetailed(
     }),
     warnings,
     standardization: {
-      method: "chain_linked",
-      baseMonth: chain.baseMonth,
-      segmentBaseMonths: segmentPlan.map((s) => s.baseMonth),
-      coverageFloorPct: LINK_COVERAGE_FLOOR_PCT,
-      links: chain.links.map((l) => ({
-        month: l.month,
-        priorMonth: l.priorMonth,
-        rawChangePct: l.rawChangePct,
-        rateEffectPct: l.rateEffectPct,
-        mixEffectPct: l.mixEffectPct,
-        matchedRooms: l.matchedRooms,
-        coveragePct: l.coveragePct,
-        coverageOfCurrentPct: l.coverageOfCurrentPct,
-        belowFloor: l.belowFloor,
+      method: "two_point_matched_quarter",
+      endingQuarterLabel: endingQuarter?.label ?? "",
+      minMatchedRooms: DEFAULT_THRESHOLDS.minMatchedRooms,
+      coverageFloorPct: DEFAULT_THRESHOLDS.coverageFloorPct,
+      comparisons: Array.from(comparisons.values())
+        .map(describeComparison)
+        .sort((a, b) => a.baseQuarterLabel.localeCompare(b.baseQuarterLabel)),
+      yearOverYear: yoyComparison ? describeComparison(yoyComparison) : null,
+      yearOverYearStrata: (yoyComparison?.strata ?? []).map((s) => ({
+        key: s.key,
+        unitType: s.unitType,
+        careLevel: s.careLevel,
+        priceBand: s.priceBand,
+        matchedRooms: s.matchedRooms,
+        endingRooms: s.endingRooms,
+        coverageByCountPct: s.coverageByCountPct,
+        coverageByRevenuePct: s.coverageByRevenuePct,
+        rateEffectPct: s.ratio != null ? (s.ratio - 1) * 100 : null,
+        endingWeightSharePct: s.endingWeightShare * 100,
+        baseWeightSharePct: s.baseWeightShare * 100,
+        suppressed: s.suppressed,
+        reasonCode: s.reasonCode,
       })),
       suppressedQuarters: Array.from(suppressedQuarters, ([label, reasonCode]) => ({
         label,
         reasonCode,
       })),
-      sameUnitYoy: Array.from(chain.sameUnitYoyPct, ([month, yoyPct]) => ({
-        month,
-        yoyPct,
-      })).sort((a, b) => a.month.localeCompare(b.month)),
       parallelRun: priorYearQuarters.map((q) => {
-        const chained = baselines.get(q.label)?.realizedRateMonthly ?? null;
+        const matched = baselines.get(q.label)?.realizedRateMonthly ?? null;
         const panel = balancedPanelQuarters.get(q.label)?.realizedRateMonthly ?? null;
         return {
           label: q.label,
-          chainRateMonthly: chained,
+          matchedPairRateMonthly: matched,
           balancedPanelRateMonthly: panel,
           differencePct:
-            chained != null && panel != null && panel > 0
-              ? (chained / panel - 1) * 100
+            matched != null && panel != null && panel > 0
+              ? (matched / panel - 1) * 100
               : null,
         };
       }),
@@ -983,6 +1076,26 @@ function explainPlan(ctx: {
   };
 }
 
+function describeComparison(c: QuarterComparison): RateMixComparison {
+  return {
+    baseQuarterLabel: c.baseQuarterLabel,
+    endingQuarterLabel: c.endingQuarterLabel,
+    rawChangePct: c.rawChangePct,
+    rateEffectPct: c.rateEffectPct,
+    mixEffectPct: c.mixEffectPct,
+    baseWeightedRateEffectPct:
+      c.baseWeightedRatio != null ? (c.baseWeightedRatio - 1) * 100 : null,
+    compositionEffectPct: c.compositionEffectPct,
+    matchedRooms: c.matchedRooms,
+    endingRooms: c.endingRooms,
+    coverageByCountPct: c.coverageByCountPct,
+    coverageByRevenuePct: c.coverageByRevenuePct,
+    suppressedStrata: c.suppressedStrata,
+    usable: c.usable,
+    reasonCode: c.reasonCode,
+  };
+}
+
 function buildWarnings(ctx: {
   sourceMonth: string;
   excluded: { noRate: number; implausibleRate: number; noStreetRate: number; departingBeforeHorizon: number };
@@ -993,9 +1106,17 @@ function buildWarnings(ctx: {
   residentCount: number;
   priorJanuaryMonth: string;
   januaryMatchCoverage: number;
-  /** Prior-year quarters withheld because a link they rest on is unreliable. */
+  /** Prior-year quarters withheld because no stratum in them could be believed. */
   suppressedQuarters: Map<string, string>;
-  failingLinks: Array<{ month: string; priorMonth: string; coveragePct: number }>;
+  /** Comparisons that stand, but with part of the portfolio unmeasured. */
+  thinComparisons: Array<{
+    baseQuarterLabel: string;
+    suppressedStrata: Array<{ key: string; reasonCode: string }>;
+    coverageByCountPct: number;
+  }>;
+  /** Quarters where a whole room type went unmeasured and others stood in. */
+  crossUnitRedistribution: string[];
+  minMatchedRooms: number;
   coverageFloorPct: number;
 }): string[] {
   const warnings: string[] = [];
@@ -1040,14 +1161,23 @@ function buildWarnings(ctx: {
       .map(([label, code]) => `${label} (${code})`)
       .join(", ");
     warnings.push(
-      `No prior-year rate is reported for ${detail}. The rooms observable in those months could not be matched across consecutive months closely enough to measure price movement, so the number is withheld rather than shown with a caveat.`,
+      `No prior-year rate is reported for ${detail}. Too few of the rooms priced today could be matched back to a rate in those quarters to measure price movement, so the number is withheld rather than shown with a caveat.`,
     );
   }
-  if (ctx.failingLinks.length > 0) {
+  if (ctx.thinComparisons.length > 0) {
+    const detail = ctx.thinComparisons
+      .map(
+        (c) =>
+          `${c.baseQuarterLabel} (${c.suppressedStrata.length} of the room groups, ${Math.round(c.coverageByCountPct)}% of rooms matched overall)`,
+      )
+      .join(", ");
     warnings.push(
-      `${ctx.failingLinks
-        .map((l) => `${l.priorMonth}→${l.month} at ${Math.round(l.coveragePct)}%`)
-        .join(", ")} fell below the ${ctx.coverageFloorPct}% matched-room floor for a month-over-month comparison.`,
+      `Part of the portfolio could not be matched back to ${detail}. Those room groups were left out of the comparison and their share reassigned to comparable groups, so the prior-year rate rests on the rooms that could be matched.`,
+    );
+  }
+  if (ctx.crossUnitRedistribution.length > 0) {
+    warnings.push(
+      `For ${ctx.crossUnitRedistribution.join(", ")}, an entire room type went unmeasured and its share was carried by different room types. A studio standing in for a two-bedroom is a weaker comparison than one room type standing in for its own price bands — read those quarters as indicative.`,
     );
   }
   if (ctx.januaryMatchCoverage < 0.8) {

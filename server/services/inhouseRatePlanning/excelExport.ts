@@ -1228,7 +1228,9 @@ function buildHistorySheet(ws: ExcelJS.Worksheet, plan: PlanResult, audit: PlanA
         ? `Actual (${q.priorYear.monthsAvailable}/${q.priorYear.monthsExpected} months)`
         : q.priorYear.basis === "partial"
           ? `Partial (${q.priorYear.monthsAvailable}/${q.priorYear.monthsExpected} months)`
-          : "Projected from trend — not measured";
+          : q.priorYear.basis === "ungated_fallback"
+            ? "Measured on fewer matched rooms than the standard requires"
+            : "Projected from trend — not measured";
     if (q.isBinding) {
       row.eachCell({ includeEmpty: true }, (cell) => {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFDE9E9" } };

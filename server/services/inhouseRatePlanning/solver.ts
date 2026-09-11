@@ -808,7 +808,9 @@ function explainQuarter(
       ? "All three months of that quarter are in the rent roll."
       : base.basis === "partial"
         ? partialCoverageNote
-        : priorQuarterIsIncomplete
+        : base.basis === "ungated_fallback"
+          ? "Too few rooms could be matched back to that quarter to meet the usual standard, so this is the best available measurement rather than a confirmed one."
+          : priorQuarterIsIncomplete
           ? "That quarter is not complete yet, so its baseline is projected from the available rate trend and is not an actual."
           : "No rent roll data exists for that completed quarter, so the baseline is projected from trend and is not an actual.";
 
@@ -853,7 +855,9 @@ function explainQuarter(
       narrative.push(
         base.basis === "projected"
           ? "Treat this comparison with care: the prior-year figure is projected, not measured."
-          : "The prior-year figure covers only part of the quarter, so the comparison is approximate.",
+          : base.basis === "ungated_fallback"
+            ? "Treat this comparison with care: the prior-year figure rests on fewer matched rooms than the standard requires."
+            : "The prior-year figure covers only part of the quarter, so the comparison is approximate.",
       );
     }
   }

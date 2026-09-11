@@ -2358,7 +2358,11 @@ export default function InhouseIncreases() {
                                   {q.priorYear.label}
                                   {q.priorYear.basis !== "actual" && (
                                     <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-[11px] font-normal text-amber-600 dark:text-amber-400">
-                                      {q.priorYear.basis === "projected" ? "Projected" : `${q.priorYear.monthsAvailable} of ${q.priorYear.monthsExpected} months`}
+                                      {q.priorYear.basis === "projected"
+                                        ? "Projected"
+                                        : q.priorYear.basis === "ungated_fallback"
+                                          ? "Limited match"
+                                          : `${q.priorYear.monthsAvailable} of ${q.priorYear.monthsExpected} months`}
                                     </Badge>
                                   )}
                                 </span>
