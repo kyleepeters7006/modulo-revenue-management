@@ -25,6 +25,13 @@ interface FileWithDate {
   error?: string;
 }
 
+type MoveInDateValidation = {
+  clientId?: string | null;
+  uploadMonth: string;
+  malformedCount: number;
+  sampleValues: string[];
+};
+
 type UploadSummaryEntry = {
   lastUploadAt: string | null;
   lastFileName?: string | null;
@@ -1835,6 +1842,8 @@ export default function DataManagement() {
                       'inquiry': 'Inquiry Data',
                       'competitor': 'Competitive Data'
                     };
+                    const moveInDateValidation = upload.moveInDateValidation as MoveInDateValidation | undefined;
+                    const malformedMoveInDateCount = moveInDateValidation?.malformedCount ?? 0;
                     
                     return (
                       <div key={index} className="flex items-center justify-between p-4 bg-green-50 rounded-lg border border-green-200">
@@ -1849,6 +1858,29 @@ export default function DataManagement() {
                             <span>{upload.recordsProcessed || 0} records processed</span>
                             {upload.uploadMonth && <span className="ml-4">Month: {upload.uploadMonth}</span>}
                           </div>
+                          {upload.type === 'rent-roll' &&
+                            malformedMoveInDateCount > 0 &&
+                            moveInDateValidation && (
+                              <Alert
+                                variant="default"
+                                className="mt-3 ml-7 border-amber-300 bg-amber-50 text-amber-950"
+                                data-testid="rent-roll-malformed-move-in-warning"
+                              >
+                                <AlertCircle className="h-4 w-4 text-amber-600" />
+                                <AlertDescription>
+                                  <span className="font-medium">
+                                    {malformedMoveInDateCount} malformed move-in date
+                                    {malformedMoveInDateCount === 1 ? '' : 's'} found for {moveInDateValidation.uploadMonth}.
+                                  </span>{' '}
+                                  Invalid dates were skipped rather than treated as departures, so turnover coverage may be reduced.
+                                  {moveInDateValidation.sampleValues.length > 0 && (
+                                    <span className="block mt-1">
+                                      Examples: {moveInDateValidation.sampleValues.join(', ')}
+                                    </span>
+                                  )}
+                                </AlertDescription>
+                              </Alert>
+                            )}
                           <p className="text-xs text-green-600 ml-7">
                             {new Date(upload.timestamp).toLocaleString()}
                           </p>

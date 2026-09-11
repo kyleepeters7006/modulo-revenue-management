@@ -88,6 +88,7 @@ import { clampRateWithGuardrails } from "./guardrailsUtil";
 import { splitCombinedSl, slWeightSqlPredicate, isSlWeightUnit, type SlWeight } from "./services/slSplit";
 import { resolveCareLevel2, normalizeCompetitorCareRate, normalizeCompetitorCareRateMonthly, normalizeCompetitorStreetRate, computeCompetitorCareAdj, isDailyServiceLine, CARE_ELIGIBLE_SERVICE_LINES, DAYS_PER_MONTH as SHARED_DAYS_PER_MONTH } from "@shared/careRates";
 import { buildRateBaselineJoin, streetRateGate, inHouseRateGate, fetchStreetBaselineMap, passesStreetGate } from "./services/rateBaselineView";
+import { isMalformedMoveInDate } from "./services/inhouseRatePlanning/historicalTurnover";
 import { MOVE_IN_OUT_ACTIVE_VIEW } from "./services/moveInOutEventsView";
 import { bBedExclusionSql } from "@shared/bBed";
 import { baseRateExclusionSql } from "@shared/baseRate";
@@ -10572,6 +10573,35 @@ ${campusOccLines.join('\n')}
 
       // Process and store data
       const processedRecords: any[] = [];
+      const moveInDateValidation = {
+        clientId,
+        uploadMonth,
+        malformedCount: 0,
+        sampleValues: [] as string[],
+      };
+      const recordMalformedMoveInDate = (value: unknown) => {
+        // The spreadsheet uploader accepts Excel serial dates and converts
+        // them below; those are valid source values and should not be warned
+        // about as malformed text dates.
+        if (
+          value instanceof Date
+            ? !Number.isNaN(value.getTime())
+            : (typeof value === 'number' ||
+                (typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value.trim()))) &&
+              convertDate(value) !== null
+        ) {
+          return;
+        }
+        if (!isMalformedMoveInDate(value)) return;
+        moveInDateValidation.malformedCount++;
+        const raw = String(value).trim();
+        if (
+          moveInDateValidation.sampleValues.length < 5 &&
+          !moveInDateValidation.sampleValues.includes(raw)
+        ) {
+          moveInDateValidation.sampleValues.push(raw);
+        }
+      };
 
       // Harvest Level 2 care rates for care_level_rates table.
       // Key: "locationId|serviceLine", Value: max rate seen so far.
@@ -10632,6 +10662,8 @@ ${campusOccLines.join('\n')}
         const finalRateRaw = getRowValue(row, 'FinalRate', 'Final Rate', 'final rate', 'In-House Rate', 'in-house rate', 'InHouseRate', 'inHouseRate');
         const inHouseRate = parseRate(finalRateRaw);
 
+        const moveInDateRaw = getRowValue(row, 'Move In Date', 'move in date', 'MoveInDate', 'moveInDate');
+        recordMalformedMoveInDate(moveInDateRaw);
         const rentRollEntry = {
           uploadMonth: uploadMonth,
           date: getRowValue(row, 'Date', 'date') || uploadDate,
@@ -10676,7 +10708,7 @@ ${campusOccLines.join('\n')}
           promotionAllowance: parseRoomRateAdjustment(getRowValue(row, 'Room_Rate_Adjustments', 'RoomRateAdjustments', 'RRA', 'Promotion Allowance', 'PromotionAllowance')),
           residentId: getRowValue(row, 'Resident ID', 'resident id', 'ResidentID', 'residentId') || null,
           residentName: getRowValue(row, 'Resident Name', 'resident name', 'ResidentName', 'residentName') || null,
-          moveInDate: convertDate(getRowValue(row, 'Move In Date', 'move in date', 'MoveInDate', 'moveInDate')) || null,
+          moveInDate: convertDate(moveInDateRaw) || null,
           moveOutDate: (() => {
             const dv = parseInt(getRowValue(row, 'Textbox18', 'Days Vacant', 'days vacant', 'DaysVacant', 'daysVacant')) || 0;
             if (!isOccupied && dv > 0) {
@@ -10885,7 +10917,8 @@ ${campusOccLines.join('\n')}
         recordsProcessed: processedRecords.length,
         uploadMonth: uploadMonth,
         uploadDate: uploadDate,
-        warnings: streetRateWarnings
+        warnings: streetRateWarnings,
+        moveInDateValidation,
       });
 
     } catch (error) {
