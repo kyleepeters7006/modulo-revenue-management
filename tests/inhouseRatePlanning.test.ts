@@ -6,6 +6,8 @@
  *
  *   • turnover really moves the projection (0% vs 60% must differ)
  *   • min == max degenerates to a flat increase for everyone
+ *   • Street Rate aims at the growth target without replacing the configured
+ *     minimum, while competitive requirements may call for more
  *   • Street Rate shapes allocation but never caps an in-house increase
  *   • an unreachable target is reported as unreachable, with a named binding
  *     constraint and a concrete minimum change — never as a plan
@@ -389,7 +391,7 @@ console.log("\n-- 5. A resident above street may still receive an increase --");
 }
 
 // ── 6. Achievable target ───────────────────────────────────────────────────
-console.log("\n-- 6. An achievable target is solved without touching the street ceiling --");
+console.log("\n-- 6. An achievable target is balanced across Street and in-house rates --");
 {
   const result = solvePlan({
     residents: roomyPopulation(),
@@ -400,11 +402,8 @@ console.log("\n-- 6. An achievable target is solved without touching the street 
     currentStreetRateMonthly: 5000,
   });
   ok("plan is feasible", result.feasible);
-  ok(
-    "growth is taken from in-house before Street Rate is moved",
-    result.streetIncrease * 100 < 5 - 0.01,
-  );
-  ok("the in-house increase is what clears the target", result.requiredAvgIncrease > 0);
+  near("Street Rate aims at the growth target", result.streetIncrease * 100, 5, 0.01);
+  ok("in-house solves only the remaining quarterly gap", result.requiredAvgIncrease >= 0);
   ok("every quarter passes", result.quarterResults.every((q) => q.passes));
   ok("no infeasibility block", result.infeasibility === null);
   ok(
@@ -450,8 +449,7 @@ console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rat
     0.01,
   );
 
-  // In-house is capped low here, so the growth objective cannot be met from
-  // resident increases alone and the Street Rate has to make up the rest.
+  // Street aims at the target even when the competitive floor is lower.
   const aboveDesired = solvePlan({
     residents: roomyPopulation(),
     assumptions: assumptions({
@@ -466,13 +464,10 @@ console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rat
     topCompetitorRateMonthly: 5000,
   });
   ok(
-    "desired competitor position does not cap a Street Rate the target requires",
-    aboveDesired.streetIncrease > 1e-9,
+    "desired competitor position does not hold Street below its target",
+    aboveDesired.streetIncrease * 100 >= 6 - 0.01,
   );
-  ok(
-    "in-house is exhausted before Street Rate makes up the difference",
-    aboveDesired.requiredAvgIncrease * 100 >= 1.5 - 0.01,
-  );
+  ok("resident increases remain within their configured cap", aboveDesired.requiredAvgIncrease * 100 <= 1.5 + 0.01);
 
   const noBenchmark = solvePlan({
     residents: roomyPopulation(),
@@ -486,10 +481,7 @@ console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rat
     currentStreetRateMonthly: 5000,
     topCompetitorRateMonthly: null,
   });
-  ok(
-    "missing Top Competitor leaves Street Rate at the minimum the target needs",
-    noBenchmark.streetIncrease * 100 < 3 - 0.01,
-  );
+  near("missing Top Competitor leaves Street Rate at its target", noBenchmark.streetIncrease * 100, 3, 0.01);
   ok(
     "and the plan still clears every quarter from in-house increases",
     noBenchmark.feasible && noBenchmark.quarterResults.every((q) => q.passes),
@@ -514,16 +506,16 @@ console.log("\n-- 6d. Variance to Top Competitor decides Street vs in-house --")
       topCompetitorRateMonthly: 5200,
     });
 
-  // Asking rate sits far above where the operator wants to be versus the top
-  // competitor, so there is no competitive room and in-house does the work.
+  // Asking rate sits above the desired competitor position, so only the growth
+  // preferred growth target moves Street Rate.
   const wellAbove = solveAtVariance(-40);
   // The operator wants to be well above the top competitor, so the asking rate
   // has competitive room and is the lever that moves first.
   const wellBelow = solveAtVariance(40);
 
   ok(
-    "no competitive room leaves Street Rate alone",
-    wellAbove.streetIncrease * 100 < 0.01,
+    "no competitive room still aims at the growth target",
+    Math.abs(wellAbove.streetIncrease * 100 - 5) < 0.01,
   );
   ok(
     "competitive room pushes Street Rate up instead",

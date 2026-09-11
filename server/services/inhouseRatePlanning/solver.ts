@@ -605,12 +605,10 @@ function requiredAvgIncreaseAt(ctx: EvalContext, streetIncrease: number, ceiling
 
 export function solvePlan(input: SolveInput): SolveOutput {
   const ctx = buildContext(input);
-  // Street Rate is the last lever, not the first. Growth is taken from in-house
-  // increases wherever the guardrails allow, because raising the asking rate
-  // prices the scope against its market and widens the gap to the residents
-  // already in the building. The growth objective is therefore NOT a street
-  // floor: it is enforced by the quarterly feasibility check below, which
-  // already accounts for move-ins arriving at the street rate.
+  // Balance the two growth levers by aiming Street Rate at the growth objective,
+  // while the resident allocation solves the remaining quarterly gap. This is
+  // a preferred target, not a replacement for the configured minimum. Market
+  // position may call for more; hard and January YoY ceilings still win.
   const currentStreet = input.currentStreetRateMonthly;
   const ordinaryCeiling = Math.max(0, input.assumptions.maxStreetIncreasePct / 100);
   const priorJanuaryStreet = input.priorJanuaryStreetRateMonthly;
@@ -645,20 +643,24 @@ export function solvePlan(input: SolveInput): SolveOutput {
     Math.max(0, configuredMinimum, competitivePush),
     ceilStreet,
   );
+  const targetStreet = Math.min(
+    Math.max(floorStreet, Math.max(0, ctx.target)),
+    ceilStreet,
+  );
 
   /** Best average increase the guardrails permit at a given street increase. */
   const maxAvgAt = (g: number) => allocationFor(ctx, g, Number.POSITIVE_INFINITY).maxAvgIncrease;
   const feasibleAt = (g: number) =>
     worstMargin(ctx, projectFor(ctx, g, maxAvgAt(g))).margin >= -PASS_EPSILON;
 
-  let streetIncrease = floorStreet;
-  let feasible = feasibleAt(floorStreet);
+  let streetIncrease = targetStreet;
+  let feasible = feasibleAt(targetStreet);
 
-  if (!feasible && ceilStreet > floorStreet && feasibleAt(ceilStreet)) {
+  if (!feasible && ceilStreet > targetStreet && feasibleAt(ceilStreet)) {
     // Monotone in g: the achievable average and the projected rate both rise
     // with the street rate. Bisect for the smallest street move that works,
     // because recommending more increase than necessary is its own error.
-    let lo = floorStreet;
+    let lo = targetStreet;
     let hi = ceilStreet;
     for (let i = 0; i < 40; i++) {
       const mid = (lo + hi) / 2;

@@ -1425,7 +1425,7 @@ export default function InhouseIncreases() {
                 />
                 <HeaderHelp
                   label="Rate growth target"
-                  explanation="The minimum year-over-year realized-rate growth the plan must deliver in every measurable quarter. The solver favors in-house increases and uses Street Rate according to the competitive position and configured guardrails."
+                  explanation="The year-over-year realized-rate goal for each quarter. Street Rate aims at this target, while resident increases solve the remaining gap."
                 />
                 <HeaderHelp
                   label="Annual turnover"
