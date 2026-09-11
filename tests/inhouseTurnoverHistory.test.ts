@@ -47,7 +47,9 @@ import { pool } from "../server/db";
 import { privatePaySql } from "../shared/payerScope";
 import {
   computeHistoricalTurnover,
+  isMassDefaultMoveInDate,
   moveOutPayerScopeSql,
+  shouldInferMissingDeparture,
 } from "../server/services/inhouseRatePlanning/historicalTurnover";
 import {
   DEPT_TO_SERVICE_LINE,
@@ -80,6 +82,99 @@ function ok(description: string, condition: boolean, detail?: string) {
     if (detail) console.log(`    ${detail}`);
     failed++;
   }
+}
+
+function verifyMoveInDateInferenceFixtures() {
+  const base = {
+    serviceLine: "AL",
+    roomNumber: "101",
+    currentMonth: "2026-02",
+    priorMonth: "2026-01",
+    currentOccupied: true,
+    priorOccupied: true,
+    currentMoveInDate: "2026-02-15",
+    priorMoveInDate: "2024-06-01",
+    currentInHouseRate: 2500,
+    priorInHouseRate: 2500,
+    payorType: "PRIVATE PAY",
+    suspiciousDate: false,
+    recordedDeparture: false,
+  } as const;
+
+  const cases = [
+    ["a normal replacement with the same rate", base, true],
+    [
+      "a normal replacement after an annual rate change",
+      { ...base, currentInHouseRate: 2600 },
+      true,
+    ],
+    [
+      "a rate-only change for the same resident",
+      {
+        ...base,
+        currentMoveInDate: base.priorMoveInDate,
+        currentInHouseRate: 2600,
+      },
+      false,
+    ],
+    [
+      "a recorded same-room departure",
+      { ...base, recordedDeparture: true },
+      false,
+    ],
+    [
+      "a senior-housing B-bed replacement",
+      { ...base, roomNumber: "101/B" },
+      false,
+    ],
+    [
+      "a mass-default date replacement",
+      { ...base, suspiciousDate: true },
+      false,
+    ],
+    [
+      "a static move-in date",
+      { ...base, currentMoveInDate: base.priorMoveInDate },
+      false,
+    ],
+    [
+      "a vacancy fill",
+      { ...base, priorOccupied: false },
+      false,
+    ],
+    [
+      "a non-consecutive snapshot replacement",
+      { ...base, currentMonth: "2026-03", currentMoveInDate: "2026-03-15" },
+      false,
+    ],
+  ] as const;
+
+  const inferred = cases.filter(([, transition]) =>
+    shouldInferMissingDeparture(transition),
+  );
+  for (const [description, transition, expected] of cases) {
+    ok(
+      `${description} is ${expected ? "inferred" : "excluded"}`,
+      shouldInferMissingDeparture(transition) === expected,
+    );
+  }
+  ok(
+    "the fixture produces exactly two inferred departures",
+    inferred.length === 2,
+    `inferred ${inferred.length} of ${cases.length}`,
+  );
+  ok(
+    "a date shared by more than 25 rooms and 5% of a line is suspicious",
+    isMassDefaultMoveInDate(26, 500),
+  );
+  ok(
+    "the mass-default threshold is strict at 25 rooms",
+    !isMassDefaultMoveInDate(25, 500),
+  );
+  ok(
+    "the mass-default threshold is strict at exactly 5% of a line",
+    !isMassDefaultMoveInDate(26, 520),
+  );
 }
 
 /** The client with the most move-out events — i.e. the real data set. */
@@ -264,6 +359,8 @@ async function main() {
       `${line.turnoverPct}% flagged plausible=${line.plausible}, saturating=${line.saturating}`,
     );
   }
+
+  verifyMoveInDateInferenceFixtures();
 
   // ── The floor has to bite, not just the ceiling ───────────────────────────
   //

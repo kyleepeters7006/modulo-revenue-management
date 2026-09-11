@@ -28,8 +28,8 @@
  * turnover.
  */
 import { pool } from "../../db";
-import { privatePaySql } from "@shared/payerScope";
-import { bBedExclusionSql } from "@shared/bBed";
+import { isPrivatePayer, privatePaySql } from "@shared/payerScope";
+import { bBedExclusionSql, isBBedRow } from "@shared/bBed";
 import { MOVE_IN_OUT_ACTIVE_VIEW } from "../moveInOutEventsView";
 import {
   MODEL_MAX_TURNOVER_PCT,
@@ -260,6 +260,89 @@ function addMonths(month: string, delta: number): string {
  */
 const PRIVATE_PAY_ONLY_LINES = new Set(["HC", "HC/MC"]);
 
+export const MASS_DEFAULT_ROOM_THRESHOLD = 25;
+export const MASS_DEFAULT_LINE_SHARE = 0.05;
+
+export interface MissingDepartureTransition {
+  serviceLine: string;
+  roomNumber: string;
+  currentMonth: string;
+  priorMonth: string;
+  currentOccupied: boolean;
+  priorOccupied: boolean;
+  currentMoveInDate: string | null;
+  priorMoveInDate: string | null;
+  payorType: string | null;
+  suspiciousDate: boolean;
+  recordedDeparture: boolean;
+}
+
+export function isMassDefaultMoveInDate(sharedRooms: number, lineRooms: number): boolean {
+  return (
+    sharedRooms > MASS_DEFAULT_ROOM_THRESHOLD &&
+    sharedRooms > lineRooms * MASS_DEFAULT_LINE_SHARE
+  );
+}
+
+function monthStart(month: string): Date | null {
+  if (!/^\d{4}-\d{2}$/.test(month)) return null;
+  const [year, monthNumber] = month.split("-").map(Number);
+  return new Date(Date.UTC(year, monthNumber - 1, 1));
+}
+
+function isDateInTransitionInterval(
+  moveInDate: string,
+  priorMonth: string,
+  currentMonth: string,
+): boolean {
+  const priorStart = monthStart(priorMonth);
+  const currentStart = monthStart(currentMonth);
+  if (!priorStart || !currentStart) return false;
+  const nextMonthStart = new Date(
+    Date.UTC(currentStart.getUTCFullYear(), currentStart.getUTCMonth() + 1, 1),
+  );
+  const moveIn = new Date(`${moveInDate}T00:00:00Z`);
+  return moveIn > priorStart && moveIn < nextMonthStart;
+}
+
+function isConsecutiveMonth(priorMonth: string, currentMonth: string): boolean {
+  const priorStart = monthStart(priorMonth);
+  const currentStart = monthStart(currentMonth);
+  if (!priorStart || !currentStart) return false;
+  const expectedCurrent = new Date(
+    Date.UTC(priorStart.getUTCFullYear(), priorStart.getUTCMonth() + 1, 1),
+  );
+  return expectedCurrent.getTime() === currentStart.getTime();
+}
+
+export function shouldInferMissingDeparture(
+  transition: MissingDepartureTransition,
+): boolean {
+  const currentSl = transition.serviceLine.trim().toUpperCase();
+  if (!transition.currentOccupied || !transition.priorOccupied) return false;
+  if (!transition.currentMoveInDate || !transition.priorMoveInDate) return false;
+  if (!isConsecutiveMonth(transition.priorMonth, transition.currentMonth)) return false;
+  if (transition.currentMoveInDate <= transition.priorMoveInDate) return false;
+  if (
+    !isDateInTransitionInterval(
+      transition.currentMoveInDate,
+      transition.priorMonth,
+      transition.currentMonth,
+    )
+  ) {
+    return false;
+  }
+  if (transition.suspiciousDate || transition.recordedDeparture) return false;
+  if (isBBedRow(currentSl, transition.roomNumber)) return false;
+  if (currentSl === "HC" || currentSl === "HC/MC") {
+    return isPrivatePayer(transition.payorType);
+  }
+  return (
+    !(transition.payorType ?? "").toUpperCase().includes("BEDHOLD") &&
+    !(transition.payorType ?? "").toUpperCase().includes("2ND OCCUPANT")
+  );
+}
+
 /**
  * Annual turnover per service line over the trailing 12 complete months.
  *
@@ -376,13 +459,20 @@ export async function computeHistoricalTurnover(
          ${locationName ? "AND rr.location = $4" : ""}
        ORDER BY rr.location, rr.service_line, rr.room_number, rr.upload_month,
                 rr.occupied_yn DESC,
-                (rr.in_house_rate IS NOT NULL) DESC,
+                CASE
+                  WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                    OR rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$'
+                    THEN 1
+                  ELSE 0
+                END DESC,
                 CASE
                   WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
                     THEN TO_DATE(rr.move_in_date, 'YYYY-MM-DD')
                   WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$'
                     THEN TO_DATE(rr.move_in_date, 'MM/DD/YYYY')
                 END DESC NULLS LAST
+                ,
+                (rr.in_house_rate IS NOT NULL) DESC
     ),
     line_room_counts AS (
       SELECT sl, COUNT(DISTINCT location || '|' || room_number)::float AS rooms
@@ -395,8 +485,8 @@ export async function computeHistoricalTurnover(
         JOIN line_room_counts c USING (sl)
        WHERE r.move_in_date IS NOT NULL
        GROUP BY r.sl, r.move_in_date, c.rooms
-      HAVING COUNT(DISTINCT r.location || '|' || r.room_number) > 25
-         AND COUNT(DISTINCT r.location || '|' || r.room_number) > c.rooms * 0.05
+      HAVING COUNT(DISTINCT r.location || '|' || r.room_number) > ${MASS_DEFAULT_ROOM_THRESHOLD}
+         AND COUNT(DISTINCT r.location || '|' || r.room_number) > c.rooms * ${MASS_DEFAULT_LINE_SHARE}
     ),
     explicit_out_rooms AS (
       SELECT DISTINCT e.location,
@@ -413,7 +503,18 @@ export async function computeHistoricalTurnover(
          ${locationName ? "AND e.location = $4" : ""}
     ),
     missing_room_months AS (
-      SELECT current.sl, current.m, current.location, current.room_number
+      SELECT current.sl,
+             current.m,
+             current.location,
+             current.room_number,
+             current.occupied_yn AS current_occupied,
+             prior.occupied_yn AS prior_occupied,
+             current.payor_type,
+             to_char(current.move_in_date, 'YYYY-MM-DD') AS current_move_in_date,
+             to_char(prior.move_in_date, 'YYYY-MM-DD') AS prior_move_in_date,
+             bad.move_in_date IS NOT NULL AS suspicious_date,
+             o.room_number IS NOT NULL AS recorded_departure,
+             prior.m AS prior_m
         FROM rent_roll current
         JOIN rent_roll prior
           ON prior.location = current.location
@@ -434,28 +535,11 @@ export async function computeHistoricalTurnover(
          AND current.move_in_date IS NOT NULL
          AND prior.move_in_date IS NOT NULL
          AND current.move_in_date > prior.move_in_date
-         -- Campus + line + primary room + move-in date is the resident-episode
-         -- fingerprint available on the standard upload. In-house rate is
-         -- retained as corroborating evidence and for deterministic row
-         -- selection, but is deliberately not required to change: annual
-         -- increases change a continuing resident's rate, while two different
-         -- residents can legitimately have the same rate.
          AND current.move_in_date > to_date(prior.m, 'YYYY-MM')
          AND current.move_in_date <
              to_date(current.m, 'YYYY-MM') + interval '1 month'
-         AND bad.move_in_date IS NULL
-         AND o.room_number IS NULL
-         AND (
-           (current.sl IN ('HC', 'HC/MC') AND ${privatePaySql("current.payor_type")})
-           OR
-           (current.sl NOT IN ('HC', 'HC/MC')
-             AND COALESCE(current.payor_type, '') NOT ILIKE '%BEDHOLD%'
-             AND COALESCE(current.payor_type, '') NOT ILIKE '%2ND OCCUPANT%')
-         )
     )
-    SELECT sl, m, COUNT(*)::int AS n
-      FROM missing_room_months
-     GROUP BY 1, 2`;
+    SELECT * FROM missing_room_months`;
 
   // Occupied units per month from the authoritative occupancy source. Left
   // per-month rather than pre-averaged: a campus whose history lags has fewer
@@ -513,6 +597,23 @@ export async function computeHistoricalTurnover(
   }
   const inferredBySlMonth = new Map<string, Map<string, number>>();
   for (const r of inferredMoveOutRes.rows) {
+    if (
+      !shouldInferMissingDeparture({
+        serviceLine: r.sl,
+        roomNumber: r.room_number,
+        currentMonth: r.m,
+        priorMonth: r.prior_m,
+        currentOccupied: r.current_occupied,
+        priorOccupied: r.prior_occupied,
+        currentMoveInDate: r.current_move_in_date,
+        priorMoveInDate: r.prior_move_in_date,
+        payorType: r.payor_type,
+        suspiciousDate: r.suspicious_date,
+        recordedDeparture: r.recorded_departure,
+      })
+    ) {
+      continue;
+    }
     const sl = normalizeEventSl(r.sl);
     if (!sl) continue;
     let byMonth = inferredBySlMonth.get(sl);
@@ -520,7 +621,7 @@ export async function computeHistoricalTurnover(
       byMonth = new Map();
       inferredBySlMonth.set(sl, byMonth);
     }
-    byMonth.set(r.m, (byMonth.get(r.m) ?? 0) + Number(r.n));
+    byMonth.set(r.m, (byMonth.get(r.m) ?? 0) + 1);
   }
 
   // Occupancy already speaks the pricing vocabulary; normalising is a no-op

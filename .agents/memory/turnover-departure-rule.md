@@ -26,6 +26,14 @@ census id. Any repair has to recover it from there before applying the rule.
 feed is years of historical uploads; fixing only the importer leaves the
 measurement wrong.
 
+## Missing departures inferred from rent-roll snapshots
+
+Infer a missing departure only when the same room is occupied in directly consecutive monthly snapshots and its valid move-in date advances into the current month. Exclude a transition when the same-room event feed already records a departure, the row is a senior-housing companion bed, or the new date is shared by more than 25 rooms and more than 5% of that service line.
+
+**Why:** source conversions can stamp one default date across a large population, which otherwise turns one data artifact into hundreds of false departures. Vacancy fills and non-consecutive snapshots do not prove a replacement.
+
+**How to apply:** keep this inference conservative and additive to explicit departures; preserve the separate inferred count so data-quality effects remain visible.
+
 ## What does and does not count
 
 - **Counts:** permanent discharge, death.
