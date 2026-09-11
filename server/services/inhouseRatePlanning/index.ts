@@ -27,9 +27,11 @@ import {
   fetchCurrentStreetRate,
   fetchMixStandardizedStreetComparison,
   fetchTopCompetitorRate,
+  fetchCohortMonthlyRealizedRates,
   fetchMonthlyRealizedRates,
   fetchProductStreetBaselines,
   fetchResidentRows,
+  expectedMonths,
   getLatestMonthForScope,
   horizonQuarters,
   makeProductStreetResolver,
@@ -94,8 +96,14 @@ export interface PlanAudit {
   allowAboveStreet: boolean;
   currentStreetRateMonthly: number;
   recommendedStreetRateMonthly: number;
-  /** Full realized-rate history, oldest first — the trend the target is built on. */
+  /** Full realized-rate history, oldest first, exactly as the rent roll reports it. */
   monthlyRealized: MonthlyRealized[];
+  /**
+   * The same months restated against today's unit mix on a constant room
+   * cohort. This — not the raw history above — is what quarter baselines and
+   * the growth target are built from, so the export can reconcile them.
+   */
+  monthlyStandardized: MonthlyRealized[];
   residents: Array<{
     key: string;
     location: string;
@@ -149,6 +157,9 @@ export async function calculatePlanDetailed(
 
   const assumptions = withResolvedDates(input.assumptions, sourceMonth);
   const quarters = horizonQuarters(assumptions.inhouseEffectiveDate);
+  // Prior-year quarters are what the horizon is judged against, and their
+  // months define the window the standardization cohort must be stable across.
+  const priorYearQuarters = quarters.map((q) => addQuarters(q, -4));
   const horizonStartMs = quarterStartMs(quarters[0]);
   const horizonEndMs = quarterEndMs(quarters[quarters.length - 1]);
 
@@ -197,22 +208,37 @@ export async function calculatePlanDetailed(
       resident.currentRateMonthly,
     );
   }
-  const monthly = await fetchMonthlyRealizedRates(
-    scope,
-    "2000-01",
-    Array.from(unitMixByKey, ([key, currentRateMonthly]) => ({ key, currentRateMonthly })),
-  );
-  const currentPlanningAverage = residentDayWeightedAverageRate(residents);
-  const mixStandardizedMonthly = monthly.map((m) => ({
-    ...m,
-    rateMonthly:
-      (m.currentMixRateMonthly ?? 0) > 0
-        ? m.rateMonthly * (currentPlanningAverage / m.currentMixRateMonthly!)
-        : m.rateMonthly,
+  const unitMix = Array.from(unitMixByKey, ([key, currentRateMonthly]) => ({
+    key,
+    currentRateMonthly,
   }));
+  // The divisor above only cancels composition if the same rooms qualify every
+  // month. They do not — payer scope, base-rate exclusions and the relative
+  // outlier gate move rooms in and out while occupancy stays flat, and a
+  // cluster of low-rate rooms leaving lifts the divisor enough to fabricate a
+  // rate decline. Measure the series on rooms that qualify in every month of
+  // the comparison window instead, and keep the raw series for the audit trail.
+  const cohortWindow = priorYearQuarters.flatMap((q) => expectedMonths(q));
+  const [monthly, cohort] = await Promise.all([
+    fetchMonthlyRealizedRates(scope, "2000-01", unitMix),
+    fetchCohortMonthlyRealizedRates(scope, "2000-01", unitMix, cohortWindow),
+  ]);
+  const currentPlanningAverage = residentDayWeightedAverageRate(residents);
+  const standardize = (rows: MonthlyRealized[]) =>
+    rows.map((m) => ({
+      ...m,
+      rateMonthly:
+        (m.currentMixRateMonthly ?? 0) > 0
+          ? m.rateMonthly * (currentPlanningAverage / m.currentMixRateMonthly!)
+          : m.rateMonthly,
+    }));
+  // Fall back to the churning per-month set only when no room survives the
+  // whole window; a baseline built on nothing is worse than a noisy one.
+  const cohortUsable = cohort.months.length > 0 && cohort.cohortRooms > 0;
+  const mixStandardizedMonthly = standardize(cohortUsable ? cohort.months : monthly);
+  const cohortCoveragePct =
+    unitMix.length > 0 ? (cohort.cohortRooms / unitMix.length) * 100 : 0;
 
-  // Prior-year quarters are what the horizon is judged against.
-  const priorYearQuarters = quarters.map((q) => addQuarters(q, -4));
   const knownQuarters = rollMonthsIntoQuarters(mixStandardizedMonthly);
   const { baselines, quarterlyGrowthPct } = projectMissingQuarters(
     knownQuarters,
@@ -439,6 +465,8 @@ export async function calculatePlanDetailed(
     residentCount: residents.length,
     priorJanuaryMonth,
     januaryMatchCoverage: matchCoverage,
+    cohortUsable,
+    cohortCoveragePct,
   });
   if (
     input.location == null &&
@@ -506,6 +534,7 @@ export async function calculatePlanDetailed(
     currentStreetRateMonthly,
     recommendedStreetRateMonthly: solved.recommendedStreetMonthly,
     monthlyRealized: monthly,
+    monthlyStandardized: mixStandardizedMonthly,
     residents: solved.allocation.allocations.map((a) => ({
       key: a.resident.key,
       location: a.resident.location,
@@ -831,6 +860,10 @@ function buildWarnings(ctx: {
   residentCount: number;
   priorJanuaryMonth: string;
   januaryMatchCoverage: number;
+  /** False when no room qualified in every comparison-window month. */
+  cohortUsable: boolean;
+  /** Share of today's priced rooms that held that qualification. */
+  cohortCoveragePct: number;
 }): string[] {
   const warnings: string[] = [];
   const quarterMonthRanges = ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
@@ -867,6 +900,15 @@ function buildWarnings(ctx: {
       `Prior-year baseline for ${partial
         .map(describePartial)
         .join(", ")} is based only on months with qualifying imported planning rows.`,
+    );
+  }
+  if (!ctx.cohortUsable) {
+    warnings.push(
+      `No room qualified in every month of the prior-year comparison window, so quarter baselines fall back to whichever rooms qualified each month. Month-to-month changes in eligibility can show up as rate movement.`,
+    );
+  } else if (ctx.cohortCoveragePct < 70) {
+    warnings.push(
+      `Quarter baselines are measured on the ${Math.round(ctx.cohortCoveragePct)}% of today's priced rooms that qualified in every month of the comparison window, so they represent a subset of the portfolio.`,
     );
   }
   if (ctx.januaryMatchCoverage < 0.8) {

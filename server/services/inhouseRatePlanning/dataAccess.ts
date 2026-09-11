@@ -660,6 +660,52 @@ export async function fetchMonthlyRealizedRates(
   fromMonth: string,
   unitMix?: Array<{ key: string; currentRateMonthly: number }>,
 ): Promise<MonthlyRealized[]> {
+  const { months } = await queryMonthlyRealized(scope, fromMonth, unitMix, undefined);
+  return months;
+}
+
+/** Result of the fixed-cohort variant, including how much of today's mix it covers. */
+export interface CohortMonthlyRealized {
+  months: MonthlyRealized[];
+  /** Rooms qualifying in EVERY window month that has data. */
+  cohortRooms: number;
+  /** Window months that actually carried qualifying rows. */
+  cohortMonthCount: number;
+}
+
+/**
+ * The same monthly series, restricted to a room cohort that is constant across
+ * the window.
+ *
+ * Mix standardization divides each month's realized rate by the CURRENT rate of
+ * the rooms that qualified in that month. That only cancels composition when
+ * the qualifying rooms are the same from month to month, and they are not:
+ * payer scope, base-rate exclusions and the relative outlier gate move rooms in
+ * and out while occupancy stays flat. A cluster of low-rate rooms dropping out
+ * lifts the divisor, which pushes that month's standardized rate down and
+ * fabricates a rate decline the rent roll never had.
+ *
+ * Requiring a room to qualify in every window month removes that churn, so the
+ * quarter series measures price movement instead of eligibility movement.
+ */
+export async function fetchCohortMonthlyRealizedRates(
+  scope: ScopeFilter,
+  fromMonth: string,
+  unitMix: Array<{ key: string; currentRateMonthly: number }>,
+  cohortMonths: string[],
+): Promise<CohortMonthlyRealized> {
+  if (cohortMonths.length === 0 || unitMix.length === 0) {
+    return { months: [], cohortRooms: 0, cohortMonthCount: 0 };
+  }
+  return queryMonthlyRealized(scope, fromMonth, unitMix, cohortMonths);
+}
+
+async function queryMonthlyRealized(
+  scope: ScopeFilter,
+  fromMonth: string,
+  unitMix: Array<{ key: string; currentRateMonthly: number }> | undefined,
+  cohortMonths: string[] | undefined,
+): Promise<{ months: MonthlyRealized[]; cohortRooms: number; cohortMonthCount: number }> {
   const params: any[] = [scope.clientId, scope.serviceLine, fromMonth];
   let locSql = "";
   if (scope.location) {
@@ -694,34 +740,90 @@ export async function fetchMonthlyRealizedRates(
   // every month of history for the client, so there is no single month to
   // push down.
   const join = buildRateBaselineJoin({ rr: "rr.", clientSql: "$1" });
+  const unitKeySql = `(COALESCE(rr.location, '') || E'\\x1f' || COALESCE(rr.room_number, ''))`;
+  /** The row-level predicate that decides whether a room counts in a month. */
+  const qualifiesSql = (alias: string) => `rr.client_id = $1
+        AND rr.service_line = $2
+        AND rr.occupied_yn = true
+        AND rr.in_house_rate > 0
+        AND ${privatePaySql("rr.payor_type")}
+        AND ${baseRateExclusionSql("rr.")}
+        AND ${inHouseRateGate("rr.", alias)}${locSql}`;
+
+  // A room joins the cohort only if it qualifies in every window month that
+  // carried data, so the standardization divisor cannot move just because a
+  // room slipped in or out of the gate. Both CTEs carry the same mix join as
+  // the outer query: the cohort is a subset of the rooms priced today, so its
+  // size is directly comparable to the mix and the window months are the ones
+  // the outer query could actually have produced.
+  let cohortCte = "";
+  let cohortJoin = "";
+  let cohortCountSql = "0";
+  let cohortMonthCountSql = "0";
+  if (cohortMonths?.length) {
+    params.push(cohortMonths);
+    const monthsParam = params.length;
+    // Both CTEs restrict to a fixed month array, so the baseline view can be
+    // scoped by month rather than correlated row by row.
+    const cteJoin = (alias: string) =>
+      buildRateBaselineJoin({
+        rr: "rr.",
+        clientSql: "$1",
+        alias,
+        monthSql: `$${monthsParam}`,
+        monthIsArray: true,
+      });
+    cohortCte = `WITH cohort_months AS (
+        SELECT DISTINCT rr.upload_month AS m
+          FROM rent_roll_data rr
+          ${cteJoin("rbm")}
+          ${unitMixJoin}
+         WHERE ${qualifiesSql("rbm")}
+           AND rr.upload_month = ANY($${monthsParam})
+      ),
+      cohort AS (
+        SELECT ${unitKeySql} AS unit_key
+          FROM rent_roll_data rr
+          ${cteJoin("rbc")}
+          ${unitMixJoin}
+         WHERE ${qualifiesSql("rbc")}
+           AND rr.upload_month = ANY($${monthsParam})
+         GROUP BY 1
+        HAVING COUNT(DISTINCT rr.upload_month) = (SELECT COUNT(*) FROM cohort_months)
+      )
+      `;
+    cohortJoin = `
+       JOIN cohort ON cohort.unit_key = ${unitKeySql}`;
+    cohortCountSql = `(SELECT COUNT(*) FROM cohort)`;
+    cohortMonthCountSql = `(SELECT COUNT(*) FROM cohort_months)`;
+  }
 
   const res = await pool.query<{
     month: string;
     revenue: string;
     current_mix_revenue: string | null;
     days: string;
+    cohort_rooms: string;
+    cohort_month_count: string;
   }>(
-    `SELECT rr.upload_month AS month,
+    `${cohortCte}SELECT rr.upload_month AS month,
             SUM(${monthlyRateExpr("rr.in_house_rate")} * (${observationWeight})) AS revenue,
             ${currentMixRevenueSql} AS current_mix_revenue,
-            SUM(${observationWeight}) AS days
+            SUM(${observationWeight}) AS days,
+            ${cohortCountSql} AS cohort_rooms,
+            ${cohortMonthCountSql} AS cohort_month_count
        FROM rent_roll_data rr
        ${join}
        ${unitMixJoin}
-      WHERE rr.client_id = $1
-        AND rr.service_line = $2
+       ${cohortJoin}
+      WHERE ${qualifiesSql("rb")}
         AND rr.upload_month >= $3
-        AND rr.occupied_yn = true
-        AND rr.in_house_rate > 0
-        AND ${privatePaySql("rr.payor_type")}
-         AND ${baseRateExclusionSql("rr.")}
-         AND ${inHouseRateGate()}${locSql}
       GROUP BY rr.upload_month
       ORDER BY rr.upload_month`,
     params,
   );
 
-  return res.rows
+  const months = res.rows
     .map((r) => ({
       month: r.month,
       weightBasis,
@@ -733,6 +835,12 @@ export async function fetchMonthlyRealizedRates(
           : undefined,
     }))
     .filter((m) => m.residentDays > 0 && m.rateMonthly > 0);
+
+  return {
+    months,
+    cohortRooms: Number(res.rows[0]?.cohort_rooms) || 0,
+    cohortMonthCount: Number(res.rows[0]?.cohort_month_count) || 0,
+  };
 }
 
 /**

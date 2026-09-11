@@ -751,6 +751,41 @@ async function checkScope(scope: { clientId: string; serviceLine: string; label:
   ok("move-in trend sheet has cohort rows", moveIn.rowCount > 8, `${moveIn.rowCount} rows`);
   const history = wb.getWorksheet("Rate history")!;
   ok("rate history sheet has the realized months", history.rowCount > 8, `${history.rowCount} rows`);
+
+  // The prior-year baselines are the YoY denominators, so the workbook has to
+  // show the numbers they were built from — the standardized rate AND the
+  // standardized weight, not the unrestricted resident count beside it.
+  const standardizedRow = new Map<string, { rate: number; weight: number }>();
+  history.eachRow((row) => {
+    const month = row.getCell(1).value;
+    const rate = row.getCell(6).value;
+    const weight = row.getCell(7).value;
+    if (typeof month === "string" && typeof rate === "number" && typeof weight === "number") {
+      standardizedRow.set(month, { rate, weight });
+    }
+  });
+  const measuredBaselines = plan.quarters.filter(
+    (q) => q.priorYear.basis !== "projected" && (q.priorYear.availableMonths?.length ?? 0) > 0,
+  );
+  const baselineMismatches = measuredBaselines.filter((q) => {
+    const rows = (q.priorYear.availableMonths ?? [])
+      .map((m) => standardizedRow.get(m))
+      .filter((r): r is { rate: number; weight: number } => !!r);
+    if (rows.length !== (q.priorYear.availableMonths ?? []).length) return true;
+    const weight = rows.reduce((sum, r) => sum + r.weight, 0);
+    if (weight <= 0) return true;
+    const rolled = rows.reduce((sum, r) => sum + r.rate * r.weight, 0) / weight;
+    return Math.abs(rolled - q.priorYear.realizedRateMonthly) > 0.01;
+  });
+  ok(
+    "every measured prior-year baseline is reproducible from the rate history sheet",
+    measuredBaselines.length > 0 && baselineMismatches.length === 0,
+    measuredBaselines.length === 0
+      ? "no measured prior-year quarter to reconcile"
+      : baselineMismatches
+          .map((q) => `${q.priorYear.label} expected ${q.priorYear.realizedRateMonthly}`)
+          .join(", "),
+  );
   const reconciliation = wb.getWorksheet("Quarter reconciliation")!;
   ok(
     "quarter reconciliation has one section per projected quarter",

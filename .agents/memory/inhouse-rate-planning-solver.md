@@ -20,6 +20,29 @@ current Street Rate, and historical realized rates. Match historical rows to the
 current base cohort and normalize each month to today's mix before calculating
 quarterly YoY growth.
 
+### Matched-pair standardization is not enough — hold the cohort constant
+
+Dividing each historical month by the current rate of the rooms that qualified
+*in that month* is still composition-sensitive, because which rooms qualify
+changes every month. Require a room to qualify in every month of the comparison
+window instead, and warn when that cohort covers little of today's portfolio.
+
+**Why:** payer scope, the base-rate exclusions and the relative outlier gate move
+rooms in and out while occupancy is flat. A few hundred low-current-rate rooms
+leaving lifted the divisor about 2%, which pushed the standardized series down
+and fabricated a quarter-over-quarter rate *decline* out of raw monthly rates
+that were flat to the dollar. Because that series is the YoY denominator, it also
+flattered the following year's reported growth by roughly a point. Averaging
+per-room ratios instead of taking a ratio of sums does not fix it — the churning
+rooms still enter and leave.
+
+**How to apply:** the guarantee to test is on the divisor, not on any rate: with
+the cohort fixed it must be flat across the window. Check the unrestricted
+divisor in the same test, or the guard passes no matter what the code does. Fall
+back to the per-month set only when no room survives the whole window, and say so
+in a warning; the standardized level is still anchored to the full planning
+average, so a partial cohort supplies only the price relationship.
+
 ## The configured increase is a range ceiling, not a flat increase
 
 Resident increases vary within the configured minimum-to-maximum range based on

@@ -47,7 +47,13 @@ import {
   PlanningDataError,
 } from "../server/services/inhouseRatePlanning";
 import {
+  expectedMonths,
+  fetchCohortMonthlyRealizedRates,
+  fetchMonthlyRealizedRates,
+} from "../server/services/inhouseRatePlanning/dataAccess";
+import {
   addMonths,
+  addQuarters,
   monthBoundsMs,
   quarterEndMs,
   quarterStartMs,
@@ -826,6 +832,73 @@ function assertSyntheticRoomMixArithmetic() {
     0.0001,
   );
 }
+/**
+ * Quarter baselines are mix-standardized by dividing each historical month by
+ * the CURRENT rate of the rooms that qualified in that month. That only cancels
+ * composition when the qualifying rooms are the same every month — and they are
+ * not, because payer scope, base-rate exclusions and the relative outlier gate
+ * move rooms in and out while occupancy stays flat. When a cluster of low-rate
+ * rooms drops out, the divisor jumps and the standardized series shows a rate
+ * decline the rent roll never had.
+ *
+ * The guarantee here is on the divisor, not on any particular rate: with the
+ * cohort held constant it must be flat across the comparison window. The
+ * unrestricted divisor is checked too, so this stops being a test the day it
+ * would pass no matter what the code did.
+ */
+async function assertStandardizationCohortIsStable(scope: Scope) {
+  const plan = scope.prefetched;
+  const unitMix = Array.from(
+    plan.residents
+      .reduce((map, r) => {
+        const key = `${r.location ?? ""}\x1f${r.roomNumber ?? ""}`;
+        if (!map.has(key)) map.set(key, r.currentRateMonthly);
+        return map;
+      }, new Map<string, number>())
+      .entries(),
+    ([key, currentRateMonthly]) => ({ key, currentRateMonthly }),
+  );
+  const query = {
+    clientId: plan.scope.clientId,
+    location: plan.scope.location ?? null,
+    serviceLine: plan.scope.serviceLine,
+  };
+  const window = horizonQuarters(plan.assumptions.inhouseEffectiveDate)
+    .map((q) => addQuarters(q, -4))
+    .flatMap((q) => expectedMonths(q));
+  const inWindow = new Set(window);
+
+  const [raw, cohort] = await Promise.all([
+    fetchMonthlyRealizedRates(query, "2000-01", unitMix),
+    fetchCohortMonthlyRealizedRates(query, "2000-01", unitMix, window),
+  ]);
+
+  /** How far the divisor travels across the window, as a share of its mean. */
+  const divisorSpreadPct = (rows: typeof raw) => {
+    const divisors = rows
+      .filter((m) => inWindow.has(m.month) && (m.currentMixRateMonthly ?? 0) > 0)
+      .map((m) => m.currentMixRateMonthly!);
+    if (divisors.length < 2) return null;
+    const mean = divisors.reduce((a, b) => a + b, 0) / divisors.length;
+    return ((Math.max(...divisors) - Math.min(...divisors)) / mean) * 100;
+  };
+
+  ok(
+    `${scope.label}: a room cohort survives every month of the comparison window`,
+    cohort.cohortRooms > 0 && cohort.cohortMonthCount > 1,
+    `${cohort.cohortRooms} rooms over ${cohort.cohortMonthCount} months of ${unitMix.length} priced today`,
+  );
+  if (cohort.cohortRooms === 0) return;
+
+  const cohortSpread = divisorSpreadPct(cohort.months);
+  ok(
+    `${scope.label}: the standardization divisor holds still once the cohort is fixed`,
+    cohortSpread !== null && cohortSpread < 0.5,
+    `divisor moved ${cohortSpread?.toFixed(2)}% across ${cohort.cohortMonthCount} window months`,
+  );
+  return divisorSpreadPct(raw);
+}
+
 async function main() {
   console.log("\n=== In-House Rate Planning — live-data guardrails ===\n");
 
@@ -865,6 +938,18 @@ async function main() {
 
   const scopes = [monthlyScope, dailyScope].filter(
     (s): s is Scope => s !== null,
+  );
+
+  console.log("\n-- Mix standardization measures price, not eligibility --");
+  const rawSpreads: number[] = [];
+  for (const scope of scopes) {
+    const rawSpread = await assertStandardizationCohortIsStable(scope);
+    if (rawSpread != null) rawSpreads.push(rawSpread);
+  }
+  ok(
+    "the per-month qualifying set really does churn, so the fixed cohort is doing work",
+    rawSpreads.some((s) => s > 0.5),
+    `unrestricted divisor spreads: ${rawSpreads.map((s) => `${s.toFixed(2)}%`).join(", ") || "none measured"}`,
   );
 
   for (const scope of scopes) {

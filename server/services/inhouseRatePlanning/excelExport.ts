@@ -1249,9 +1249,24 @@ function buildHistorySheet(ws: ExcelJS.Worksheet, plan: PlanResult, audit: PlanA
       : "resident_months"
   );
   const weightHeader = monthlyWeightBasis === "resident_days" ? "Resident-days" : "Resident-months";
-  ["Month", "Realized rate (monthly)", weightHeader, "Implied revenue", "Change vs prior month"].forEach(
-    (h, i) => (mh.getCell(i + 1).value = h),
+  // The raw column is what the rent roll reported; the standardized column is
+  // what the quarter baselines are actually built from. Showing only the raw
+  // history leaves a workbook whose quarters cannot be reproduced from it.
+  // The rate alone cannot reproduce a quarter: quarters weight the standardized
+  // series by ITS OWN resident weight, measured on the cohort, not by the
+  // unrestricted weight in column C. Export both so the workbook reconciles.
+  const standardizedByMonth = new Map(
+    audit.monthlyStandardized.map((m) => [m.month, m]),
   );
+  [
+    "Month",
+    "Realized rate (monthly)",
+    weightHeader,
+    "Implied revenue",
+    "Change vs prior month",
+    "Standardized to today's mix — used for quarter baselines",
+    `Standardized ${weightHeader.toLowerCase()} — the weight quarters use`,
+  ].forEach((h, i) => (mh.getCell(i + 1).value = h));
   styleHeaderRow(mh);
 
   const monthFirst = monthHeaderRow + 1;
@@ -1274,6 +1289,11 @@ function buildHistorySheet(ws: ExcelJS.Worksheet, plan: PlanResult, audit: PlanA
         ? ""
         : ({ formula: `IF(B${rowIx - 1}=0,"",B${rowIx}/B${rowIx - 1}-1)` } as ExcelJS.CellFormulaValue);
     row.getCell(5).numFmt = FMT_PCT2;
+    const standardized = standardizedByMonth.get(m.month);
+    row.getCell(6).value = standardized?.rateMonthly ?? "Outside the standardization cohort";
+    if (standardized) row.getCell(6).numFmt = FMT_MONEY;
+    row.getCell(7).value = standardized?.residentDays ?? "";
+    row.getCell(7).numFmt = FMT_INT;
   });
   const monthLast = monthFirst + Math.max(0, history.length - 1);
 
