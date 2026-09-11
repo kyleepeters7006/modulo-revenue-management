@@ -150,29 +150,6 @@ function HeaderHelp({ label, explanation }: { label: string; explanation: string
   );
 }
 
-function MetricHelp({
-  children,
-  explanation,
-}: {
-  children: ReactNode;
-  explanation: string;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div
-          tabIndex={0}
-          className="cursor-help rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {children}
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-[360px] text-left text-xs leading-relaxed">
-        {explanation}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
 const SERVICE_LINES = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
 
 /** One service line's measured turnover, from /api/inhouse-planning/historical-turnover. */
@@ -1748,76 +1725,76 @@ export default function InhouseIncreases() {
                         <p className="font-semibold">{sl}</p>
                         <p className="text-[11px] text-muted-foreground">{daily ? "Daily rates" : "Monthly rates"}</p>
                       </div>
-                      <MetricHelp explanation={`${sl} Street Rate increases from ${rate(plan.currentStreetRateMonthly)} to ${rate(plan.recommendedStreetRateMonthly)} for new move-ins.`}>
+                      <div>
                         <p className="font-semibold text-blue-600">+{plan.streetIncreasePct.toFixed(1)}%</p>
                         <p className="text-xs text-muted-foreground">{rate(plan.currentStreetRateMonthly)} → {rate(plan.recommendedStreetRateMonthly)}</p>
-                      </MetricHelp>
-                      <MetricHelp explanation={`${sl} resident-weighted in-house rate increases from ${rate(plan.summary.currentAvgInhouseRateMonthly)} to ${rate(plan.summary.newAvgInhouseRateMonthly)}.`}>
+                      </div>
+                      <div>
                         <p className="font-semibold text-[#0f9f9a]">+{plan.summary.weightedAvgIncreasePct.toFixed(1)}%</p>
                         <p className="text-xs text-muted-foreground">{rate(plan.summary.currentAvgInhouseRateMonthly)} → {rate(plan.summary.newAvgInhouseRateMonthly)}</p>
-                      </MetricHelp>
-                      <MetricHelp explanation={`${sl} realized-rate growth from ${projectionStart} through ${projectionEnd}, including resident increases and replacement move-ins.`}>
+                      </div>
+                      <div>
                         <p className="font-semibold text-foreground">
                           {(plan.monthlyRateProjection?.at(-1)?.growthFromCurrentPct ?? plan.summary.weightedAvgIncreasePct) >= 0 ? "+" : ""}
                           {(plan.monthlyRateProjection?.at(-1)?.growthFromCurrentPct ?? plan.summary.weightedAvgIncreasePct).toFixed(1)}%
                         </p>
                         <p className="text-xs text-muted-foreground">End of projection</p>
-                      </MetricHelp>
-                      <MetricHelp explanation={`${sl} must achieve ${formatPct(plan.assumptions.rateGrowthTargetPct, 1)} in each period: ${plan.quarters.map(({ quarter, year }) => `Q${quarter} ${year} vs Q${quarter} ${year - 1}`).join("; ")}.`}>
+                      </div>
+                      <div>
                         <p className="font-semibold">{formatPct(plan.assumptions.rateGrowthTargetPct, 1)}</p>
                         <p className="text-xs text-muted-foreground">Each quarter</p>
-                      </MetricHelp>
-                      <MetricHelp explanation={plan.quarters.map(({ quarter, year, yoyGrowthPct }) => `Q${quarter} ${year} vs Q${quarter} ${year - 1}: ${formatPct(yoyGrowthPct, 1)}`).join("; ")}>
+                      </div>
+                      <div>
                         <p className="font-semibold">{formatPct(averageQuarterlyYoy, 1)}</p>
                         <p className="text-xs text-muted-foreground">
                           {formatPct(averageQuarterlyYoy - plan.assumptions.rateGrowthTargetPct, 1)} vs goal
                         </p>
-                      </MetricHelp>
-                      <MetricHelp explanation={plan.quarters.map(({ quarter, year, yoyGrowthPct, passes }) => `Q${quarter} ${year}: ${formatPct(yoyGrowthPct, 1)} — ${passes ? "meets goal" : "below goal"}`).join("; ")}>
+                      </div>
+                      <div>
                         <p className={cn("font-semibold", quartersMeetingGoal === plan.quarters.length ? "text-emerald-600" : "text-amber-600")}>
                           {quartersMeetingGoal} / {plan.quarters.length}
                         </p>
                         <p className="text-xs text-muted-foreground">Projected quarters</p>
-                      </MetricHelp>
+                      </div>
                     </div>
                   );
                 })}
                 {growthSnapshot && (
                   <div className="grid min-w-[1160px] grid-cols-[minmax(110px,1.2fr)_repeat(6,minmax(125px,1fr))] items-center border-t-2 bg-muted/30 px-4 py-3 text-center">
-                    <MetricHelp explanation={`${growthSnapshot.residents.toLocaleString()} private-pay residents represented; daily-rate service lines are converted to monthly equivalents.`}>
+                    <div>
                       <p className="font-semibold">Combined total</p>
                       <p className="text-[11px] text-muted-foreground">{growthSnapshot.residents.toLocaleString()} residents · monthly equivalent</p>
-                    </MetricHelp>
-                    <MetricHelp explanation={`Resident-weighted Street Rate increases from ${formatMoney(growthSnapshot.streetCurrentMonthly)} to ${formatMoney(growthSnapshot.streetRecommendedMonthly)} across selected service lines.`}>
+                    </div>
+                    <div>
                       <p className="font-semibold text-blue-600">+{growthSnapshot.streetGrowthPct.toFixed(1)}%</p>
                       <p className="text-xs text-muted-foreground">{formatMoney(growthSnapshot.streetCurrentMonthly)} → {formatMoney(growthSnapshot.streetRecommendedMonthly)}</p>
-                    </MetricHelp>
-                    <MetricHelp explanation={`Resident-weighted in-house rate increases from ${formatMoney(growthSnapshot.inhouseCurrentMonthly)} to ${formatMoney(growthSnapshot.inhouseNewMonthly)} across selected service lines.`}>
+                    </div>
+                    <div>
                       <p className="font-semibold text-[#0f9f9a]">+{growthSnapshot.inhouseGrowthPct.toFixed(1)}%</p>
                       <p className="text-xs text-muted-foreground">{formatMoney(growthSnapshot.inhouseCurrentMonthly)} → {formatMoney(growthSnapshot.inhouseNewMonthly)}</p>
-                    </MetricHelp>
-                    <MetricHelp explanation={`Resident-weighted realized-rate growth from ${projectionStart} through ${projectionEnd}.`}>
+                    </div>
+                    <div>
                       <p className="font-semibold text-foreground">
                         {growthSnapshot.annualIncreasePct >= 0 ? "+" : ""}{growthSnapshot.annualIncreasePct.toFixed(1)}%
                       </p>
                       <p className="text-xs text-muted-foreground">End of projection</p>
-                    </MetricHelp>
-                    <MetricHelp explanation={`Resident-weighted quarterly goal across selected service lines for: ${quarterlyComparisonPeriods}.`}>
+                    </div>
+                    <div>
                       <p className="font-semibold">{formatPct(growthSnapshot.quarterlyGoalPct, 1)}</p>
                       <p className="text-xs text-muted-foreground">Resident weighted</p>
-                    </MetricHelp>
-                    <MetricHelp explanation={`Resident-weighted average of all service-line quarterly YoY results for: ${quarterlyComparisonPeriods}.`}>
+                    </div>
+                    <div>
                       <p className="font-semibold">{formatPct(growthSnapshot.averageQuarterlyYoyPct, 1)}</p>
                       <p className="text-xs text-muted-foreground">
                         {formatPct(growthSnapshot.averageQuarterlyYoyPct - growthSnapshot.quarterlyGoalPct, 1)} vs goal
                       </p>
-                    </MetricHelp>
-                    <MetricHelp explanation={`${growthSnapshot.quartersMeetingGoal} of ${growthSnapshot.projectedQuarterCount} service-line quarter results meet the goal for: ${quarterlyComparisonPeriods}.`}>
+                    </div>
+                    <div>
                       <p className={cn("font-semibold", growthSnapshot.quartersMeetingGoal === growthSnapshot.projectedQuarterCount ? "text-emerald-600" : "text-amber-600")}>
                         {growthSnapshot.quartersMeetingGoal} / {growthSnapshot.projectedQuarterCount}
                       </p>
                       <p className="text-xs text-muted-foreground">Service-line quarters</p>
-                    </MetricHelp>
+                    </div>
                   </div>
                 )}
               </div>
