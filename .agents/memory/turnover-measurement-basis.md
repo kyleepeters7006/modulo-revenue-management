@@ -36,27 +36,28 @@ De-duplication alone takes AL to ~57%, bedhold exclusion on top takes it to ~40%
 this far out, do not stop at the first sufficient explanation — a plausible result after one fix
 is not evidence the other cause is absent.
 
-### Missing departures can be recovered conservatively from replacement admissions
+### Missing departures can be recovered from verified move-in-date changes
 
-Trilogy rent rolls support resident IDs in schema, but the imported rows have no
-resident ID or name populated. Move-in/out events carry a census ID for essentially
-every admission and discharge, so the event feed—not rent-roll identity—is the
-available resident-level source.
+The imported rent rolls populate move-in date but not resident ID or name. Event
+`census_id` is a synthetic event key—not a resident identity—and therefore cannot
+pair admissions to discharges.
 
-Explicit move-outs can still be incomplete. Recover only a provable lower bound:
-one unique admission into a room occupied in the prior monthly rent roll, where no
-qualifying same-room move-out exists in the admission month. Add at most one inferred
-departure per room-month and report recorded versus inferred counts separately.
+Recover a missing departure only when the same primary room is occupied in two
+consecutive monthly rent rolls and its move-in date advances into that interval.
+Do not add it when the authoritative event table already has a qualifying same-room
+departure for that month.
 
-**Why:** this catches a move-out followed by a move-in between monthly snapshots,
-without treating a vacancy fill, newly opened room, or newly added campus as turnover.
-Raw admissions cannot substitute for departures: portfolio expansion can create
-hundreds of legitimate admissions in one month.
+**Why:** this proves that one occupied resident position was replaced without relying
+on fields other operators may not have. It does not treat a vacancy fill, new room,
+or static repeated date as a departure. Source conversions can stamp one date across
+hundreds of rooms, so line-wide date spikes must be rejected before inference.
 
-**How to apply:** dedupe admissions by patient/census identity, require prior-month
-occupied-room evidence, anti-join a same-room explicit move-out, and retain all payer,
-bedhold, companion, service-line, feed-precedence, and month-coverage rules used by
-the explicit numerator. Keep occupancy history as the denominator.
+**How to apply:** parse only supported upload-template date formats; require consecutive
+occupied snapshots, a strictly later move-in date inside the snapshot interval, the
+shared B-bed and payer exclusions, and an anti-join to recorded departures. Reject a
+date used by both more than 25 rooms and more than 5% of a service line's rooms.
+Report recorded versus inferred counts separately and keep occupancy history as the
+denominator.
 
 ### LOS is the sanity-check lever
 `losMonths = 1200 / turnoverPct` (12 months × 100 / pct). Show it beside every turnover figure

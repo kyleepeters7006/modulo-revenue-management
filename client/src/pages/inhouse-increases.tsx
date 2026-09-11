@@ -304,7 +304,7 @@ function TurnoverEvidence({
   const departureEvidence = hist
     ? `${hist.moveOuts.toLocaleString()} departures${
         hist.inferredMoveOuts > 0
-          ? ` (${hist.explicitMoveOuts.toLocaleString()} recorded + ${hist.inferredMoveOuts.toLocaleString()} same-room replacements)`
+          ? ` (${hist.explicitMoveOuts.toLocaleString()} recorded + ${hist.inferredMoveOuts.toLocaleString()} verified move-in-date replacements)`
           : ""
       }`
     : "";

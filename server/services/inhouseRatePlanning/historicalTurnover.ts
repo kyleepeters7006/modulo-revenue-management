@@ -29,6 +29,7 @@
  */
 import { pool } from "../../db";
 import { privatePaySql } from "@shared/payerScope";
+import { bBedExclusionSql } from "@shared/bBed";
 import { MOVE_IN_OUT_ACTIVE_VIEW } from "../moveInOutEventsView";
 import {
   MODEL_MAX_TURNOVER_PCT,
@@ -48,9 +49,9 @@ export interface ServiceLineTurnover {
   /** Explicit move-out events present in the authoritative event feed. */
   explicitMoveOuts: number;
   /**
-   * Conservative missing departures inferred from a unique admission into a
-   * room occupied in the prior monthly rent roll, with no same-room move-out
-   * event in that month. At most one is added per room-month.
+   * Conservative missing departures inferred from an occupied room whose
+   * move-in date advances between consecutive monthly rent rolls, with no
+   * same-room move-out event already recorded in that month.
    */
   inferredMoveOuts: number;
   /**
@@ -338,52 +339,67 @@ export async function computeHistoricalTurnover(
        ${locationName ? "AND e.location = $4" : ""}
      GROUP BY 1, 2`;
 
-  // Some permanent departures are absent from the discharge feed even though
-  // the corresponding admission is present. Census IDs make those admissions
-  // individually identifiable; the prior month's occupied-room snapshot tells
-  // us whether the admission replaced someone rather than filling a vacancy.
+  // Some permanent departures are absent from the discharge feed. The rent
+  // roll cannot identify the departed resident for this tenant, but it does
+  // carry move-in date on nearly every occupied row. Treat a room as replaced
+  // only when it is occupied in consecutive monthly snapshots and its move-in
+  // date advances into that exact interval. This does not count vacancy fills,
+  // newly opened rooms, or a static date repeated across uploads.
   //
-  // Add only the conservative, provable gap: one admission into a room that was
-  // occupied in the prior month and has no qualifying same-room move-out in the
-  // admission month. This catches move-out + move-in cycles hidden inside one
-  // monthly rent-roll interval without treating new campuses, new rooms, or
-  // ordinary vacancy fills as turnover.
+  // A source conversion once stamped the same move-in date on hundreds of
+  // rooms. `suspicious_dates` rejects any line/date shared by more than both 25
+  // rooms and 5% of the line's physical rooms. A real portfolio does not move
+  // that many residents into one service line on one day.
   const inferredMoveOutSql = `
-    WITH admissions AS (
-      SELECT e.id,
-             COALESCE(NULLIF(BTRIM(e.patient_id), ''), NULLIF(BTRIM(e.census_id), ''), e.id::text) AS resident_key,
-             e.location,
-             e.service_line AS sl,
-             e.room_name,
-             substring(e.event_date, 1, 7) AS m,
-             to_char(
-               to_date(substring(e.event_date, 1, 7), 'YYYY-MM') - interval '1 month',
-               'YYYY-MM'
-             ) AS prior_m
-        FROM ${MOVE_IN_OUT_ACTIVE_VIEW} e
-       WHERE e.client_id = $1
-         AND e.event_type = 'move_in'
-         AND e.counted = true
-         AND substring(e.event_date, 1, 7) BETWEEN $2 AND $3
-         AND e.room_name IS NOT NULL
-         AND ${moveOutPayerScopeSql("e")}
-         ${locationName ? "AND e.location = $4" : ""}
-    ),
-    prior_occupied_rooms AS (
-      SELECT DISTINCT rr.location, rr.service_line AS sl, rr.upload_month AS m, rr.room_number
+    WITH rent_roll AS MATERIALIZED (
+      SELECT DISTINCT ON (rr.location, rr.service_line, rr.room_number, rr.upload_month)
+             rr.location,
+             UPPER(rr.service_line) AS sl,
+             BTRIM(rr.room_number) AS room_number,
+             rr.upload_month AS m,
+             rr.occupied_yn,
+             rr.payor_type,
+             CASE
+               WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                 THEN TO_DATE(rr.move_in_date, 'YYYY-MM-DD')
+               WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$'
+                 THEN TO_DATE(rr.move_in_date, 'MM/DD/YYYY')
+             END AS move_in_date
         FROM rent_roll_data rr
        WHERE rr.client_id = $1
-         AND rr.occupied_yn = true
-         AND rr.room_number IS NOT NULL
          AND rr.upload_month BETWEEN
              to_char(to_date($2, 'YYYY-MM') - interval '1 month', 'YYYY-MM')
-             AND to_char(to_date($3, 'YYYY-MM') - interval '1 month', 'YYYY-MM')
+             AND $3
+         AND rr.room_number IS NOT NULL
+         AND ${bBedExclusionSql("rr.")}
          ${locationName ? "AND rr.location = $4" : ""}
+       ORDER BY rr.location, rr.service_line, rr.room_number, rr.upload_month,
+                rr.occupied_yn DESC,
+                CASE
+                  WHEN rr.move_in_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                    THEN TO_DATE(rr.move_in_date, 'YYYY-MM-DD')
+                  WHEN rr.move_in_date ~ '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}$'
+                    THEN TO_DATE(rr.move_in_date, 'MM/DD/YYYY')
+                END DESC NULLS LAST
+    ),
+    line_room_counts AS (
+      SELECT sl, COUNT(DISTINCT location || '|' || room_number)::float AS rooms
+        FROM rent_roll
+       GROUP BY sl
+    ),
+    suspicious_dates AS (
+      SELECT r.sl, r.move_in_date
+        FROM rent_roll r
+        JOIN line_room_counts c USING (sl)
+       WHERE r.move_in_date IS NOT NULL
+       GROUP BY r.sl, r.move_in_date, c.rooms
+      HAVING COUNT(DISTINCT r.location || '|' || r.room_number) > 25
+         AND COUNT(DISTINCT r.location || '|' || r.room_number) > c.rooms * 0.05
     ),
     explicit_out_rooms AS (
       SELECT DISTINCT e.location,
-             e.service_line AS sl,
-             e.room_name,
+             UPPER(e.service_line) AS sl,
+             BTRIM(e.room_name) AS room_number,
              substring(e.event_date, 1, 7) AS m
         FROM ${MOVE_IN_OUT_ACTIVE_VIEW} e
        WHERE e.client_id = $1
@@ -395,21 +411,39 @@ export async function computeHistoricalTurnover(
          ${locationName ? "AND e.location = $4" : ""}
     ),
     missing_room_months AS (
-      SELECT a.sl, a.m, a.location, a.room_name,
-             MIN(a.resident_key) AS admission_resident_key
-        FROM admissions a
-        JOIN prior_occupied_rooms p
-          ON p.location = a.location
-         AND p.sl IS NOT DISTINCT FROM a.sl
-         AND p.m = a.prior_m
-         AND BTRIM(p.room_number) = BTRIM(a.room_name)
+      SELECT current.sl, current.m, current.location, current.room_number
+        FROM rent_roll current
+        JOIN rent_roll prior
+          ON prior.location = current.location
+         AND prior.sl = current.sl
+         AND prior.room_number = current.room_number
+         AND to_date(prior.m, 'YYYY-MM') =
+             to_date(current.m, 'YYYY-MM') - interval '1 month'
+        LEFT JOIN suspicious_dates bad
+          ON bad.sl = current.sl
+         AND bad.move_in_date = current.move_in_date
         LEFT JOIN explicit_out_rooms o
-          ON o.location = a.location
-         AND o.sl IS NOT DISTINCT FROM a.sl
-         AND o.m = a.m
-         AND BTRIM(o.room_name) = BTRIM(a.room_name)
-       WHERE o.room_name IS NULL
-       GROUP BY a.sl, a.m, a.location, a.room_name
+          ON o.location = current.location
+         AND o.sl = current.sl
+         AND o.m = current.m
+         AND o.room_number = current.room_number
+       WHERE current.occupied_yn = true
+         AND prior.occupied_yn = true
+         AND current.move_in_date IS NOT NULL
+         AND prior.move_in_date IS NOT NULL
+         AND current.move_in_date > prior.move_in_date
+         AND current.move_in_date > to_date(prior.m, 'YYYY-MM')
+         AND current.move_in_date <
+             to_date(current.m, 'YYYY-MM') + interval '1 month'
+         AND bad.move_in_date IS NULL
+         AND o.room_number IS NULL
+         AND (
+           (current.sl IN ('HC', 'HC/MC') AND ${privatePaySql("current.payor_type")})
+           OR
+           (current.sl NOT IN ('HC', 'HC/MC')
+             AND COALESCE(current.payor_type, '') NOT ILIKE '%BEDHOLD%'
+             AND COALESCE(current.payor_type, '') NOT ILIKE '%2ND OCCUPANT%')
+         )
     )
     SELECT sl, m, COUNT(*)::int AS n
       FROM missing_room_months
