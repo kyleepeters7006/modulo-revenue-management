@@ -150,6 +150,57 @@ function HeaderHelp({ label, explanation }: { label: string; explanation: string
   );
 }
 
+/** Column template shared by the Rate growth snapshot header, rows and total. */
+const GROWTH_GRID_COLS =
+  "grid min-w-[1420px] grid-cols-[minmax(110px,1.2fr)_repeat(5,minmax(135px,1fr))_minmax(200px,1.5fr)_minmax(135px,1fr)]";
+
+interface QuarterYoyCell {
+  key: string;
+  label: string;
+  /** Null when the prior-year quarter has no realized rate to measure against. */
+  yoyPct: number | null;
+  passes: boolean;
+}
+
+/**
+ * Per-quarter YoY under the column average. Quarter labels drop the year while
+ * every quarter shares one, which is the usual single-plan-year case. A quarter
+ * with no prior-year baseline reads "n/a" — the solver scores it as 0% and
+ * passing, which would otherwise show as a green 0.0%.
+ */
+function QuarterYoyBreakdown({ quarters }: { quarters: QuarterYoyCell[] }) {
+  if (quarters.length === 0) return null;
+  return (
+    <div
+      className="mx-auto mt-1.5 grid w-fit grid-cols-2 gap-x-3 gap-y-0.5 border-t pt-1.5 text-[11px]"
+      data-testid="quarterly-yoy-breakdown"
+    >
+      {quarters.map((quarter) => (
+        <div key={quarter.key} className="flex items-baseline gap-1.5">
+          <span className="text-muted-foreground">{quarter.label}</span>
+          {quarter.yoyPct == null ? (
+            <span className="font-medium text-muted-foreground">n/a</span>
+          ) : (
+            <span
+              className={cn(
+                "font-medium tabular-nums",
+                quarter.passes ? "text-emerald-600" : "text-amber-600",
+              )}
+            >
+              {formatPct(quarter.yoyPct, 1)}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** "Q1" when the whole set sits in one year, otherwise "Q1 '27". */
+function quarterCellLabel(quarter: number, year: number, singleYear: boolean): string {
+  return singleYear ? `Q${quarter}` : `Q${quarter} '${String(year).slice(-2)}`;
+}
+
 const SERVICE_LINES = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
 
 /** One service line's measured turnover, from /api/inhouse-planning/historical-turnover. */
@@ -1288,6 +1339,12 @@ export default function InhouseIncreases() {
     let quarterlyYoyWeighted = 0;
     let quartersMeetingGoal = 0;
     let projectedQuarterCount = 0;
+    // Resident-weighted YoY per calendar quarter, so the combined row can show
+    // the same quarter-by-quarter detail as each service line.
+    const quarterTotals = new Map<
+      string,
+      { year: number; quarter: number; weighted: number; goalWeighted: number; residents: number }
+    >();
     for (const { plan } of plans) {
       const count = plan.summary.residentCount;
       const fullYearYoy = fullYearYoyFromQuarters(plan.quarters, plan.rateBasis);
@@ -1318,7 +1375,30 @@ export default function InhouseIncreases() {
       quarterlyYoyWeighted += averageQuarterlyYoy * count;
       quartersMeetingGoal += plan.quarters.filter((quarter) => quarter.passes).length;
       projectedQuarterCount += plan.quarters.length;
+      for (const quarter of plan.quarters) {
+        const key = `${quarter.year}-Q${quarter.quarter}`;
+        const bucket = quarterTotals.get(key) ?? {
+          year: quarter.year,
+          quarter: quarter.quarter,
+          weighted: 0,
+          goalWeighted: 0,
+          residents: 0,
+        };
+        quarterTotals.set(key, bucket);
+        // A quarter with no prior-year realized rate is untestable: the solver
+        // scores it 0% and passing, so weighting it in would drag the combined
+        // number toward a number nobody measured.
+        const priorRate = quarter.priorYear.realizedRateMonthly;
+        if (priorRate == null || priorRate <= 0 || !Number.isFinite(quarter.yoyGrowthPct)) continue;
+        bucket.weighted += quarter.yoyGrowthPct * count;
+        bucket.goalWeighted += plan.assumptions.rateGrowthTargetPct * count;
+        bucket.residents += count;
+      }
     }
+    const orderedQuarters = Array.from(quarterTotals.entries()).sort(
+      ([, a], [, b]) => a.year - b.year || a.quarter - b.quarter,
+    );
+    const singleQuarterYear = new Set(orderedQuarters.map(([, q]) => q.year)).size <= 1;
     return {
       residents,
       streetCurrentMonthly,
@@ -1351,6 +1431,19 @@ export default function InhouseIncreases() {
       averageQuarterlyYoyPct: residents > 0 ? quarterlyYoyWeighted / residents : 0,
       quartersMeetingGoal,
       projectedQuarterCount,
+      quarterlyBreakdown: orderedQuarters.map(([key, bucket]) => {
+        const measurable = bucket.residents > 0;
+        const yoyPct = measurable ? bucket.weighted / bucket.residents : null;
+        const goalPct = measurable ? bucket.goalWeighted / bucket.residents : 0;
+        return {
+          key,
+          label: quarterCellLabel(bucket.quarter, bucket.year, singleQuarterYear),
+          yoyPct,
+          // Colour the weighted number against the weighted goal, so it always
+          // describes the value shown rather than a per-line pass tally.
+          passes: yoyPct != null && yoyPct >= goalPct - 1e-6,
+        };
+      }),
     };
   }, [plans]);
 
@@ -1790,7 +1883,7 @@ export default function InhouseIncreases() {
             </CardHeader>
             <CardContent>
               <div className="mx-auto mb-6 max-w-7xl overflow-x-auto rounded-lg border">
-                <div className="grid min-w-[1320px] grid-cols-[minmax(110px,1.2fr)_repeat(7,minmax(135px,1fr))] bg-muted/40 px-4 py-2 text-center text-xs font-medium text-muted-foreground">
+                <div className={cn(GROWTH_GRID_COLS, "bg-muted/40 px-4 py-2 text-center text-xs font-medium text-muted-foreground")}>
                   <HeaderHelp
                     label="Service line"
                     explanation="The level of care, shown with its monthly or daily rate basis."
@@ -1817,7 +1910,7 @@ export default function InhouseIncreases() {
                   />
                   <HeaderHelp
                     label="Average quarterly YoY"
-                    explanation={`Average of: ${quarterlyComparisonPeriods}.`}
+                    explanation={`Average of: ${quarterlyComparisonPeriods}. Each quarter's own result is listed beneath the average — green when it meets the goal, amber when it falls short.`}
                   />
                   <HeaderHelp
                     label="Quarters at goal"
@@ -1835,6 +1928,18 @@ export default function InhouseIncreases() {
                     : 0;
                   const fullYearYoy = fullYearYoyFromQuarters(plan.quarters, plan.rateBasis);
                   const planYear = plan.quarters[0]?.year;
+                  const singleQuarterYear = new Set(plan.quarters.map((quarter) => quarter.year)).size <= 1;
+                  const quarterCells: QuarterYoyCell[] = plan.quarters.map((quarter) => {
+                    const priorRate = quarter.priorYear.realizedRateMonthly;
+                    const measurable =
+                      priorRate != null && priorRate > 0 && Number.isFinite(quarter.yoyGrowthPct);
+                    return {
+                      key: `${quarter.year}-Q${quarter.quarter}`,
+                      label: quarterCellLabel(quarter.quarter, quarter.year, singleQuarterYear),
+                      yoyPct: measurable ? quarter.yoyGrowthPct : null,
+                      passes: quarter.passes,
+                    };
+                  });
                   const quartersMeetingGoal = plan.quarters.filter((quarter) => quarter.passes).length;
                   const adjustedTopComp = plan.adjustedTopCompetitorRateMonthly;
                   const projectedAdjustedTopComp =
@@ -1851,7 +1956,7 @@ export default function InhouseIncreases() {
                     ? (plan.recommendedStreetRateMonthly / plan.summary.newAvgInhouseRateMonthly - 1) * 100
                     : null;
                   return (
-                    <div key={`growth-${sl}`} className="grid min-w-[1320px] grid-cols-[minmax(110px,1.2fr)_repeat(7,minmax(135px,1fr))] items-center border-t px-4 py-3 text-center">
+                    <div key={`growth-${sl}`} className={cn(GROWTH_GRID_COLS, "items-center border-t px-4 py-3 text-center")}>
                       <div>
                         <p className="font-semibold">{sl}</p>
                         <p className="text-[11px] text-muted-foreground">{daily ? "Daily rates" : "Monthly rates"}</p>
@@ -1904,6 +2009,7 @@ export default function InhouseIncreases() {
                         <p className="text-xs text-muted-foreground">
                           {formatPct(averageQuarterlyYoy - plan.assumptions.rateGrowthTargetPct, 1)} vs goal
                         </p>
+                        <QuarterYoyBreakdown quarters={quarterCells} />
                       </div>
                       <div>
                         <p className={cn("font-semibold", quartersMeetingGoal === plan.quarters.length ? "text-emerald-600" : "text-amber-600")}>
@@ -1915,7 +2021,7 @@ export default function InhouseIncreases() {
                   );
                 })}
                 {growthSnapshot && (
-                  <div className="grid min-w-[1320px] grid-cols-[minmax(110px,1.2fr)_repeat(7,minmax(135px,1fr))] items-center border-t-2 bg-muted/30 px-4 py-3 text-center">
+                  <div className={cn(GROWTH_GRID_COLS, "items-center border-t-2 bg-muted/30 px-4 py-3 text-center")}>
                     <div>
                       <p className="font-semibold">Combined total</p>
                       <p className="text-[11px] text-muted-foreground">{growthSnapshot.residents.toLocaleString()} residents · monthly equivalent</p>
@@ -1963,6 +2069,7 @@ export default function InhouseIncreases() {
                       <p className="text-xs text-muted-foreground">
                         {formatPct(growthSnapshot.averageQuarterlyYoyPct - growthSnapshot.quarterlyGoalPct, 1)} vs goal
                       </p>
+                      <QuarterYoyBreakdown quarters={growthSnapshot.quarterlyBreakdown} />
                     </div>
                     <div>
                       <p className={cn("font-semibold", growthSnapshot.quartersMeetingGoal === growthSnapshot.projectedQuarterCount ? "text-emerald-600" : "text-amber-600")}>

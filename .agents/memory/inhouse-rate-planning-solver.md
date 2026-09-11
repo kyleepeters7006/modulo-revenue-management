@@ -160,6 +160,12 @@ a plan with no measurable baseline at all reads as feasible and can be approved.
 **How to apply:** distinguish "passed", "failed", and "could not be evaluated";
 never let the third collapse into the first.
 
+The quarter record itself does not carry that third state: an untestable quarter
+is stored with zero growth and a passing verdict. Any surface reading those
+fields — a table cell, an average, a resident-weighted roll-up — must gate on
+whether the prior-year quarter has a realized rate, not on the growth number
+being finite, or it renders a fabricated passing 0% and weights it into totals.
+
 ## Missing-quarter projections continue the latest observed trajectory
 
 When a future prior-year quarter is missing, anchor its projection on the latest
