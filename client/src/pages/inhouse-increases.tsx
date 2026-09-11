@@ -1306,9 +1306,7 @@ export default function InhouseIncreases() {
           In-House Rate Planning
         </h1>
         <p className="mx-auto max-w-3xl text-sm text-muted-foreground">
-          Set a rate-growth objective, then see the street rate and the resident-by-resident
-          in-house increases required to reach it. Every number below can be expanded to show
-          exactly how it was derived.
+          Set a growth goal and see the rates required to reach it.
         </p>
       </header>
 
