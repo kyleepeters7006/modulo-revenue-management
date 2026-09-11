@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Metric = {
   id: string;
@@ -86,9 +87,22 @@ function ContextCard({ metric, canEdit, onEdit }: { metric: Metric; canEdit: boo
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]">
-            {metric.label}
-          </p>
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="cursor-help border-b border-dotted border-current text-left text-xs font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]"
+                  aria-label={`${metric.label}: ${metric.note || metric.comparison}`}
+                >
+                  {metric.label}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[280px] text-xs leading-relaxed">
+                {metric.note || metric.comparison}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <p className="mt-2 text-2xl font-light text-[var(--dashboard-text)]">{formatValue(metric)}</p>
         </div>
         <span
