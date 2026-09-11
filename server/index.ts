@@ -375,6 +375,43 @@ app.use((req, res, next) => {
     log(`[migration] source_room_type column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Preserve the raw move-in date whenever an administrator repairs the
+  // normalized value used by turnover inference. The audit table records each
+  // repair, while these columns keep the source value beside the row.
+  try {
+    await db.execute(sql.raw(`
+      ALTER TABLE rent_roll_data
+        ADD COLUMN IF NOT EXISTS move_in_date_source text
+    `));
+    await db.execute(sql.raw(`
+      ALTER TABLE rent_roll_history
+        ADD COLUMN IF NOT EXISTS move_in_date_source text
+    `));
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS rent_roll_move_in_date_repairs (
+        id                 varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id          text NOT NULL,
+        upload_month       text NOT NULL,
+        source_table       text NOT NULL CHECK (source_table IN ('rent_roll_data', 'rent_roll_history')),
+        source_row_id      varchar NOT NULL,
+        location           text,
+        room_number        text,
+        service_line       text,
+        source_value       text NOT NULL,
+        repaired_value     text NOT NULL,
+        repaired_by        text,
+        repaired_at        timestamptz NOT NULL DEFAULT now()
+      )
+    `));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS rent_roll_move_in_date_repairs_scope_idx
+        ON rent_roll_move_in_date_repairs (client_id, upload_month, repaired_at DESC)
+    `));
+    log("[migration] historical rent-roll move-in date repair columns and audit table ensured");
+  } catch (migErr) {
+    log(`[migration] historical rent-roll move-in date repair migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Idempotent migration: ensure rule_rate_calculated_at column exists on rent_roll_data.
   // Added to shared/schema.ts to stamp calculation time on each ruleAdjustedRate write so
   // the CSV export can exclude stale rates from scoped calculation runs.

@@ -569,7 +569,8 @@ export async function importRentRollCSV(
                 const locationName = row['Location'] || row['location'] || '';
                 const locationId = locationMap.get(locationName.toLowerCase());
 
-                const moveInDate = row['Move In Date'] || row['move_in_date'] || null;
+                const moveInDateSource = row['Move In Date'] || row['move_in_date'] || null;
+                const moveInDate = moveInDateSource;
                 recordMoveInDateValidation(stats.moveInDateValidation!, moveInDate);
 
                 const record: InsertRentRollHistory = {
@@ -604,6 +605,7 @@ export async function importRentRollCSV(
                   residentId: row['Resident ID'] || row['resident_id'] || null,
                   residentName: row['Resident Name'] || row['resident_name'] || null,
                   moveInDate,
+                  moveInDateSource: moveInDateSource == null ? null : String(moveInDateSource),
                   moveOutDate: (() => {
                     const dv = parseInt(row['Days Vacant'] || row['days_vacant']) || 0;
                     const occupied = parseBoolean(row['Occupied Y/N'] || row['occupied_yn']);
@@ -1614,7 +1616,8 @@ export async function importMatrixCareRentRollCSV(
                 const serviceLine = mapServiceLine(row['Service1']);
                 const roomBed = row['Room_Bed'] || '';
                 const roomNumber = roomBed.split('/')[0] || roomBed; // "101/A" -> "101"
-                const moveInDate = row['MoveInDate'] || null;
+                const moveInDateSource = row['MoveInDate'] || null;
+                const moveInDate = moveInDateSource;
                 recordMoveInDateValidation(stats.moveInDateValidation!, moveInDate);
                 
                 // Check for duplicates - use locationName as fallback to prevent cross-campus collisions
@@ -1748,6 +1751,7 @@ export async function importMatrixCareRentRollCSV(
                   residentId: patientId || null,
                   residentName: null, // Not available in this export
                   moveInDate,
+                  moveInDateSource: moveInDateSource == null ? null : String(moveInDateSource),
                   moveOutDate: row['MoveOutDate'] || null,
                   payorType: row['PayerName'] || row['DisplayPayer'] || null,
                   admissionStatus: null,
@@ -1855,6 +1859,7 @@ export async function syncHistoryToCurrentRentRoll(uploadMonth: string, clientId
         residentId: record.residentId,
         residentName: record.residentName,
         moveInDate: record.moveInDate,
+        moveInDateSource: record.moveInDateSource,
         moveOutDate: record.moveOutDate,
         payorType: record.payorType,
         admissionStatus: record.admissionStatus,

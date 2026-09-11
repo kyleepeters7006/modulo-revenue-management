@@ -340,6 +340,341 @@ export function isMalformedMoveInDate(value: unknown): boolean {
   return raw.length > 0 && parseSupportedMoveInDate(raw) === null;
 }
 
+export interface HistoricalMoveInDateRepairCandidate {
+  sourceTable: "rent_roll_data" | "rent_roll_history";
+  rowId: string;
+  clientId: string;
+  uploadMonth: string;
+  locationId: string | null;
+  location: string | null;
+  roomNumber: string | null;
+  serviceLine: string | null;
+  occupied: boolean | null;
+  sourceValue: string;
+  originalSourceValue: string;
+}
+
+export interface HistoricalMoveInDateSourceSummary {
+  sourceTable: "rent_roll_data" | "rent_roll_history";
+  uploadMonth: string;
+  sourceValue: string;
+  rowCount: number;
+}
+
+export interface HistoricalMoveInDateRepairRequest {
+  clientId: string;
+  uploadMonth: string;
+  repairs: Array<{ sourceValue: string; replacementDate: string }>;
+  dryRun?: boolean;
+  confirmed?: boolean;
+  repairedBy?: string | null;
+}
+
+export interface HistoricalMoveInDateRepairResult {
+  clientId: string;
+  uploadMonth: string;
+  dryRun: boolean;
+  candidates: HistoricalMoveInDateRepairCandidate[];
+  updatedRows: number;
+  updatedBySource: Array<{
+    sourceValue: string;
+    replacementDate: string;
+    candidateRows: number;
+    updatedRows: number;
+  }>;
+}
+
+const HISTORICAL_RENT_ROLL_MONTH = /^20\d{2}-(0[1-9]|1[0-2])$/;
+
+function validateHistoricalRepairScope(clientId: string, uploadMonth: string): void {
+  if (!clientId.trim()) throw new Error("clientId is required");
+  if (!HISTORICAL_RENT_ROLL_MONTH.test(uploadMonth)) {
+    throw new Error("uploadMonth must use YYYY-MM format");
+  }
+}
+
+function normalizeRepairMappings(
+  repairs: Array<{ sourceValue: string; replacementDate: string }>,
+): Array<{ sourceValue: string; replacementDate: string }> {
+  if (!Array.isArray(repairs) || repairs.length === 0) {
+    throw new Error("At least one sourceValue and replacementDate mapping is required");
+  }
+  const seen = new Set<string>();
+  return repairs.map((repair) => {
+    const sourceValue = String(repair?.sourceValue ?? "").trim();
+    const replacementDate = String(repair?.replacementDate ?? "").trim();
+    if (!sourceValue) throw new Error("sourceValue cannot be empty");
+    if (!isMalformedMoveInDate(sourceValue)) {
+      throw new Error(`sourceValue is not a malformed stored date: ${sourceValue}`);
+    }
+    if (!parseSupportedMoveInDate(replacementDate) || !/^\d{4}-\d{2}-\d{2}$/.test(replacementDate)) {
+      throw new Error(`replacementDate must be a real ISO date (YYYY-MM-DD): ${replacementDate}`);
+    }
+    if (seen.has(sourceValue)) throw new Error(`Duplicate sourceValue mapping: ${sourceValue}`);
+    seen.add(sourceValue);
+    return { sourceValue, replacementDate };
+  });
+}
+
+async function findHistoricalMoveInDateCandidates(
+  clientId: string,
+  uploadMonth: string,
+  sourceValues?: string[],
+): Promise<HistoricalMoveInDateRepairCandidate[]> {
+  validateHistoricalRepairScope(clientId, uploadMonth);
+  const sourceFilter = sourceValues?.length
+    ? `AND BTRIM(move_in_date) = ANY($3::text[])`
+    : "";
+  const params: unknown[] = [clientId, uploadMonth];
+  if (sourceValues?.length) params.push(sourceValues);
+  const result = await pool.query<{
+    source_table: "rent_roll_data" | "rent_roll_history";
+    row_id: string;
+    upload_month: string;
+    location_id: string | null;
+    location: string | null;
+    room_number: string | null;
+    service_line: string | null;
+    occupied: boolean | null;
+    source_value: string;
+    original_source_value: string | null;
+  }>(
+    `
+      SELECT source_table, row_id, upload_month, location_id, location,
+             room_number, service_line, occupied, source_value,
+             original_source_value
+        FROM (
+          SELECT 'rent_roll_data'::text AS source_table,
+                 rr.id::text AS row_id,
+                 rr.upload_month,
+                 rr.location_id,
+                 rr.location,
+                 rr.room_number,
+                 rr.service_line,
+                 rr.occupied_yn AS occupied,
+                 rr.move_in_date AS source_value,
+                 rr.move_in_date_source AS original_source_value
+            FROM rent_roll_data rr
+           WHERE rr.client_id = $1
+             AND rr.upload_month = $2
+             AND rr.move_in_date IS NOT NULL
+             AND BTRIM(rr.move_in_date) <> ''
+             ${sourceFilter.replaceAll("move_in_date", "rr.move_in_date")}
+          UNION ALL
+          SELECT 'rent_roll_history'::text AS source_table,
+                 rh.id::text AS row_id,
+                 rh.upload_month,
+                 rh.location_id,
+                 rh.location,
+                 rh.room_number,
+                 rh.service_line,
+                 rh.occupied_yn AS occupied,
+                 rh.move_in_date AS source_value,
+                 rh.move_in_date_source AS original_source_value
+            FROM rent_roll_history rh
+            JOIN locations l ON l.id = rh.location_id
+           WHERE l.client_id = $1
+             AND rh.upload_month = $2
+             AND rh.move_in_date IS NOT NULL
+             AND BTRIM(rh.move_in_date) <> ''
+             ${sourceFilter.replaceAll("move_in_date", "rh.move_in_date")}
+        ) stored
+       WHERE source_value IS NOT NULL
+    `,
+    params,
+  );
+  return result.rows
+    .filter((row) => isMalformedMoveInDate(row.source_value))
+    .map((row) => ({
+      sourceTable: row.source_table,
+      rowId: row.row_id,
+      clientId,
+      uploadMonth: row.upload_month,
+      locationId: row.location_id,
+      location: row.location,
+      roomNumber: row.room_number,
+      serviceLine: row.service_line,
+      occupied: row.occupied,
+      sourceValue: row.source_value.trim(),
+      originalSourceValue: row.original_source_value ?? row.source_value,
+    }));
+}
+
+export async function listHistoricalMoveInDateSources(
+  clientId: string,
+  uploadMonth?: string,
+): Promise<HistoricalMoveInDateSourceSummary[]> {
+  if (!clientId.trim()) throw new Error("clientId is required");
+  if (uploadMonth !== undefined) validateHistoricalRepairScope(clientId, uploadMonth);
+  const result = await pool.query<{
+    source_table: "rent_roll_data" | "rent_roll_history";
+    upload_month: string;
+    source_value: string;
+    row_count: string | number;
+  }>(
+    `
+      SELECT source_table, upload_month, source_value, COUNT(*)::int AS row_count
+        FROM (
+          SELECT 'rent_roll_data'::text AS source_table, rr.upload_month,
+                 BTRIM(rr.move_in_date) AS source_value
+            FROM rent_roll_data rr
+           WHERE rr.client_id = $1
+             AND rr.move_in_date IS NOT NULL
+             AND BTRIM(rr.move_in_date) <> ''
+             ${uploadMonth === undefined ? "" : "AND rr.upload_month = $2"}
+          UNION ALL
+          SELECT 'rent_roll_history'::text AS source_table, rh.upload_month,
+                 BTRIM(rh.move_in_date) AS source_value
+            FROM rent_roll_history rh
+            JOIN locations l ON l.id = rh.location_id
+           WHERE l.client_id = $1
+             AND rh.move_in_date IS NOT NULL
+             AND BTRIM(rh.move_in_date) <> ''
+             ${uploadMonth === undefined ? "" : "AND rh.upload_month = $2"}
+        ) stored
+       GROUP BY source_table, upload_month, source_value
+       ORDER BY upload_month DESC, source_table, source_value
+    `,
+    uploadMonth === undefined ? [clientId] : [clientId, uploadMonth],
+  );
+  return result.rows
+    .filter((row) => isMalformedMoveInDate(row.source_value))
+    .map((row) => ({
+      sourceTable: row.source_table,
+      uploadMonth: row.upload_month,
+      sourceValue: row.source_value,
+      rowCount: Number(row.row_count),
+    }));
+}
+
+/**
+ * Preview or apply an explicitly mapped repair for malformed historical dates.
+ * Applying is deliberately opt-in and transactional. The original source is
+ * written to move_in_date_source and to the append-only repair audit table.
+ */
+export async function repairHistoricalMoveInDates(
+  request: HistoricalMoveInDateRepairRequest,
+): Promise<HistoricalMoveInDateRepairResult> {
+  validateHistoricalRepairScope(request.clientId, request.uploadMonth);
+  const mappings = normalizeRepairMappings(request.repairs);
+  const dryRun = request.dryRun !== false;
+  if (!dryRun && request.confirmed !== true) {
+    throw new Error("A confirmed repair request is required before values are changed");
+  }
+
+  const candidates = await findHistoricalMoveInDateCandidates(
+    request.clientId,
+    request.uploadMonth,
+    mappings.map((mapping) => mapping.sourceValue),
+  );
+  const bySource = new Map(mappings.map((mapping) => [mapping.sourceValue, mapping]));
+  const updatedBySource = mappings.map((mapping) => ({
+    sourceValue: mapping.sourceValue,
+    replacementDate: mapping.replacementDate,
+    candidateRows: candidates.filter((candidate) => candidate.sourceValue === mapping.sourceValue).length,
+    updatedRows: 0,
+  }));
+  if (dryRun || candidates.length === 0) {
+    return {
+      clientId: request.clientId,
+      uploadMonth: request.uploadMonth,
+      dryRun,
+      candidates,
+      updatedRows: 0,
+      updatedBySource,
+    };
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const auditValues: unknown[] = [];
+    const valuePlaceholders: string[] = [];
+    for (const candidate of candidates) {
+      const mapping = bySource.get(candidate.sourceValue);
+      if (!mapping) continue;
+      const offset = auditValues.length;
+      auditValues.push(
+        request.clientId,
+        request.uploadMonth,
+        candidate.sourceTable,
+        candidate.rowId,
+        candidate.location,
+        candidate.roomNumber,
+        candidate.serviceLine,
+        candidate.originalSourceValue || candidate.sourceValue,
+        mapping.replacementDate,
+        request.repairedBy ?? null,
+      );
+      valuePlaceholders.push(
+        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, ` +
+        `$${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, ` +
+        `$${offset + 9}, $${offset + 10})`,
+      );
+    }
+    if (valuePlaceholders.length) {
+      await client.query(
+        `INSERT INTO rent_roll_move_in_date_repairs
+          (client_id, upload_month, source_table, source_row_id, location,
+           room_number, service_line, source_value, repaired_value, repaired_by)
+         VALUES ${valuePlaceholders.join(", ")}`,
+        auditValues,
+      );
+    }
+
+    for (const mapping of mappings) {
+      const candidateIds = candidates
+        .filter((candidate) => candidate.sourceValue === mapping.sourceValue)
+        .map((candidate) => candidate.rowId);
+      const dataMappingIds = candidates
+        .filter((candidate) => candidate.sourceTable === "rent_roll_data" && candidate.sourceValue === mapping.sourceValue)
+        .map((candidate) => candidate.rowId);
+      const historyMappingIds = candidates
+        .filter((candidate) => candidate.sourceTable === "rent_roll_history" && candidate.sourceValue === mapping.sourceValue)
+        .map((candidate) => candidate.rowId);
+      if (dataMappingIds.length) {
+        await client.query(
+          `UPDATE rent_roll_data
+              SET move_in_date_source = COALESCE(move_in_date_source, move_in_date),
+                  move_in_date = $1
+            WHERE client_id = $2 AND upload_month = $3 AND id = ANY($4::varchar[])`,
+          [mapping.replacementDate, request.clientId, request.uploadMonth, dataMappingIds],
+        );
+      }
+      if (historyMappingIds.length) {
+        await client.query(
+          `UPDATE rent_roll_history rh
+              SET move_in_date_source = COALESCE(rh.move_in_date_source, rh.move_in_date),
+                  move_in_date = $1
+            FROM locations l
+           WHERE rh.id = ANY($2::varchar[])
+             AND rh.upload_month = $3
+             AND l.id = rh.location_id
+             AND l.client_id = $4`,
+          [mapping.replacementDate, historyMappingIds, request.uploadMonth, request.clientId],
+        );
+      }
+      const sourceResult = updatedBySource.find((entry) => entry.sourceValue === mapping.sourceValue);
+      if (sourceResult) sourceResult.updatedRows = candidateIds.length;
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return {
+    clientId: request.clientId,
+    uploadMonth: request.uploadMonth,
+    dryRun: false,
+    candidates,
+    updatedRows: candidates.length,
+    updatedBySource,
+  };
+}
+
 function monthStart(month: string): Date | null {
   if (!/^\d{4}-\d{2}$/.test(month)) return null;
   const [year, monthNumber] = month.split("-").map(Number);

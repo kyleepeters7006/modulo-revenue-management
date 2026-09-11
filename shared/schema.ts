@@ -185,6 +185,7 @@ export const rentRollData = pgTable("rent_roll_data", {
   residentId: text("resident_id"), // Unique resident identifier for MatrixCare
   residentName: text("resident_name"), // Full name of resident
   moveInDate: text("move_in_date"), // Date resident moved in
+  moveInDateSource: text("move_in_date_source"), // Original source value, retained when a date is repaired
   moveOutDate: text("move_out_date"), // Date resident moved out (if applicable)
   payorType: text("payor_type"), // Private Pay, Medicaid, Medicare, Insurance
   admissionStatus: text("admission_status"), // New, Transfer, Readmission
@@ -761,6 +762,7 @@ export const rentRollHistory = pgTable("rent_roll_history", {
   residentId: text("resident_id"),
   residentName: text("resident_name"),
   moveInDate: text("move_in_date"),
+  moveInDateSource: text("move_in_date_source"),
   moveOutDate: text("move_out_date"),
   payorType: text("payor_type"),
   admissionStatus: text("admission_status"),

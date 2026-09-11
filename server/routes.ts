@@ -473,6 +473,10 @@ import { calculateAttributedPrice, ensureCacheInitialized, invalidateCache } fro
 import { attributePricingService } from "./attributePricingService";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { fetchAndApplyAdjustmentRules, resolvePostServiceLineScope, resolvePatchServiceLineScope, recalculateAndPreloadCampusMetrics } from "./services/adjustmentRulesService";
+import {
+  listHistoricalMoveInDateSources,
+  repairHistoricalMoveInDates,
+} from "./services/inhouseRatePlanning/historicalTurnover";
 import { buildRuleImpactContext, computeQualifiedRuleImpact, selectSuggestionImpact, computeProspectiveRuleImpact, compareRuleDedupOrder, isDedupEligibleRule, getT3MoveInsMap as getT3MoveInsMapSvc, getGroupedT3MoveInsMap as getGroupedT3MoveInsMapSvc, ruleSpecificityScore } from "./services/ruleImpactService";
 import { loadCompBenchmark, loadStudioCompBenchmark, unitWeightedBenchmark, pickComparisonRate } from "./services/compBenchmark";
 import { queryCompPositionOwnRates } from "./services/compPositionOwnRates";
@@ -3870,6 +3874,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error('[backfill-care-level-rates] Error:', error);
       return res.status(500).json({ error: 'Backfill failed', details: error.message });
+    }
+  });
+
+  // GET /api/admin/historical-rent-roll-date-repairs — identify malformed
+  // stored move-in values before an administrator chooses replacements.
+  app.get('/api/admin/historical-rent-roll-date-repairs', async (req: any, res) => {
+    const hasSeedSecret = hasValidSeedSecret(req);
+    if (!hasSeedSecret && !(await isRuleAdmin(req))) {
+      return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
+    }
+    const session = req.session as any;
+    const clientId = hasSeedSecret
+      ? String(req.query?.clientId || 'trilogy').trim()
+      : String(session?.clientId || req.clientId || '').trim();
+    const uploadMonth = req.query?.uploadMonth
+      ? String(req.query.uploadMonth).trim()
+      : undefined;
+    try {
+      const sources = await listHistoricalMoveInDateSources(clientId, uploadMonth);
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({
+        clientId,
+        uploadMonth: uploadMonth ?? null,
+        sources,
+        message: sources.length
+          ? `Found ${sources.length} malformed source value(s). Submit explicit replacement dates in dry-run mode before confirming a repair.`
+          : 'No malformed stored move-in dates found for this scope.',
+      });
+    } catch (error: any) {
+      console.error('[historical-rent-roll-date-repairs] list failed:', error);
+      return res.status(400).json({ error: error.message || 'Failed to identify malformed rent-roll dates' });
+    }
+  });
+
+  // POST /api/admin/historical-rent-roll-date-repairs — dry-run by default.
+  // A non-dry-run request must include confirm=true and is applied transactionally.
+  app.post('/api/admin/historical-rent-roll-date-repairs', async (req: any, res) => {
+    const hasSeedSecret = hasValidSeedSecret(req);
+    if (!hasSeedSecret && !(await isRuleAdmin(req))) {
+      return res.status(403).json({ error: 'Unauthorized: admin privileges required' });
+    }
+    const session = req.session as any;
+    const clientId = hasSeedSecret
+      ? String(req.body?.clientId || 'trilogy').trim()
+      : String(session?.clientId || req.clientId || '').trim();
+    const uploadMonth = String(req.body?.uploadMonth || '').trim();
+    const rawRepairs = Array.isArray(req.body?.repairs)
+      ? req.body.repairs
+      : [{ sourceValue: req.body?.sourceValue, replacementDate: req.body?.replacementDate }];
+    const dryRun = req.body?.dryRun !== false;
+    try {
+      const result = await repairHistoricalMoveInDates({
+        clientId,
+        uploadMonth,
+        repairs: rawRepairs,
+        dryRun,
+        confirmed: req.body?.confirm === true,
+        repairedBy: session?.username || session?.userId || (hasSeedSecret ? 'seed-secret' : null),
+      });
+
+      if (!result.dryRun && result.updatedRows > 0) {
+        // Historical turnover is calculated on demand, while reference-data
+        // and campus-metric caches need explicit invalidation after the write.
+        invalidateRefDataCache();
+        warmRefDataCacheForClient(clientId);
+        const locationIds = [...new Set(
+          result.candidates
+            .map((candidate) => candidate.locationId)
+            .filter((locationId): locationId is string => Boolean(locationId)),
+        )];
+        await Promise.all(
+          locationIds.map((locationId) =>
+            recalculateAndPreloadCampusMetrics(clientId, locationId),
+          ),
+        );
+        console.log(
+          `[historical-rent-roll-date-repairs] refreshed turnover inputs and derived caches ` +
+          `for client=${clientId} month=${uploadMonth} rows=${result.updatedRows}`,
+        );
+      }
+
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({
+        success: true,
+        ...result,
+        message: result.dryRun
+          ? `Dry run complete. ${result.candidates.length} row(s) would be repaired; no date values were changed.`
+          : `Repair complete. Updated ${result.updatedRows} row(s); original source values were preserved.`,
+      });
+    } catch (error: any) {
+      console.error('[historical-rent-roll-date-repairs] repair failed:', error);
+      return res.status(400).json({ error: error.message || 'Historical rent-roll date repair failed' });
     }
   });
 
@@ -10662,8 +10758,8 @@ ${campusOccLines.join('\n')}
         const finalRateRaw = getRowValue(row, 'FinalRate', 'Final Rate', 'final rate', 'In-House Rate', 'in-house rate', 'InHouseRate', 'inHouseRate');
         const inHouseRate = parseRate(finalRateRaw);
 
-        const moveInDateRaw = getRowValue(row, 'Move In Date', 'move in date', 'MoveInDate', 'moveInDate');
-        recordMalformedMoveInDate(moveInDateRaw);
+        const moveInDateSource = getRowValue(row, 'Move In Date', 'move in date', 'MoveInDate', 'moveInDate');
+        recordMalformedMoveInDate(moveInDateSource);
         const rentRollEntry = {
           uploadMonth: uploadMonth,
           date: getRowValue(row, 'Date', 'date') || uploadDate,
@@ -10708,7 +10804,8 @@ ${campusOccLines.join('\n')}
           promotionAllowance: parseRoomRateAdjustment(getRowValue(row, 'Room_Rate_Adjustments', 'RoomRateAdjustments', 'RRA', 'Promotion Allowance', 'PromotionAllowance')),
           residentId: getRowValue(row, 'Resident ID', 'resident id', 'ResidentID', 'residentId') || null,
           residentName: getRowValue(row, 'Resident Name', 'resident name', 'ResidentName', 'residentName') || null,
-          moveInDate: convertDate(moveInDateRaw) || null,
+          moveInDate: convertDate(moveInDateSource) || null,
+          moveInDateSource: moveInDateSource == null || moveInDateSource === '' ? null : String(moveInDateSource),
           moveOutDate: (() => {
             const dv = parseInt(getRowValue(row, 'Textbox18', 'Days Vacant', 'days vacant', 'DaysVacant', 'daysVacant')) || 0;
             if (!isOccupied && dv > 0) {
