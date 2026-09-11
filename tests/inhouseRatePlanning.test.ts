@@ -49,6 +49,11 @@ import {
   type ProductStreetBaselines,
   type RawResidentRow,
 } from "../server/services/inhouseRatePlanning/dataAccess";
+import {
+  buildChainIndex,
+  planChainSegments,
+  type BaseCohort,
+} from "../server/services/inhouseRatePlanning/chainIndex";
 import { classifyRateProduct } from "../shared/rateProduct";
 
 const PASS = "\x1b[32m✓\x1b[0m";
@@ -1300,6 +1305,175 @@ console.log("\n-- 15. Product-matched street comparison --");
   });
   near("a single occupant keeps their own street rate", base.residents[0].streetRateMonthly, 3240, 1e-9);
   ok("and stays on the base product", base.residents[0].rateProduct === "base");
+}
+
+// ───────────────────────────── chain-linked index ─────────────────────────────
+// The index is what stops eligibility churn and room turnover from being read
+// as price movement, so the cases below are built so that a naive average gets
+// them WRONG. A test the old approach would also pass guards nothing.
+{
+  console.log("\n-- chain-linked rate index --");
+
+  const cohort = (
+    baseMonth: string,
+    weights: Record<string, number>,
+    rows: Array<[string, string, number, number?]>,
+  ): BaseCohort => ({
+    baseMonth,
+    weights: new Map(Object.entries(weights)),
+    rows: rows.map(([month, unitKey, rateMonthly, weight]) => ({
+      month,
+      unitKey,
+      rateMonthly,
+      weight: weight ?? 1,
+    })),
+  });
+
+  // Prices never move; room B is simply empty in February. A plain average
+  // reads 1500 → 1000 → 1500, a 33% crash and a 50% rebound out of thin air.
+  const churn = buildChainIndex({
+    segments: [
+      cohort("2025-03", { A: 1, B: 1 }, [
+        ["2025-01", "A", 1000],
+        ["2025-01", "B", 2000],
+        ["2025-02", "A", 1000],
+        ["2025-03", "A", 1000],
+        ["2025-03", "B", 2000],
+      ]),
+    ],
+    currentRoomCount: 2,
+    rawMonthly: [
+      { month: "2025-01", rateMonthly: 1500 },
+      { month: "2025-02", rateMonthly: 1000 },
+      { month: "2025-03", rateMonthly: 1500 },
+    ],
+    coverageFloorPct: 0,
+  });
+  near("flat prices with a vacancy leave the index flat", churn.index.get("2025-01")!, 1, 1e-9);
+  near("in both directions", churn.index.get("2025-02")!, 1, 1e-9);
+  const feb = churn.links.find((l) => l.month === "2025-02")!;
+  near("the raw drop is still reported", feb.rawChangePct!, -33.3333333, 1e-5);
+  near("but attributed entirely to mix", feb.mixEffectPct!, -33.3333333, 1e-5);
+  near("with no rate effect", feb.rateEffectPct, 0, 1e-9);
+  ok("coverage counts rooms observable in the pair", feb.observableRooms === 2 && feb.matchedRooms === 1);
+  near("the reported coverage-of-current is a separate number", feb.coverageOfCurrentPct, 50, 1e-9);
+
+  // Base-period weights, not the observation weights that come with each row.
+  // Weighted by the rows, this ratio would be 1.0048 instead of 1.06.
+  const laspeyres = buildChainIndex({
+    segments: [
+      cohort("2025-02", { A: 3, B: 1 }, [
+        ["2025-01", "A", 1000, 1],
+        ["2025-01", "B", 2000, 10],
+        ["2025-02", "A", 1100, 1],
+        ["2025-02", "B", 2000, 10],
+      ]),
+    ],
+    currentRoomCount: 2,
+    rawMonthly: [],
+    coverageFloorPct: 0,
+  });
+  near(
+    "links use fixed base-period weights, never the current period's",
+    laspeyres.links[0].ratio,
+    1.06,
+    1e-9,
+  );
+
+  // Chained growth over three months is the product of the three links.
+  const compounding = buildChainIndex({
+    segments: [
+      cohort("2025-04", { A: 1 }, [
+        ["2025-01", "A", 1000],
+        ["2025-02", "A", 1010],
+        ["2025-03", "A", 1020.1],
+        ["2025-04", "A", 1030.301],
+      ]),
+    ],
+    currentRoomCount: 1,
+    rawMonthly: [],
+    coverageFloorPct: 0,
+  });
+  near(
+    "a quarter of 1% links compounds, it does not add",
+    1 / compounding.index.get("2025-01")!,
+    1.01 ** 3,
+    1e-9,
+  );
+
+  // One thin link poisons every month on the far side of it: the level at
+  // 2025-01 could only be reached by multiplying through a ratio we do not
+  // trust, so it is withheld rather than published with a footnote.
+  const gated = buildChainIndex({
+    segments: [
+      cohort("2025-04", { A: 1, B: 1, C: 1, D: 1 }, [
+        ["2025-01", "A", 1000],
+        ["2025-01", "B", 1000],
+        ["2025-01", "C", 1000],
+        ["2025-01", "D", 1000],
+        ["2025-02", "A", 1000],
+        ["2025-03", "A", 1000],
+        ["2025-03", "B", 1000],
+        ["2025-03", "C", 1000],
+        ["2025-03", "D", 1000],
+        ["2025-04", "A", 1000],
+        ["2025-04", "B", 1000],
+        ["2025-04", "C", 1000],
+        ["2025-04", "D", 1000],
+      ]),
+    ],
+    currentRoomCount: 4,
+    rawMonthly: [],
+    coverageFloorPct: 90,
+  });
+  ok("a link above the floor keeps its month", gated.index.has("2025-03"));
+  ok("the month under the failing link is suppressed", !gated.index.has("2025-02"));
+  ok(
+    "and the reason code names the failing pair",
+    gated.suppressed.get("2025-02") === "LINK_COVERAGE_BELOW_FLOOR:2025-02->2025-03",
+    gated.suppressed.get("2025-02"),
+  );
+  ok(
+    "suppression propagates past the failing link, carrying the same reason",
+    !gated.index.has("2025-01") &&
+      gated.suppressed.get("2025-01") === "LINK_COVERAGE_BELOW_FLOOR:2025-02->2025-03",
+    gated.suppressed.get("2025-01"),
+  );
+
+  // Annual re-basing: consecutive segments must SHARE their boundary month, or
+  // there is no common level to link them at.
+  const segments = planChainSegments("2026-08", "2024-06");
+  ok("the chain re-bases every twelve months", segments.length === 3, `${segments.length} segments`);
+  ok(
+    "each segment starts where the next one is based",
+    segments.every((s, i) => i === segments.length - 1 || s.months[0] === segments[i + 1].baseMonth),
+    segments.map((s) => `${s.months[0]}..${s.baseMonth}`).join(" "),
+  );
+  ok(
+    "and the oldest segment stops at the earliest month needed",
+    segments[segments.length - 1].months[0] === "2024-06",
+  );
+
+  // Same-unit YoY pairs a room to itself twelve months earlier. Room B only
+  // exists in the later year, so it must not appear on either side.
+  const yoy = buildChainIndex({
+    segments: [
+      cohort("2026-01", { A: 1, B: 1 }, [
+        ["2025-01", "A", 1000],
+        ["2026-01", "A", 1080],
+        ["2026-01", "B", 5000],
+      ]),
+    ],
+    currentRoomCount: 2,
+    rawMonthly: [],
+    coverageFloorPct: 0,
+  });
+  near(
+    "same-unit YoY ignores rooms without a prior-year self",
+    yoy.sameUnitYoyPct.get("2026-01")!,
+    8,
+    1e-9,
+  );
 }
 
 console.log("\n=== Summary ===");

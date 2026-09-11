@@ -23,6 +23,7 @@ import {
   type DerivedRateFormula,
 } from "@shared/derivedRates";
 import { isDailyRateServiceLine } from "../rateNormalization";
+import type { RoomMonthRate } from "./chainIndex";
 import {
   buildRateBaselineJoin,
   inHouseRateGate,
@@ -841,6 +842,115 @@ async function queryMonthlyRealized(
     cohortRooms: Number(res.rows[0]?.cohort_rooms) || 0,
     cohortMonthCount: Number(res.rows[0]?.cohort_month_count) || 0,
   };
+}
+
+/**
+ * Per-room monthly rates for the rooms adjudicated eligible at ONE base month.
+ *
+ * This is the input to the chain-linked index, and it deliberately splits two
+ * ideas the rest of this file treats as one:
+ *
+ * - **Eligibility** — the outlier gate, base-rate exclusions and payer scope.
+ *   Adjudicated once, at the base month, and then frozen. Each of these rules
+ *   is itself a time series; re-running them monthly makes the qualifying rule
+ *   part of the measurement and manufactures rate movement out of rooms
+ *   crossing a threshold.
+ * - **Presence** — the room was occupied and carried a rate in that month.
+ *   Re-checked every month, because a room with no rate cannot be one half of
+ *   a matched pair. A room that is present but would now fail the gate stays in
+ *   at its actual historical rate, which is the whole point of freezing.
+ *
+ * Rows are collapsed to one observation per room-month: the rent roll has no
+ * uniqueness constraint on (client, month, location, service line, room), and a
+ * duplicated room would otherwise be double-weighted on one side of a link.
+ */
+export interface BaseAnchoredRoomRates {
+  baseMonth: string;
+  /** unitKey -> base-period weight, held fixed for every link (Laspeyres). */
+  baseWeights: Map<string, number>;
+  rows: RoomMonthRate[];
+  weightBasis: MonthlyRealized["weightBasis"];
+}
+
+export async function fetchBaseAnchoredRoomRates(
+  scope: ScopeFilter,
+  baseMonth: string,
+  months: string[],
+): Promise<BaseAnchoredRoomRates> {
+  const weightBasis = realizedRateWeightBasis(scope.serviceLine);
+  if (months.length === 0) {
+    return { baseMonth, baseWeights: new Map(), rows: [], weightBasis };
+  }
+
+  const params: any[] = [scope.clientId, scope.serviceLine, baseMonth, months];
+  let locSql = "";
+  if (scope.location) {
+    params.push(scope.location);
+    locSql = ` AND rr.location = $${params.length}`;
+  }
+
+  const monthStart = `to_date(rr.upload_month || '-01', 'YYYY-MM-DD')`;
+  const monthEndExcl = `(${monthStart} + INTERVAL '1 month')`;
+  const stayStart = `GREATEST(${monthStart}, COALESCE(${dateExpr("rr.move_in_date")}, ${monthStart}))`;
+  const stayEnd = `LEAST(${monthEndExcl}, COALESCE(${dateExpr("rr.move_out_date")} + 1, ${monthEndExcl}))`;
+  const days = `GREATEST(0, EXTRACT(EPOCH FROM (${stayEnd} - ${stayStart})) / 86400.0)`;
+  const observationWeight = weightBasis === "resident_days" ? days : "1";
+  const unitKeySql = `(COALESCE(rr.location, '') || E'\\x1f' || COALESCE(rr.room_number, ''))`;
+  const rateSql = monthlyRateExpr("rr.in_house_rate");
+
+  /** Occupied with a usable rate. NOT an eligibility test — see the doc above. */
+  const presentSql = `rr.client_id = $1
+        AND rr.service_line = $2
+        AND rr.occupied_yn = true
+        AND rr.in_house_rate > 0${locSql}`;
+
+  const res = await pool.query<{
+    month: string;
+    unit_key: string;
+    rate: string;
+    weight: string;
+    base_weight: string;
+  }>(
+    `WITH base_cohort AS (
+        SELECT ${unitKeySql} AS unit_key,
+               SUM(${observationWeight}) AS base_weight
+          FROM rent_roll_data rr
+          ${buildRateBaselineJoin({ rr: "rr.", clientSql: "$1", alias: "rb", monthSql: "$3" })}
+         WHERE ${presentSql}
+           AND ${privatePaySql("rr.payor_type")}
+           AND ${baseRateExclusionSql("rr.")}
+           AND ${inHouseRateGate("rr.", "rb")}
+           AND rr.upload_month = $3
+         GROUP BY 1
+        HAVING SUM(${observationWeight}) > 0
+      )
+      SELECT rr.upload_month AS month,
+             bc.unit_key AS unit_key,
+             SUM(${rateSql} * (${observationWeight}))
+               / NULLIF(SUM(${observationWeight}), 0) AS rate,
+             SUM(${observationWeight}) AS weight,
+             MAX(bc.base_weight) AS base_weight
+        FROM rent_roll_data rr
+        JOIN base_cohort bc ON bc.unit_key = ${unitKeySql}
+       WHERE ${presentSql}
+         AND rr.upload_month = ANY($4)
+       GROUP BY 1, 2
+      HAVING SUM(${observationWeight}) > 0
+       ORDER BY 1, 2`,
+    params,
+  );
+
+  const baseWeights = new Map<string, number>();
+  const rows: RoomMonthRate[] = [];
+  for (const row of res.rows) {
+    const rate = Number(row.rate);
+    const weight = Number(row.weight);
+    if (!Number.isFinite(rate) || rate <= 0 || !(weight > 0)) continue;
+    rows.push({ month: row.month, unitKey: row.unit_key, rateMonthly: rate, weight });
+    const baseWeight = Number(row.base_weight);
+    if (baseWeight > 0) baseWeights.set(row.unit_key, baseWeight);
+  }
+  return { baseMonth, baseWeights, rows, weightBasis };
 }
 
 /**

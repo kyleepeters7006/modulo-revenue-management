@@ -395,6 +395,59 @@ export interface PlanResult {
   explanation: CalcExplanation;
   /** Data-quality caveats an operator needs to see, in plain language. */
   warnings: string[];
+  /** How the historical series was standardized, and what it decomposes into. */
+  standardization?: StandardizationDiagnostics;
+}
+
+/**
+ * One month-over-month link in the chain-linked rate index, decomposed.
+ *
+ * Mix is reported, never suppressed. A portfolio whose realized rate rose
+ * because expensive rooms filled and cheap ones emptied really did earn more;
+ * that is a genuine economic outcome and an operator needs to see it. What it
+ * is not is evidence that anyone raised a price, so it is reported beside the
+ * rate effect rather than folded into it.
+ */
+export interface RateMixLink {
+  month: string;
+  priorMonth: string;
+  /** Unrestricted change, every qualifying row, no room matching. */
+  rawChangePct: number | null;
+  /** Matched-cohort price movement — the chain link itself. */
+  rateEffectPct: number;
+  /** Raw minus rate: what composition contributed. */
+  mixEffectPct: number | null;
+  matchedRooms: number;
+  /** Matched rooms over rooms observable in either month — the gated metric. */
+  coveragePct: number;
+  /** Matched rooms over every room priced today — reported for context. */
+  coverageOfCurrentPct: number;
+  belowFloor: boolean;
+}
+
+export interface StandardizationDiagnostics {
+  method: "chain_linked";
+  /** The anchor period; its index is 1 and the level is today's average. */
+  baseMonth: string;
+  /** One base per 12-month segment — the chain re-bases annually. */
+  segmentBaseMonths: string[];
+  coverageFloorPct: number;
+  links: RateMixLink[];
+  /** Quarters withheld because a link they depend on fell below the floor. */
+  suppressedQuarters: Array<{ label: string; reasonCode: string }>;
+  /** Same-unit YoY: each room paired to itself twelve months earlier. */
+  sameUnitYoy: Array<{ month: string; yoyPct: number }>;
+  /**
+   * Parallel run. The previous balanced-panel baselines beside the chained
+   * ones; the gap between them is the entry/exit effect, and it needs to be
+   * inspectable before the old series is retired.
+   */
+  parallelRun: Array<{
+    label: string;
+    chainRateMonthly: number | null;
+    balancedPanelRateMonthly: number | null;
+    differencePct: number | null;
+  }>;
 }
 
 /**

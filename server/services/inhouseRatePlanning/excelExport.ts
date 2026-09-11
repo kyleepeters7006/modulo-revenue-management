@@ -1242,8 +1242,20 @@ function buildHistorySheet(ws: ExcelJS.Worksheet, plan: PlanResult, audit: PlanA
   const monthHeaderRow = quarterLast + 3;
   sectionTitle(ws, monthHeaderRow - 1, "MONTHLY REALIZED RATE — the measured history", 7);
   const mh = ws.getRow(monthHeaderRow);
-  const history = audit.monthlyRealized;
-  const monthlyWeightBasis = history[0]?.weightBasis ?? (
+  // The chain-linked series can carry a month the raw query does not (it holds
+  // rooms in at their historical rates after they would fail today's gate), so
+  // the sheet is the UNION of both. A month present in only one series still
+  // gets a row, with the other side blank.
+  const rawByMonth = new Map(audit.monthlyRealized.map((m) => [m.month, m]));
+  const history = Array.from(
+    new Set([
+      ...audit.monthlyRealized.map((m) => m.month),
+      ...audit.monthlyStandardized.map((m) => m.month),
+    ]),
+  )
+    .sort()
+    .map((month) => ({ month, raw: rawByMonth.get(month) ?? null }));
+  const monthlyWeightBasis = audit.monthlyRealized[0]?.weightBasis ?? (
     plan.scope.serviceLine === "HC" || plan.scope.serviceLine === "HC/MC"
       ? "resident_days"
       : "resident_months"
@@ -1274,18 +1286,20 @@ function buildHistorySheet(ws: ExcelJS.Worksheet, plan: PlanResult, audit: PlanA
     const rowIx = monthFirst + i;
     const row = ws.getRow(rowIx);
     row.getCell(1).value = m.month;
-    row.getCell(2).value = m.rateMonthly;
+    row.getCell(2).value = m.raw ? m.raw.rateMonthly : "";
     row.getCell(2).numFmt = FMT_MONEY;
-    row.getCell(3).value = m.residentDays;
+    row.getCell(3).value = m.raw ? m.raw.residentDays : "";
     row.getCell(3).numFmt = FMT_INT;
-    row.getCell(4).value = {
-      formula: monthlyWeightBasis === "resident_days"
-        ? `B${rowIx}*C${rowIx}/${DAYS_PER_MONTH}`
-        : `B${rowIx}*C${rowIx}`,
-    } as ExcelJS.CellFormulaValue;
+    row.getCell(4).value = m.raw
+      ? ({
+          formula: monthlyWeightBasis === "resident_days"
+            ? `B${rowIx}*C${rowIx}/${DAYS_PER_MONTH}`
+            : `B${rowIx}*C${rowIx}`,
+        } as ExcelJS.CellFormulaValue)
+      : "";
     row.getCell(4).numFmt = FMT_MONEY;
     row.getCell(5).value =
-      i === 0
+      i === 0 || !m.raw
         ? ""
         : ({ formula: `IF(B${rowIx - 1}=0,"",B${rowIx}/B${rowIx - 1}-1)` } as ExcelJS.CellFormulaValue);
     row.getCell(5).numFmt = FMT_PCT2;
