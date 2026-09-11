@@ -490,9 +490,18 @@ function CommitNumberInput({
   const displayValue = value === "" ? "" : String(value);
   const [draft, setDraft] = useState(displayValue);
   const [editing, setEditing] = useState(false);
+  const pendingCommit = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!editing) setDraft(displayValue);
+    if (editing) return;
+    // Parent assumption updates run at transition priority so the rest of the
+    // plan remains responsive. Do not flash the previous prop value while that
+    // transition catches up with a spinner click or typed commit.
+    if (pendingCommit.current !== null) {
+      if (displayValue !== pendingCommit.current) return;
+      pendingCommit.current = null;
+    }
+    setDraft(displayValue);
   }, [displayValue, editing]);
 
   const commit = () => {
@@ -504,7 +513,10 @@ function CommitNumberInput({
       ? Math.min(max ?? stepped, Math.max(min ?? stepped, stepped))
       : stepped;
     const next = Number.isFinite(bounded) ? Number(bounded.toFixed(10)) : bounded;
-    if (Number.isFinite(next) && next !== value) onCommit(next);
+    if (Number.isFinite(next) && next !== value) {
+      pendingCommit.current = String(next);
+      onCommit(next);
+    }
     else if (!Number.isFinite(next)) setDraft(displayValue);
     if (Number.isFinite(next)) setDraft(String(next));
   };
