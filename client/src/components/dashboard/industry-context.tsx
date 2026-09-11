@@ -269,9 +269,8 @@ export default function IndustryContext() {
              <ChevronDown className={`h-4 w-4 text-[var(--dashboard-muted)] transition-transform group-hover:text-[var(--dashboard-text)] ${expanded ? "rotate-180" : ""}`} />
            </button>
            <p className="mt-1 max-w-2xl text-sm text-[var(--dashboard-muted)]">
-            Start the annual rate conversation with market signals, then set our targets.
-            Benchmarks are context—not an automatic recommendation.
-          </p>
+              Market benchmarks calibrate rate targets.
+            </p>
            {feedback && !editing ? <p className={`mt-2 text-xs ${feedback.includes("failed") || feedback.includes("Choose") ? "text-red-700" : "text-[var(--trilogy-teal)]"}`} role="status">{feedback}</p> : null}
         </div>
          <div className="flex items-center gap-2">
