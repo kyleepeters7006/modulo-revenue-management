@@ -251,3 +251,73 @@ type = "audio"
 title = "closer mark frag"
 description = "Text-to-speech audio: Smarter pricing. Faster decisions."
 logical_id = "99def2b6-c962-4851-ac4f-665d433bffab"
+
+[[outputs]]
+id = "64CkKgB0h61EPZcaeuVCY"
+uri = "file://attached_assets/generated_audio/modulo-intentional-signal.mp3"
+type = "audio"
+title = "modulo signal line"
+description = "Text-to-speech audio: Portfolio signals, in context."
+logical_id = "80d8eb0f-2e3c-492e-a94f-7caa59d23937"
+
+[[outputs]]
+id = "53gmdcagOIzxvEHwWxwRS"
+uri = "file://attached_assets/generated_audio/modulo-intentional-decision.mp3"
+type = "audio"
+title = "modulo decision line"
+description = "Text-to-speech audio: Targets and guardrails, set by operators."
+logical_id = "eae33522-ab4b-4f19-8e5b-02c492b9fe0e"
+
+[[outputs]]
+id = "77IypZaHc0xzCKVtBpZSS"
+uri = "file://attached_assets/generated_audio/modulo-intentional-outcome.mp3"
+type = "audio"
+title = "modulo outcome line"
+description = "Text-to-speech audio: Every rate change, measured."
+logical_id = "437afb27-56e1-48ea-97ce-12123535cf7b"
+
+[[outputs]]
+id = "eP94rbepJspGI4P1t4rkS"
+uri = "file://attached_assets/generated_videos/reconcept/modulo-pricing-intelligence-professional.mp4"
+type = "video"
+title = "Modulo Pricing Intelligence — AI Philosophy Cut"
+description = "A sharper 30-second product film explaining data decomposition, AI prioritization, elasticity, operator control, and measured learning."
+logical_id = "cb3d4cfb-94a2-4de4-a3ba-1ff6b2c4df40"
+content_hash = "sha256:e1454dbe177f9ca372f6afc3245a7b5613f730adb3bd1093413e410a49b1c80b"
+size = 949467
+mtime_ms = 1789091975239
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/cb3d4cfb-94a2-4de4-a3ba-1ff6b2c4df40/b93835cd-f754-4d89-97f2-9023de24be91"
+storage_version_token = "1789092030572495"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "evR4NvdyoVTDtkCsiKEOB"
+uri = "file://attached_assets/generated_audio/modulo-philosophy-data.mp3"
+type = "audio"
+title = "data decomposition"
+description = "Text-to-speech audio: Modulo decomposes millions of portfolio data points into usable signals."
+logical_id = "221ab70a-2f9a-4abc-8a74-b7df81e4e24a"
+
+[[outputs]]
+id = "HtXEu2u-bi2ijiFu7fiaK"
+uri = "file://attached_assets/generated_audio/modulo-philosophy-learning.mp3"
+type = "audio"
+title = "measured learning"
+description = "Text-to-speech audio: Each outcome becomes new evidence for the next decision."
+logical_id = "8619dc06-e225-45e5-8ff2-926eb2341eee"
+
+[[outputs]]
+id = "Qpt0MdlvAwxebMnUcqhL4"
+uri = "file://attached_assets/generated_audio/modulo-philosophy-control.mp3"
+type = "audio"
+title = "operator control"
+description = "Text-to-speech audio: Operators review the logic, guardrails, and expected impact before rates move."
+logical_id = "ff3ea9db-c780-41cd-9914-dfe6c23f9737"
+
+[[outputs]]
+id = "cWbD1PCQo9Lf1qYX4Cya4"
+uri = "file://attached_assets/generated_audio/modulo-philosophy-ai.mp3"
+type = "audio"
+title = "AI prioritization"
+description = "Text-to-speech audio: AI ranks the changes most likely to reach the revenue goal, informed by elasticity and operating history."
+logical_id = "5a3f1435-2d3d-4d3e-93e8-3efe8a3b5788"

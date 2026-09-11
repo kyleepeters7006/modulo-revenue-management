@@ -182,6 +182,40 @@ interface HistoricalTurnoverResponse {
   byServiceLine: ServiceLineTurnover[];
 }
 
+const COMPANY_TURNOVER_CACHE_KEY = "inhouse-rate-planning:company-turnover:v1";
+
+function readCachedCompanyTurnover(
+  identityKey: string | null,
+): HistoricalTurnoverResponse | undefined {
+  if (!identityKey || typeof window === "undefined") return undefined;
+  try {
+    const raw = window.localStorage.getItem(COMPANY_TURNOVER_CACHE_KEY);
+    if (!raw) return undefined;
+    const stored = JSON.parse(raw) as Record<string, HistoricalTurnoverResponse>;
+    const cached = stored[identityKey];
+    return cached && Array.isArray(cached.byServiceLine) ? cached : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeCachedCompanyTurnover(
+  identityKey: string | null,
+  value: HistoricalTurnoverResponse,
+): void {
+  if (!identityKey || typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem(COMPANY_TURNOVER_CACHE_KEY);
+    const stored = raw
+      ? JSON.parse(raw) as Record<string, HistoricalTurnoverResponse>
+      : {};
+    stored[identityKey] = value;
+    window.localStorage.setItem(COMPANY_TURNOVER_CACHE_KEY, JSON.stringify(stored));
+  } catch {
+    // The live request remains the source of truth if browser storage is unavailable.
+  }
+}
+
 /** "2026-07" -> "Jul 2026", for labelling the measurement window. */
 function formatMonth(month: string | null): string {
   if (!month) return "";
@@ -408,19 +442,14 @@ function NumberField({
         {label}
       </Label>
       <div className="relative">
-        <Input
+        <CommitNumberInput
           id={testId}
           data-testid={testId}
-          type="number"
-          inputMode="decimal"
           value={Number.isFinite(value) ? value : ""}
           min={min}
           max={max}
           step={step}
-          onChange={(e) => {
-            const next = e.target.value === "" ? NaN : Number(e.target.value);
-            onChange(next);
-          }}
+          onCommit={onChange}
           className={cn("h-9", suffix && "pr-8")}
         />
         {suffix && (
@@ -431,6 +460,71 @@ function NumberField({
       </div>
       {hint && <p className="text-[11px] leading-snug text-muted-foreground">{hint}</p>}
     </div>
+  );
+}
+
+/**
+ * Keeps each keystroke inside the field. Committing every character to the
+ * parent rerenders the full calculated plan, including its charts and rows.
+ */
+function CommitNumberInput({
+  value,
+  onCommit,
+  className,
+  id,
+  min,
+  max,
+  step,
+  "data-testid": testId,
+}: {
+  value: number | "";
+  onCommit: (value: number) => void;
+  className?: string;
+  id?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  "data-testid"?: string;
+}) {
+  const displayValue = value === "" ? "" : String(value);
+  const [draft, setDraft] = useState(displayValue);
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!editing) setDraft(displayValue);
+  }, [displayValue, editing]);
+
+  const commit = () => {
+    const next = draft === "" ? NaN : Number(draft);
+    if (Number.isFinite(next) && next !== value) onCommit(next);
+    else if (!Number.isFinite(next)) setDraft(displayValue);
+  };
+
+  return (
+    <Input
+      id={id}
+      data-testid={testId}
+      type="number"
+      inputMode="decimal"
+      value={draft}
+      min={min}
+      max={max}
+      step={step}
+      className={className}
+      onFocus={() => setEditing(true)}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        commit();
+        setEditing(false);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          setDraft(displayValue);
+          event.preventDefault();
+        }
+      }}
+    />
   );
 }
 
@@ -693,7 +787,15 @@ export default function InhouseIncreases() {
    * rate, so a guessed number silently changes every recommended increase.
    */
   const turnoverQuery = useQuery<HistoricalTurnoverResponse>({
-    queryKey: ["/api/inhouse-planning/historical-turnover", scopeLocationId ?? "all"],
+    queryKey: [
+      "/api/inhouse-planning/historical-turnover",
+      storageIdentityKey ?? "anonymous",
+      scopeLocationId ?? "all",
+    ],
+    initialData: () =>
+      scopeLocationId === null
+        ? readCachedCompanyTurnover(storageIdentityKey)
+        : undefined,
     queryFn: async () => {
       const params = new URLSearchParams();
       if (scopeLocationId) params.set("locationId", scopeLocationId);
@@ -701,7 +803,11 @@ export default function InhouseIncreases() {
         credentials: "include",
       });
       if (!res.ok) throw new Error(await res.text());
-      return res.json();
+      const json = await res.json() as HistoricalTurnoverResponse;
+      if (scopeLocationId === null) {
+        writeCachedCompanyTurnover(storageIdentityKey, json);
+      }
+      return json;
     },
   });
 
@@ -1072,15 +1178,29 @@ export default function InhouseIncreases() {
     let inhouseCurrentMonthly = 0;
     let inhouseNewMonthly = 0;
     let projectedAnnualMonthly = 0;
+    let quarterlyGoalWeighted = 0;
+    let quarterlyYoyWeighted = 0;
+    let quartersMeetingGoal = 0;
+    let projectedQuarterCount = 0;
     for (const { plan } of plans) {
       const count = plan.summary.residentCount;
       const finalProjection = plan.monthlyRateProjection?.[plan.monthlyRateProjection.length - 1];
+      const quarterlyYoyValues = plan.quarters
+        .map((quarter) => quarter.yoyGrowthPct)
+        .filter(Number.isFinite);
+      const averageQuarterlyYoy = quarterlyYoyValues.length > 0
+        ? quarterlyYoyValues.reduce((sum, value) => sum + value, 0) / quarterlyYoyValues.length
+        : 0;
       residents += count;
       streetCurrentMonthly += plan.currentStreetRateMonthly * count;
       streetRecommendedMonthly += plan.recommendedStreetRateMonthly * count;
       inhouseCurrentMonthly += plan.summary.currentAvgInhouseRateMonthly * count;
       inhouseNewMonthly += plan.summary.newAvgInhouseRateMonthly * count;
       projectedAnnualMonthly += (finalProjection?.projectedRateMonthly ?? plan.summary.newAvgInhouseRateMonthly) * count;
+      quarterlyGoalWeighted += plan.assumptions.rateGrowthTargetPct * count;
+      quarterlyYoyWeighted += averageQuarterlyYoy * count;
+      quartersMeetingGoal += plan.quarters.filter((quarter) => quarter.passes).length;
+      projectedQuarterCount += plan.quarters.length;
     }
     return {
       residents,
@@ -1097,6 +1217,10 @@ export default function InhouseIncreases() {
       annualIncreasePct: inhouseCurrentMonthly > 0
         ? (projectedAnnualMonthly / inhouseCurrentMonthly - 1) * 100
         : 0,
+      quarterlyGoalPct: residents > 0 ? quarterlyGoalWeighted / residents : 0,
+      averageQuarterlyYoyPct: residents > 0 ? quarterlyYoyWeighted / residents : 0,
+      quartersMeetingGoal,
+      projectedQuarterCount,
     };
   }, [plans]);
 
@@ -1284,23 +1408,21 @@ export default function InhouseIncreases() {
                   <div key={sl} className="grid grid-cols-[5rem_minmax(8rem,12rem)_minmax(20rem,1fr)] items-baseline gap-x-4">
                     <span className="pt-1.5 text-sm font-medium">{sl}</span>
                     <div className="flex items-center gap-1">
-                      <Input
-                        type="number"
+                      <CommitNumberInput
                         className="h-8 text-sm"
                         value={vals.rateGrowthTargetPct}
-                        onChange={(e) => updatePerLine(sl, "rateGrowthTargetPct", Number(e.target.value))}
+                        onCommit={(value) => updatePerLine(sl, "rateGrowthTargetPct", value)}
                       />
                       <span className="text-xs text-muted-foreground">%</span>
                     </div>
                     <div>
                       <div className="flex items-center gap-1">
-                        <Input
-                          type="number"
+                        <CommitNumberInput
                           className="h-8 text-sm"
                           min={MODEL_MIN_TURNOVER_PCT}
                           max={MODEL_MAX_TURNOVER_PCT}
                           value={vals.annualTurnoverPct}
-                          onChange={(e) => updatePerLine(sl, "annualTurnoverPct", Number(e.target.value))}
+                          onCommit={(value) => updatePerLine(sl, "annualTurnoverPct", value)}
                         />
                         <span className="text-xs text-muted-foreground">%</span>
                       </div>
@@ -1522,18 +1644,49 @@ export default function InhouseIncreases() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="mx-auto mb-6 max-w-4xl overflow-hidden rounded-lg border">
-                <div className="grid grid-cols-[minmax(90px,1.2fr)_repeat(3,minmax(110px,1fr))] bg-muted/40 px-4 py-2 text-center text-xs font-medium text-muted-foreground">
-                  <span>Service line</span>
-                  <span>Street Rate</span>
-                  <span>In-house rate</span>
-                  <span>Annual increase</span>
+              <div className="mx-auto mb-6 max-w-7xl overflow-x-auto rounded-lg border">
+                <div className="grid min-w-[1160px] grid-cols-[minmax(110px,1.2fr)_repeat(6,minmax(125px,1fr))] bg-muted/40 px-4 py-2 text-center text-xs font-medium text-muted-foreground">
+                  <HeaderHelp
+                    label="Service line"
+                    explanation="The level of care calculated independently. The note below each line shows whether its rates are displayed monthly or daily."
+                  />
+                  <HeaderHelp
+                    label="Street Rate"
+                    explanation="The current published Street Rate compared with the recommended Street Rate. The percentage is the increase applied to new move-ins."
+                  />
+                  <HeaderHelp
+                    label="In-house rate"
+                    explanation="The revenue-weighted average rate paid by current residents before and after the planned annual increase."
+                  />
+                  <HeaderHelp
+                    label="Annual increase"
+                    explanation="The projected realized rate at the end of the planning horizon compared with the current in-house rate. It includes both resident increases and replacement move-ins at Street Rate."
+                  />
+                  <HeaderHelp
+                    label="Quarterly YoY goal"
+                    explanation="The minimum year-over-year realized-rate growth the plan is required to achieve in every projected quarter."
+                  />
+                  <HeaderHelp
+                    label="Average quarterly YoY"
+                    explanation="The average of the projected quarter-by-quarter year-over-year growth rates. The line below shows its percentage-point margin above or below the goal."
+                  />
+                  <HeaderHelp
+                    label="Quarters at goal"
+                    explanation="The number of projected quarters that meet or exceed the quarterly YoY goal. The combined row counts every service-line quarter separately."
+                  />
                 </div>
                 {plans.map(({ sl, plan }) => {
                   const daily = plan.rateBasis === "daily";
                   const rate = (monthly: number) => formatMoney(daily ? monthly / DAYS_PER_MONTH : monthly);
+                  const quarterlyYoyValues = plan.quarters
+                    .map((quarter) => quarter.yoyGrowthPct)
+                    .filter(Number.isFinite);
+                  const averageQuarterlyYoy = quarterlyYoyValues.length > 0
+                    ? quarterlyYoyValues.reduce((sum, value) => sum + value, 0) / quarterlyYoyValues.length
+                    : 0;
+                  const quartersMeetingGoal = plan.quarters.filter((quarter) => quarter.passes).length;
                   return (
-                    <div key={`growth-${sl}`} className="grid grid-cols-[minmax(90px,1.2fr)_repeat(3,minmax(110px,1fr))] items-center border-t px-4 py-3 text-center">
+                    <div key={`growth-${sl}`} className="grid min-w-[1160px] grid-cols-[minmax(110px,1.2fr)_repeat(6,minmax(125px,1fr))] items-center border-t px-4 py-3 text-center">
                       <div>
                         <p className="font-semibold">{sl}</p>
                         <p className="text-[11px] text-muted-foreground">{daily ? "Daily rates" : "Monthly rates"}</p>
@@ -1553,11 +1706,27 @@ export default function InhouseIncreases() {
                         </p>
                         <p className="text-xs text-muted-foreground">End of projection</p>
                       </div>
+                      <div>
+                        <p className="font-semibold">{formatPct(plan.assumptions.rateGrowthTargetPct, 1)}</p>
+                        <p className="text-xs text-muted-foreground">Each quarter</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold">{formatPct(averageQuarterlyYoy, 1)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatPct(averageQuarterlyYoy - plan.assumptions.rateGrowthTargetPct, 1)} vs goal
+                        </p>
+                      </div>
+                      <div>
+                        <p className={cn("font-semibold", quartersMeetingGoal === plan.quarters.length ? "text-emerald-600" : "text-amber-600")}>
+                          {quartersMeetingGoal} / {plan.quarters.length}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Projected quarters</p>
+                      </div>
                     </div>
                   );
                 })}
                 {growthSnapshot && (
-                  <div className="grid grid-cols-[minmax(90px,1.2fr)_repeat(3,minmax(110px,1fr))] items-center border-t-2 bg-muted/30 px-4 py-3 text-center">
+                  <div className="grid min-w-[1160px] grid-cols-[minmax(110px,1.2fr)_repeat(6,minmax(125px,1fr))] items-center border-t-2 bg-muted/30 px-4 py-3 text-center">
                     <div>
                       <p className="font-semibold">Combined total</p>
                       <p className="text-[11px] text-muted-foreground">{growthSnapshot.residents.toLocaleString()} residents · monthly equivalent</p>
@@ -1575,6 +1744,22 @@ export default function InhouseIncreases() {
                         {growthSnapshot.annualIncreasePct >= 0 ? "+" : ""}{growthSnapshot.annualIncreasePct.toFixed(1)}%
                       </p>
                       <p className="text-xs text-muted-foreground">End of projection</p>
+                    </div>
+                    <div>
+                      <p className="font-semibold">{formatPct(growthSnapshot.quarterlyGoalPct, 1)}</p>
+                      <p className="text-xs text-muted-foreground">Resident weighted</p>
+                    </div>
+                    <div>
+                      <p className="font-semibold">{formatPct(growthSnapshot.averageQuarterlyYoyPct, 1)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatPct(growthSnapshot.averageQuarterlyYoyPct - growthSnapshot.quarterlyGoalPct, 1)} vs goal
+                      </p>
+                    </div>
+                    <div>
+                      <p className={cn("font-semibold", growthSnapshot.quartersMeetingGoal === growthSnapshot.projectedQuarterCount ? "text-emerald-600" : "text-amber-600")}>
+                        {growthSnapshot.quartersMeetingGoal} / {growthSnapshot.projectedQuarterCount}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Service-line quarters</p>
                     </div>
                   </div>
                 )}

@@ -4,12 +4,15 @@ import {
   Linkedin, FileText, ArrowLeft, BookOpen, ChevronRight,
   Sparkles, Brain, TrendingUp, Target, Activity, Wand2,
   SlidersHorizontal, BarChart3, Zap, CheckCircle2, ArrowRight,
-  Database, Calculator, ShieldCheck,
+  Database, Calculator, ShieldCheck, Play,
 } from "lucide-react";
 import { useLocation } from "wouter";
+import { useState } from "react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export default function AboutUs() {
   const [, setLocation] = useLocation();
+  const [videoOpen, setVideoOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-[var(--dashboard-bg)] p-4 sm:p-6 md:p-8">
@@ -46,7 +49,7 @@ export default function AboutUs() {
                 About Modulo
               </h1>
               <p className="text-lg sm:text-xl leading-relaxed text-[var(--trilogy-grey)] max-w-3xl">
-                Modulo turns the signals already inside a senior housing portfolio into pricing decisions people can understand, challenge, and trust.
+                Modulo decomposes massive portfolio datasets into clear pricing signals, then uses AI, elasticity, and operating history to surface the changes most likely to reach revenue goals.
               </p>
               <div className="mt-5 flex flex-wrap gap-2 text-xs font-medium text-[var(--trilogy-dark-blue)]">
                 {["Clear inputs", "Reviewable rules", "Measured outcomes"].map(label => (
@@ -72,6 +75,67 @@ export default function AboutUs() {
           </div>
         </div>
 
+        {/* Product film */}
+        <section className="mb-10 flex justify-center">
+          <button
+            type="button"
+            onClick={() => setVideoOpen(true)}
+            className="group flex w-full max-w-xl items-center gap-4 rounded-2xl border border-[var(--trilogy-dark-blue)]/15 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--trilogy-teal)]/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--trilogy-teal)]"
+            aria-label="Watch the Modulo product overview"
+          >
+            <span className="relative block w-40 shrink-0 overflow-hidden rounded-xl bg-[var(--trilogy-dark-blue)] sm:w-52">
+              <img
+                src="/media/modulo-pricing-intelligence-poster.jpg"
+                alt=""
+                className="aspect-video w-full object-cover"
+              />
+              <span className="absolute inset-0 flex items-center justify-center bg-[var(--trilogy-dark-blue)]/20 transition group-hover:bg-[var(--trilogy-dark-blue)]/10">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[var(--trilogy-dark-blue)] shadow">
+                  <Play className="ml-0.5 h-4 w-4 fill-current" />
+                </span>
+              </span>
+            </span>
+            <span className="min-w-0 py-1">
+              <span className="block text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--trilogy-teal)]">
+                30-second overview
+              </span>
+              <span className="mt-1 block text-lg font-semibold text-[var(--trilogy-dark-blue)]">
+                See Modulo in practice
+              </span>
+              <span className="mt-1 block text-sm leading-snug text-[var(--trilogy-grey)]">
+                How AI turns portfolio data into prioritized, operator-controlled revenue actions.
+              </span>
+            </span>
+          </button>
+        </section>
+
+        <Dialog open={videoOpen} onOpenChange={setVideoOpen}>
+          <DialogContent className="max-w-5xl border-0 bg-[#071722] p-0 text-white">
+            <DialogHeader className="sr-only">
+              <DialogTitle>Modulo product overview</DialogTitle>
+              <DialogDescription>
+                How Modulo decomposes portfolio data, prioritizes actions with AI, and measures outcomes.
+              </DialogDescription>
+            </DialogHeader>
+            <video
+              key={videoOpen ? "open" : "closed"}
+              controls
+              autoPlay={videoOpen}
+              playsInline
+              poster="/media/modulo-pricing-intelligence-poster.jpg"
+              className="aspect-video w-full rounded-lg bg-black"
+            >
+              <source src="/media/modulo-pricing-intelligence.mp4" type="video/mp4" />
+              <track
+                kind="captions"
+                src="/media/modulo-pricing-intelligence.vtt"
+                srcLang="en"
+                label="English"
+              />
+            </video>
+          </DialogContent>
+        </Dialog>
+
         {/* Why Modulo */}
         <div className="mb-10">
           <div className="max-w-3xl mb-5">
@@ -83,9 +147,9 @@ export default function AboutUs() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
-              { icon: Database, title: "See the full signal", body: "Occupancy, vacancy, in-house rates, competitor positioning, and resident outcomes are considered together instead of in separate spreadsheets." },
-              { icon: Calculator, title: "Make the math explicit", body: "Rules show their conditions, action, scope, and expected impact. Teams can inspect the calculation before approving a change." },
-              { icon: ShieldCheck, title: "Keep judgment in the loop", body: "Guardrails and operator review protect the portfolio. Automation handles repetition; people set the strategy." },
+              { icon: Database, title: "Decompose complexity", body: "Modulo breaks down millions of occupancy, vacancy, rate, competitor, demand, and resident-outcome data points into signals operators can use at the campus, service-line, room-type, and unit level." },
+              { icon: Brain, title: "Prioritize meaningful action", body: "AI evaluates the available signals against revenue goals, elasticity, competitive position, and learned operating patterns to surface the changes expected to have the greatest impact—not simply the largest rate moves." },
+              { icon: ShieldCheck, title: "Keep operators accountable", body: "AI recommends; operators decide. Every proposal exposes its logic, scope, guardrails, affected units, and expected revenue impact before approval. Measured outcomes then become evidence for the next recommendation." },
             ].map(({ icon: Icon, title, body }) => (
               <div key={title} className="rounded-2xl border border-[var(--trilogy-grey)]/20 bg-white p-5 shadow-sm">
                 <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--trilogy-teal)]/10">
