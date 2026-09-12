@@ -1401,7 +1401,7 @@ export async function fetchSP500Data() {
 }
 
 // Check if database needs initialization on startup
-async function checkAndInitializeDatabase() {
+async function checkAndInitializeDatabase(databaseReady?: Promise<void>, fullReady?: Promise<void>) {
   try {
     // Ensure the geocode_cache table exists (created here for environments
     // where schema push has not been run separately)
@@ -1593,6 +1593,7 @@ async function checkAndInitializeDatabase() {
     // This runs in the background so it doesn't delay server startup.
     (async () => {
       try {
+        await (fullReady ?? databaseReady);
         const missingRes = await pool.query<{ location_id: string; client_id: string }>(
           `SELECT DISTINCT rr.location_id, rr.client_id
            FROM rent_roll_data rr
@@ -1620,6 +1621,7 @@ async function checkAndInitializeDatabase() {
     })();
   } catch (error) {
     console.error('Error checking/initializing database:', error);
+    throw error;
   }
 }
 
@@ -1761,25 +1763,92 @@ export function registerRateCardPdfRoute(app: Express): void {
   });
 }
 
-export async function registerRoutes(app: Express): Promise<Server> {
-  // Initialize database on startup if needed
-  await checkAndInitializeDatabase();
-  try {
-    await ensureSecuritySchema();
-  } catch (error) {
-    console.error("[security] failed to initialize security schema:", error);
-    throw error;
-  }
-  try {
-    await ensureHeritageTenant();
-  } catch (error) {
-    console.error('[auth] Failed to provision Heritage tenant:', error);
-  }
-  try {
-    await restoreReferenceDataAuditJobs();
-  } catch (error) {
-    console.error("[reference-data-audit-workbook] failed to restore persisted jobs:", error);
-  }
+type RouteRegistrationOptions = {
+  /**
+   * Schema migrations started by the application entrypoint. Routes are
+   * registered immediately, but requests wait for this promise below so a
+   * restart can bind its port while the idempotent work is still running.
+   */
+  databaseReady?: Promise<void>;
+  /**
+   * The complete startup barrier, including route initialization. Background
+   * backfills started while routes are being registered wait for this promise.
+   */
+  fullReady?: Promise<void>;
+  /**
+   * Receives the combined route and schema readiness promise so startup
+   * background jobs can use the same barrier as API requests.
+   */
+  onReady?: (ready: Promise<void>) => void;
+};
+
+export async function registerRoutes(
+  app: Express,
+  options: RouteRegistrationOptions = {},
+): Promise<Server> {
+  const routeInitialization = (async () => {
+    const startedAt = Date.now();
+    try {
+      await options.databaseReady;
+      await checkAndInitializeDatabase(options.databaseReady, options.fullReady);
+      console.log(`[migration] route database initialization completed in ${Date.now() - startedAt}ms`);
+    } catch (error) {
+      console.error(`[migration] route database initialization failed after ${Date.now() - startedAt}ms:`, error);
+      throw error;
+    }
+
+    const securityStartedAt = Date.now();
+    try {
+      await ensureSecuritySchema();
+      console.log(`[migration] security schema completed in ${Date.now() - securityStartedAt}ms`);
+    } catch (error) {
+      console.error(`[migration] security schema failed after ${Date.now() - securityStartedAt}ms:`, error);
+      throw error;
+    }
+
+    const heritageStartedAt = Date.now();
+    try {
+      await ensureHeritageTenant();
+      console.log(`[migration] Heritage tenant provisioning completed in ${Date.now() - heritageStartedAt}ms`);
+    } catch (error) {
+      console.error(`[migration] Heritage tenant provisioning failed after ${Date.now() - heritageStartedAt}ms:`, error);
+    }
+
+    const auditRestoreStartedAt = Date.now();
+    try {
+      await restoreReferenceDataAuditJobs();
+      console.log(`[migration] reference-data audit job restoration completed in ${Date.now() - auditRestoreStartedAt}ms`);
+    } catch (error) {
+      console.error(`[migration] reference-data audit job restoration failed after ${Date.now() - auditRestoreStartedAt}ms:`, error);
+    }
+  })();
+
+  let databaseReadyError: unknown = null;
+  const initializationReady = Promise.all([
+    routeInitialization,
+    options.databaseReady ?? Promise.resolve(),
+  ]);
+  const databaseReady = initializationReady.then(
+    () => undefined,
+    (error) => {
+      databaseReadyError = error;
+      console.error("[migration] API readiness failed:", error);
+    },
+  );
+  options.onReady?.(initializationReady);
+
+  // Do not let API requests race schema changes. The listener can be ready
+  // immediately, while affected endpoints remain unavailable until all
+  // required initialization has completed safely.
+  app.use("/api", async (_req, res, next) => {
+    await databaseReady;
+    if (databaseReadyError) {
+      return res.status(503).json({
+        error: "The application is still initializing its database. Please retry shortly.",
+      });
+    }
+    next();
+  });
 
   // Invalidate the reference-data cache on any mutation that changes its inputs.
   // (Async pricing jobs also invalidate on completion — see pricingJobManager.)
@@ -1937,8 +2006,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const { registerDataImportRoutes } = await import('./routes/dataImportRoutes');
   registerDataImportRoutes(app);
   const { startScheduledImportLoop } = await import('./services/scheduledImportService');
-  startScheduledImportLoop();
-  startIndustryContextRefreshLoop();
+  void (options.fullReady ?? Promise.resolve()).then(() => {
+    startScheduledImportLoop();
+    startIndustryContextRefreshLoop();
+  }).catch((error) => {
+    console.error('[startup] Readiness failed; background import and industry schedulers were not started:', error);
+  });
 
   // In-house rate planning (assumptions, solver, apply/versioning)
   const { registerInhousePlanningRoutes } = await import('./routes/inhousePlanningRoutes');
@@ -31205,29 +31278,35 @@ Return ONLY valid JSON, no markdown fences:
   // Schedule the job to run at 6:00 AM every day
   // Format: minute hour day month dayOfWeek
   // '0 6 * * *' = At 6:00 AM every day
-  const scheduledTask = cron.schedule('0 6 * * *', triggerScheduledCalculation, {
-    scheduled: true,
-    timezone: 'America/New_York' // Adjust timezone as needed
-  });
-  
-  console.log('✅ Daily portfolio calculation scheduled for 6:00 AM EST');
-  
-  // Optional: Run immediately on startup if no calculation exists for today
-  (async () => {
-    try {
-      const existingCalc = await storage.getLatestCalculationHistory(null);
-      if (!existingCalc) {
-        console.log('[Startup] No calculations found, running initial calculation...');
-        await triggerScheduledCalculation();
-      } else {
-        const calcDate = new Date(existingCalc.startedAt);
-        const hoursSinceLastCalc = (Date.now() - calcDate.getTime()) / (1000 * 60 * 60);
-        console.log(`[Startup] Last calculation was ${hoursSinceLastCalc.toFixed(1)} hours ago`);
+  const startPortfolioCalculationScheduler = () => {
+    cron.schedule('0 6 * * *', triggerScheduledCalculation, {
+      scheduled: true,
+      timezone: 'America/New_York' // Adjust timezone as needed
+    });
+
+    console.log('✅ Daily portfolio calculation scheduled for 6:00 AM EST');
+
+    // Optional: Run immediately on startup if no calculation exists for today.
+    void (async () => {
+      try {
+        const existingCalc = await storage.getLatestCalculationHistory(null);
+        if (!existingCalc) {
+          console.log('[Startup] No calculations found, running initial calculation...');
+          await triggerScheduledCalculation();
+        } else {
+          const calcDate = new Date(existingCalc.startedAt);
+          const hoursSinceLastCalc = (Date.now() - calcDate.getTime()) / (1000 * 60 * 60);
+          console.log(`[Startup] Last calculation was ${hoursSinceLastCalc.toFixed(1)} hours ago`);
+        }
+      } catch (error) {
+        console.error('[Startup] Error checking for existing calculations:', error);
       }
-    } catch (error) {
-      console.error('[Startup] Error checking for existing calculations:', error);
-    }
-  })();
+    })();
+  };
+
+  void (options.fullReady ?? Promise.resolve()).then(startPortfolioCalculationScheduler).catch((error) => {
+    console.error('[startup] Readiness failed; portfolio calculation scheduler was not started:', error);
+  });
   
   const httpServer = createServer(app);
   return httpServer;

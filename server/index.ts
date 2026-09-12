@@ -69,7 +69,31 @@ app.use((req, res, next) => {
   next();
 });
 
+// Register the route graph before starting schema work so the listener can bind
+// immediately. A deferred promise lets route initialization and API requests
+// wait for the same migration barrier once the listener is accepting traffic.
 (async () => {
+  let resolveStartupSchemaMigrations!: () => void;
+  let rejectStartupSchemaMigrations!: (error: unknown) => void;
+  const startupSchemaMigrations = new Promise<void>((resolve, reject) => {
+    resolveStartupSchemaMigrations = resolve;
+    rejectStartupSchemaMigrations = reject;
+  });
+
+  let resolveApplicationReady!: () => void;
+  let rejectApplicationReady!: (error: unknown) => void;
+  const applicationReady = new Promise<void>((resolve, reject) => {
+    resolveApplicationReady = resolve;
+    rejectApplicationReady = reject;
+  });
+
+  const runStartupSchemaMigrations = async () => {
+  let lastMigrationStartedAt = Date.now();
+  const logMigration = (message: string) => {
+    const duration = Date.now() - lastMigrationStartedAt;
+    log(`${message} in ${duration}ms`);
+    lastMigrationStartedAt = Date.now();
+  };
   // Idempotent migration: ensure lat/lng columns exist on competitive_survey_data.
   // These were added to the Drizzle schema in Task #138 but never applied to the live DB.
   try {
@@ -78,9 +102,9 @@ app.use((req, res, next) => {
         ADD COLUMN IF NOT EXISTS lat real,
         ADD COLUMN IF NOT EXISTS lng real
     `);
-    log("[migration] competitive_survey_data lat/lng columns ensured");
+    logMigration("[migration] competitive_survey_data lat/lng columns ensured");
   } catch (migErr) {
-    log(`[migration] lat/lng column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] lat/lng column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: upload history used to be global. Keep the owner
@@ -117,9 +141,9 @@ app.use((req, res, next) => {
       FROM candidates
       WHERE h.id = candidates.id
     `);
-    log("[migration] upload_history.client_id ensured and attributable legacy rows backfilled");
+    logMigration("[migration] upload_history.client_id ensured and attributable legacy rows backfilled");
   } catch (migErr) {
-    log(`[migration] upload_history client ownership migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] upload_history client ownership migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: create care_level_rates table if it does not exist.
@@ -139,9 +163,9 @@ app.use((req, res, next) => {
       CREATE UNIQUE INDEX IF NOT EXISTS care_level_rates_loc_sl_idx
         ON care_level_rates (client_id, location_id, service_line)
     `);
-    log("[migration] care_level_rates table ensured");
+    logMigration("[migration] care_level_rates table ensured");
   } catch (migErr) {
-    log(`[migration] care_level_rates migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] care_level_rates migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: create campus_metrics table (flexible key-value for rule designer).
@@ -162,9 +186,9 @@ app.use((req, res, next) => {
       CREATE INDEX IF NOT EXISTS campus_metrics_loc_idx
         ON campus_metrics (client_id, location_id)
     `);
-    log("[migration] campus_metrics table ensured");
+    logMigration("[migration] campus_metrics table ensured");
   } catch (migErr) {
-    log(`[migration] campus_metrics migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] campus_metrics migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: create ih_street_variance table.
@@ -187,9 +211,9 @@ app.use((req, res, next) => {
       CREATE UNIQUE INDEX IF NOT EXISTS ih_street_variance_client_loc_sl_idx
         ON ih_street_variance (client_id, location_id, service_line)
     `);
-    log("[migration] ih_street_variance table ensured");
+    logMigration("[migration] ih_street_variance table ensured");
   } catch (migErr) {
-    log(`[migration] ih_street_variance migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] ih_street_variance migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: data import subsystem tables (Task: import registry/scheduling).
@@ -263,9 +287,9 @@ app.use((req, res, next) => {
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS import_notifications_client_idx ON import_notifications (client_id, read)
     `);
-    log("[migration] data import subsystem tables ensured");
+    logMigration("[migration] data import subsystem tables ensured");
   } catch (migErr) {
-    log(`[migration] data import tables migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] data import tables migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: persisted BLS benchmark snapshots and provider
@@ -326,9 +350,9 @@ app.use((req, res, next) => {
         PRIMARY KEY (client_id, asset_id)
       )
     `);
-    log("[migration] industry context benchmark tables ensured");
+    logMigration("[migration] industry context benchmark tables ensured");
   } catch (migErr) {
-    log(`[migration] industry context migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] industry context migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: census capacity reference.
@@ -356,9 +380,9 @@ app.use((req, res, next) => {
       CREATE UNIQUE INDEX IF NOT EXISTS census_capacity_reference_unique_idx
         ON census_capacity_reference (client_id, year, month, division, department)
     `);
-    log("[migration] census_capacity_reference table ensured");
+    logMigration("[migration] census_capacity_reference table ensured");
   } catch (migErr) {
-    log(`[migration] census_capacity_reference migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] census_capacity_reference migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: ensure source_room_type column exists on rent_roll_data.
@@ -370,9 +394,9 @@ app.use((req, res, next) => {
       ALTER TABLE rent_roll_data
         ADD COLUMN IF NOT EXISTS source_room_type text
     `);
-    log("[migration] rent_roll_data source_room_type column ensured");
+    logMigration("[migration] rent_roll_data source_room_type column ensured");
   } catch (migErr) {
-    log(`[migration] source_room_type column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] source_room_type column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Preserve the raw move-in date whenever an administrator repairs the
@@ -407,9 +431,9 @@ app.use((req, res, next) => {
       CREATE INDEX IF NOT EXISTS rent_roll_move_in_date_repairs_scope_idx
         ON rent_roll_move_in_date_repairs (client_id, upload_month, repaired_at DESC)
     `));
-    log("[migration] historical rent-roll move-in date repair columns and audit table ensured");
+    logMigration("[migration] historical rent-roll move-in date repair columns and audit table ensured");
   } catch (migErr) {
-    log(`[migration] historical rent-roll move-in date repair migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] historical rent-roll move-in date repair migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: ensure rule_rate_calculated_at column exists on rent_roll_data.
@@ -420,9 +444,9 @@ app.use((req, res, next) => {
       ALTER TABLE rent_roll_data
         ADD COLUMN IF NOT EXISTS rule_rate_calculated_at timestamptz
     `);
-    log("[migration] rent_roll_data rule_rate_calculated_at column ensured");
+    logMigration("[migration] rent_roll_data rule_rate_calculated_at column ensured");
   } catch (migErr) {
-    log(`[migration] rule_rate_calculated_at column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] rule_rate_calculated_at column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: ensure room_type_groupings table exists. Maps each
@@ -440,9 +464,9 @@ app.use((req, res, next) => {
         PRIMARY KEY (client_id, location, service_line, source_room_type)
       )
     `);
-    log("[migration] room_type_groupings table ensured");
+    logMigration("[migration] room_type_groupings table ensured");
   } catch (migErr) {
-    log(`[migration] room_type_groupings migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] room_type_groupings migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: ensure client_id column exists on adjustment_rules.
@@ -462,9 +486,9 @@ app.use((req, res, next) => {
       SET client_id = 'trilogy'
       WHERE client_id IS NULL AND is_historical IS TRUE AND location_id IS NULL
     `);
-    log("[migration] adjustment_rules.client_id ensured");
+    logMigration("[migration] adjustment_rules.client_id ensured");
   } catch (migErr) {
-    log(`[migration] adjustment_rules.client_id migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] adjustment_rules.client_id migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: location names are unique per client, not globally.
@@ -482,9 +506,9 @@ app.use((req, res, next) => {
       CREATE UNIQUE INDEX IF NOT EXISTS locations_client_name_unique
         ON locations (client_id, name)
     `);
-    log("[migration] locations (client_id, name) unique index ensured");
+    logMigration("[migration] locations (client_id, name) unique index ensured");
   } catch (migErr) {
-    log(`[migration] locations unique index migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] locations unique index migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: ensure users.username has a unique constraint.
@@ -516,9 +540,9 @@ app.use((req, res, next) => {
         END IF;
       END $$
     `);
-    log("[migration] users.username unique constraint ensured");
+    logMigration("[migration] users.username unique constraint ensured");
   } catch (migErr) {
-    log(`[migration] users.username unique constraint migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] users.username unique constraint migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: ensure is_historical column exists on adjustment_rules.
@@ -529,9 +553,9 @@ app.use((req, res, next) => {
       ALTER TABLE adjustment_rules
         ADD COLUMN IF NOT EXISTS is_historical boolean DEFAULT false
     `);
-    log("[migration] adjustment_rules is_historical column ensured");
+    logMigration("[migration] adjustment_rules is_historical column ensured");
   } catch (migErr) {
-    log(`[migration] is_historical column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] is_historical column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: proposed rules are reviewable but must not enter
@@ -551,9 +575,9 @@ app.use((req, res, next) => {
       ALTER TABLE adjustment_rules
         ADD COLUMN IF NOT EXISTS implemented_at timestamptz
     `);
-    log("[migration] adjustment_rules lifecycle columns ensured");
+    logMigration("[migration] adjustment_rules lifecycle columns ensured");
   } catch (migErr) {
-    log(`[migration] adjustment_rules lifecycle migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] adjustment_rules lifecycle migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: ensure notes column exists on adjustment_rules
@@ -563,9 +587,9 @@ app.use((req, res, next) => {
       ALTER TABLE adjustment_rules
         ADD COLUMN IF NOT EXISTS notes text
     `);
-    log("[migration] adjustment_rules notes column ensured");
+    logMigration("[migration] adjustment_rules notes column ensured");
   } catch (migErr) {
-    log(`[migration] notes column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] notes column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: cache of the last AI rule-suggestion run per client so
@@ -578,9 +602,9 @@ app.use((req, res, next) => {
         created_at timestamptz NOT NULL DEFAULT now()
       )
     `);
-    log("[migration] ai_suggestion_runs table ensured");
+    logMigration("[migration] ai_suggestion_runs table ensured");
   } catch (migErr) {
-    log(`[migration] ai_suggestion_runs migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] ai_suggestion_runs migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: feedback log of user decisions on AI rule suggestions
@@ -603,9 +627,9 @@ app.use((req, res, next) => {
       CREATE INDEX IF NOT EXISTS idx_ai_suggestion_feedback_client
         ON ai_suggestion_feedback (client_id, created_at DESC)
     `);
-    log("[migration] ai_suggestion_feedback table ensured");
+    logMigration("[migration] ai_suggestion_feedback table ensured");
   } catch (migErr) {
-    log(`[migration] ai_suggestion_feedback migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] ai_suggestion_feedback migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: replace the broken full unique index on
@@ -630,9 +654,9 @@ app.use((req, res, next) => {
         ON "ai_weight_versions" (scope, scope_value) NULLS NOT DISTINCT
         WHERE is_active = true
     `);
-    log("[migration] ai_weights_scope_active_idx replaced with partial unique index (NULLS NOT DISTINCT, WHERE is_active = true)");
+    logMigration("[migration] ai_weights_scope_active_idx replaced with partial unique index (NULLS NOT DISTINCT, WHERE is_active = true)");
   } catch (migErr) {
-    log(`[migration] ai_weights_scope_active_idx migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] ai_weights_scope_active_idx migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: add care_rate_fallback_campuses JSONB column to
@@ -644,9 +668,9 @@ app.use((req, res, next) => {
       ALTER TABLE competitor_rate_jobs
         ADD COLUMN IF NOT EXISTS care_rate_fallback_campuses jsonb
     `);
-    log("[migration] competitor_rate_jobs care_rate_fallback_campuses column ensured");
+    logMigration("[migration] competitor_rate_jobs care_rate_fallback_campuses column ensured");
   } catch (migErr) {
-    log(`[migration] care_rate_fallback_campuses column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] care_rate_fallback_campuses column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: the rate_baseline_v view, which every street- and
@@ -661,9 +685,9 @@ app.use((req, res, next) => {
   try {
     const { ensureRateBaselineView } = await import("./services/rateBaselineView");
     await ensureRateBaselineView((s) => db.execute(sql.raw(s)));
-    log("[migration] rate_baseline_v view ensured");
+    logMigration("[migration] rate_baseline_v view ensured");
   } catch (migErr) {
-    log(`[migration] rate_baseline_v view creation FAILED: ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] rate_baseline_v view creation FAILED: ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: the move_in_out_events.import_format / superseded
@@ -678,9 +702,9 @@ app.use((req, res, next) => {
   try {
     const { ensureMoveInOutActiveView } = await import("./services/moveInOutEventsView");
     await ensureMoveInOutActiveView((s) => db.execute(sql.raw(s)));
-    log("[migration] move_in_out_events columns + active view ensured");
+    logMigration("[migration] move_in_out_events columns + active view ensured");
   } catch (migErr) {
-    log(`[migration] move_in_out_events_active view creation FAILED: ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] move_in_out_events_active view creation FAILED: ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: derived_rate_formulas, the user-editable rules that
@@ -708,9 +732,9 @@ app.use((req, res, next) => {
     await db.execute(sql.raw(`
       CREATE UNIQUE INDEX IF NOT EXISTS derived_rate_formulas_scope_idx
         ON derived_rate_formulas (client_id, rate_type, service_line) NULLS NOT DISTINCT`));
-    log("[migration] derived_rate_formulas table ensured");
+    logMigration("[migration] derived_rate_formulas table ensured");
   } catch (migErr) {
-    log(`[migration] derived_rate_formulas migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] derived_rate_formulas migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: in-house rate planning.
@@ -789,9 +813,9 @@ app.use((req, res, next) => {
     await db.execute(sql.raw(`
       CREATE UNIQUE INDEX IF NOT EXISTS inhouse_rate_plans_version_uniq
         ON inhouse_rate_plans (client_id, location, service_line, version) NULLS NOT DISTINCT`));
-    log("[migration] in-house rate planning tables ensured");
+    logMigration("[migration] in-house rate planning tables ensured");
   } catch (migErr) {
-    log(`[migration] inhouse rate planning migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] inhouse rate planning migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
   // Idempotent migration: persist Reference Data audit workbook job metadata.
@@ -823,18 +847,27 @@ app.use((req, res, next) => {
       CREATE INDEX IF NOT EXISTS reference_data_audit_jobs_expiry_idx
         ON reference_data_audit_jobs (expires_at)
     `));
-    log("[migration] reference_data_audit_jobs table ensured");
+    logMigration("[migration] reference_data_audit_jobs table ensured");
   } catch (migErr) {
-    log(`[migration] reference_data_audit_jobs migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+    logMigration(`[migration] reference_data_audit_jobs migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
-  const server = await registerRoutes(app);
+  };
+
+  const server = await registerRoutes(app, {
+    databaseReady: startupSchemaMigrations,
+    fullReady: applicationReady,
+    onReady: (ready) => {
+      void ready.then(resolveApplicationReady, rejectApplicationReady);
+    },
+  });
 
   // One-time repair: fix stale action.filters.serviceLine on adjustment rules
   // saved before task #336. These rules have rule.serviceLine='AL/MC' but
   // action.filters.serviceLine=['AL'], causing them to silently skip all units.
   setTimeout(async () => {
     try {
+      await applicationReady;
       const allRules = await storage.getAdjustmentRules();
       let repaired = 0;
       for (const rule of allRules) {
@@ -868,6 +901,7 @@ app.use((req, res, next) => {
   // after the first run it corrects nothing and costs one indexed UPDATE.
   setTimeout(async () => {
     try {
+      await applicationReady;
       const {
         backfillEventServiceLinesFromDept,
         resolveStoredEventImportOverlap,
@@ -903,6 +937,7 @@ app.use((req, res, next) => {
   // This won't block server startup
   setTimeout(async () => {
     try {
+      await applicationReady;
       log("Starting room type normalization backfill (background task)...");
       const { backfillRoomTypes } = await import('./backfillRoomTypes');
       const result = await backfillRoomTypes();
@@ -921,6 +956,7 @@ app.use((req, res, next) => {
   // Runs once at startup in the background — safe to repeat (idempotent upsert).
   setTimeout(async () => {
     try {
+      await applicationReady;
       const { pool } = await import('./db');
       const clientsRes = await pool.query<{ client_id: string }>(
         `SELECT DISTINCT rr.client_id
@@ -958,6 +994,7 @@ app.use((req, res, next) => {
   // Resume any interrupted competitor rate jobs after server restart
   setTimeout(async () => {
     try {
+      await applicationReady;
       log("Checking for interrupted competitor rate jobs...");
       await resumeInterruptedJobs();
     } catch (error) {
@@ -972,6 +1009,7 @@ app.use((req, res, next) => {
   // A marker file (.local/survey_migration_229_done) prevents re-running on subsequent restarts.
   setTimeout(async () => {
     try {
+      await applicationReady;
       const fs = await import('fs');
       const path = await import('path');
       const MARKER = path.resolve('.local/survey_migration_229_done');
@@ -1057,6 +1095,7 @@ app.use((req, res, next) => {
   // Rate-limited internally (1.1 s per Nominatim request).
   setTimeout(async () => {
     try {
+      await applicationReady;
       const { clearStaleGeocodeForAffectedLocations, geocodeMissingLocations } = await import('./geocoding');
 
       // Task #189: clear city-level coordinates for the 9 affected locations so
@@ -1083,6 +1122,7 @@ app.use((req, res, next) => {
   // This ensures progress is never lost across server restarts.
   setTimeout(async () => {
     try {
+      await applicationReady;
       const { geocodeMissingCompetitorSurveys, getLatestGeocodingJob, backfillSurveyDistances, getSurveyGeocodingCoverage } = await import('./geocoding');
 
       // Check for an interrupted (running) job from before the last restart
@@ -1150,6 +1190,10 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+    void runStartupSchemaMigrations().then(
+      resolveStartupSchemaMigrations,
+      rejectStartupSchemaMigrations,
+    );
   });
 
   // Seed demo data in the background after the server is already accepting requests.
@@ -1159,6 +1203,7 @@ app.use((req, res, next) => {
   // so the Revenue Growth chart always has data through the present month.
   setTimeout(async () => {
     try {
+      await applicationReady;
       const now = new Date();
       const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
