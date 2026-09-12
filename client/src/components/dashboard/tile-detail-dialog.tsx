@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/collapsible";
 import { TrendingUp, TrendingDown, Home, Users, DollarSign, ArrowRight, ChevronRight, ChevronDown, Building2, MapPin, X } from "lucide-react";
 import { 
-  LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, 
+  LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
 } from "recharts";
 import { formatNumber, formatCurrency, formatPercentage } from "@/lib/formatters";
@@ -617,49 +617,103 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
               {/* By Service Line Tab */}
               <TabsContent value="serviceLine" className="mt-4">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Pie Chart */}
+                  {/* Occupancy is a rate within each service line, not a share of
+                      a portfolio total. Additive metrics can still use a donut. */}
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-sm">Distribution</CardTitle>
+                      <CardTitle className="text-sm">
+                        {tileType === 'occupancy' ? 'Occupancy by Service Line' : 'Distribution'}
+                      </CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
+                          {tileType === 'occupancy' ? (
+                            <BarChart
                               data={sortServiceLines(data.byServiceLine)}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={60}
-                              outerRadius={100}
-                              paddingAngle={2}
-                              dataKey="value"
-                              nameKey="serviceLine"
-                              onClick={(entry) => handleDrillDown('serviceLine', entry.serviceLine)}
-                              style={{ cursor: 'pointer' }}
+                              layout="vertical"
+                              margin={{ top: 4, right: 18, left: 8, bottom: 4 }}
                             >
-                              {sortServiceLines(data.byServiceLine).map((entry, index) => (
-                                <Cell 
-                                  key={`cell-${index}`} 
-                                  fill={SERVICE_LINE_COLORS[entry.serviceLine] || COLORS[index % COLORS.length]} 
-                                />
-                              ))}
-                            </Pie>
-                            <Tooltip 
-                              formatter={(value: number) => {
-                                const total = data.byServiceLine.reduce((sum, item) => sum + item.value, 0);
-                                const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
-                                return `${formatValue(value)} (${pct}%)`;
-                              }} 
-                              contentStyle={{
-                                backgroundColor: 'var(--dashboard-surface)',
-                                border: '1px solid var(--dashboard-border)',
-                                borderRadius: '8px',
-                                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                              }}
-                            />
-                            <Legend wrapperStyle={{ paddingTop: '10px' }} />
-                          </PieChart>
+                              <CartesianGrid stroke="var(--dashboard-border)" strokeDasharray="2 4" horizontal={false} />
+                              <XAxis
+                                type="number"
+                                domain={[0, 100]}
+                                tickFormatter={(value) => `${value}%`}
+                                tickLine={false}
+                                axisLine={false}
+                                fontSize={10}
+                                stroke="var(--dashboard-muted)"
+                              />
+                              <YAxis
+                                type="category"
+                                dataKey="serviceLine"
+                                width={52}
+                                tickLine={false}
+                                axisLine={false}
+                                fontSize={11}
+                                stroke="var(--dashboard-muted)"
+                              />
+                              <Tooltip
+                                formatter={(value: number) => [`${Number(value).toFixed(1)}%`, 'Occupancy']}
+                                contentStyle={{
+                                  backgroundColor: 'var(--dashboard-surface)',
+                                  border: '1px solid var(--dashboard-border)',
+                                  borderRadius: '8px',
+                                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                                }}
+                              />
+                              <Bar
+                                dataKey="value"
+                                radius={[0, 4, 4, 0]}
+                                maxBarSize={24}
+                                onClick={(entry) => handleDrillDown('serviceLine', entry.serviceLine)}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                {sortServiceLines(data.byServiceLine).map((entry, index) => (
+                                  <Cell
+                                    key={`occupancy-bar-${entry.serviceLine}`}
+                                    fill={SERVICE_LINE_COLORS[entry.serviceLine] || COLORS[index % COLORS.length]}
+                                  />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          ) : (
+                            <PieChart>
+                              <Pie
+                                data={sortServiceLines(data.byServiceLine)}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={60}
+                                outerRadius={100}
+                                paddingAngle={2}
+                                dataKey="value"
+                                nameKey="serviceLine"
+                                onClick={(entry) => handleDrillDown('serviceLine', entry.serviceLine)}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                {sortServiceLines(data.byServiceLine).map((entry, index) => (
+                                  <Cell
+                                    key={`cell-${index}`}
+                                    fill={SERVICE_LINE_COLORS[entry.serviceLine] || COLORS[index % COLORS.length]}
+                                  />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                formatter={(value: number) => {
+                                  const total = data.byServiceLine.reduce((sum, item) => sum + item.value, 0);
+                                  const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                  return `${formatValue(value)} (${pct}%)`;
+                                }}
+                                contentStyle={{
+                                  backgroundColor: 'var(--dashboard-surface)',
+                                  border: '1px solid var(--dashboard-border)',
+                                  borderRadius: '8px',
+                                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                                }}
+                              />
+                              <Legend wrapperStyle={{ paddingTop: '10px' }} />
+                            </PieChart>
+                          )}
                         </ResponsiveContainer>
                       </div>
                     </CardContent>
@@ -704,43 +758,74 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
               {/* By Location Tab */}
               <TabsContent value="location" className="mt-4">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Pie Chart */}
+                  {/* Occupancy uses a common percentage scale; additive metrics use a pie. */}
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-sm">Top 20 Locations</CardTitle>
+                      <CardTitle className="text-sm">
+                        {tileType === 'occupancy' ? 'Top Locations by Occupancy' : 'Top 20 Locations'}
+                      </CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="h-72">
                         <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
-                              data={data.byLocation.slice(0, 20)}
-                              cx="50%"
-                              cy="50%"
-                              outerRadius={100}
-                              dataKey="value"
-                              nameKey="location"
-                              onClick={(entry) => handleDrillDown('location', entry.location)}
-                              style={{ cursor: 'pointer' }}
+                          {tileType === 'occupancy' ? (
+                            <BarChart
+                              data={data.byLocation.slice(0, 10)}
+                              layout="vertical"
+                              margin={{ top: 4, right: 18, left: 12, bottom: 4 }}
                             >
-                              {data.byLocation.slice(0, 20).map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <Tooltip 
-                              formatter={(value: number) => {
-                                const total = data.byLocation.reduce((sum, item) => sum + item.value, 0);
-                                const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
-                                return `${formatValue(value)} (${pct}%)`;
-                              }} 
-                              contentStyle={{
-                                backgroundColor: 'var(--dashboard-surface)',
-                                border: '1px solid var(--dashboard-border)',
-                                borderRadius: '8px',
-                                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                              }}
-                            />
-                          </PieChart>
+                              <CartesianGrid stroke="var(--dashboard-border)" strokeDasharray="2 4" horizontal={false} />
+                              <XAxis type="number" domain={[0, 100]} tickFormatter={(value) => `${value}%`} tickLine={false} axisLine={false} fontSize={10} stroke="var(--dashboard-muted)" />
+                              <YAxis type="category" dataKey="location" width={105} tickLine={false} axisLine={false} fontSize={10} stroke="var(--dashboard-muted)" />
+                              <Tooltip
+                                formatter={(value: number) => [`${Number(value).toFixed(1)}%`, 'Occupancy']}
+                                contentStyle={{
+                                  backgroundColor: 'var(--dashboard-surface)',
+                                  border: '1px solid var(--dashboard-border)',
+                                  borderRadius: '8px',
+                                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                                }}
+                              />
+                              <Bar
+                                dataKey="value"
+                                fill={TRILOGY_TEAL}
+                                radius={[0, 4, 4, 0]}
+                                maxBarSize={18}
+                                onClick={(entry) => handleDrillDown('location', entry.location)}
+                                style={{ cursor: 'pointer' }}
+                              />
+                            </BarChart>
+                          ) : (
+                            <PieChart>
+                              <Pie
+                                data={data.byLocation.slice(0, 20)}
+                                cx="50%"
+                                cy="50%"
+                                outerRadius={100}
+                                dataKey="value"
+                                nameKey="location"
+                                onClick={(entry) => handleDrillDown('location', entry.location)}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                {data.byLocation.slice(0, 20).map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                formatter={(value: number) => {
+                                  const total = data.byLocation.reduce((sum, item) => sum + item.value, 0);
+                                  const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                  return `${formatValue(value)} (${pct}%)`;
+                                }}
+                                contentStyle={{
+                                  backgroundColor: 'var(--dashboard-surface)',
+                                  border: '1px solid var(--dashboard-border)',
+                                  borderRadius: '8px',
+                                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                                }}
+                              />
+                            </PieChart>
+                          )}
                         </ResponsiveContainer>
                       </div>
                     </CardContent>
@@ -773,44 +858,68 @@ export function TileDetailDialog({ open, onOpenChange, tileType, tileTitle }: Ti
               {/* By Room Type Tab */}
               <TabsContent value="roomType" className="mt-4">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Pie Chart */}
+                  {/* Occupancy uses a common percentage scale; additive metrics use a pie. */}
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-sm">Distribution by Room Type</CardTitle>
+                      <CardTitle className="text-sm">
+                        {tileType === 'occupancy' ? 'Occupancy by Room Type' : 'Distribution by Room Type'}
+                      </CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
+                          {tileType === 'occupancy' ? (
+                            <BarChart
                               data={data.byRoomType}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={50}
-                              outerRadius={90}
-                              paddingAngle={3}
-                              dataKey="value"
-                              nameKey="roomType"
+                              layout="vertical"
+                              margin={{ top: 4, right: 18, left: 8, bottom: 4 }}
                             >
-                              {data.byRoomType.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <Tooltip 
-                              formatter={(value: number) => {
-                                const total = data.byRoomType.reduce((sum, item) => sum + item.value, 0);
-                                const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
-                                return `${formatValue(value)} (${pct}%)`;
-                              }} 
-                              contentStyle={{
-                                backgroundColor: 'var(--dashboard-surface)',
-                                border: '1px solid var(--dashboard-border)',
-                                borderRadius: '8px',
-                                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                              }}
-                            />
-                            <Legend wrapperStyle={{ paddingTop: '10px' }} />
-                          </PieChart>
+                              <CartesianGrid stroke="var(--dashboard-border)" strokeDasharray="2 4" horizontal={false} />
+                              <XAxis type="number" domain={[0, 100]} tickFormatter={(value) => `${value}%`} tickLine={false} axisLine={false} fontSize={10} stroke="var(--dashboard-muted)" />
+                              <YAxis type="category" dataKey="roomType" width={95} tickLine={false} axisLine={false} fontSize={10} stroke="var(--dashboard-muted)" />
+                              <Tooltip
+                                formatter={(value: number) => [`${Number(value).toFixed(1)}%`, 'Occupancy']}
+                                contentStyle={{
+                                  backgroundColor: 'var(--dashboard-surface)',
+                                  border: '1px solid var(--dashboard-border)',
+                                  borderRadius: '8px',
+                                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                                }}
+                              />
+                              <Bar dataKey="value" fill={TRILOGY_TEAL} radius={[0, 4, 4, 0]} maxBarSize={22} />
+                            </BarChart>
+                          ) : (
+                            <PieChart>
+                              <Pie
+                                data={data.byRoomType}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={50}
+                                outerRadius={90}
+                                paddingAngle={3}
+                                dataKey="value"
+                                nameKey="roomType"
+                              >
+                                {data.byRoomType.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                formatter={(value: number) => {
+                                  const total = data.byRoomType.reduce((sum, item) => sum + item.value, 0);
+                                  const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                  return `${formatValue(value)} (${pct}%)`;
+                                }}
+                                contentStyle={{
+                                  backgroundColor: 'var(--dashboard-surface)',
+                                  border: '1px solid var(--dashboard-border)',
+                                  borderRadius: '8px',
+                                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                                }}
+                              />
+                              <Legend wrapperStyle={{ paddingTop: '10px' }} />
+                            </PieChart>
+                          )}
                         </ResponsiveContainer>
                       </div>
                     </CardContent>

@@ -24,7 +24,33 @@ type Series = {
   next?: Selection;
   points: Point[];
 };
-type RateGrowthResponse = { level: DrillLevel; selection: Selection; series: Series[] };
+type BenchmarkPoint = {
+  month: string;
+  top: number | null;
+  p75: number | null;
+  middle: number | null;
+  p25: number | null;
+  bottom: number | null;
+};
+type Benchmark = {
+  key: string;
+  label: string;
+  geography: string;
+  propertyType: "Majority IL" | "Majority AL";
+  display: "middle" | "tiers";
+  appliesToKey?: string;
+  matchMethod: "combined_markets" | "exact_city" | "nearby_metro";
+  sourceName: string;
+  sourceUrl: string;
+  asOf: string;
+  points: BenchmarkPoint[];
+};
+type RateGrowthResponse = {
+  level: DrillLevel;
+  selection: Selection;
+  series: Series[];
+  benchmarks?: Benchmark[];
+};
 
 class RateGrowthError extends Error {
   constructor(message: string, readonly status: number) {
@@ -47,13 +73,30 @@ function monthLabel(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 }
 
-function buildChartData(seriesList: Series[]) {
+function benchmarkField(benchmark: Benchmark, tier: keyof Omit<BenchmarkPoint, "month">) {
+  return `nic:${benchmark.key}:${tier}`;
+}
+
+function buildChartData(seriesList: Series[], benchmarks: Benchmark[]) {
   const points = new Map<string, Record<string, number | string | undefined>>();
+  const actualMonths = seriesList.flatMap((series) => series.points.map((point) => point.month)).sort();
+  const firstMonth = actualMonths[0];
+  const lastMonth = actualMonths[actualMonths.length - 1];
   seriesList.forEach((series) =>
     series.points.forEach((point) => {
       const row = points.get(point.month) ?? { month: point.month };
       row[`${series.key}-street`] = point.streetRate ?? undefined;
       row[`${series.key}-inhouse`] = point.inHouseRate ?? undefined;
+      points.set(point.month, row);
+    }),
+  );
+  benchmarks.forEach((benchmark) =>
+    benchmark.points.forEach((point) => {
+      if (firstMonth && point.month < firstMonth || lastMonth && point.month > lastMonth) return;
+      const row = points.get(point.month) ?? { month: point.month };
+      (["top", "p75", "middle", "p25", "bottom"] as const).forEach((tier) => {
+        row[benchmarkField(benchmark, tier)] = point[tier] ?? undefined;
+      });
       points.set(point.month, row);
     }),
   );
@@ -64,13 +107,82 @@ function buildChartData(seriesList: Series[]) {
 
 function RateChart({
   series,
+  benchmarks = [],
   colorOffset = 0,
 }: {
   series: Series[];
+  benchmarks?: Benchmark[];
   colorOffset?: number;
 }) {
-  const chartData = buildChartData(series);
+  const chartData = buildChartData(series, benchmarks);
   const daily = series[0]?.rateBasis === "daily";
+  const tooltipContent = ({ active, label, payload }: any) => {
+    if (!active || !payload?.length) return null;
+    const point = payload[0]?.payload ?? {};
+    const suffix = daily ? "/day" : "/mo";
+
+    return (
+      <div
+        className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-surface)] p-3 text-xs shadow-md"
+      >
+        <p className="mb-2 font-semibold text-[var(--dashboard-text)]">{monthLabel(String(label))}</p>
+        <div className="space-y-2">
+          {series.map((item) => {
+            const street = Number(point[`${item.key}-street`]);
+            const inHouse = Number(point[`${item.key}-inhouse`]);
+            const hasStreet = Number.isFinite(street);
+            const hasInHouse = Number.isFinite(inHouse);
+            const variance = hasStreet && hasInHouse ? street - inHouse : null;
+            const variancePct = variance != null && inHouse !== 0 ? (variance / inHouse) * 100 : null;
+            const sign = variance != null && variance > 0 ? "+" : "";
+
+            return (
+              <div key={item.key} className="space-y-1">
+                {series.length > 1 && (
+                  <p className="font-semibold text-[var(--dashboard-text)]">{item.label}</p>
+                )}
+                {hasStreet && (
+                  <div className="flex min-w-[190px] items-center justify-between gap-5">
+                    <span className="text-[var(--dashboard-muted)]">Street rate</span>
+                    <span className="font-medium text-[var(--dashboard-text)]">
+                      {formatCurrency(Math.round(street))}{suffix}
+                    </span>
+                  </div>
+                )}
+                {hasInHouse && (
+                  <div className="flex items-center justify-between gap-5">
+                    <span className="text-[var(--dashboard-muted)]">In-house rate</span>
+                    <span className="font-medium text-[var(--dashboard-text)]">
+                      {formatCurrency(Math.round(inHouse))}{suffix}
+                    </span>
+                  </div>
+                )}
+                {variance != null && (
+                  <div className="flex items-center justify-between gap-5 border-t border-[var(--dashboard-border)] pt-1">
+                    <span className="font-medium text-[var(--dashboard-muted)]">Variance</span>
+                    <span className="font-semibold text-[var(--dashboard-text)]">
+                      {sign}{formatCurrency(Math.round(variance))}{suffix}
+                      {variancePct != null && ` (${variancePct > 0 ? "+" : ""}${variancePct.toFixed(1)}%)`}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {payload
+            .filter((entry: any) => String(entry.name).startsWith("NIC MAP"))
+            .map((entry: any) => (
+              <div key={String(entry.dataKey)} className="flex items-center justify-between gap-5">
+                <span className="text-[var(--dashboard-muted)]">{String(entry.name)}</span>
+                <span className="font-medium text-[var(--dashboard-text)]">
+                  {formatCurrency(Math.round(Number(entry.value)))}{suffix}
+                </span>
+              </div>
+            ))}
+        </div>
+      </div>
+    );
+  };
   return (
     <div>
       {series.length === 1 && (
@@ -100,18 +212,38 @@ function RateChart({
               stroke="var(--dashboard-muted)"
             />
             <Tooltip
-              labelFormatter={(label) => monthLabel(String(label))}
-              formatter={(value: unknown, name: unknown) => [
-                `${formatCurrency(Math.round(Number(value)))}${daily ? "/day" : "/mo"}`,
-                String(name).endsWith("-street") ? "Street rate" : "In-house rate",
-              ]}
-              contentStyle={{ background: "var(--dashboard-surface)", border: "1px solid var(--dashboard-border)", borderRadius: 8, fontSize: 12 }}
+              content={tooltipContent}
             />
             {series.flatMap((item, index) => {
               const color = COLORS[(index + colorOffset) % COLORS.length];
               return [
                 <Line key={`${item.key}-street`} type="monotone" dataKey={`${item.key}-street`} name={`${item.key}-street`} stroke={color} strokeWidth={2} dot={false} connectNulls />,
                 <Line key={`${item.key}-inhouse`} type="monotone" dataKey={`${item.key}-inhouse`} name={`${item.key}-inhouse`} stroke={color} strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls />,
+              ];
+            })}
+            {benchmarks.flatMap((benchmark, index) => {
+              const middleColor = index === 0 ? "#b7791f" : "#805ad5";
+              if (benchmark.display === "middle") {
+                return [
+                  <Line
+                    key={benchmarkField(benchmark, "middle")}
+                    type="monotone"
+                    dataKey={benchmarkField(benchmark, "middle")}
+                    name={`NIC MAP® ${benchmark.propertyType === "Majority IL" ? "IL" : "AL"} middle tier`}
+                    stroke={middleColor}
+                    strokeWidth={1.75}
+                    strokeDasharray="3 3"
+                    dot={{ r: 2 }}
+                    connectNulls
+                  />,
+                ];
+              }
+              return [
+                <Line key={benchmarkField(benchmark, "top")} type="monotone" dataKey={benchmarkField(benchmark, "top")} name="NIC MAP® top tier" stroke="#8b7355" strokeWidth={1} strokeDasharray="2 4" dot={false} connectNulls />,
+                <Line key={benchmarkField(benchmark, "p75")} type="monotone" dataKey={benchmarkField(benchmark, "p75")} name="NIC MAP® 75th percentile" stroke="#a88b5e" strokeWidth={1} strokeDasharray="5 4" dot={false} connectNulls />,
+                <Line key={benchmarkField(benchmark, "middle")} type="monotone" dataKey={benchmarkField(benchmark, "middle")} name="NIC MAP® middle tier" stroke="#b7791f" strokeWidth={2} dot={{ r: 2 }} connectNulls />,
+                <Line key={benchmarkField(benchmark, "p25")} type="monotone" dataKey={benchmarkField(benchmark, "p25")} name="NIC MAP® 25th percentile" stroke="#a88b5e" strokeWidth={1} strokeDasharray="5 4" dot={false} connectNulls />,
+                <Line key={benchmarkField(benchmark, "bottom")} type="monotone" dataKey={benchmarkField(benchmark, "bottom")} name="NIC MAP® bottom tier" stroke="#8b7355" strokeWidth={1} strokeDasharray="2 4" dot={false} connectNulls />,
               ];
             })}
           </LineChart>
@@ -252,9 +384,16 @@ export default function RateGrowthDrilldown() {
             >
               {data.level === "group"
                 ? visibleSeries.map((series, index) => (
-                    <RateChart key={series.key} series={[series]} colorOffset={index} />
+                    <RateChart
+                      key={series.key}
+                      series={[series]}
+                      benchmarks={(data.benchmarks ?? []).filter(
+                        (benchmark) => !benchmark.appliesToKey || benchmark.appliesToKey === series.key,
+                      )}
+                      colorOffset={index}
+                    />
                   ))
-                : <RateChart series={visibleSeries} />}
+                : <RateChart series={visibleSeries} benchmarks={data.benchmarks ?? []} />}
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" data-testid="rate-growth-drill-controls">
               {data.series.map((series, index) => (
@@ -284,8 +423,35 @@ export default function RateGrowthDrilldown() {
             <div className="flex flex-wrap gap-4 border-t border-[var(--dashboard-border)] pt-3 text-[11px] text-[var(--dashboard-muted)]">
               <span className="flex items-center gap-1.5"><i className="h-0.5 w-5 bg-[var(--trilogy-teal)]" /> Street rate</span>
               <span className="flex items-center gap-1.5"><i className="h-0.5 w-5 border-t-2 border-dashed border-[var(--trilogy-teal)]" /> In-house rate</span>
+              {(data.benchmarks?.length ?? 0) > 0 && (
+                <span className="flex items-center gap-1.5"><i className="h-0.5 w-5 border-t-2 border-dashed border-amber-600" /> NIC MAP® rate tiers</span>
+              )}
               <span className="ml-auto">{LEVEL_LABEL[data.level]} view</span>
             </div>
+            {(data.benchmarks?.length ?? 0) > 0 && (
+              <div className="rounded-md border border-amber-200/70 bg-amber-50/70 px-3 py-2 text-[11px] text-amber-950">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {data.benchmarks!.map((benchmark) => (
+                    <span key={benchmark.key}>
+                      <strong>{benchmark.label}</strong>
+                      {benchmark.matchMethod === "nearby_metro" ? " · nearby-metro match" : ""}
+                      {benchmark.matchMethod === "combined_markets" ? " · broad-market reference" : ""}
+                    </span>
+                  ))}
+                  <a
+                    href={data.benchmarks![0].sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-auto font-medium underline decoration-amber-700/40 underline-offset-2"
+                  >
+                    NIC MAP® · {data.benchmarks![0].asOf}
+                  </a>
+                </div>
+                <p className="mt-1 text-amber-900/80">
+                  Quarterly average monthly rent benchmarks. Market tiers are reference ranges, not pricing caps.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </CardContent>

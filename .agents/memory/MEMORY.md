@@ -109,3 +109,4 @@
 - [Move-in date validation](malformed-move-in-dates.md) — PostgreSQL to_date throws on impossible dates; validate calendar components before conversion so turnover skips safely.
 - [Managed-account recovery](managed-account-recovery.md) — admins send expiring links; Trilogy alone may review tenant-partitioned security activity.
 - [Global portfolio assistant boundaries](global-portfolio-assistant.md) — Claude Opus can analyze tenant data only through bounded read-only tools; no arbitrary SQL, resident PII, or demo fallback.
+- [Occupancy chart semantics](occupancy-chart-semantics.md) — occupancy rates compare on a common 0–100% scale; never present them as additive pie or donut shares.

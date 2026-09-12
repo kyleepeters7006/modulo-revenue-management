@@ -124,6 +124,7 @@ import {
   verifyTotp,
 } from "./security";
 import { getIndustryContext, startIndustryContextRefreshLoop } from "./services/industryContext";
+import { getNicMapRateTierBenchmarks } from "./services/nicMapRateTiers";
 import { parseNaturalLanguageRule, validateParsedRule, generateRuleName, checkRuleEnforceable, supportedTriggerMetrics } from "./naturalLanguageParser";
 import { buildRuleFromStructured } from "./structuredRuleBuilder";
 import { buildReferenceDataAuditWorkbook, REFERENCE_DATA_AUDIT_CONTENT_TYPE, REFERENCE_DATA_AUDIT_FILENAME } from "./services/referenceDataAuditWorkbook";
@@ -12624,10 +12625,27 @@ ${campusOccLines.join('\n')}
           undefined;
         return { key, label: key, rateBasis: daily ? "daily" : "monthly", next, points };
       });
+      let benchmarkLocation: { city: string | null; state: string | null; lat: number | null; lng: number | null } | null = null;
+      if (query.campus) {
+        const locationResult = await pool.query(
+          `SELECT city, state, lat, lng
+             FROM locations
+            WHERE client_id = $1 AND name = $2
+            LIMIT 1`,
+          [clientId, query.campus],
+        );
+        benchmarkLocation = locationResult.rows[0] ?? null;
+      }
+      const benchmarks = await getNicMapRateTierBenchmarks({
+        group: query.group,
+        serviceLine: query.serviceLine,
+        location: benchmarkLocation,
+      });
       const response = {
         level,
         selection: query,
         series,
+        benchmarks,
       };
       setCachedAnalytics(cacheKey, response, 5 * 60 * 1000);
       res.setHeader("Cache-Control", "no-store");
@@ -12929,6 +12947,38 @@ ${campusOccLines.join('\n')}
       // Calculate service line statistics for all data (not filtered)
       // For senior housing (AL, SL, VIL), only count A-beds (units)
       // For HC, count all beds
+      const serviceLineOccupancyTrend = new Map<string, number[]>();
+      const trendResult = await pool.query(
+        `WITH periods AS (
+           SELECT DISTINCT year, month
+             FROM room_type_occupancy_history
+            WHERE client_id = $1
+            ORDER BY year DESC, month DESC
+            LIMIT 3
+         )
+         SELECT r.service_line,
+                r.year,
+                r.month,
+                CASE WHEN SUM(r.available_units) > 0
+                     THEN SUM(r.occ_units)::numeric / SUM(r.available_units) * 100
+                     ELSE NULL
+                END AS occupancy_rate
+           FROM room_type_occupancy_history r
+           JOIN periods p ON p.year = r.year AND p.month = r.month
+          WHERE r.client_id = $1
+            AND r.service_line IS NOT NULL
+          GROUP BY r.service_line, r.year, r.month
+          ORDER BY r.service_line, r.year, r.month`,
+        [clientId],
+      );
+      for (const row of trendResult.rows) {
+        if (row.occupancy_rate == null) continue;
+        const key = String(row.service_line);
+        const points = serviceLineOccupancyTrend.get(key) ?? [];
+        points.push(Number(row.occupancy_rate));
+        serviceLineOccupancyTrend.set(key, points);
+      }
+
       const seniorHousingServiceLines = ['AL', 'SL', 'VIL', 'IL', 'AL/MC'];
       const serviceLineStats = allRentRollData.reduce((acc: any, unit: any) => {
         // For senior housing, skip B-beds
@@ -13011,6 +13061,10 @@ ${campusOccLines.join('\n')}
         const rtoSL = rtoBySL.get(serviceLine);
         const slOccRTO   = rtoSL ? Math.round(rtoSL.occ)  : stats.occupied;
         const slTotalRTO = rtoSL ? rtoSL.avail             : stats.total;
+        const occupancyTrend = serviceLineOccupancyTrend.get(serviceLine) ?? [];
+        const occupancyTrendDelta = occupancyTrend.length >= 2
+          ? occupancyTrend[occupancyTrend.length - 1] - occupancyTrend[0]
+          : null;
 
         return {
           serviceLine,
@@ -13020,7 +13074,9 @@ ${campusOccLines.join('\n')}
           avgRate,
           avgCompetitorRate,
           avgModuloRate: avgModuloSuggested,
-          monthlyRemainder
+          monthlyRemainder,
+          occupancyTrend,
+          occupancyTrendDelta
         };
       });
 

@@ -16,6 +16,8 @@ interface ServiceLineData {
   avgCompetitorRate?: number;
   avgModuloRate?: number;
   monthlyRemainder?: number;
+  occupancyTrend?: number[];
+  occupancyTrendDelta?: number | null;
 }
 
 interface OverviewData {
@@ -28,6 +30,8 @@ interface OverviewData {
     avgCompetitorRate?: number;
     avgModuloRate?: number;
     monthlyRemainder?: number;
+    occupancyTrend?: number[];
+    occupancyTrendDelta?: number | null;
     serviceLineBreakdown?: ServiceLineData[];
   }[];
   occupancyByServiceLine: {
@@ -62,6 +66,49 @@ interface OverviewData {
   avgSeniorHousingRate?: number;
   avgHcCompetitorRate?: number;
   avgSeniorHousingCompetitorRate?: number;
+}
+
+function OccupancySparkline({ values = [], delta }: { values?: number[]; delta?: number | null }) {
+  const resolvedDelta = delta ?? (values.length >= 2 ? values[values.length - 1] - values[0] : null);
+  const tone = resolvedDelta == null
+    ? { stroke: "#94a3b8", text: "text-slate-500", label: "No T3 trend" }
+    : resolvedDelta > 0.5
+      ? { stroke: "#16a34a", text: "text-green-700", label: "Improving" }
+      : resolvedDelta < -0.5
+        ? { stroke: "#dc2626", text: "text-red-700", label: "Declining" }
+        : { stroke: "#ca8a04", text: "text-yellow-700", label: "Stable" };
+  const width = 54;
+  const height = 16;
+  const min = values.length ? Math.min(...values) : 0;
+  const max = values.length ? Math.max(...values) : 0;
+  const range = max - min || 1;
+  const pointPairs = values.map((value, index) => {
+    const x = values.length === 1 ? width / 2 : index * (width / (values.length - 1));
+    const y = 2 + (max - value) / range * (height - 4);
+    return { x, y, value };
+  });
+  const points = pointPairs.map(({ x, y }) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const deltaLabel = resolvedDelta == null
+    ? "T3 —"
+    : `T3 ${resolvedDelta > 0 ? "+" : ""}${resolvedDelta.toFixed(1)}`;
+
+  return (
+    <div
+      className="flex items-center gap-1"
+      title={`${tone.label}: ${deltaLabel} percentage points`}
+      aria-label={`${tone.label} occupancy trend, ${deltaLabel} percentage points`}
+    >
+      {points && (
+        <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+          <polyline points={points} fill="none" stroke={tone.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          {pointPairs.map(({ x, y, value }, index) => (
+            <circle key={`${index}-${value}`} cx={x} cy={y} r="1.6" fill={tone.stroke} />
+          ))}
+        </svg>
+      )}
+      <span className={`whitespace-nowrap text-[10px] font-bold ${tone.text}`}>{deltaLabel}</span>
+    </div>
+  );
 }
 
 export default function OverviewTiles() {
@@ -301,20 +348,26 @@ export default function OverviewTiles() {
                 return (
                   <div 
                     key={serviceLine.serviceLine} 
-                    className="bg-[var(--dashboard-bg)] p-4 rounded-lg border border-[var(--dashboard-border)]"
+                    className="bg-[var(--dashboard-bg)] p-3 rounded-lg border border-[var(--dashboard-border)]"
                   >
-                    <div className="flex justify-between items-center mb-2">
+                    <div className="flex items-center gap-2 mb-1">
                       <h4 className="font-bold" style={{ color: '#1a1a1a' }}>
                         {serviceLine.serviceLine}
                       </h4>
-                      <span className="text-sm font-bold text-[var(--trilogy-teal)]">
-                        {formatPercentage(serviceLine.occupancyRate / 100, 0)}
-                      </span>
+                      <div className="ml-auto flex items-center gap-2">
+                        <OccupancySparkline
+                          values={serviceLine.occupancyTrend}
+                          delta={serviceLine.occupancyTrendDelta}
+                        />
+                        <span className="text-sm font-bold text-[var(--trilogy-teal)]">
+                          {formatPercentage(serviceLine.occupancyRate / 100, 0)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-sm font-medium mb-2" style={{ color: '#4a4a4a' }}>
+                    <div className="text-sm font-medium mb-1.5" style={{ color: '#4a4a4a' }}>
                       {formatNumber(serviceLine.occupied)} / {formatNumber(serviceLine.total)} units
                     </div>
-                    <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-3">
+                    <div className="w-full bg-[var(--dashboard-border)] rounded-full h-2 mb-2">
                       <div 
                         className="bg-[var(--trilogy-teal)] h-2 rounded-full transition-all duration-300"
                         style={{ width: `${serviceLine.occupancyRate}%` }}
@@ -322,7 +375,7 @@ export default function OverviewTiles() {
                     </div>
                     
                     {/* Rate Information */}
-                    <div className="space-y-1 text-xs">
+                    <div className="space-y-0.5 text-xs">
                       <div className="flex justify-between">
                         <span className="font-semibold" style={{ color: '#4a4a4a' }}>Avg Rate:</span>
                         <span className="font-bold" style={{ color: '#1a1a1a' }}>{formatCurrency(Math.round(serviceLine.avgRate || 0))}{rateLabel}</span>
