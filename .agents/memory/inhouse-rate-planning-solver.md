@@ -149,6 +149,20 @@ and keep app, diagnostics, exports, and tests on the same policy. Never give an
 at/above-street resident a literal zero allocation weight: use a positive floor
 so the curve can still reach that resident's allowed maximum when required.
 
+### Every calculation endpoint is a read-only POST
+
+The single-plan, batch-plan, single-tier, and batch-tier endpoints are all
+read-only calculations. Authentication middleware must classify every one of
+them consistently rather than treating the newer POST routes as mutations.
+
+**Why:** allowing only the original calculator through made the tier grid fail in
+demo mode even though it writes nothing, while saving assumptions and approving
+plans correctly remained protected operations.
+
+**How to apply:** when adding a calculation route, update the explicit read-only
+POST allowlist at the same time. Never broaden the exemption to the whole
+in-house-planning route family because that also contains writes.
+
 ### The measured occupancy tier must produce the primary plan
 
 The occupancy-tier grid and the resident recommendation cannot be separate

@@ -25,7 +25,10 @@ can narrow them.
 - Always join with an explicit client **and** month qual so the predicates push
   down into the view's aggregation. Correlating only on the row's own
   `upload_month` does not push down and makes Postgres compute medians for
-  every month of that client.
+  every month of that client. Multi-month reports must pass the exact month list
+  with array mode; when that list comes from a scalar subquery, cast the
+  subquery result to `text[]` so PostgreSQL's `ANY` resolves it as one array
+  rather than a set whose row type is itself an array.
 - The join is LEFT and both gates are permissive when the baseline is NULL:
   suppress only rates provably implausible, never rates that cannot be judged.
 - A plain view is fast enough at this data size; materialization is not needed.

@@ -46,6 +46,7 @@ export type SuggestionRejectionCode =
   | 'unenforceable'
   | 'blanket_rule'
   | 'unsupported_target'
+  | 'missing_or_multiple_room_type'
   | 'zero_qualified_units'
   | 'zero_financial_impact'
   | 'over_cap';
@@ -79,6 +80,7 @@ export const REJECTION_LABELS: Record<SuggestionRejectionCode, string> = {
   unenforceable: 'Described a condition the pricing engine cannot enforce',
   blanket_rule: 'Would have applied to everything, with no condition or target',
   unsupported_target: 'Changed a rate this run does not allow',
+  missing_or_multiple_room_type: 'Did not target exactly one room type',
   zero_qualified_units: 'Would not affect any eligible units in the selected scope',
   zero_financial_impact: 'Would not produce a measurable financial impact',
   over_cap: 'Beyond the 10-rule limit for one run',
@@ -284,6 +286,22 @@ export function evaluateSuggestionCandidate(
         serviceLines,
       };
     }
+  }
+
+  // Customer-facing AI suggestions are operational decisions, not broad
+  // service-line policies. Require one explicit product so small portfolios can
+  // review and apply each recommendation at the room-type detail they manage.
+  const roomTypes = Array.isArray(filters.roomType) ? filters.roomType : [];
+  if (roomTypes.length !== 1) {
+    return {
+      ok: false,
+      code: 'missing_or_multiple_room_type',
+      detail: roomTypes.length === 0
+        ? 'The rule sentence does not name a room type.'
+        : `The rule sentence names ${roomTypes.length} room types; exactly one is required.`,
+      sentence,
+      serviceLines,
+    };
   }
 
   return { ok: true, sentence, serviceLines, parsed };

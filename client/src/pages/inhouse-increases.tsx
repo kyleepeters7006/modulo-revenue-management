@@ -1613,6 +1613,12 @@ export default function InhouseIncreases() {
           tierPolicy: tierPolicyFor(sl),
         })),
       });
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.toLowerCase().includes("application/json")) {
+        throw new Error(
+          "The planning service returned an invalid response. Refresh the page and calculate again.",
+        );
+      }
       const payload = (await res.json()) as {
         lines: TierGridLine[];
         skipped: Array<{ serviceLine: string; message: string }>;

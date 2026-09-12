@@ -24,12 +24,49 @@ type Message = { role: Role; content: string; sources?: Source[] };
 
 const suggestions = [
   "What needs my attention across the portfolio today?",
-  "Explain the largest rate opportunity on this page.",
-  "Which properties are underperforming against comps?",
+  "What recent AI rule suggestions should I review?",
+  "Show me a portfolio view of pricing, demand, and competitor movement.",
 ];
 
 function storageKey(clientId: string, userId?: string, username?: string) {
   return `modulo:assistant:${clientId}:${userId || username || "authenticated"}`;
+}
+
+const OPEN_ASSISTANT_EVENT = "modulo-assistant:open";
+
+export function ModuloAssistantLauncher() {
+  const [hidden, setHidden] = useState(false);
+
+  if (hidden) return null;
+
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={() => window.dispatchEvent(new Event(OPEN_ASSISTANT_EVENT))}
+        aria-label="Open Modulo Assistant"
+        title="Ask Modulo"
+        data-testid="button-open-assistant"
+        className="h-7 w-7 rounded-full border border-transparent bg-transparent p-0 text-[var(--trilogy-dark-blue)] shadow-none hover:border-[var(--trilogy-teal)]/20 hover:bg-[var(--trilogy-teal)]/10 hover:text-[var(--trilogy-teal)]"
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={() => setHidden(true)}
+        aria-label="Hide Modulo Assistant until refresh"
+        title="Hide until refresh"
+        data-testid="button-hide-assistant"
+        className="h-5 w-5 rounded-full bg-transparent p-0 text-slate-400 opacity-60 shadow-none hover:bg-slate-200/60 hover:text-slate-700 hover:opacity-100"
+      >
+        <X className="h-2.5 w-2.5" />
+      </Button>
+    </div>
+  );
 }
 
 export default function ModuloAssistant() {
@@ -71,6 +108,12 @@ export default function ModuloAssistant() {
       window.setTimeout(() => messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight }), 120);
     }
   }, [open]);
+
+  useEffect(() => {
+    const openAssistant = () => setOpen(true);
+    window.addEventListener(OPEN_ASSISTANT_EVENT, openAssistant);
+    return () => window.removeEventListener(OPEN_ASSISTANT_EVENT, openAssistant);
+  }, []);
 
   useEffect(() => {
     if (open) messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: "smooth" });
@@ -115,21 +158,18 @@ export default function ModuloAssistant() {
     inputRef.current?.focus();
   };
 
+  const uniqueSources = (sources: Source[]) => {
+    const seen = new Set<string>();
+    return sources.filter((source) => {
+      const key = `${source.tool}|${source.label}`.trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
   return (
     <>
-      {!open && (
-        <Button
-          type="button"
-          onClick={() => setOpen(true)}
-          aria-label="Open Modulo Assistant"
-          data-testid="button-open-assistant"
-          className="fixed bottom-5 right-5 z-[60] h-14 rounded-full border border-white/20 bg-[var(--trilogy-dark-blue)] px-5 text-white shadow-[0_12px_35px_rgba(20,42,66,0.28)] transition-transform hover:-translate-y-0.5 hover:bg-[var(--trilogy-teal)]"
-        >
-          <Sparkles className="h-4 w-4 text-[var(--trilogy-teal-light)]" />
-          <span className="hidden sm:inline">Ask Modulo</span>
-        </Button>
-      )}
-
       {open && (
         <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-labelledby="assistant-title">
           <button aria-label="Close assistant" onClick={() => setOpen(false)} className="absolute inset-0 cursor-default bg-slate-950/20 backdrop-blur-[1px] md:bg-transparent md:backdrop-blur-0" />
@@ -151,7 +191,7 @@ export default function ModuloAssistant() {
                   <Button variant="ghost" size="icon" onClick={() => setOpen(false)} aria-label="Close assistant" className="h-8 w-8 text-slate-300 hover:bg-white/10 hover:text-white"><X className="h-4 w-4" /></Button>
                 </div>
               </div>
-              <p className="relative mt-4 max-w-[320px] text-xs leading-relaxed text-slate-300">Ask about pricing signals, portfolio movement, or the data in front of you.</p>
+              <p className="relative mt-4 max-w-[340px] text-xs leading-relaxed text-slate-300">Ask about recent AI rule suggestions or authorized portfolio data, including pricing, revenue, occupancy, demand, competitors, move-ins and move-outs, rate quality, elasticity, and benchmarks.</p>
             </header>
 
             <div ref={messagesRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5" aria-live="polite">
@@ -159,11 +199,11 @@ export default function ModuloAssistant() {
                 <div className="flex min-h-full flex-col justify-center">
                   <div className="mb-5 flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e2f1ef] text-[var(--trilogy-teal)]"><CircleHelp className="h-4 w-4" /></div>
-                    <p className="text-xs leading-relaxed text-slate-600">I can interpret the current dashboard and help you decide what to do next.</p>
+                    <p className="text-xs leading-relaxed text-slate-600">I can connect the portfolio picture across pricing, revenue, occupancy, demand, competitors, rate quality, benchmarks, and recent AI rule suggestions—without access to resident-level or private data.</p>
                   </div>
                   <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Try asking</p>
                   <div className="space-y-2">
-                    {suggestions.map((suggestion) => <button key={suggestion} onClick={() => send(suggestion)} className="group flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left text-xs text-slate-600 shadow-sm transition-colors hover:border-[var(--trilogy-teal-light)] hover:bg-[#f1f9f8]"><span>{suggestion}</span><ChevronDown className="ml-2 h-3.5 w-3.5 -rotate-90 text-slate-300 group-hover:text-[var(--trilogy-teal)]" /></button>)}
+                     {suggestions.map((suggestion) => <button key={suggestion} onClick={() => send(suggestion)} className="group flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left text-xs text-slate-600 shadow-sm transition-colors hover:border-[var(--trilogy-teal-light)] hover:bg-[#f1f9f8]"><span>{suggestion}</span><ChevronDown aria-hidden="true" className="ml-2 h-3.5 w-3.5 shrink-0 -rotate-90 text-slate-300 group-hover:text-[var(--trilogy-teal)]" /></button>)}
                   </div>
                 </div>
               ) : messages.map((message, index) => (
@@ -171,7 +211,7 @@ export default function ModuloAssistant() {
                   {message.role === "assistant" && <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[#e2f1ef] text-[var(--trilogy-teal)]"><Sparkles className="h-3.5 w-3.5" /></div>}
                   <div className={cn("max-w-[84%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed", message.role === "user" ? "rounded-br-md bg-[var(--trilogy-dark-blue)] text-white" : "rounded-bl-md border border-slate-200 bg-white text-slate-700 shadow-sm")}>
                     <p className="whitespace-pre-wrap">{message.content}</p>
-                    {message.sources && message.sources.length > 0 && <div className="mt-3 border-t border-slate-100 pt-2.5"><p className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400"><FileText className="h-3 w-3" />Sources</p>{message.sources.map((source, sourceIndex) => <div key={`${source.tool}-${sourceIndex}`} className="mb-1 text-[10px] text-slate-500"><span className="font-medium text-slate-600">{source.label}</span>{source.detail && <span> · {source.detail}</span>}</div>)}</div>}
+                     {message.sources && uniqueSources(message.sources).length > 0 && <div className="mt-3 border-t border-slate-100 pt-2.5"><p className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400"><FileText className="h-3 w-3" />Sources</p><div className="space-y-1.5">{uniqueSources(message.sources).map((source, sourceIndex) => <div key={`${source.tool}-${source.label}-${source.detail || sourceIndex}`} className="rounded-md bg-slate-50 px-2 py-1.5 text-[11px] leading-snug text-slate-600"><span className="font-medium text-slate-700 break-words">{source.label}</span>{source.detail && <span className="text-slate-500"> · {source.detail}</span>}</div>)}</div></div>}
                   </div>
                 </div>
               ))}
@@ -180,6 +220,7 @@ export default function ModuloAssistant() {
             </div>
 
             <footer className="border-t border-slate-200 bg-white p-3">
+              <p className="mb-2 px-1 text-[10px] leading-relaxed text-slate-500">Answers use authorized portfolio data and should be reviewed before action.</p>
               <div className="rounded-xl border border-slate-300 bg-slate-50 p-2 transition-colors focus-within:border-[var(--trilogy-teal)] focus-within:ring-2 focus-within:ring-[var(--trilogy-teal-light)]/30">
                 <textarea ref={inputRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} disabled={sending} rows={2} placeholder="Ask about your portfolio…" aria-label="Message Modulo Assistant" className="w-full resize-none bg-transparent px-1 text-sm text-slate-700 outline-none placeholder:text-slate-400 disabled:opacity-60" />
                 <div className="flex items-center justify-between pt-1">

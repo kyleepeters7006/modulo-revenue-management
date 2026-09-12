@@ -160,9 +160,41 @@ expectAccepted(
 );
 expectAccepted(
   'in-house increase once the caller opts in',
-  { rule: 'Increase in-house rate by 3% for occupied units' },
+  { rule: 'Increase in-house rate by 3% for occupied Studio units' },
   WITH_IN_HOUSE,
 );
+expectRejected(
+  'conditional rule without a room type is refused',
+  { rule: 'If service line occupancy is greater than 92, increase street rate by 4% for vacant units' },
+  'missing_or_multiple_room_type',
+);
+expectRejected(
+  'one suggestion cannot combine multiple room types',
+  { rule: 'If service line occupancy is greater than 92, increase street rate by 4% for vacant Studio and One Bedroom units' },
+  'missing_or_multiple_room_type',
+);
+{
+  const outcome = expectAccepted(
+    'room-type competitor position remains an enforceable directional trigger',
+    { rule: 'If street rate to top comp var % is less than -5, increase street rate by 4% for vacant Studio units' },
+  );
+  if (outcome.ok) {
+    ok(
+      'competitor-position rule keeps exactly one room-type filter',
+      outcome.parsed.action.filters?.roomType?.join(',') === 'Studio',
+      outcome.parsed.action.filters?.roomType?.join(',') || 'missing',
+    );
+    const conditions = outcome.parsed.trigger.type === 'condition'
+      ? outcome.parsed.trigger.conditions || [outcome.parsed.trigger.condition]
+      : [];
+    const comp = conditions.find((condition: any) => condition?.field === 'street_to_comp_var');
+    ok(
+      'competitor-position rule preserves the signed threshold',
+      Number(comp?.value) === -5,
+      String(comp?.value),
+    );
+  }
+}
 
 console.log('\n=== Final impact gate: zero-value cards never reach the operator ===\n');
 

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import inflectLogo from "@assets/Inflect_Logo_-_No_Text_Below_1781618481726.png";
+import { ModuloAssistantLauncher } from "@/components/assistant/ModuloAssistant";
 import { useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
@@ -117,14 +118,14 @@ export default function Navigation({ className }: NavigationProps) {
 
       <nav className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8">
-          <div className="flex items-center py-2">
+          <div className="flex items-center py-1">
             {/* Logo */}
             <div className="flex-shrink-0 mr-3 lg:mr-5">
               <Link href="/overview" className="flex items-center" data-testid="link-home">
                 <img 
                   src="/attached_assets/image_1756817717051.png" 
                   alt="Modulo" 
-                  className="h-20 md:h-28 w-auto rounded-lg"
+                  className="h-12 w-auto rounded-md md:h-14"
                 />
               </Link>
             </div>
@@ -199,7 +200,7 @@ export default function Navigation({ className }: NavigationProps) {
               </div>
             </div>
 
-            <div className="flex items-center space-x-4 ml-auto">
+            <div className="ml-auto flex items-center gap-2 lg:gap-3">
               {/* Inflect is available only to authenticated Trilogy users. */}
               {showInflectLink && (
                 <a
@@ -210,7 +211,7 @@ export default function Navigation({ className }: NavigationProps) {
                   title="Inflect"
                   data-testid="link-inflect"
                 >
-                  <img src={inflectLogo} alt="Inflect" className="h-[50px] w-auto rounded-lg" />
+                  <img src={inflectLogo} alt="Inflect" className="h-10 w-auto rounded-md lg:h-11" />
                 </a>
               )}
 
@@ -233,6 +234,7 @@ export default function Navigation({ className }: NavigationProps) {
                       <LogOut className="h-4 w-4 mr-2" />
                       Logout
                     </button>
+                    <ModuloAssistantLauncher />
                   </>
                 ) : (
                   <button

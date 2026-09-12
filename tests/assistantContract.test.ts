@@ -8,22 +8,42 @@ import {
   parseAssistantRequest,
 } from "../server/services/assistantService";
 import { hasAuthenticatedAssistantSession } from "../server/routes/assistantRoutes";
+import { buildRuleSuggestionContext } from "../server/services/ruleSuggestionContext";
+import { supportedTriggerMetrics } from "../server/naturalLanguageParser";
 
 assert.equal(ASSISTANT_MODEL, "claude-opus-4-6");
 assert.deepEqual(
   ASSISTANT_TOOLS.map((tool) => tool.name).sort(),
   [
     "adjustment_rules",
+    "canonical_metrics",
     "competitors",
+    "data_catalog",
     "demand",
+    "elasticity",
+    "industry_benchmarks",
     "inhouse_plans",
     "locations",
+    "move_ins_outs",
     "occupancy",
     "portfolio_snapshot",
     "rates",
+    "rate_quality",
     "recent_account_activity",
+    "recent_rule_suggestions",
+    "revenue_summary",
+    "rule_performance",
+    "targets_trends",
   ].sort(),
 );
+
+const sharedRuleContext = buildRuleSuggestionContext({ includeInHouse: false });
+for (const metric of supportedTriggerMetrics()) assert.match(sharedRuleContext, new RegExp(metric.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+assert.match(sharedRuleContext, /newest effective date/i);
+assert.match(sharedRuleContext, /positive when in-house is above street/i);
+assert.match(sharedRuleContext, /trailing-three-month move-ins/i);
+assert.match(sharedRuleContext, /exactly one canonical room type/i);
+assert.match(sharedRuleContext, /not a hard cap or floor/i);
 
 assert.equal(
   hasAuthenticatedAssistantSession({ session: { userId: "u", clientId: "tenant", authenticatedAt: Date.now() }, authState: "authenticated" }),

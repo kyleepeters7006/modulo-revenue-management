@@ -149,6 +149,7 @@ import {
   type SuggestionRejection,
   type EmptyRunReason,
 } from "./services/suggestionGates";
+import { buildRuleSuggestionContext } from "./services/ruleSuggestionContext";
 import {
   PRODUCTION_SYNC_CLEAR_TABLES,
   PRODUCTION_SYNC_REPLACE_TABLES,
@@ -924,9 +925,15 @@ async function securityRequestGate(req: any, res: any, next: any): Promise<void>
     return next();
   }
 
-  // Calculate is read-only and remains usable in anonymous demo mode;
-  // proposal submission has its own authentication requirement.
-  if (pathName === "/inhouse-planning/calculate") {
+  // Planning calculations are read-only POSTs and remain usable in anonymous
+  // demo mode. Saving assumptions or approving a plan still requires an
+  // authenticated, CSRF-verified session.
+  if ([
+    "/inhouse-planning/calculate",
+    "/inhouse-planning/calculate-batch",
+    "/inhouse-planning/calculate-tiers",
+    "/inhouse-planning/calculate-tiers-batch",
+  ].includes(pathName)) {
     return next();
   }
 
@@ -12534,6 +12541,8 @@ ${campusOccLines.join('\n')}
       const baselineJoin = buildRateBaselineJoin({
         rr: "rr.",
         clientSql: "$1",
+        monthSql: "((SELECT month_list FROM scoped_months)::text[])",
+        monthIsArray: true,
         alias: "overview_rb",
       });
       const result = await pool.query(
@@ -12542,6 +12551,15 @@ ${campusOccLines.join('\n')}
              FROM rent_roll_data
             WHERE client_id = $1
          ),
+          scoped_months AS (
+            SELECT ARRAY_AGG(to_char(month_start, 'YYYY-MM')) AS month_list
+              FROM latest
+              CROSS JOIN LATERAL generate_series(
+                to_date(latest.month, 'YYYY-MM') - interval '17 months',
+                to_date(latest.month, 'YYYY-MM'),
+                interval '1 month'
+              ) AS month_start
+          ),
          monthly AS (
            SELECT rr.upload_month AS month,
                   ${keySql} AS series_key,
@@ -21619,7 +21637,11 @@ Respond in JSON format:
         'occupancy pressure, vacancy duration, competitor positioning, and price elasticity. ' +
         'This operator requires at least 5% year-over-year RevPOR growth and reports strong ' +
         'demand, so your default posture is rate INCREASES; discounts are the exception, ' +
-        'reserved for clearly evidenced weak spots.';
+        'reserved for clearly evidenced weak spots.' +
+        `\n\n${buildRuleSuggestionContext({
+          includeInHouse: Boolean(includeInHouse),
+          unavailableMetrics: unavailableMetricFields,
+        })}`;
       // ── Learning loop: fold recent user decisions into the prompt ──────────
       // Accepted / denied / edited suggestions are the training signal — the
       // model is told what this client historically approves and rejects so
@@ -21685,8 +21707,8 @@ Respond in JSON format:
               (r.adjustment_value != null
                 ? ` (${clean(r.adjustment_type) || 'adjust'} ${r.adjustment_value})`
                 : '')).join('\n') + '\n' +
-            `When two rules claim the same unit the OLDER rule keeps it and the newer one is credited with nothing. ` +
-            `So do NOT propose a rule whose conditions and target units substantially repeat one above — it would be ` +
+             `When two rules claim the same unit, precedence is the newest effective date, then created time, then rule identity; ` +
+             `lower-precedence rules are credited only with units not already claimed. So do NOT propose a rule whose conditions and target units substantially repeat one above — it would be ` +
             `accepted and then deliver zero. Propose rules for segments these do not already cover, or a clearly ` +
             `different condition on the same segment.`;
         }
@@ -21715,6 +21737,7 @@ Respond in JSON format:
         `- ANCHOR EVERY RULE TO THE TARGET GAP. Each service line above shows its realised YTD growth, its gap to target, and the street-rate lift needed to close that gap on new move-ins alone. That lift is a planning HEURISTIC, not an exact forecast — it compares part-year realised growth against a full-year target and assumes the current move-in pace holds — so treat it as an order-of-magnitude guide to how hard to push, not a precise number to reproduce. Treat that required lift as your budget: the increases you propose for a service line should, in combination, get it to target. If the required lift is large, propose a larger or broader increase; if the line is already at or above target, protect it with a modest increase rather than a big one. Never propose increases that obviously overshoot or fall far short of the stated gap.\n` +
         `- MOVE-IN VOLUME SETS THE CEILING. A street-rate change only ever reaches NEW residents, so a service line's move-in pace decides how much revenue a rate rule can actually produce. Where move-in volume is high, a modest increase compounds quickly — prefer it. Where move-in volume is near zero, a street-rate change will do almost nothing no matter how large; do not lean on that line to hit the target, and do not propose an aggressive increase there expecting revenue from it.\n` +
         `- ELASTICITY GATES THE MAGNITUDE. Elasticity is Δdays-to-sell per Δrate. A magnitude near zero means demand barely reacts to price — that is your safest and best place to push hard. A large negative magnitude means raising the rate materially slows absorption — still increase, but keep it small. Use the per-room-type elasticity above, not just the service-line average, and put your biggest increases on the least elastic room types.\n` +
+        `- ROOM-TYPE COMPETITIVE POSITION MUST INFORM SIZING. For every Street Rate suggestion, use the exact room type's care-adjusted street-to-comp variance as a signed directional signal. Negative means our rate is below that room-type benchmark and supports a stronger increase when occupancy and demand agree. Positive means we are above it and should usually be more restrained unless strong occupancy proves pricing power. Competitive survey entries can be wrong, so NEVER treat the benchmark as a hard cap, hard floor, or exact target and never size an adjustment from competitor variance alone. If room-type competitor data is missing or suspect, rely on occupancy, vacancy, loss-to-lease, target gap, and elasticity instead of inventing a benchmark.\n` +
         `- ELASTICITY CONFIDENCE CAPS THAT MAGNITUDE. Every elasticity above carries the number of observations behind it and a confidence percentage. A near-zero elasticity measured once is noise, not proven pricing power, and it must NOT earn your largest increase. Where confidence is marked LOW (below 50%) or the elasticity is "unknown", cap the adjustment at a modest level (roughly 3%) and justify it from occupancy, the comp gap or in-house-to-street variance instead. Reserve your most aggressive increases for segments that are BOTH inelastic AND high-confidence.\n` +
         (scopeActive && scopedNames.length > 1
           ? `- USE THE PER-CAMPUS DETAIL TO SET THRESHOLDS. The service-line figures are blends across ${scopedNames.length} campuses and can describe no campus in the run: an 82% campus and a 96% campus average to a healthy-looking 89%. A rule CANNOT be scoped to a named campus, but every condition is evaluated per campus, per service line and per room type — so the THRESHOLD is how you select campuses. Read the per-campus detail and choose a threshold that admits the campuses you actually mean (e.g. "below 85" to reach only the weak ones) instead of a blanket change justified by an average that is true nowhere.\n`
@@ -21736,7 +21759,7 @@ Respond in JSON format:
         `- SIZING: keep individual adjustments realistic (typically 1%–12%). Size each increase from the target gap, the move-in pace, and the elasticity of the segment it touches — not from a round number.\n` +
         `- VARY YOUR RULES. Do not return ten variations of one idea: cover several different playbook techniques and several different segments, so the user gets a portfolio of actions rather than one action restated.\n` +
         `COMPLEXITY REQUIREMENTS — every rule MUST be conditional and targeted, not a blanket change:\n` +
-        `- Each rule must include at least ONE trigger condition AND, where sensible, a room-type or occupancy-status target.\n` +
+        `- Each rule must include at least ONE trigger condition AND MUST explicitly target exactly ONE room type. Rules without a room type, or rules naming several room types, will be rejected.\n` +
         `- Prefer compound conditions (two conditions joined by AND or OR) when the data supports them.\n` +
         `- Express ALL of the rule's logic inside the single rule sentence itself using EXACTLY this grammar (anything else will be dropped):\n` +
         `  * Compound trigger: "If service line occupancy is greater than or equal to 92 AND room type occupancy is less than 85, decrease street rate by 4% for vacant Studio units"\n` +
@@ -21745,7 +21768,7 @@ Respond in JSON format:
         `  * In-house vs street trigger: "when in-house to street variance is greater than 10%"\n` +
         `  * Trailing occupancy: "when room type occupancy (trailing 3) is below 85" (windows: trailing 3, trailing 6, trailing 12; also available for service line and campus occupancy). Read the trailing figures from the metrics block — do NOT set a trailing threshold from the spot occupancy.\n` +
         `  * Vacancy duration: "for vacant units over 60 days"\n` +
-        `  * Room types: name them exactly as listed in the metrics (e.g. Studio, Studio Dlx, One Bedroom, Two Bedroom, Companion)\n` +
+        `  * Room types: EVERY rule must name exactly one room type, spelled exactly as listed in the metrics (e.g. Studio, Studio Dlx, One Bedroom, Two Bedroom, Companion). Never omit it and never combine room types in one rule.\n` +
         `  * Occupancy status: "for occupied units" / "for vacant units"\n` +
         `ALLOWED TRIGGER METRICS — a condition may ONLY reference one of these, spelled as shown. There is no other data available to the pricing engine, and every one of these has a value in the metrics block above:\n` +
         `  ${advertisedMetricsList(unavailableMetricFields)}.\n` +
@@ -21770,7 +21793,7 @@ Respond in JSON format:
         `{"rules":[{"name":string,"intent":string,"serviceLines":string[],"rule":string}]}. ` +
         `Maximum 10 rules. Each entry in "serviceLines" MUST be one of: ${validSLs.join(', ')} — ` +
         `use multiple entries when one rule covers several service lines. ` +
-        `The "rule" field MUST be a single imperative sentence containing the full condition and action, such as ` +
+        `The "rule" field MUST be a single imperative sentence containing the full condition, action, and exactly one explicit room type, such as ` +
         `"If service line occupancy is greater than or equal to 92 AND room type occupancy is less than 85, decrease street rate by 4% for vacant Studio units" or ` +
         `"Decrease street rate by 8% for vacant One Bedroom units over 60 days". Preserve conditions verbatim. No other text.`;
 
@@ -22041,6 +22064,12 @@ Respond in JSON format:
       if (!parsed) return res.status(400).json({ error: "Could not understand the rule. Please rephrase." });
       const validation = validateParsedRule(parsed);
       if (!validation.isValid) return res.status(400).json({ error: "Invalid rule", details: validation.errors });
+      const acceptRoomTypes = parsed.action?.filters?.roomType;
+      if (!Array.isArray(acceptRoomTypes) || acceptRoomTypes.length !== 1) {
+        return res.status(400).json({
+          error: "AI-suggested rules must target exactly one room type.",
+        });
+      }
 
       // Refuse to persist a rule whose promised conditions the engine cannot
       // evaluate — it would silently become a blanket rule once saved.
