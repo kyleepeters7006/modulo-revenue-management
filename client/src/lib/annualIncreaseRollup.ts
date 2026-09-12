@@ -8,6 +8,8 @@ export interface AnnualIncreaseRollup {
   deltaPct: number | null;
   monthlyImpact: number | null;
   effectiveDate: string | null;
+  streetRate: number | null;
+  streetEffectiveDate: string | null;
 }
 
 /**
@@ -27,6 +29,9 @@ export function rollupAnnualIncrease(
   let displayDeltaSum = 0;
   let monthlyImpactSum = 0;
   let effectiveDate: string | null = null;
+  let streetRateSum = 0;
+  let streetRateResidents = 0;
+  let streetEffectiveDate: string | null = null;
 
   for (const row of rows) {
     const covered = Number(row[`${prefix}Residents`] ?? 0);
@@ -66,6 +71,14 @@ export function rollupAnnualIncrease(
     if (effectiveDate === null && row[`${prefix}EffectiveDate`]) {
       effectiveDate = String(row[`${prefix}EffectiveDate`]);
     }
+    const streetRateRaw = row[`${prefix}StreetRate`];
+    if (streetRateRaw !== null && streetRateRaw !== undefined && Number.isFinite(Number(streetRateRaw))) {
+      streetRateSum += Number(streetRateRaw) * covered;
+      streetRateResidents += covered;
+    }
+    if (streetEffectiveDate === null && row[`${prefix}StreetEffectiveDate`]) {
+      streetEffectiveDate = String(row[`${prefix}StreetEffectiveDate`]);
+    }
   }
 
   return {
@@ -76,5 +89,7 @@ export function rollupAnnualIncrease(
     deltaPct: currentRateSum > 0 ? displayDeltaSum / currentRateSum : null,
     monthlyImpact: residents ? monthlyImpactSum : null,
     effectiveDate,
+    streetRate: streetRateResidents ? streetRateSum / streetRateResidents : null,
+    streetEffectiveDate,
   };
 }

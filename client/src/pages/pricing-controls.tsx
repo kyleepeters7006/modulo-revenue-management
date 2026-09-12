@@ -48,6 +48,7 @@ export default function PricingControls() {
   const urlParams = new URLSearchParams(window.location.search);
   const urlLocation = urlParams.get('location');
   const urlServiceLine = urlParams.get('serviceLine');
+  const referenceFocusGroup = urlParams.get('focusGroup');
   
   const savedFilters = loadFiltersFromStorage();
   const [selectedServiceLine, setSelectedServiceLine] = useState<string>(
@@ -99,6 +100,13 @@ export default function PricingControls() {
           document.getElementById('rule-designer-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 800);
       }
+    } else if (scrollTo === 'reference-data') {
+      setTimeout(() => {
+        document.querySelector('[data-testid="reference-data-card"]')?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      }, 400);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -520,6 +528,7 @@ export default function PricingControls() {
             selectedDivisions={selectedDivisions}
             selectedLocations={selectedLocations}
             onRuleCreated={() => designerHelpersRef.current?.refreshRules()}
+            focusGroup={referenceFocusGroup}
           />
 
           <div id="rule-designer-section" className="scroll-mt-4">

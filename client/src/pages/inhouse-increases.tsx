@@ -56,6 +56,7 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  ExternalLink,
   Info,
   Loader2,
   Save,
@@ -1792,6 +1793,7 @@ export default function InhouseIncreases() {
     onSuccess: (results: any[]) => {
       queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/plans"] });
       queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/reference-data"], exact: false });
       const desc =
         results.length === 1
           ? `Plan v${results[0].version} and its linked rules were submitted for approval.`
@@ -3718,14 +3720,36 @@ export default function InhouseIncreases() {
                   </AlertDescription>
                 </Alert>
               )}
-              <Button
-                onClick={() => applyPlan.mutate()}
-                disabled={!anyFeasible || !isAuthenticated || applyPlan.isPending || hasChangedPlanAssumptions}
-                data-testid="button-apply-plan"
-              >
-                {applyPlan.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                 Submit proposals for {plans.length > 1 ? `${plans.filter((p) => p.plan.feasible).length} plan(s)` : "plan"}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={() => applyPlan.mutate()}
+                  disabled={!anyFeasible || !isAuthenticated || applyPlan.isPending || hasChangedPlanAssumptions}
+                  data-testid="button-apply-plan"
+                >
+                  {applyPlan.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Submit proposals for {plans.length > 1 ? `${plans.filter((p) => p.plan.feasible).length} plan(s)` : "plan"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={(plansQuery.data?.plans?.length ?? 0) === 0}
+                  onClick={() => {
+                    const params = new URLSearchParams({
+                      scrollTo: "reference-data",
+                      focusGroup: "ihCalculated",
+                    });
+                    if (serviceLines.length === 1) params.set("serviceLine", serviceLines[0]);
+                    setLocation(`/pricing-controls?${params.toString()}`);
+                  }}
+                  title={(plansQuery.data?.plans?.length ?? 0) === 0
+                    ? "Submit the calculated proposal first so Reference Data can load it."
+                    : "Open the submitted or applied plan columns in Reference Data."}
+                  data-testid="view-inhouse-plan-reference-data"
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  View in Reference Data
+                </Button>
+              </div>
 
             </CardContent>
           </Card>

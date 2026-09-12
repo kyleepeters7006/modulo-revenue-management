@@ -254,25 +254,15 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    id: "ihRecommendation",
-    label: "Annual Increase (Recommended)",
+    id: "ihCalculated",
+    label: "Calculated In-House Increase",
     cols: [
-      { key: "ihRecommendationNewRate", label: "Recommended IH Rate", type: "money", w: 110, tip: "Resident-weighted in-house rate from the latest submitted plan recommendation. It remains advisory until the plan is implemented." },
-      { key: "ihRecommendationDeltaDollar", label: "Δ$ vs Current IH", type: "moneysigned", w: 100, tip: "Recommended average increase per covered resident, in the same daily/monthly basis as Current IH." },
-      { key: "ihRecommendationDeltaPct", label: "Δ% vs Current IH", type: "pctfracsigned", w: 100, tip: "Recommended total increase divided by the covered residents' current in-house rate." },
-      { key: "ihRecommendationResidents", label: "Residents", type: "int", w: 78, tip: "Residents covered by the latest submitted recommendation." },
-      { key: "ihRecommendationMonthlyImpact", label: "Monthly Impact", type: "moneysigned", w: 100, tip: "Combined monthly revenue increase if the recommendation is implemented." },
-    ],
-  },
-  {
-    id: "ihPlan",
-    label: "Annual Increase (Applied)",
-    cols: [
-      { key: "ihPlanNewRate", label: "New IH Rate", type: "money", w: 92, tip: "New in-house rate from the most recently applied annual increase plan, averaged over the residents it covers. This is an IN-HOUSE rate for sitting residents — not a street rate for new move-ins." },
-      { key: "ihPlanDeltaDollar", label: "Δ$ vs Current IH", type: "moneysigned", w: 100, tip: "Average increase per covered resident: new in-house rate minus their current in-house rate. Shown in the same basis as the in-house rate columns — per day for HC/HC-MC, per month elsewhere. See Monthly Impact for the revenue figure, which is always monthly." },
-      { key: "ihPlanDeltaPct", label: "Δ% vs Current IH", type: "pctfracsigned", w: 100, tip: "Total increase dollars ÷ total current in-house rate across covered residents. Derived from summed components, so it is not an average of percentages." },
-      { key: "ihPlanResidents", label: "Residents", type: "int", w: 78, tip: "How many residents the applied increase covers. An increase only touches occupied rooms, so this is usually fewer than the group's unit count — the rate columns average over these residents only." },
-      { key: "ihPlanMonthlyImpact", label: "Monthly Impact", type: "moneysigned", w: 100, tip: "Covered residents × their monthly increase. This is the correct impact basis for an in-house increase; the Revenue Impact group beside it models new move-ins at the street rate instead, so the two are not additive." },
+      { key: "ihCalculatedNewRate", label: "In House", type: "money", w: 88, tip: "Calculated in-house rate for covered residents. Applied plans take precedence; otherwise this shows the latest submitted recommendation." },
+      { key: "ihCalculatedStreetRate", label: "Street", type: "money", w: 88, tip: "Calculated street rate from the same plan, in the service line's daily or monthly display basis." },
+      { key: "ihCalculatedDeltaDollar", label: "$ Change", type: "moneysigned", w: 82, tip: "Calculated in-house rate minus current in-house rate, averaged over covered residents." },
+      { key: "ihCalculatedDeltaPct", label: "% Change", type: "pctfracsigned", w: 82, tip: "Calculated in-house increase divided by covered residents' current in-house rate." },
+      { key: "ihCalculatedEffectiveDate", label: "Effective Date", type: "text", w: 96, tip: "Effective date of the calculated in-house increase." },
+      { key: "ihCalculatedAnnualImpact", label: "Annual Impact", type: "moneysigned", w: 100, tip: "Annualized resident revenue impact: monthly in-house increase multiplied by 12." },
     ],
   },
   {
@@ -503,6 +493,8 @@ function aggregateRows(
         out[`${prefix}DeltaPct`] = rolled.deltaPct;
         out[`${prefix}MonthlyImpact`] = rolled.monthlyImpact;
         out[`${prefix}EffectiveDate`] = rolled.effectiveDate;
+        out[`${prefix}StreetRate`] = rolled.streetRate;
+        out[`${prefix}StreetEffectiveDate`] = rolled.streetEffectiveDate;
       };
       rollupPlan("ihPlan");
       rollupPlan("ihRecommendation");
@@ -693,6 +685,8 @@ interface ReferenceDataTableProps {
   selectedLocations?: string[];
   /** Called after a rule is created from this table (Create Rule from View / Excel import) so non-React-Query rule lists (e.g. Rule Administration) can refresh. */
   onRuleCreated?: () => void;
+  /** Opens the section and horizontally scrolls to this column group. */
+  focusGroup?: string | null;
 }
 
 export default function ReferenceDataTable({
@@ -701,10 +695,11 @@ export default function ReferenceDataTable({
   selectedDivisions,
   selectedLocations,
   onRuleCreated,
+  focusGroup,
 }: ReferenceDataTableProps) {
   const queryClient = useQueryClient();
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [sectionOpen, setSectionOpen] = useState(false);
+  const [sectionOpen, setSectionOpen] = useState(Boolean(focusGroup));
   const [groupLevel, setGroupLevel] = useState<GroupLevel>("roomType");
   const { toast } = useToast();
   // Create-rule-from-view dialog state
@@ -931,16 +926,29 @@ export default function ReferenceDataTable({
 
   const rawRows = useMemo(() => {
     const detail = data?.rows ?? [];
-    if (groupLevel === "roomDetail") return unitData?.rows ?? [];
-
-    const base = groupLevel === "roomType" ? detail
-      : aggregateRows(detail, groupLevel, (data?.rules ?? []).map(r => r.id), data?.months ?? []);
+    const base = groupLevel === "roomDetail"
+      ? (unitData?.rows ?? [])
+      : groupLevel === "roomType"
+        ? detail
+        : aggregateRows(detail, groupLevel, (data?.rules ?? []).map(r => r.id), data?.months ?? []);
 
     // At aggregation levels above roomType, recompute rate-delta and revenue impact columns
     // from the weighted-average rates × total units. The per-row sum only captures units with an
     // active rule (sparse for HC), so the aggregated view shows (wavg proposed − wavg street) × all units.
     return base.map(row => {
       const out: Record<string, any> = { ...row };
+      // One stable set of calculated-plan columns across the proposal lifecycle:
+      // applied values win; otherwise show the latest submitted recommendation.
+      const calculatedPrefix = row.ihPlanNewRate != null ? "ihPlan" : "ihRecommendation";
+      out.ihCalculatedNewRate = row[`${calculatedPrefix}NewRate`] ?? null;
+      out.ihCalculatedStreetRate = row[`${calculatedPrefix}StreetRate`] ?? null;
+      out.ihCalculatedDeltaDollar = row[`${calculatedPrefix}DeltaDollar`] ?? null;
+      out.ihCalculatedDeltaPct = row[`${calculatedPrefix}DeltaPct`] ?? null;
+      out.ihCalculatedEffectiveDate = row[`${calculatedPrefix}EffectiveDate`] ?? null;
+      const calculatedMonthlyImpact = row[`${calculatedPrefix}MonthlyImpact`];
+      out.ihCalculatedAnnualImpact = calculatedMonthlyImpact == null
+        ? null
+        : Number(calculatedMonthlyImpact) * 12;
 
       // Rate-change deltas recomputed from wavg base values at aggregation levels.
       // Averaging per-row percentage deltas introduces a mix-effect when unit counts shift
@@ -1033,6 +1041,26 @@ export default function ReferenceDataTable({
   }, [data?.rules, data?.rows, data?.months, expandedGroups, groupLevel]);
 
   const dynAllCols = useMemo(() => dynGroups.flatMap(g => g.cols), [dynGroups]);
+
+  useEffect(() => {
+    if (!focusGroup) return;
+    setSectionOpen(true);
+    const timer = window.setTimeout(() => {
+      document.querySelector('[data-testid="reference-data-card"]')?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      const groupIndex = dynGroups.findIndex((group) => group.id === focusGroup);
+      if (groupIndex < 0 || !bottomScrollRef.current) return;
+      const left = dynGroups
+        .slice(0, groupIndex)
+        .flatMap((group) => group.cols)
+        .reduce((sum, col) => sum + col.w, 0);
+      bottomScrollRef.current.scrollTo({ left, behavior: "smooth" });
+      if (topScrollRef.current) topScrollRef.current.scrollLeft = left;
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [focusGroup, dynGroups]);
 
   // Unique formatted values for the currently-open filter column (for checkbox list).
   // Must be after both rawRows and dynAllCols.

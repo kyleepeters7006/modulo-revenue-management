@@ -32,6 +32,8 @@ export interface AppliedPlanUnitRate {
   /** Fraction, e.g. 0.045 for 4.5%. */
   increasePct: number;
   inhouseEffectiveDate: string | null;
+  streetRate: number | null;
+  streetEffectiveDate: string | null;
   isCompanionBed: boolean;
 }
 
@@ -86,7 +88,8 @@ async function loadPlanRates(
   let res;
   try {
     res = await pool.query(
-      `SELECT id, location, service_line, version, inhouse_effective_date, residents
+      `SELECT id, location, service_line, version, inhouse_effective_date,
+              street_rate_effective_date, recommended_street_rate, residents
          FROM inhouse_rate_plans
         WHERE client_id = $1 AND status = $2
         ORDER BY created_at ASC, version ASC`,
@@ -147,6 +150,10 @@ async function loadPlanRates(
         increaseDollarsMonthly,
         increasePct,
         inhouseEffectiveDate: plan.inhouse_effective_date ?? null,
+        streetRate: Number.isFinite(Number(plan.recommended_street_rate))
+          ? Number(plan.recommended_street_rate)
+          : null,
+        streetEffectiveDate: plan.street_rate_effective_date ?? null,
         isCompanionBed: Boolean(r.isCompanionBed),
       });
     }
@@ -178,12 +185,16 @@ export interface PlanGroupAccumulator {
   /** Always per month, for the revenue figure. Kept apart from the display sum. */
   increaseDollarsMonthlySum: number;
   effectiveDate: string | null;
+  streetRateSum: number;
+  streetRateCount: number;
+  streetEffectiveDate: string | null;
 }
 
 export function newPlanGroupAccumulator(): PlanGroupAccumulator {
   return {
     residents: 0, newRateSum: 0, currentRateSum: 0,
     increaseDollarsSum: 0, increaseDollarsMonthlySum: 0, effectiveDate: null,
+    streetRateSum: 0, streetRateCount: 0, streetEffectiveDate: null,
   };
 }
 
@@ -194,6 +205,11 @@ export function addToPlanGroup(acc: PlanGroupAccumulator, rate: AppliedPlanUnitR
   acc.increaseDollarsSum += rate.increaseDollars;
   acc.increaseDollarsMonthlySum += rate.increaseDollarsMonthly;
   if (acc.effectiveDate === null) acc.effectiveDate = rate.inhouseEffectiveDate;
+  if (rate.streetRate !== null) {
+    acc.streetRateSum += rate.streetRate;
+    acc.streetRateCount += 1;
+  }
+  if (acc.streetEffectiveDate === null) acc.streetEffectiveDate = rate.streetEffectiveDate;
 }
 
 /**
@@ -214,6 +230,8 @@ export function finalizePlanGroup(acc: PlanGroupAccumulator | undefined) {
       ihPlanResidents: null,
       ihPlanMonthlyImpact: null,
       ihPlanEffectiveDate: null,
+      ihPlanStreetRate: null,
+      ihPlanStreetEffectiveDate: null,
     };
   }
   const n = acc.residents;
@@ -233,5 +251,7 @@ export function finalizePlanGroup(acc: PlanGroupAccumulator | undefined) {
     // figure would understate the impact by roughly 30x.
     ihPlanMonthlyImpact: acc.increaseDollarsMonthlySum,
     ihPlanEffectiveDate: acc.effectiveDate,
+    ihPlanStreetRate: acc.streetRateCount ? acc.streetRateSum / acc.streetRateCount : null,
+    ihPlanStreetEffectiveDate: acc.streetEffectiveDate,
   };
 }

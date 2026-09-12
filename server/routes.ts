@@ -13112,7 +13112,10 @@ ${campusOccLines.join('\n')}
       const locationsWithData = uniqueCampuses;
       
       // Import rate normalization service
-      const { calculateUnitAnnualRevenue } = await import('./services/rateNormalization');
+      const {
+        calculateUnitAnnualRevenue,
+        calculateAnnualValueOfOnePercentBaseIncrease,
+      } = await import('./services/rateNormalization');
       
       // IMPORTANT: Use allRentRollData for revenue calculations to include B-bed revenue
       // B-beds are excluded from occupancy counts but their revenue should be counted
@@ -13141,6 +13144,25 @@ ${campusOccLines.join('\n')}
       const potentialAnnualRevenueTotal = allRentRollData.reduce((sum, u) => {
         return sum + calculateUnitAnnualRevenue(u, false, false);
       }, 0);
+
+      // Annual value of a 1% increase to occupied private-pay BASE rates only.
+      // Care charges are separate and intentionally excluded.
+      const onePercentByServiceLine = new Map<string, number>();
+      let annualValueOfOnePctBaseIncrease = 0;
+      for (const unit of allRentRollData) {
+        const value = calculateAnnualValueOfOnePercentBaseIncrease(unit);
+        if (value === 0) continue;
+        annualValueOfOnePctBaseIncrease += value;
+        const serviceLine = unit.serviceLine || 'Other';
+        onePercentByServiceLine.set(
+          serviceLine,
+          (onePercentByServiceLine.get(serviceLine) || 0) + value,
+        );
+      }
+      const annualValueOfOnePctBaseIncreaseByServiceLine = Array.from(
+        onePercentByServiceLine.entries(),
+        ([serviceLine, value]) => ({ serviceLine, value }),
+      );
 
       // Existing field names keep their established private-pay meaning so no
       // consumer silently changes basis; the explicit *PrivatePay/*Total names
@@ -13199,6 +13221,8 @@ ${campusOccLines.join('\n')}
         currentAnnualRevenueTotal,
         potentialAnnualRevenuePrivatePay,
         potentialAnnualRevenueTotal,
+        annualValueOfOnePctBaseIncrease,
+        annualValueOfOnePctBaseIncreaseByServiceLine,
         totalUnits: portfolioTotalUnits,  // Total across entire portfolio
         unitsWithData,  // Units that have rent roll data
         totalLocations: portfolioTotalLocations,  // Total campuses in portfolio
@@ -28750,6 +28774,8 @@ Return ONLY valid JSON, no markdown fences:
           ihRecommendationResidents: recommendationFields.ihPlanResidents,
           ihRecommendationMonthlyImpact: recommendationFields.ihPlanMonthlyImpact,
           ihRecommendationEffectiveDate: recommendationFields.ihPlanEffectiveDate,
+          ihRecommendationStreetRate: recommendationFields.ihPlanStreetRate,
+          ihRecommendationStreetEffectiveDate: recommendationFields.ihPlanStreetEffectiveDate,
           // True when Final is showing the increase rather than a rule rate, so
           // the grid can label the two apart.
           finalFromPlan: manualRate === null && planFields.ihPlanNewRate !== null,
@@ -29283,6 +29309,8 @@ Return ONLY valid JSON, no markdown fences:
           // revenue impact by ~30x. Detail must sum to the grouped figure.
           ihPlanMonthlyImpact: unitPlan?.increaseDollarsMonthly ?? null,
           ihPlanEffectiveDate: unitPlan?.inhouseEffectiveDate ?? null,
+          ihPlanStreetRate: unitPlan?.streetRate ?? null,
+          ihPlanStreetEffectiveDate: unitPlan?.streetEffectiveDate ?? null,
           ihRecommendationNewRate: unitRecommendation?.newRate ?? null,
           ihRecommendationCurrentRate: unitRecommendation?.currentRate ?? null,
           ihRecommendationDeltaDollar: unitRecommendation?.increaseDollars ?? null,
@@ -29290,6 +29318,8 @@ Return ONLY valid JSON, no markdown fences:
           ihRecommendationResidents: unitRecommendation ? 1 : null,
           ihRecommendationMonthlyImpact: unitRecommendation?.increaseDollarsMonthly ?? null,
           ihRecommendationEffectiveDate: unitRecommendation?.inhouseEffectiveDate ?? null,
+          ihRecommendationStreetRate: unitRecommendation?.streetRate ?? null,
+          ihRecommendationStreetEffectiveDate: unitRecommendation?.streetEffectiveDate ?? null,
           finalFromPlan: manualOverride === null && unitPlan !== null,
           ...((): { revT3MoveIns: number | null; revMonthlyImpact: number | null; revAnnualImpact: number | null } => {
             const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;

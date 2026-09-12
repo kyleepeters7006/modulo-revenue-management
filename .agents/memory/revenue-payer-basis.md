@@ -23,3 +23,6 @@ on.
   potential revenue by nearly 5x.
 - Never blend the two into one number, and never show a revenue figure whose
   basis is not stated in the UI.
+- The annual value of a 1% in-house increase is occupied private-pay base rent
+  only: use in-house rate with street fallback, normalize HC daily rates with
+  the shared 365/12 factor, annualize, and exclude every care-rate field.

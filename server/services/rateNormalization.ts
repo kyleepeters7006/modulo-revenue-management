@@ -114,6 +114,19 @@ export function isPrivatePay(unit: any): boolean {
 }
 
 /**
+ * Annual revenue produced by a 1% increase to one occupied private-pay
+ * resident's base/in-house rate. Care charges are deliberately excluded.
+ */
+export function calculateAnnualValueOfOnePercentBaseIncrease(unit: any): number {
+  if (!unit?.occupiedYN || !isPrivatePay(unit)) return 0;
+  const serviceLine = unit.serviceLine || "";
+  const baseRate = Number(unit.inHouseRate) > 0
+    ? Number(unit.inHouseRate)
+    : Number(unit.streetRate) || 0;
+  return normalizeToMonthlyRate(baseRate, serviceLine) * 12 * 0.01;
+}
+
+/**
  * Calculate annual revenue for a unit, properly handling daily vs monthly rates
  * @param unit The rent roll unit
  * @param occupied Whether to calculate for occupied status (true) or potential (false)

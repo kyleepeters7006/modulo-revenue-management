@@ -55,6 +55,11 @@ interface OverviewData {
   currentAnnualRevenueTotal?: number;
   potentialAnnualRevenuePrivatePay?: number;
   potentialAnnualRevenueTotal?: number;
+  annualValueOfOnePctBaseIncrease?: number;
+  annualValueOfOnePctBaseIncreaseByServiceLine?: Array<{
+    serviceLine: string;
+    value: number;
+  }>;
   totalUnits: number;  // Total portfolio units
   unitsWithData: number;  // Units with rent roll data
   totalLocations: number;  // Total campuses in portfolio
@@ -164,6 +169,12 @@ export default function OverviewTiles() {
     v >= 1_000_000_000
       ? `$${(v / 1_000_000_000).toFixed(2)}B`
       : `$${formatNumber(Math.round(v / 1_000_000))}M`;
+
+  const formatImpactMoney = (value: number) => {
+    if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+    if (Math.abs(value) >= 1_000) return `$${Math.round(value / 1_000).toLocaleString()}K`;
+    return formatCurrency(Math.round(value));
+  };
 
   // Fall back to the legacy fields when the API predates the explicit split, so
   // an older cached response still renders the (private-pay) headline number.
@@ -314,6 +325,50 @@ export default function OverviewTiles() {
           );
         })}
       </div>
+
+      <Card className="dashboard-card">
+        <CardHeader className="pb-2 pt-4">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <CardTitle className="text-lg font-semibold text-[var(--dashboard-text)]">
+                Annual Value of a 1% In-House Increase
+              </CardTitle>
+              <p className="mt-1 text-xs text-[var(--dashboard-muted)]">
+                Occupied private-pay base rates only. Does not include care.
+              </p>
+            </div>
+            <div className="sm:text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]">
+                Portfolio total
+              </p>
+              <p className="text-2xl font-semibold text-[var(--trilogy-teal)]" data-testid="one-percent-value-total">
+                {formatImpactMoney(overviewData.annualValueOfOnePctBaseIncrease || 0)}
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {['HC', 'HC/MC', 'AL', 'AL/MC', 'SL', 'VIL']
+              .map((serviceLine) => ({
+                serviceLine,
+                value: overviewData.annualValueOfOnePctBaseIncreaseByServiceLine
+                  ?.find((entry) => entry.serviceLine === serviceLine)?.value || 0,
+              }))
+              .map(({ serviceLine, value }) => (
+                <div
+                  key={serviceLine}
+                  className="rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-3 py-2"
+                >
+                  <p className="text-xs font-semibold text-[var(--dashboard-muted)]">{serviceLine}</p>
+                  <p className="mt-0.5 text-base font-semibold text-[var(--dashboard-text)]">
+                    {formatImpactMoney(value)}
+                  </p>
+                </div>
+              ))}
+          </div>
+        </CardContent>
+      </Card>
 
        <RateGrowthDrilldown />
 

@@ -11,6 +11,8 @@ const roomRows = [
     ihRecommendationDeltaPct: 0.05,
     ihRecommendationMonthlyImpact: 200,
     ihRecommendationEffectiveDate: "2027-01-01",
+    ihRecommendationStreetRate: 5400,
+    ihRecommendationStreetEffectiveDate: "2027-02-01",
     ihPlanResidents: null,
   },
   {
@@ -22,6 +24,8 @@ const roomRows = [
     ihRecommendationDeltaPct: 0.02,
     ihRecommendationMonthlyImpact: 100,
     ihRecommendationEffectiveDate: "2027-01-01",
+    ihRecommendationStreetRate: 5400,
+    ihRecommendationStreetEffectiveDate: "2027-02-01",
     ihPlanResidents: null,
   },
   {
@@ -33,6 +37,8 @@ const roomRows = [
     ihRecommendationDeltaPct: null,
     ihRecommendationMonthlyImpact: null,
     ihRecommendationEffectiveDate: null,
+    ihRecommendationStreetRate: null,
+    ihRecommendationStreetEffectiveDate: null,
     ihPlanResidents: null,
   },
   {
@@ -44,6 +50,8 @@ const roomRows = [
     ihRecommendationDeltaPct: 0.10,
     ihRecommendationMonthlyImpact: 600,
     ihRecommendationEffectiveDate: "2027-01-01",
+    ihRecommendationStreetRate: 7000,
+    ihRecommendationStreetEffectiveDate: "2027-02-01",
     ihPlanResidents: null,
   },
 ];
@@ -72,6 +80,8 @@ for (const level of ["service line", "location/region/division/portfolio"]) {
   near(rolled.deltaPct, 900 / 15000);
   near(rolled.monthlyImpact, 900);
   assert.equal(rolled.effectiveDate, "2027-01-01");
+  near(rolled.streetRate, (5400 * 2 + 7000) / 3);
+  assert.equal(rolled.streetEffectiveDate, "2027-02-01");
 }
 
 // Recommended and applied lifecycles cannot leak into one another.
@@ -84,6 +94,8 @@ assert.deepEqual(applied, {
   deltaPct: null,
   monthlyImpact: null,
   effectiveDate: null,
+  streetRate: null,
+  streetEffectiveDate: null,
 });
 
 // Incomplete covered rows are rejected as a whole, not counted in the
