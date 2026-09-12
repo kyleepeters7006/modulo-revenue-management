@@ -99,6 +99,37 @@ export async function getLatestMonthForScope(scope: ScopeFilter): Promise<string
   return res.rows[0]?.upload_month ?? null;
 }
 
+/** Latest occupied rent-roll month for each requested line, in one query. */
+export async function getLatestMonthsForScopes(
+  clientId: string,
+  location: string | null,
+  serviceLines: string[],
+): Promise<Map<string, string | null>> {
+  if (serviceLines.length === 0) return new Map();
+  const params: any[] = [clientId, serviceLines];
+  let locSql = "";
+  if (location) {
+    params.push(location);
+    locSql = ` AND rr.location = $${params.length}`;
+  }
+  const result = await pool.query<{ service_line: string; upload_month: string | null }>(
+    `SELECT rr.service_line, MAX(rr.upload_month) AS upload_month
+       FROM rent_roll_data rr
+      WHERE rr.client_id = $1
+        AND rr.service_line = ANY($2::text[])
+        AND rr.occupied_yn = true${locSql}
+      GROUP BY rr.service_line`,
+    params,
+  );
+  const months = new Map<string, string | null>(
+    serviceLines.map((serviceLine) => [serviceLine, null]),
+  );
+  for (const row of result.rows) {
+    months.set(row.service_line, row.upload_month);
+  }
+  return months;
+}
+
 export interface RawResidentRow {
   location: string;
   service_line: string;

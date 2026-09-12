@@ -23,8 +23,10 @@ import {
 } from "@shared/inhousePlanning";
 import {
   calculatePlan,
+  calculatePlanBatch,
   calculatePlanDetailed,
   calculatePlanTiers,
+  calculatePlanTiersBatch,
   PlanningDataError,
 } from "../services/inhouseRatePlanning";
 import { buildRatePlanWorkbook } from "../services/inhouseRatePlanning/excelExport";
@@ -108,6 +110,32 @@ const tierPolicySchema = z.object({
   }),
 }).refine((d) => d.lowCutoffPct <= d.highCutoffPct, {
   message: "The lower cutoff cannot sit above the upper cutoff",
+});
+
+const batchLineSchema = z.object({
+  serviceLine: z.string().min(1),
+  assumptions: assumptionsSchema.optional(),
+  tierPolicy: tierPolicySchema.optional(),
+});
+
+const batchScopeSchema = z.object({
+  locationId: z.string().nullable().optional(),
+  lines: z
+    .array(batchLineSchema)
+    .min(1, "Select at least one service line")
+    .superRefine((lines, ctx) => {
+      const seen = new Set<string>();
+      lines.forEach((line, index) => {
+        if (seen.has(line.serviceLine)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [index, "serviceLine"],
+            message: "Service lines must be unique",
+          });
+        }
+        seen.add(line.serviceLine);
+      });
+    }),
 });
 
 async function assumptionsForMeasuredTier(
@@ -378,6 +406,62 @@ export function registerInhousePlanningRoutes(app: Express) {
 
   // ── Calculate (never writes a rate) ──────────────────────────────────────
 
+  /**
+   * Portfolio form of calculate. Occupancy is a scope-wide read, so resolve
+   * the measured tier for every line from one snapshot before preparing the
+   * independent line plans.
+   */
+  app.post("/api/inhouse-planning/calculate-batch", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || "demo";
+      const body = batchScopeSchema.safeParse(req.body);
+      if (!body.success) {
+        return res
+          .status(400)
+          .json({ error: body.error.errors[0]?.message || "Invalid batch planning request" });
+      }
+      const locationId = body.data.locationId || null;
+      const location = await resolveLocationName(clientId, locationId);
+      const [occupancy, stored] = await Promise.all([
+        fetchOccupancyByServiceLine(clientId, location),
+        Promise.all(
+          body.data.lines.map((line) =>
+            resolveAssumptions(clientId, locationId, line.serviceLine),
+          ),
+        ),
+      ]);
+      const inputs = body.data.lines.map((line, index) => {
+        const resolved = stored[index];
+        const base = enforceCurrentPlanningPolicy(line.assumptions ?? resolved.assumptions);
+        const policy = line.tierPolicy ?? resolved.tierPolicy;
+        const measuredTier = tierForOccupancy(
+          policy,
+          occupancy.byServiceLine.get(line.serviceLine)?.occupancyPct ?? null,
+        );
+        return {
+          serviceLine: line.serviceLine,
+          assumptions: measuredTier
+            ? applyOccupancyTier(base, policy.tiers[measuredTier])
+            : base,
+        };
+      });
+      const result = await calculatePlanBatch({
+        clientId,
+        locationId,
+        location,
+        lines: inputs,
+      });
+      res.setHeader("Cache-Control", "no-store");
+      res.json(result);
+    } catch (error) {
+      if (error instanceof PlanningDataError) {
+        return res.status(422).json({ error: error.message });
+      }
+      console.error("[inhouse-planning] batch calculate failed:", error);
+      res.status(500).json({ error: "Failed to calculate the in-house rate plans" });
+    }
+  });
+
   app.post("/api/inhouse-planning/calculate", async (req: any, res) => {
     try {
       const clientId = req.clientId || "demo";
@@ -424,6 +508,48 @@ export function registerInhousePlanningRoutes(app: Express) {
   });
 
   // ── Occupancy-tier what-if grid (never writes a rate) ────────────────────
+
+  app.post("/api/inhouse-planning/calculate-tiers-batch", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || "demo";
+      const body = batchScopeSchema.safeParse(req.body);
+      if (!body.success) {
+        return res
+          .status(400)
+          .json({ error: body.error.errors[0]?.message || "Invalid tier grid request" });
+      }
+      const locationId = body.data.locationId || null;
+      const location = await resolveLocationName(clientId, locationId);
+      const stored = await Promise.all(
+        body.data.lines.map((line) =>
+          resolveAssumptions(clientId, locationId, line.serviceLine),
+        ),
+      );
+      const result = await calculatePlanTiersBatch({
+        clientId,
+        locationId,
+        location,
+        lines: body.data.lines.map((line, index) => {
+          const resolved = stored[index];
+          return {
+            serviceLine: line.serviceLine,
+            assumptions: enforceCurrentPlanningPolicy(
+              line.assumptions ?? resolved.assumptions,
+            ),
+            tierPolicy: line.tierPolicy ?? resolved.tierPolicy,
+          };
+        }),
+      });
+      res.setHeader("Cache-Control", "no-store");
+      res.json(result);
+    } catch (error) {
+      if (error instanceof PlanningDataError) {
+        return res.status(422).json({ error: error.message });
+      }
+      console.error("[inhouse-planning] batch tier grid failed:", error);
+      res.status(500).json({ error: "Failed to calculate the occupancy tier grids" });
+    }
+  });
 
   /**
    * One service line, solved under all three of its occupancy tiers. The

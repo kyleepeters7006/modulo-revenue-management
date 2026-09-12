@@ -1515,35 +1515,30 @@ export default function InhouseIncreases() {
       toast({ title: "Export failed", description: error.message, variant: "destructive" }),
   });
 
-  // Run one calculate call per selected service line in parallel and combine.
+  // The server batches the selected lines so shared policy/occupancy reads are
+  // done once. It still returns line-level failures instead of failing the
+  // whole portfolio calculation.
   const calculate = useMutation({
     mutationFn: async (request: CalculateRequest) => {
       const requestedScopeKey = calculatedPlanScopeKey(request.locationId, request.serviceLines);
-      const settled = await Promise.allSettled(
-        request.serviceLines.map(async (sl) => {
-          const res = await apiRequest("/api/inhouse-planning/calculate", "POST", {
-            locationId: request.locationId,
-            serviceLine: sl,
-            assumptions: request.assumptionsByLine[sl],
-          });
-          const plan = (await res.json()) as PlanResult;
-          return { sl, plan } as PlanWithSl;
-        }),
-      );
-      const results: PlanWithSl[] = [];
-      const skipped: Array<{ sl: string; message: string }> = [];
-      settled.forEach((outcome, index) => {
-        const sl = request.serviceLines[index];
-        if (outcome.status === "fulfilled") {
-          results.push(outcome.value);
-        } else {
-          const message =
-            outcome.reason instanceof Error
-              ? cleanError(outcome.reason.message)
-              : "No plan could be calculated for this service line.";
-          skipped.push({ sl, message });
-        }
+      const res = await apiRequest("/api/inhouse-planning/calculate-batch", "POST", {
+        locationId: request.locationId,
+        lines: request.serviceLines.map((sl) => ({
+          serviceLine: sl,
+          assumptions: request.assumptionsByLine[sl],
+        })),
       });
+      const payload = (await res.json()) as {
+        plans: Array<{ serviceLine: string; plan: PlanResult }>;
+        skipped: Array<{ serviceLine: string; message: string }>;
+      };
+      const results = payload.plans.map(({ serviceLine, plan }) =>
+        ({ sl: serviceLine, plan }) as PlanWithSl,
+      );
+      const skipped = payload.skipped.map(({ serviceLine, message }) => ({
+        sl: serviceLine,
+        message: cleanError(message),
+      }));
       if (results.length === 0) {
         throw new Error(
           skipped.length > 0
@@ -1610,31 +1605,23 @@ export default function InhouseIncreases() {
       const locationIdAtStart = scopeLocationId;
       const identityKey = storageIdentityKey;
       const planScopeKey = calculatedPlanScopeKey(locationIdAtStart, requested);
-      const settled = await Promise.allSettled(
-        requested.map(async (sl) => {
-          const res = await apiRequest("/api/inhouse-planning/calculate-tiers", "POST", {
-            locationId: locationIdAtStart,
-            serviceLine: sl,
-            assumptions: assumptionsForLine(sl),
-            tierPolicy: tierPolicyFor(sl),
-          });
-          return (await res.json()) as TierGridLine;
-        }),
-      );
-      const lines: TierGridLine[] = [];
-      const skipped: Array<{ sl: string; message: string }> = [];
-      settled.forEach((outcome, index) => {
-        if (outcome.status === "fulfilled") lines.push(outcome.value);
-        else {
-          skipped.push({
-            sl: requested[index],
-            message:
-              outcome.reason instanceof Error
-                ? cleanError(outcome.reason.message)
-                : "No tier grid could be built for this service line.",
-          });
-        }
+      const res = await apiRequest("/api/inhouse-planning/calculate-tiers-batch", "POST", {
+        locationId: locationIdAtStart,
+        lines: requested.map((sl) => ({
+          serviceLine: sl,
+          assumptions: assumptionsForLine(sl),
+          tierPolicy: tierPolicyFor(sl),
+        })),
       });
+      const payload = (await res.json()) as {
+        lines: TierGridLine[];
+        skipped: Array<{ serviceLine: string; message: string }>;
+      };
+      const lines = payload.lines;
+      const skipped = payload.skipped.map(({ serviceLine, message }) => ({
+        sl: serviceLine,
+        message: cleanError(message),
+      }));
       if (lines.length === 0) {
         throw new Error(
           skipped.length > 0

@@ -37,6 +37,7 @@ import type {
 import {
   calculatePlanDetailed,
   calculatePlanTiers,
+  calculatePlanTiersBatch,
 } from "../server/services/inhouseRatePlanning";
 import { fetchOccupancyByServiceLine } from "../server/services/inhouseRatePlanning/dataAccess";
 
@@ -274,6 +275,20 @@ async function busiestServiceLine(clientId: string): Promise<string | null> {
   return res.rows[0]?.service_line ?? null;
 }
 
+async function busiestServiceLines(clientId: string, limit = 2): Promise<string[]> {
+  const res = await pool.query<{ service_line: string }>(
+    `SELECT service_line
+       FROM rent_roll_data
+      WHERE client_id = $1
+        AND service_line = ANY($2::text[])
+      GROUP BY service_line
+      ORDER BY COUNT(*) DESC
+      LIMIT $3`,
+    [clientId, ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"], limit],
+  );
+  return res.rows.map((row) => row.service_line);
+}
+
 async function testLiveGrid(clientId: string, serviceLine: string) {
   console.log(`\n=== Live tier grid — ${clientId} / ${serviceLine} ===\n`);
 
@@ -472,6 +487,61 @@ async function testLiveGrid(clientId: string, serviceLine: string) {
     "a cell that could not be solved says so instead of reporting a zero",
     brokenGrid.cells.every((c) => c.error == null || c.inhouseIncreasePct == null),
   );
+
+  const batchLines = await busiestServiceLines(clientId);
+  if (batchLines.length >= 2) {
+    console.log("\n-- Portfolio batch timing and parity --");
+    const batchPolicy = defaultOccupancyTierPolicy();
+    const sequentialStart = Date.now();
+    const sequential = [];
+    for (const line of batchLines) {
+      sequential.push(
+        await calculatePlanTiers({
+          clientId,
+          locationId: null,
+          location: null,
+          serviceLine: line,
+          assumptions,
+          tierPolicy: batchPolicy,
+        }),
+      );
+    }
+    const sequentialMs = Date.now() - sequentialStart;
+    const batchStart = Date.now();
+    const batched = await calculatePlanTiersBatch({
+      clientId,
+      locationId: null,
+      location: null,
+      lines: batchLines.map((line) => ({
+        serviceLine: line,
+        assumptions,
+        tierPolicy: batchPolicy,
+      })),
+    });
+    const batchMs = Date.now() - batchStart;
+    console.log(`    ${batchLines.join(", ")} sequential ${sequentialMs}ms, batch ${batchMs}ms`);
+    ok(
+      "the portfolio batch is faster than sequential line requests",
+      batchMs < sequentialMs,
+      `batch=${batchMs}ms, sequential=${sequentialMs}ms`,
+    );
+    ok(
+      "the batch preserves one result per selected service line",
+      batched.lines.map((line) => line.serviceLine).join(",") === batchLines.join(","),
+      batched.lines.map((line) => line.serviceLine).join(","),
+    );
+    for (const line of sequential) {
+      const match = batched.lines.find((candidate) => candidate.serviceLine === line.serviceLine);
+      near(
+        `${line.serviceLine}: batch current increase matches sequential`,
+        match?.currentPlan.summary.weightedAvgIncreasePct ?? Number.NaN,
+        line.currentPlan.summary.weightedAvgIncreasePct,
+        1e-9,
+      );
+    }
+  } else {
+    console.log("    (only one supported service line has data — batch timing skipped)");
+  }
 }
 
 // ── 4. Occupancy resolution ─────────────────────────────────────────────────

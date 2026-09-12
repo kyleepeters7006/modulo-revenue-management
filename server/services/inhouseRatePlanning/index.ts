@@ -31,7 +31,11 @@ import {
   type OccupancyTierPlanCell,
   type OccupancyTierPolicy,
 } from "@shared/inhousePlanning";
-import { fetchOccupancyByServiceLine, type OccupancySource } from "./dataAccess";
+import {
+  fetchOccupancyByServiceLine,
+  type OccupancySource,
+  type ServiceLineOccupancy,
+} from "./dataAccess";
 import { DAYS_PER_MONTH } from "@shared/careRates";
 import { isDailyRateServiceLine } from "../rateNormalization";
 import {
@@ -45,6 +49,7 @@ import {
   fetchMonthlyRealizedRates,
   fetchProductStreetBaselines,
   fetchResidentRows,
+  getLatestMonthsForScopes,
   expectedMonths,
   getLatestMonthForScope,
   horizonQuarters,
@@ -61,7 +66,10 @@ import {
   type QuarterComparison,
 } from "./twoPointIndex";
 import { pool } from "../../db";
-import { getDerivedRateFormulas } from "../derivedRateFormulasService";
+import {
+  getDerivedRateFormulas,
+  type StoredFormula,
+} from "../derivedRateFormulasService";
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
 import {
   addMonths,
@@ -186,6 +194,20 @@ export interface PreparedPlan {
   ): { plan: PlanResult; audit: PlanAudit };
 }
 
+export interface PlanPreparationShared {
+  /**
+   * Derived-rate formulas are client-wide policy. A portfolio batch should
+   * read them once and pass the immutable snapshot to every line.
+   */
+  formulas: StoredFormula[];
+  /**
+   * A batch can also resolve each line's latest occupied month with one
+   * grouped rent-roll query. `null` is intentional and lets preparePlan
+   * report the line-specific missing-data error without another query.
+   */
+  sourceMonth?: string | null;
+}
+
 interface OccupancyTierSolveContext {
   tier: OccupancyTierId;
   rangeLabel: string;
@@ -201,14 +223,20 @@ interface OccupancyTierSolveContext {
  * quarter baselines are identical across all three tiers of a line. Loading
  * them once turns three plan builds into one.
  */
-export async function preparePlan(input: CalculatePlanInput): Promise<PreparedPlan> {
+export async function preparePlan(
+  input: CalculatePlanInput,
+  shared?: PlanPreparationShared,
+): Promise<PreparedPlan> {
   const scope: ScopeFilter = {
     clientId: input.clientId,
     location: input.location,
     serviceLine: input.serviceLine,
   };
 
-  const latestMonth = await getLatestMonthForScope(scope);
+  const hasSharedSourceMonth = shared != null && "sourceMonth" in shared;
+  const latestMonth = hasSharedSourceMonth
+    ? shared.sourceMonth ?? null
+    : await getLatestMonthForScope(scope);
   if (!latestMonth) {
     throw new PlanningDataError(
       `No occupied ${input.serviceLine} rent-roll rows found for ${input.location ?? "this portfolio"}.`,
@@ -242,7 +270,8 @@ export async function preparePlan(input: CalculatePlanInput): Promise<PreparedPl
       fetchMixStandardizedStreetComparison(scope, priorJanuaryMonth, sourceMonth),
       fetchTopCompetitorRate(scope, sourceMonth),
       fetchProductStreetBaselines(scope, sourceMonth),
-      getDerivedRateFormulas((s, p) => pool.query(s, p), input.clientId),
+      shared?.formulas ??
+        getDerivedRateFormulas((s, p) => pool.query(s, p), input.clientId),
     ]);
 
   const { residents, excluded } = buildResidents(rawRows, {
@@ -886,31 +915,102 @@ export interface CalculatePlanTiersResult {
   warnings: string[];
 }
 
-/**
- * Solve one service line under all three of its occupancy tiers.
- *
- * The line's data is loaded once and solved three times, so this costs roughly
- * one plan build rather than three. Callers fan out across service lines the
- * same way they already do for single plans.
- */
-export async function calculatePlanTiers(
-  input: CalculatePlanTiersInput,
-): Promise<CalculatePlanTiersResult> {
-  const [prepared, occupancy] = await Promise.all([
-    preparePlan({
-      clientId: input.clientId,
-      locationId: input.locationId,
-      location: input.location,
-      serviceLine: input.serviceLine,
-      assumptions: input.assumptions,
-    }),
-    fetchOccupancyByServiceLine(input.clientId, input.location),
-  ]);
+export interface CalculatePlanBatchLine {
+  serviceLine: string;
+  assumptions: PlanningAssumptions;
+}
 
-  const reading = occupancy.byServiceLine.get(input.serviceLine) ?? null;
+export interface CalculatePlanBatchInput {
+  clientId: string;
+  locationId: string | null;
+  location: string | null;
+  lines: CalculatePlanBatchLine[];
+}
+
+export interface BatchPlanFailure {
+  serviceLine: string;
+  message: string;
+}
+
+export interface CalculatePlanBatchResult {
+  plans: Array<{ serviceLine: string; plan: PlanResult }>;
+  skipped: BatchPlanFailure[];
+}
+
+export interface CalculatePlanTiersBatchLine extends CalculatePlanBatchLine {
+  tierPolicy: OccupancyTierPolicy;
+}
+
+export interface CalculatePlanTiersBatchInput {
+  clientId: string;
+  locationId: string | null;
+  location: string | null;
+  lines: CalculatePlanTiersBatchLine[];
+}
+
+export interface CalculatePlanTiersBatchResult {
+  lines: CalculatePlanTiersResult[];
+  skipped: BatchPlanFailure[];
+}
+
+function planningErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : String(error || fallback);
+}
+
+/**
+ * Calculate several ordinary plans from one request. The solver remains
+ * line-scoped, but client-wide policy is loaded once and a failed line is
+ * reported without cancelling valid siblings.
+ */
+export async function calculatePlanBatch(
+  input: CalculatePlanBatchInput,
+): Promise<CalculatePlanBatchResult> {
+  const [formulas, sourceMonths] = await Promise.all([
+    getDerivedRateFormulas((s, p) => pool.query(s, p), input.clientId),
+    getLatestMonthsForScopes(
+      input.clientId,
+      input.location,
+      input.lines.map((line) => line.serviceLine),
+    ),
+  ]);
+  const settled = await Promise.allSettled(
+    input.lines.map(async (line) => {
+      const prepared = await preparePlan(
+        {
+          clientId: input.clientId,
+          locationId: input.locationId,
+          location: input.location,
+          serviceLine: line.serviceLine,
+          assumptions: line.assumptions,
+        },
+        {
+          formulas,
+          sourceMonth: sourceMonths.get(line.serviceLine) ?? null,
+        },
+      );
+      return { serviceLine: line.serviceLine, plan: prepared.solve().plan };
+    }),
+  );
+  const plans: CalculatePlanBatchResult["plans"] = [];
+  const skipped: BatchPlanFailure[] = [];
+  settled.forEach((outcome, index) => {
+    const serviceLine = input.lines[index].serviceLine;
+    if (outcome.status === "fulfilled") plans.push(outcome.value);
+    else skipped.push({
+      serviceLine,
+      message: planningErrorMessage(outcome.reason, `No plan could be calculated for ${serviceLine}.`),
+    });
+  });
+  return { plans, skipped };
+}
+
+function solvePreparedPlanTiers(
+  input: CalculatePlanTiersBatchLine,
+  prepared: PreparedPlan,
+  reading: ServiceLineOccupancy | null,
+): CalculatePlanTiersResult {
   const occupancyPct = reading?.occupancyPct ?? null;
   const currentTier = tierForOccupancy(input.tierPolicy, occupancyPct);
-
   const warnings: string[] = [];
   if (reading == null) {
     warnings.push(
@@ -931,9 +1031,14 @@ export async function calculatePlanTiers(
       isCurrent: tier === currentTier,
     };
     try {
-      const tierContext = tier === currentTier && occupancyPct != null
-        ? { tier, rangeLabel: identity.rangeLabel, occupancyPct }
-        : undefined;
+      const tierContext =
+        tier === currentTier && occupancyPct != null
+          ? {
+              tier,
+              rangeLabel: identity.rangeLabel,
+              occupancyPct,
+            }
+          : undefined;
       const { plan } = prepared.solve(input.tierPolicy.tiers[tier], tierContext);
       if (tier === currentTier) currentPlan = plan;
       return {
@@ -943,25 +1048,17 @@ export async function calculatePlanTiers(
         feasible: plan.feasible,
       };
     } catch (err) {
-      // One unsolvable tier must not discard the other two: a guardrail set
-      // that cannot produce a plan is itself the answer for that cell.
       return {
         ...identity,
         inhouseIncreasePct: null,
         streetIncreasePct: null,
         feasible: null,
-        error: err instanceof Error ? err.message : String(err),
+        error: planningErrorMessage(err, `Tier ${tier} could not be solved.`),
       };
     }
   });
 
-  // Unknown occupancy cannot select a tier safely. Preserve the existing
-  // service-line assumptions for the primary recommendation and say so in the
-  // warnings rather than silently choosing low, target or high.
-  if (currentPlan == null) {
-    currentPlan = prepared.solve().plan;
-  }
-
+  if (currentPlan == null) currentPlan = prepared.solve().plan;
   return {
     serviceLine: input.serviceLine,
     occupancyPct,
@@ -972,6 +1069,84 @@ export async function calculatePlanTiers(
     cells,
     warnings,
   };
+}
+
+/**
+ * Batch form of the occupancy-tier calculation. Occupancy and derived-rate
+ * policy are scope-wide inputs, so they are read once before line preparation.
+ */
+export async function calculatePlanTiersBatch(
+  input: CalculatePlanTiersBatchInput,
+): Promise<CalculatePlanTiersBatchResult> {
+  const [occupancy, formulas, sourceMonths] = await Promise.all([
+    fetchOccupancyByServiceLine(input.clientId, input.location),
+    getDerivedRateFormulas((s, p) => pool.query(s, p), input.clientId),
+    getLatestMonthsForScopes(
+      input.clientId,
+      input.location,
+      input.lines.map((line) => line.serviceLine),
+    ),
+  ]);
+  const settled = await Promise.allSettled(
+    input.lines.map(async (line) => {
+      const prepared = await preparePlan(
+        {
+          clientId: input.clientId,
+          locationId: input.locationId,
+          location: input.location,
+          serviceLine: line.serviceLine,
+          assumptions: line.assumptions,
+        },
+        {
+          formulas,
+          sourceMonth: sourceMonths.get(line.serviceLine) ?? null,
+        },
+      );
+      return solvePreparedPlanTiers(
+        line,
+        prepared,
+        occupancy.byServiceLine.get(line.serviceLine) ?? null,
+      );
+    }),
+  );
+  const lines: CalculatePlanTiersResult[] = [];
+  const skipped: BatchPlanFailure[] = [];
+  settled.forEach((outcome, index) => {
+    const serviceLine = input.lines[index].serviceLine;
+    if (outcome.status === "fulfilled") lines.push(outcome.value);
+    else skipped.push({
+      serviceLine,
+      message: planningErrorMessage(
+        outcome.reason,
+        `No tier grid could be built for ${serviceLine}.`,
+      ),
+    });
+  });
+  return { lines, skipped };
+}
+
+/**
+ * Solve one service line under all three of its occupancy tiers.
+ *
+ * The line's data is loaded once and solved three times, so this costs roughly
+ * one plan build rather than three. Callers fan out across service lines the
+ * same way they already do for single plans.
+ */
+export async function calculatePlanTiers(
+  input: CalculatePlanTiersInput,
+): Promise<CalculatePlanTiersResult> {
+  const result = await calculatePlanTiersBatch({
+    clientId: input.clientId,
+    locationId: input.locationId,
+    location: input.location,
+    lines: [{
+      serviceLine: input.serviceLine,
+      assumptions: input.assumptions,
+      tierPolicy: input.tierPolicy,
+    }],
+  });
+  if (result.lines[0]) return result.lines[0];
+  throw new PlanningDataError(result.skipped[0]?.message ?? "No tier grid could be built.");
 }
 
 /**
