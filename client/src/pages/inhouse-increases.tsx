@@ -688,6 +688,7 @@ function PlanScatterReview({
   campusOccupancy: CampusOccupancyReading[];
 }) {
   const [highlight, setHighlight] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const occupancyByLine = useMemo(() => {
     const map = new Map<string, CampusOccupancyReading>();
     campusOccupancy
@@ -783,35 +784,58 @@ function PlanScatterReview({
   if (points.length === 0) return null;
   return (
     <Card data-testid="card-inhouse-scatterplots">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base">Campus pricing position</CardTitle>
-        <CardDescription>Each dot is a campus and service-line combination. Occupancy is measured; unknown readings are not plotted.</CardDescription>
+      <CardHeader className={cn("pb-3", expanded && "border-b")}>
+        <button
+          type="button"
+          className="flex w-full items-start justify-between gap-4 text-left"
+          onClick={() => setExpanded((current) => !current)}
+          aria-expanded={expanded}
+          aria-controls="inhouse-scatterplot-content"
+          data-testid="button-toggle-inhouse-scatterplots"
+        >
+          <div className="space-y-1.5">
+            <CardTitle className="text-base">Campus pricing position</CardTitle>
+            <CardDescription>
+              Scatterplots of occupancy against in-house and Street Rate increases.
+            </CardDescription>
+          </div>
+          {expanded ? (
+            <ChevronDown className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+          )}
+        </button>
       </CardHeader>
-      <CardContent>
-        <div className="mb-4 flex flex-wrap gap-x-4 gap-y-2 border-y py-3">
-          {Array.from(new Set(points.map((p) => p.serviceLine))).map((sl) => (
-            <button
-              key={sl}
-              type="button"
-              onClick={() => setHighlight((current) => current === sl ? null : sl)}
-              className={cn("flex items-center gap-1.5 text-xs transition-opacity", highlight && highlight !== sl && "opacity-35")}
-              aria-pressed={highlight === sl}
-            >
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PLAN_SCATTER_COLORS[sl] ?? "#64748b" }} />
-              <span>{sl}</span>
-            </button>
-          ))}
-        </div>
-        <div className="grid gap-6 lg:grid-cols-2">
-          {renderChart("inhouseIncrease", "In-house resident rate increase")}
-          {renderChart("streetIncrease", "Street Rate increase")}
-        </div>
-        {unknownCount > 0 && (
-          <p className="mt-3 text-xs text-muted-foreground">
-            {unknownCount} campus/service-line combination{unknownCount === 1 ? "" : "s"} omitted because occupancy was unavailable.
+      {expanded && (
+        <CardContent id="inhouse-scatterplot-content" className="pt-4">
+          <p className="mb-3 text-xs text-muted-foreground">
+            Each dot is a campus and service-line combination. Occupancy is measured; unknown readings are not plotted.
           </p>
-        )}
-      </CardContent>
+          <div className="mb-4 flex flex-wrap gap-x-4 gap-y-2 border-y py-3">
+            {Array.from(new Set(points.map((p) => p.serviceLine))).map((sl) => (
+              <button
+                key={sl}
+                type="button"
+                onClick={() => setHighlight((current) => current === sl ? null : sl)}
+                className={cn("flex items-center gap-1.5 text-xs transition-opacity", highlight && highlight !== sl && "opacity-35")}
+                aria-pressed={highlight === sl}
+              >
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PLAN_SCATTER_COLORS[sl] ?? "#64748b" }} />
+                <span>{sl}</span>
+              </button>
+            ))}
+          </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            {renderChart("inhouseIncrease", "In-house resident rate increase")}
+            {renderChart("streetIncrease", "Street Rate increase")}
+          </div>
+          {unknownCount > 0 && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {unknownCount} campus/service-line combination{unknownCount === 1 ? "" : "s"} omitted because occupancy was unavailable.
+            </p>
+          )}
+        </CardContent>
+      )}
     </Card>
   );
 }
@@ -2603,11 +2627,12 @@ export default function InhouseIncreases() {
       </Card>
 
       {/* ── Occupancy tier summary ────────────────────────────────────── */}
-      {calculateTiers.isPending && !tierGrid && (
+      {(calculate.isPending || calculateTiers.isPending) && (!plans?.length || !tierGrid) && (
         <div className="flex items-center gap-3 rounded-md border p-6 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Solving {serviceLines.length} service line{serviceLines.length === 1 ? "" : "s"} across
-          three occupancy tiers each…
+          Calculating the plan for {serviceLines.length > 1
+            ? `${serviceLines.length} service lines and their occupancy tiers`
+            : `${serviceLines[0]} and its occupancy tiers`}…
         </div>
       )}
 
@@ -2750,14 +2775,16 @@ export default function InhouseIncreases() {
         </Card>
       )}
 
-      {calculate.isPending && !plans?.length && (
-        <div className="flex items-center gap-3 rounded-md border p-6 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Reading the rent roll and solving for {serviceLines.length > 1 ? `${serviceLines.length} service lines` : serviceLines[0]}…
-        </div>
+      {plans && plans.length > 0 && (
+        <PlanScatterReview
+          plans={plans}
+          selectedLocationId={scopeLocationId}
+          tierGrid={tierGrid}
+          campusOccupancy={campusOccupancyData?.readings ?? []}
+        />
       )}
 
-      {calculate.isPending && !!plans?.length && (
+      {(calculate.isPending || calculateTiers.isPending) && !!plans?.length && !!tierGrid && (
         <div
           className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-lg border bg-background px-4 py-3 text-sm shadow-lg"
           role="status"
@@ -3543,15 +3570,6 @@ export default function InhouseIncreases() {
               )}
             </CardContent>
           </Card>
-
-          {plans.length > 0 && (
-            <PlanScatterReview
-              plans={plans}
-              selectedLocationId={scopeLocationId}
-              tierGrid={tierGrid}
-              campusOccupancy={campusOccupancyData?.readings ?? []}
-            />
-          )}
 
           {/* ── Submit proposals ─────────────────────────────────────── */}
           <Card>
