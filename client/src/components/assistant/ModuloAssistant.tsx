@@ -140,7 +140,16 @@ export default function ModuloAssistant() {
           pageContext: { path },
         }),
       });
-      if (!response.ok) throw new Error("The assistant could not respond.");
+      if (!response.ok) {
+        let message = "The assistant could not respond.";
+        try {
+          const failure = await response.json() as { error?: unknown };
+          if (typeof failure.error === "string" && failure.error.trim()) message = failure.error;
+        } catch {
+          // Keep the local fallback when a proxy or upstream returns non-JSON.
+        }
+        throw new Error(message);
+      }
       const result: { message: string; model?: string; sources?: Source[] } = await response.json();
       setMessages([...next, { role: "assistant", content: result.message, sources: result.sources }]);
     } catch (requestError) {
