@@ -76,6 +76,14 @@ import {
   type PlanResult,
   type PlanningAssumptions,
   type ResidentRecommendation,
+  defaultOccupancyTierPolicy,
+  guardrailsFromAssumptions,
+  OCCUPANCY_TIER_IDS,
+  OCCUPANCY_TIER_LABELS,
+  type OccupancyTierGuardrails,
+  type OccupancyTierId,
+  type OccupancyTierPlanCell,
+  type OccupancyTierPolicy,
 } from "@shared/inhousePlanning";
 import type {
   InhousePlanHistoryEntry,
@@ -536,6 +544,7 @@ function CommitNumberInput({
   min,
   max,
   step = 0.5,
+  disabled,
   "data-testid": testId,
 }: {
   value: number | "";
@@ -545,6 +554,7 @@ function CommitNumberInput({
   min?: number;
   max?: number;
   step?: number;
+  disabled?: boolean;
   "data-testid"?: string;
 }) {
   const displayValue = value === "" ? "" : String(value);
@@ -592,6 +602,7 @@ function CommitNumberInput({
       max={max}
       step={step}
       className={className}
+      disabled={disabled}
       onFocus={() => setEditing(true)}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={() => {
@@ -650,6 +661,85 @@ interface CalculateRequest {
   locationId: string | null;
   serviceLines: string[];
   assumptionsByLine: Record<string, PlanningAssumptions>;
+}
+
+/** One service line's three tier plans, as returned by /calculate-tiers. */
+interface TierGridLine {
+  serviceLine: string;
+  occupancyPct: number | null;
+  occupancyMonth: string | null;
+  occupancySource: "occupancy_history" | "rent_roll" | null;
+  currentTier: OccupancyTierId | null;
+  cells: OccupancyTierPlanCell[];
+  warnings: string[];
+}
+
+interface TierGridResult {
+  lines: TierGridLine[];
+  skipped: Array<{ sl: string; message: string }>;
+  /**
+   * The scope and the full set of solver inputs the grid was built from,
+   * captured when the request went out. A grid takes ~30 seconds to build,
+   * which is long enough for the operator to change campus or edit an input
+   * while it runs; without these a late result would repaint under a scope it
+   * does not describe, or sit there looking current under changed inputs.
+   */
+  scopeKey: string;
+  inputsKey: string;
+}
+
+/**
+ * Column track shared by the tier table's header and every body row. Written
+ * as one literal so the two can never drift out of alignment.
+ */
+const TIER_GRID_COLS =
+  "grid grid-cols-[4.5rem_3.75rem_6.5rem_7.5rem_7.5rem_4.25rem_4.75rem_6rem] gap-x-2";
+
+/** Stable empty map, so reading out of scope does not churn referential equality. */
+const NO_TIER_POLICIES: Record<string, OccupancyTierPolicy> = {};
+
+/** Column track for the tier summary grid, shared by its headers and rows. */
+const TIER_SUMMARY_COLS =
+  "grid grid-cols-[6rem_5.5rem_repeat(3,minmax(6.5rem,1fr))] gap-x-2";
+
+/** Signed one-decimal percent, or an em dash when the tier produced nothing. */
+function formatTierPct(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+/** Compact numeric cell for the tier table; full-size fields are too tall here. */
+function TierInput({
+  value,
+  onCommit,
+  min,
+  max,
+  testId,
+  disabled,
+}: {
+  value: number;
+  onCommit: (v: number) => void;
+  min?: number;
+  max?: number;
+  testId?: string;
+  /**
+   * Set until the line's stored policy has been applied. An edit accepted
+   * before then has nothing real to build on, so it would be recorded against
+   * a default policy and the stored one silently discarded.
+   */
+  disabled?: boolean;
+}) {
+  return (
+    <CommitNumberInput
+      className="h-7 w-full px-1.5 text-xs"
+      value={Number.isFinite(value) ? value : ""}
+      min={min}
+      max={max}
+      onCommit={onCommit}
+      disabled={disabled}
+      data-testid={testId}
+    />
+  );
 }
 
 function quarterPeriodWeight(
@@ -755,6 +845,38 @@ export default function InhouseIncreases() {
   const [perLineTargets, setPerLineTargets] = useState<
     Record<string, { rateGrowthTargetPct: number; annualTurnoverPct: number }>
   >({});
+  /**
+   * Per-line occupancy tier policies: two cutoffs and one guardrail set per
+   * tier. Held beside perLineTargets rather than inside `assumptions` because
+   * a tier is a policy about which guardrails apply, not an input the solver
+   * reads directly.
+   */
+  /**
+   * Policies carry the campus they were loaded for, and `edited` names the
+   * lines the operator has typed into.
+   *
+   * The scope lives inside the state rather than being cleared by an effect
+   * because effect ordering cannot be relied on: returning to a campus visited
+   * earlier makes the cached policies available on the first render, so a
+   * seed-then-reset pair silently ends at empty. Carrying the scope makes a
+   * policy from the wrong campus unrepresentable instead of merely unlikely.
+   *
+   * Keyed on campus only, not campus-and-selection: a policy belongs to a
+   * (campus, service line) pair, so adding a line to the selection must not
+   * throw away edits to the lines already there.
+   */
+  const [tierState, setTierState] = useState<{
+    scopeKey: string;
+    policies: Record<string, OccupancyTierPolicy>;
+    edited: Record<string, true>;
+    /**
+     * Lines whose stored policy has actually come back from the server. Only
+     * this proves a policy is real; a populated `policies[sl]` could equally
+     * be a default an edit was built on before the load landed.
+     */
+    loaded: Record<string, true>;
+  }>({ scopeKey: "", policies: {}, edited: {}, loaded: {} });
+  const [tierGrid, setTierGrid] = useState<TierGridResult | null>(null);
   const [assumptionsTouched, setAssumptionsTouched] = useState(false);
   const [, startAssumptionTransition] = useTransition();
   const [plans, setPlans] = useState<PlanWithSl[] | null>(null);
@@ -772,6 +894,28 @@ export default function InhouseIncreases() {
       : null;
   // When a single line is selected use it; otherwise use the first for assumptions loading.
   const firstLine = serviceLines[0] ?? SERVICE_LINES[0];
+  // What the tier grid describes. Scope and inputs are tracked separately so
+  // the two can be reported differently: a scope change invalidates the grid
+  // outright, while an edited input only makes it out of date.
+  const tierScopeKey = `${scopeLocationId ?? "all"}|${serviceLines.join(",")}`;
+  // Policies are per campus; the service line is the record key inside them.
+  const policyScopeKey = scopeLocationId ?? "all";
+  // Reading through the scope check is what makes a policy from another campus
+  // unrepresentable rather than merely unlikely.
+  const tierPolicies =
+    tierState.scopeKey === policyScopeKey ? tierState.policies : NO_TIER_POLICIES;
+  // Every value posted to the solver, not just the tier policy. Growth target,
+  // turnover and the effective dates all change the answer, so a grid built
+  // before one of them was edited is just as stale as one built under an old
+  // cutoff — and must not be readable as current.
+  const tierInputsKey = JSON.stringify(
+    serviceLines.map((sl) => [sl, tierPolicies[sl] ?? null, assumptionsForLine(sl)]),
+  );
+  const tierScopeKeyRef = useRef(tierScopeKey);
+  tierScopeKeyRef.current = tierScopeKey;
+  const tierGridStale =
+    tierGrid != null &&
+    (tierGrid.scopeKey !== tierScopeKey || tierGrid.inputsKey !== tierInputsKey);
   const singleLine = serviceLines.length === 1 ? serviceLines[0] : null;
   const calculatedPlanKey = useMemo(
     () => storageIdentityKey
@@ -909,6 +1053,117 @@ export default function InhouseIncreases() {
   });
 
   /**
+   * Tier policies are loaded per service line, not cloned from the first one.
+   *
+   * Unlike the shared assumptions — which the operator edits once and saves to
+   * every selected line — a tier policy is genuinely per line: a villa and a
+   * skilled-nursing wing set different cutoffs. Seeding all lines from the
+   * first line's stored policy would hide the others' saved values on screen
+   * and then overwrite them on the next save.
+   */
+  const tierPoliciesQuery = useQuery<{
+    scopeKey: string;
+    policies: Record<string, OccupancyTierPolicy>;
+  }>({
+    // Shares the assumptions prefix deliberately: saving invalidates that
+    // prefix, and this query has to go with it. A distinct key string looks
+    // related but is not — TanStack matches array prefixes, not substrings, so
+    // a saved policy would sit behind an untouched cache entry (staleTime is
+    // Infinity globally) and reappear as the old value on the next visit.
+    queryKey: [
+      "/api/inhouse-planning/assumptions",
+      "tier-policies",
+      scopeLocationId ?? "all",
+      serviceLines.join(","),
+    ],
+    queryFn: async ({ signal }) => {
+      // The campus this run is answering for, captured before any awaiting.
+      const scopeKey = scopeLocationId ?? "all";
+      const entries = await Promise.all(
+        serviceLines.map(async (sl) => {
+          const params = new URLSearchParams({ serviceLine: sl });
+          if (scopeLocationId) params.set("locationId", scopeLocationId);
+          const res = await fetch(`/api/inhouse-planning/assumptions?${params}`, {
+            credentials: "include",
+            signal,
+          });
+          if (!res.ok) throw new Error(await res.text());
+          const json = await res.json();
+          const loaded: OccupancyTierPolicy = json.tierPolicy ?? defaultOccupancyTierPolicy();
+          // A line that never saved a policy starts its middle tier at the
+          // guardrails already in force, so the grid's target column
+          // reproduces the plan being shown rather than introducing numbers
+          // nobody chose.
+          const seeded: OccupancyTierPolicy = json.tierPolicyStored
+            ? loaded
+            : {
+                ...loaded,
+                tiers: {
+                  ...loaded.tiers,
+                  target: guardrailsFromAssumptions(json.assumptions),
+                },
+              };
+          return [sl, seeded] as const;
+        }),
+      );
+      return { scopeKey, policies: Object.fromEntries(entries) };
+    },
+  });
+
+  /**
+   * Seeding is applied here rather than inside the fetch so the campus can be
+   * re-checked at the moment the state is written: a request for the previous
+   * campus can still be in flight when the campus changes.
+   *
+   * The reset to a new campus happens inside this same update rather than in
+   * a separate effect, so there is no interleaving in which the old campus's
+   * policies outlive it or the new campus's get cleared after being seeded.
+   */
+  useEffect(() => {
+    const data = tierPoliciesQuery.data;
+    if (!data || data.scopeKey !== policyScopeKey) return;
+    setTierState((prev) => {
+      const base =
+        prev.scopeKey === policyScopeKey
+          ? prev
+          : { scopeKey: policyScopeKey, policies: {}, edited: {}, loaded: {} };
+      let changed = base !== prev;
+      const policies = { ...base.policies };
+      const loaded = { ...base.loaded };
+      for (const [sl, policy] of Object.entries(data.policies)) {
+        if (!loaded[sl]) {
+          loaded[sl] = true;
+          changed = true;
+        }
+        // Lines the operator is editing are theirs; everything else tracks
+        // what the server actually has stored.
+        if (base.edited[sl]) continue;
+        if (JSON.stringify(policies[sl]) === JSON.stringify(policy)) continue;
+        policies[sl] = policy;
+        changed = true;
+      }
+      return changed ? { ...base, policies, loaded } : prev;
+    });
+  }, [tierPoliciesQuery.data, policyScopeKey]);
+
+  /**
+   * Until every selected line's stored policy is actually in state,
+   * `tierPolicyFor` answers with defaults. Saving then writes those defaults
+   * over whatever the lines had, and a tier grid solves guardrails nobody
+   * chose — so both actions wait. Readiness is measured on the state the
+   * buttons will read, not on the query, because a cached query result that
+   * has not been applied yet would otherwise report ready.
+   */
+  // A failed load leaves whatever was cached on screen. That may well be
+  // right, but nothing here can tell, so treat the line as unloaded rather
+  // than let a guess be saved back over the stored policy.
+  const tierLineLoaded = (sl: string) =>
+    tierState.scopeKey === policyScopeKey &&
+    tierState.loaded[sl] === true &&
+    !tierPoliciesQuery.isError;
+  const tierPoliciesReady = serviceLines.every(tierLineLoaded);
+
+  /**
    * Per-line overrides belong to the campus they were seeded from. Keeping
    * them across a campus change leaves the previous campus's turnover sitting
    * in the box for any line the new campus cannot measure — while the note
@@ -917,6 +1172,13 @@ export default function InhouseIncreases() {
    */
   useEffect(() => {
     setPerLineTargets({});
+    // Tier policies and any grid built from them belong to the campus they
+    // were loaded for; a stale grid under a new campus reads as that campus's
+    // answer.
+    // Tier policies need no reset here: they carry their own campus and are
+    // read through a scope check, so last campus's values can never be read
+    // as this one's regardless of which effect runs first.
+    setTierGrid(null);
   }, [scopeLocationId]);
 
   /**
@@ -1131,21 +1393,128 @@ export default function InhouseIncreases() {
     },
   });
 
+  /**
+   * The what-if grid: every selected service line solved under all three of
+   * its tiers. Fanned out per line like the single-plan calculation, so the
+   * grid fills in line by line and one unsolvable line cannot lose the rest.
+   */
+  const calculateTiers = useMutation({
+    mutationFn: async (): Promise<TierGridResult> => {
+      const requested = [...serviceLines];
+      // Snapshot what this run describes before any awaiting starts.
+      const scopeKey = tierScopeKey;
+      const inputsKey = tierInputsKey;
+      const locationIdAtStart = scopeLocationId;
+      const settled = await Promise.allSettled(
+        requested.map(async (sl) => {
+          const res = await apiRequest("/api/inhouse-planning/calculate-tiers", "POST", {
+            locationId: locationIdAtStart,
+            serviceLine: sl,
+            assumptions: assumptionsForLine(sl),
+            tierPolicy: tierPolicyFor(sl),
+          });
+          return (await res.json()) as TierGridLine;
+        }),
+      );
+      const lines: TierGridLine[] = [];
+      const skipped: Array<{ sl: string; message: string }> = [];
+      settled.forEach((outcome, index) => {
+        if (outcome.status === "fulfilled") lines.push(outcome.value);
+        else {
+          skipped.push({
+            sl: requested[index],
+            message:
+              outcome.reason instanceof Error
+                ? cleanError(outcome.reason.message)
+                : "No tier grid could be built for this service line.",
+          });
+        }
+      });
+      if (lines.length === 0) {
+        throw new Error(
+          skipped.length > 0
+            ? skipped.map(({ sl, message }) => `${sl}: ${message}`).join(" ")
+            : "No service lines were selected.",
+        );
+      }
+      return { lines, skipped, scopeKey, inputsKey };
+    },
+    onSuccess: (result) => {
+      // The scope moved while this was in flight. Showing it would label one
+      // campus's numbers with another campus's name, so drop it and say so.
+      if (result.scopeKey !== tierScopeKeyRef.current) {
+        toast({
+          title: "Tier grid discarded",
+          description:
+            "The campus or service line selection changed while the grid was building, so the finished result no longer describes what is on screen. Run it again.",
+        });
+        return;
+      }
+      setTierGrid(result);
+      if (result.skipped.length > 0) {
+        toast({
+          title: `${result.skipped.length} service line${result.skipped.length === 1 ? "" : "s"} skipped`,
+          description: result.skipped.map(({ sl, message }) => `${sl}: ${message}`).join(" "),
+        });
+      }
+    },
+    onError: (err: Error) =>
+      toast({
+        title: "Could not build the tier grid",
+        description: cleanError(err.message),
+        variant: "destructive",
+      }),
+  });
+
   // Saving writes the shared assumptions to every selected service line.
   const saveAssumptions = useMutation({
     mutationFn: async () => {
+      const scopeKey = scopeLocationId ?? "all";
+      const submitted: Record<string, OccupancyTierPolicy> = {};
+      for (const sl of serviceLines) submitted[sl] = tierPolicyFor(sl);
       await Promise.all(
         serviceLines.map((sl) =>
           apiRequest("/api/inhouse-planning/assumptions", "POST", {
             locationId: scopeLocationId,
             serviceLine: sl,
             assumptions: assumptionsForLine(sl),
+            tierPolicy: submitted[sl],
           }).then((r) => r.json()),
         ),
       );
+      return { scopeKey, submitted };
     },
-    onSuccess: () => {
+    onSuccess: ({ scopeKey, submitted }) => {
       setAssumptionsTouched(false);
+      /**
+       * Write the acknowledged policies into the cache before invalidating.
+       *
+       * Invalidation marks data stale but leaves it readable, so on its own it
+       * still leaves a window — the length of the refetch, or forever if the
+       * refetch is aborted by a campus change or fails — in which the
+       * pre-save policy is served, counts as loaded, and can be saved back
+       * over what was just written. Writing the acknowledged values first
+       * means the only thing left in the cache is already correct.
+       *
+       * Every cache entry for this campus is updated, not just the one for
+       * the current selection: entries are also keyed by the set of selected
+       * service lines, so the same line appears in several of them.
+       */
+      queryClient.setQueriesData<{
+        scopeKey: string;
+        policies: Record<string, OccupancyTierPolicy>;
+      }>(
+        {
+          predicate: (q) =>
+            Array.isArray(q.queryKey) &&
+            q.queryKey[0] === "/api/inhouse-planning/assumptions" &&
+            q.queryKey[1] === "tier-policies" &&
+            q.queryKey[2] === scopeKey,
+        },
+        (old) => (old ? { ...old, policies: { ...old.policies, ...submitted } } : old),
+      );
+      // Prefix-invalidates the per-line tier-policy query too, so returning to
+      // this campus later reseeds from what was just saved.
       queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/assumptions"] });
       const lineLabel = serviceLines.length === 1 ? serviceLines[0] : `${serviceLines.length} service lines`;
       toast({
@@ -1239,6 +1608,62 @@ export default function InhouseIncreases() {
     const overrides = perLineTargets[sl];
     if (!overrides) return assumptions;
     return { ...assumptions, ...overrides };
+  }
+
+  function tierPolicyFor(sl: string): OccupancyTierPolicy {
+    return tierPolicies[sl] ?? defaultOccupancyTierPolicy();
+  }
+
+  /**
+   * Single writer for a tier policy. Marks the line as edited and stamps the
+   * current campus in the same update, so an edit can never be recorded
+   * against one campus and then read under another.
+   */
+  function editTierPolicy(sl: string, change: (base: OccupancyTierPolicy) => OccupancyTierPolicy) {
+    // The inputs are disabled until the line loads; this refuses the edit
+    // outright so no path can build one on top of a default policy and then
+    // have the real one skipped as "already edited".
+    if (!tierLineLoaded(sl)) return;
+    setAssumptionsTouched(true);
+    startAssumptionTransition(() => {
+      setTierState((prev) => {
+        if (prev.scopeKey !== policyScopeKey || !prev.loaded[sl]) return prev;
+        return {
+          ...prev,
+          policies: {
+            ...prev.policies,
+            [sl]: change(prev.policies[sl] ?? defaultOccupancyTierPolicy()),
+          },
+          edited: { ...prev.edited, [sl]: true },
+        };
+      });
+    });
+  }
+
+  function updateTierCutoff(sl: string, key: "lowCutoffPct" | "highCutoffPct", value: number) {
+    editTierPolicy(sl, (base) => {
+      const next: OccupancyTierPolicy = { ...base, [key]: value };
+      // Push the other cutoff rather than allowing them to cross. A crossed
+      // pair makes the middle tier unreachable, and the row would still show
+      // three editable tiers while one of them could never apply.
+      if (next.lowCutoffPct > next.highCutoffPct) {
+        if (key === "lowCutoffPct") next.highCutoffPct = value;
+        else next.lowCutoffPct = value;
+      }
+      return next;
+    });
+  }
+
+  function updateTierGuardrail<K extends keyof OccupancyTierGuardrails>(
+    sl: string,
+    tier: OccupancyTierId,
+    field: K,
+    value: OccupancyTierGuardrails[K],
+  ) {
+    editTierPolicy(sl, (base) => ({
+      ...base,
+      tiers: { ...base.tiers, [tier]: { ...base.tiers[tier], [field]: value } },
+    }));
   }
 
   const hasChangedPlanAssumptions = !!plans?.some(
@@ -1716,6 +2141,212 @@ export default function InhouseIncreases() {
             </p>
           )}
 
+          {/* ── Occupancy tiers ──────────────────────────────────────────── */}
+          <div className="space-y-2 rounded-md border p-3">
+            <div>
+              <p className="text-sm font-medium">Occupancy tiers</p>
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                Each service line sets its own two cutoffs and one set of guardrails per tier — a
+                villa and a skilled-nursing wing are not full at the same number. Effective dates,
+                the growth target and turnover stay shared: a tier changes how hard the solver may
+                push, never the period it is measured over.
+              </p>
+            </div>
+
+            <div className="overflow-x-auto">
+              <div className="min-w-[46rem]">
+                <div
+                  className={cn(
+                    TIER_GRID_COLS,
+                    "items-end border-b pb-1 text-[11px] font-medium text-muted-foreground",
+                  )}
+                >
+                  <span>Service line</span>
+                  <span>Tier</span>
+                  <HeaderHelp
+                    label="Occupancy"
+                    explanation="The measured occupancy range this tier governs. Set the lower cutoff on the Low row and the upper cutoff on the High row; the Target range between them follows automatically."
+                  />
+                  <HeaderHelp
+                    label="In-house min / max"
+                    explanation="The smallest and largest increase any individual resident may receive under this tier."
+                  />
+                  <HeaderHelp
+                    label="Street min / max"
+                    explanation="The bounds on the recommended Street Rate increase under this tier."
+                  />
+                  <HeaderHelp
+                    label="Max YoY"
+                    explanation="Ceiling on the Street Rate increase measured year over year, independent of the per-cycle maximum."
+                  />
+                  <HeaderHelp
+                    label="vs Top comp"
+                    explanation="Where the Street Rate should sit against the care-adjusted Top Competitor benchmark. Negative prices below the competitor, positive above."
+                  />
+                  <HeaderHelp
+                    label="Equalization"
+                    explanation="How much more the residents furthest below street rate get than those closest to it."
+                  />
+                </div>
+
+                {serviceLines.map((sl) => {
+                  const policy = tierPolicyFor(sl);
+                  // Until the stored policy arrives, what is shown is a
+                  // default. Editing it would record the default as chosen and
+                  // discard whatever the server actually had for this line.
+                  const lineDisabled = !tierLineLoaded(sl);
+                  return (
+                    <div key={sl} className="border-b py-1 last:border-b-0">
+                      {OCCUPANCY_TIER_IDS.map((tier, tierIndex) => {
+                        const g = policy.tiers[tier];
+                        return (
+                          <div
+                            key={tier}
+                            className={cn(TIER_GRID_COLS, "items-center py-0.5")}
+                            data-testid={`tier-row-${sl}-${tier}`}
+                          >
+                            <span className="truncate text-xs font-medium">
+                              {tierIndex === 0 ? sl : ""}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {OCCUPANCY_TIER_LABELS[tier]}
+                            </span>
+
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              {tier === "low" && (
+                                <>
+                                  <span>&lt;</span>
+                                  <TierInput
+                                    disabled={lineDisabled}
+                                    value={policy.lowCutoffPct}
+                                    min={0}
+                                    max={100}
+                                    onCommit={(v) => updateTierCutoff(sl, "lowCutoffPct", v)}
+                                    testId={`tier-cutoff-low-${sl}`}
+                                  />
+                                </>
+                              )}
+                              {tier === "target" && (
+                                <span className="tabular-nums">
+                                  {policy.lowCutoffPct}–{policy.highCutoffPct}%
+                                </span>
+                              )}
+                              {tier === "high" && (
+                                <>
+                                  <span>≥</span>
+                                  <TierInput
+                                    disabled={lineDisabled}
+                                    value={policy.highCutoffPct}
+                                    min={0}
+                                    max={100}
+                                    onCommit={(v) => updateTierCutoff(sl, "highCutoffPct", v)}
+                                    testId={`tier-cutoff-high-${sl}`}
+                                  />
+                                </>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              <TierInput
+                                disabled={lineDisabled}
+                                value={g.minInhouseIncreasePct}
+                                min={0}
+                                max={100}
+                                onCommit={(v) =>
+                                  updateTierGuardrail(sl, tier, "minInhouseIncreasePct", v)
+                                }
+                              />
+                              <span className="text-[11px] text-muted-foreground">–</span>
+                              <TierInput
+                                disabled={lineDisabled}
+                                value={g.maxInhouseIncreasePct}
+                                min={0}
+                                max={100}
+                                onCommit={(v) =>
+                                  updateTierGuardrail(sl, tier, "maxInhouseIncreasePct", v)
+                                }
+                              />
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              <TierInput
+                                disabled={lineDisabled}
+                                value={g.minStreetIncreasePct}
+                                min={0}
+                                max={100}
+                                onCommit={(v) =>
+                                  updateTierGuardrail(sl, tier, "minStreetIncreasePct", v)
+                                }
+                              />
+                              <span className="text-[11px] text-muted-foreground">–</span>
+                              <TierInput
+                                disabled={lineDisabled}
+                                value={g.maxStreetIncreasePct}
+                                min={0}
+                                max={100}
+                                onCommit={(v) =>
+                                  updateTierGuardrail(sl, tier, "maxStreetIncreasePct", v)
+                                }
+                              />
+                            </div>
+
+                            <TierInput
+
+                              disabled={lineDisabled}
+                              value={g.maxYoYStreetIncreasePct}
+                              min={0}
+                              max={100}
+                              onCommit={(v) =>
+                                updateTierGuardrail(sl, tier, "maxYoYStreetIncreasePct", v)
+                              }
+                            />
+
+                            <TierInput
+
+                              disabled={lineDisabled}
+                              value={g.desiredVarianceToTopCompetitorPct}
+                              min={-100}
+                              max={100}
+                              onCommit={(v) =>
+                                updateTierGuardrail(
+                                  sl,
+                                  tier,
+                                  "desiredVarianceToTopCompetitorPct",
+                                  v,
+                                )
+                              }
+                            />
+
+                            <Select
+                              value={g.equalizationStrength}
+                              onValueChange={(v) =>
+                                updateTierGuardrail(
+                                  sl,
+                                  tier,
+                                  "equalizationStrength",
+                                  v as EqualizationStrength,
+                                )
+                              }
+                            >
+                              <SelectTrigger className="h-7 px-2 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="low">Low</SelectItem>
+                                <SelectItem value="medium">Medium</SelectItem>
+                                <SelectItem value="high">High</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <DateField
               testId="input-street-date"
@@ -1837,9 +2468,23 @@ export default function InhouseIncreases() {
               Calculate plan
             </Button>
             <Button
+              type="button"
+              variant="outline"
+              onClick={() => calculateTiers.mutate()}
+              disabled={!!rangeError || calculateTiers.isPending || !tierPoliciesReady}
+              data-testid="button-calculate-tiers"
+            >
+              {calculateTiers.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Calculator className="mr-2 h-4 w-4" />
+              )}
+              Compare occupancy tiers
+            </Button>
+            <Button
               variant="outline"
               onClick={() => saveAssumptions.mutate()}
-              disabled={!!rangeError || saveAssumptions.isPending}
+              disabled={!!rangeError || saveAssumptions.isPending || !tierPoliciesReady}
               data-testid="button-save-assumptions"
             >
               {saveAssumptions.isPending ? (
@@ -1849,9 +2494,170 @@ export default function InhouseIncreases() {
               )}
               Save assumptions
             </Button>
+            {!tierPoliciesReady && (
+              <p
+                className={cn(
+                  "self-center text-[11px] leading-snug",
+                  tierPoliciesQuery.isError ? "text-destructive" : "text-muted-foreground",
+                )}
+                data-testid="tier-policies-status"
+              >
+                {tierPoliciesQuery.isError
+                  ? "The saved occupancy tier settings could not be loaded, so saving is blocked — saving now would overwrite them with defaults. Reload the page to try again."
+                  : "Loading each service line's saved occupancy tier settings…"}
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Occupancy tier summary ────────────────────────────────────── */}
+      {calculateTiers.isPending && !tierGrid && (
+        <div className="flex items-center gap-3 rounded-md border p-6 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Solving {serviceLines.length} service line{serviceLines.length === 1 ? "" : "s"} across
+          three occupancy tiers each…
+        </div>
+      )}
+
+      {tierGrid && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Increases by occupancy tier</CardTitle>
+            <CardDescription>
+              What each service line's plan becomes under each of its tiers. The tier its measured
+              occupancy actually falls in is marked; the other two are what-ifs, not proposals.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {tierGridStale && (
+              <p
+                className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-amber-600 dark:text-amber-400"
+                data-testid="tier-grid-stale"
+              >
+                These numbers were solved under the tier settings as they were when the grid was
+                built, and those settings have changed since. Run the comparison again before
+                reading anything into them.
+              </p>
+            )}
+            <div className="overflow-x-auto">
+              <div className="min-w-[42rem]">
+                <div
+                  className={cn(
+                    TIER_SUMMARY_COLS,
+                    "items-end border-b pb-1 text-[11px] font-medium text-muted-foreground",
+                  )}
+                >
+                  <span>Service line</span>
+                  <HeaderHelp
+                    label="Occupancy"
+                    explanation="Measured occupancy for this service line, from occupancy history. This is what selects the tier in force."
+                  />
+                  {OCCUPANCY_TIER_IDS.map((tier) => (
+                    <span key={tier} className="text-center">
+                      {OCCUPANCY_TIER_LABELS[tier]}
+                    </span>
+                  ))}
+                </div>
+                <div
+                  className={cn(
+                    TIER_SUMMARY_COLS,
+                    "border-b pb-1 pt-0.5 text-[10px] text-muted-foreground",
+                  )}
+                >
+                  <span />
+                  <span />
+                  {OCCUPANCY_TIER_IDS.map((tier) => (
+                    <span key={tier} className="text-center">
+                      in-house / street
+                    </span>
+                  ))}
+                </div>
+
+                {tierGrid.lines.map((line) => {
+                  const byTier = new Map(line.cells.map((c) => [c.tier, c]));
+                  return (
+                    <div
+                      key={line.serviceLine}
+                      className={cn(TIER_SUMMARY_COLS, "items-center border-b py-1 last:border-b-0")}
+                      data-testid={`tier-summary-${line.serviceLine}`}
+                    >
+                      <span className="truncate text-xs font-medium">{line.serviceLine}</span>
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {line.occupancyPct == null ? "—" : `${line.occupancyPct.toFixed(1)}%`}
+                      </span>
+                      {OCCUPANCY_TIER_IDS.map((tier) => {
+                        const cell = byTier.get(tier);
+                        const current = line.currentTier === tier;
+                        return (
+                          <div
+                            key={tier}
+                            className={cn(
+                              "rounded px-1.5 py-1 text-center text-xs tabular-nums",
+                              current && "bg-primary/10 font-medium ring-1 ring-primary/30",
+                            )}
+                            title={cell?.error ?? cell?.rangeLabel}
+                          >
+                            {!cell || cell.error ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : (
+                              <>
+                                <span>{formatTierPct(cell.inhouseIncreasePct)}</span>
+                                <span className="text-muted-foreground"> / </span>
+                                <span>{formatTierPct(cell.streetIncreasePct)}</span>
+                                {cell.feasible === false && (
+                                  <span
+                                    className="ml-1 text-amber-500"
+                                    title="The solver could not hit the growth target inside this tier's guardrails."
+                                  >
+                                    !
+                                  </span>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {tierGrid.lines.some((l) => l.warnings.length > 0) && (
+              <div className="space-y-1 pt-1">
+                {tierGrid.lines.flatMap((l) =>
+                  l.warnings.map((w) => (
+                    <p key={`${l.serviceLine}-${w}`} className="text-[11px] leading-snug text-muted-foreground">
+                      {w}
+                    </p>
+                  )),
+                )}
+              </div>
+            )}
+
+            <p className="text-[11px] leading-snug text-muted-foreground">
+              {(() => {
+                // Occupancy is resolved per service line, so the sources can
+                // differ within one grid. Say which lines fell back rather
+                // than labelling the whole table with the first line's source.
+                const measured = tierGrid.lines.filter((l) => l.occupancyMonth);
+                const months = Array.from(new Set(measured.map((l) => l.occupancyMonth!))).sort();
+                const fellBack = tierGrid.lines
+                  .filter((l) => l.occupancySource === "rent_roll")
+                  .map((l) => l.serviceLine);
+                if (months.length === 0) return "No occupancy reading was available for any line. ";
+                const monthText = months.map((m) => formatMonth(m)).join(" and ");
+                const base = `Occupancy read from ${monthText}. `;
+                return fellBack.length === 0
+                  ? base
+                  : `${base}${fellBack.join(", ")} came from the rent roll rather than occupancy history. `;
+              })()}
+              A “!” marks a tier whose guardrails cannot reach the growth target.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {calculate.isPending && !plans?.length && (
         <div className="flex items-center gap-3 rounded-md border p-6 text-sm text-muted-foreground">

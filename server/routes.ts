@@ -9671,28 +9671,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const vacantUnits   = hasRTO ? Math.round(rtoAvail - rtoOcc)   : totalUnits - occupiedUnits;
       const occupancyRate = hasRTO ? rtoOcc / rtoAvail               : (totalUnits > 0 ? filteredData.filter(u => u.occupiedYN).length / totalUnits : 0);
 
-      const SH_SLS_AI = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
-      const primaryUnits = filteredData.filter(u => !(SH_SLS_AI.has(u.serviceLine) && /\/[B-Zb-z]$/.test(u.roomNumber || '')));
+      // Companion (B-bed) rows are excluded from every rate aggregate here,
+      // via the shared predicate rather than a local copy of the regex, so
+      // street and proposed averages describe the same population.
+      const primaryUnits = filteredData.filter(u => !isBBedRow(u.serviceLine, u.roomNumber));
       const avgStreet = primaryUnits.length > 0 ? primaryUnits.reduce((s, u) => s + (u.streetRate || 0), 0) / primaryUnits.length : 0;
       const avgInHouse = filteredData.reduce((s, u) => s + (u.inHouseRate || 0), 0) / totalUnits;
 
-      // ── Modulo & AI rates already generated ───────────────────────────────
-      const withModulo = filteredData.filter(u => u.moduloSuggestedRate && u.moduloSuggestedRate > 0);
-      const withAI = filteredData.filter(u => u.aiSuggestedRate && u.aiSuggestedRate > 0);
-      const avgModulo = withModulo.length
-        ? withModulo.reduce((s, u) => s + u.moduloSuggestedRate!, 0) / withModulo.length : null;
-      const avgAI = withAI.length
-        ? withAI.reduce((s, u) => s + u.aiSuggestedRate!, 0) / withAI.length : null;
-      const moduloVsStreetPct = avgModulo && avgStreet
-        ? ((avgModulo - avgStreet) / avgStreet * 100) : null;
-      const aiVsStreetPct = avgAI && avgStreet
-        ? ((avgAI - avgStreet) / avgStreet * 100) : null;
-      const aiVsModuloPct = avgAI && avgModulo
-        ? ((avgAI - avgModulo) / avgModulo * 100) : null;
+      // ── Proposed rates ────────────────────────────────────────────────────
+      // A proposed rate is a manual override where one exists, otherwise the
+      // rule-adjusted rate — the same precedence every other pricing surface
+      // uses. The Modulo algorithm rate and the old Revenue-Target AI rate
+      // were retired as served rates, so putting them in front of the model
+      // makes it recommend pricing this product no longer runs.
+      const overrideRows = await pool.query(
+        `SELECT location_name, service_line, room_type, override_rate
+           FROM manual_rate_overrides
+          WHERE client_id = $1 AND override_rate > 0`,
+        [clientId]
+      );
+      const overrideMap = new Map<string, number>();
+      for (const o of overrideRows.rows) {
+        overrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, Number(o.override_rate));
+      }
+      const overrideFor = (u: typeof filteredData[0]) =>
+        overrideMap.get(`${u.location}||${u.serviceLine}||${u.roomType}`) || null;
+      const proposedFor = (u: typeof filteredData[0]): number | null =>
+        overrideFor(u) ?? (u.ruleAdjustedRate && u.ruleAdjustedRate > 0 ? u.ruleAdjustedRate : null);
 
-      // Vacant units where Modulo suggests higher than current street rate
-      const vacantWithUpside = withModulo.filter(u =>
-        !u.occupiedYN && u.moduloSuggestedRate! > (u.streetRate || 0)
+      // Uplift is measured on the units that actually carry a proposal, against
+      // those same units' street rates. Comparing a selectively-covered
+      // proposed average against the whole-scope street average invents lift.
+      const proposedUnits = primaryUnits
+        .map(u => ({ u, proposed: proposedFor(u), fromOverride: overrideFor(u) !== null }))
+        .filter((x): x is { u: typeof filteredData[0]; proposed: number; fromOverride: boolean } => x.proposed !== null);
+      const eligibleUnits = primaryUnits.length;
+      const unpricedUnits = eligibleUnits - proposedUnits.length;
+      const overrideCount = proposedUnits.filter(x => x.fromOverride).length;
+      const avgProposed = proposedUnits.length
+        ? proposedUnits.reduce((s, x) => s + x.proposed, 0) / proposedUnits.length : null;
+      const avgStreetOfProposed = proposedUnits.length
+        ? proposedUnits.reduce((s, x) => s + (x.u.streetRate || 0), 0) / proposedUnits.length : 0;
+      const proposedVsStreetPct = avgProposed !== null && avgStreetOfProposed > 0
+        ? ((avgProposed - avgStreetOfProposed) / avgStreetOfProposed * 100) : null;
+
+      // Which rules are producing the non-overridden proposals
+      const ruleNameCounts: Record<string, number> = {};
+      proposedUnits.forEach(({ u, fromOverride }) => {
+        if (fromOverride) return;
+        const n = u.appliedRuleName || 'Unnamed rule';
+        ruleNameCounts[n] = (ruleNameCounts[n] || 0) + 1;
+      });
+
+      // Vacant units whose proposed rate sits above the current street rate
+      const vacantWithUpside = proposedUnits.filter(x =>
+        !x.u.occupiedYN && x.proposed > (x.u.streetRate || 0)
       );
 
       // ── Attribute rating breakdown ─────────────────────────────────────────
@@ -9720,13 +9753,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ── Service line & room type breakdown ────────────────────────────────
       const slBreakdown: Record<string, number> = {};
       filteredData.forEach(u => { const sl = u.serviceLine || 'Unknown'; slBreakdown[sl] = (slBreakdown[sl] || 0) + 1; });
-      const rtRates: Record<string, { total: number; count: number; modulo: number; moduloCount: number }> = {};
-      filteredData.forEach(u => {
+      // Room-type rates use the same companion-excluded population, and carry
+      // the street total of the proposed subset so the per-room-type percentage
+      // is also a paired comparison.
+      const rtRates: Record<string, { street: number; count: number; proposed: number; proposedCount: number; proposedStreet: number }> = {};
+      primaryUnits.forEach(u => {
         const rt = u.roomType || 'Unknown';
-        if (!rtRates[rt]) rtRates[rt] = { total: 0, count: 0, modulo: 0, moduloCount: 0 };
-        rtRates[rt].total += u.streetRate || 0;
+        if (!rtRates[rt]) rtRates[rt] = { street: 0, count: 0, proposed: 0, proposedCount: 0, proposedStreet: 0 };
+        rtRates[rt].street += u.streetRate || 0;
         rtRates[rt].count += 1;
-        if (u.moduloSuggestedRate) { rtRates[rt].modulo += u.moduloSuggestedRate; rtRates[rt].moduloCount += 1; }
+        const p = proposedFor(u);
+        if (p !== null) {
+          rtRates[rt].proposed += p;
+          rtRates[rt].proposedCount += 1;
+          rtRates[rt].proposedStreet += u.streetRate || 0;
+        }
       });
 
       // ── Competitor context ─────────────────────────────────────────────────
@@ -9742,9 +9783,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rateSection = [
         `- Street rate avg: $${Math.round(avgStreet).toLocaleString()}`,
         `- In-house rate avg: $${Math.round(avgInHouse).toLocaleString()}`,
-        avgModulo ? `- **Modulo suggested rate** (${withModulo.length}/${totalUnits} units): $${Math.round(avgModulo).toLocaleString()} (${moduloVsStreetPct! >= 0 ? '+' : ''}${moduloVsStreetPct!.toFixed(1)}% vs street)` : '- Modulo rates: not yet calculated',
-        avgAI ? `- **AI suggested rate** (${withAI.length}/${totalUnits} units): $${Math.round(avgAI).toLocaleString()} (${aiVsStreetPct! >= 0 ? '+' : ''}${aiVsStreetPct!.toFixed(1)}% vs street; ${aiVsModuloPct! >= 0 ? '+' : ''}${aiVsModuloPct!.toFixed(1)}% vs Modulo)` : '- AI rates: not yet calculated',
-        vacantWithUpside.length ? `- Vacant units where Modulo rate > current street: ${vacantWithUpside.length} (avg upside: $${Math.round(vacantWithUpside.reduce((s, u) => s + (u.moduloSuggestedRate! - (u.streetRate || 0)), 0) / vacantWithUpside.length).toLocaleString()}/unit)` : '',
+        avgProposed !== null
+          ? `- **Proposed rate**: $${Math.round(avgProposed).toLocaleString()} avg across the ${proposedUnits.length}/${eligibleUnits} units that have one${
+              proposedVsStreetPct !== null
+                ? ` — ${proposedVsStreetPct >= 0 ? '+' : ''}${proposedVsStreetPct.toFixed(1)}% vs those same units' current street avg of $${Math.round(avgStreetOfProposed).toLocaleString()}`
+                : ''
+            }`
+          : '- No unit in this scope has a proposed rate: no adjustment rule reaches them and no manual override is set',
+        avgProposed !== null && unpricedUnits > 0
+          ? `- Units with no proposal: ${unpricedUnits}/${eligibleUnits} (no rule reaches them, so they stay at their current street rate)`
+          : '',
+        overrideCount ? `- ${overrideCount} of those proposals are manual overrides, which supersede any rule` : '',
+        Object.keys(ruleNameCounts).length
+          ? `- Rules producing the remaining proposals: ${Object.entries(ruleNameCounts).sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n} (${c} units)`).join('; ')}`
+          : '',
+        vacantWithUpside.length ? `- Vacant units whose proposed rate exceeds current street: ${vacantWithUpside.length} (avg upside: $${Math.round(vacantWithUpside.reduce((s, x) => s + (x.proposed - (x.u.streetRate || 0)), 0) / vacantWithUpside.length).toLocaleString()}/unit)` : '',
       ].filter(Boolean).join('\n');
 
       const attrSection = [
@@ -9773,23 +9826,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const roomTypeSection = Object.entries(rtRates)
         .map(([rt, d]) => {
-          const avgSt = Math.round(d.total / d.count);
-          const avgMod = d.moduloCount ? Math.round(d.modulo / d.moduloCount) : null;
-          return `- ${rt}: street $${avgSt.toLocaleString()}${avgMod ? `, Modulo $${avgMod.toLocaleString()} (${((avgMod - avgSt) / avgSt * 100).toFixed(1)}%)` : ''}`;
+          const avgSt = d.count ? Math.round(d.street / d.count) : 0;
+          if (!d.proposedCount) return `- ${rt}: street $${avgSt.toLocaleString()} (${d.count} units), no proposed rate`;
+          const avgPr = Math.round(d.proposed / d.proposedCount);
+          const baseSt = d.proposedStreet / d.proposedCount;
+          const pct = baseSt > 0 ? ` (${((avgPr - baseSt) / baseSt * 100).toFixed(1)}% vs their own street avg)` : '';
+          return `- ${rt}: street $${avgSt.toLocaleString()} (${d.count} units), proposed $${avgPr.toLocaleString()} on ${d.proposedCount} of them${pct}`;
         }).join('\n');
 
       const competitorSection = avgCompRate
         ? `- ${filteredCompetitors.length} competitors tracked | avg market rate: $${Math.round(avgCompRate).toLocaleString()} | our street rate is ${avgStreet >= avgCompRate ? '+' : ''}${((avgStreet - avgCompRate) / avgCompRate * 100).toFixed(1)}% vs market`
         : `- ${filteredCompetitors.length} competitors tracked (no rate data)`;
 
-      const prompt = `You are analyzing real data from the Modulo Revenue Management platform for a senior living portfolio. Your job is to provide specific, actionable recommendations grounded in the numbers below.
+      const prompt = `You are analyzing real data from a senior living revenue management platform. Your job is to provide specific, actionable recommendations grounded in the numbers below.
+
+**HOW PRICING WORKS HERE — read before recommending anything**
+Proposed street rates come from adjustment rules and nothing else. A unit that no rule reaches has no proposed rate and simply keeps its current street rate. Changing pricing means creating, retargeting, or retuning a rule.
+
+This product previously ran two other pricing models — a "Modulo" algorithm rate and a Revenue-Target "AI suggested" rate. Both have been retired and neither is computed or served any more. Never recommend adopting them, never compare against them, and never use the words "Modulo" or "AI suggested rate" in your response.
 
 **SCOPE: ${scopeStr}**
 Units: ${totalUnits} total | ${occupiedUnits} occupied (${(occupancyRate * 100).toFixed(1)}%) | ${vacantUnits} vacant (${longVacant} vacant 30+ days)
 
 ---
 
-**MODULO & AI RATE PERFORMANCE**
+**PROPOSED RATE PERFORMANCE (FROM ADJUSTMENT RULES)**
 ${rateSection}
 
 **ROOM TYPE BREAKDOWN**
@@ -9820,16 +9881,16 @@ Write 5 specific recommendations using this exact format:
 - Do NOT be generic. Every recommendation must reference the specific data provided.
 
 Focus areas (in order):
-1. Whether to adopt the Modulo or AI suggested rates — which is more appropriate and why, given occupancy and market position
+1. Rule coverage and proposed-rate level — are the adjustment rules reaching the right units, and are the rates they produce right given occupancy and market position? Call out units no rule reaches, and say what rule change would fix it
 2. Specific units or room types that should be re-attributed (change A/B/C ratings) to better capture pricing lift — call out the unrated units
 3. Attribute pricing range expansion — should the attributesMin/Max guardrail be widened or narrowed based on the rating spread?
 4. Pricing weight adjustments — which weights appear over- or under-calibrated given the current occupancy, vacancy, and competitor data?
-5. Revenue target alignment — are the current targets achievable given Modulo/AI rate levels, and what changes would close any gap?`;
+5. Revenue target alignment — are the current targets achievable given the rates the rules currently produce, and what rule changes would close any gap?`;
 
       const text = await callClaudeThenGPT(
         'You are a senior living revenue management expert. Always respond in markdown with **bold** headers and "- " bullet points. Be specific and quantitative. Never give generic advice.',
         prompt,
-        'Format your response using **bold** for each recommendation heading and "- " bullet points for supporting details. Reference specific dollar amounts and percentages from the data. Keep each section tight and actionable.',
+        'Format your response using **bold** for each recommendation heading and "- " bullet points for supporting details. Reference specific dollar amounts and percentages from the data. Keep each section tight and actionable. Proposed rates in this product come only from adjustment rules and manual overrides — the retired "Modulo" algorithm rate and "AI suggested rate" must never appear in the output, so drop any sentence that names them.',
         { label: 'ai-insights', claudeMaxTokens: 1500, gptMaxTokens: 1200 }
       );
 
@@ -9892,14 +9953,37 @@ Focus areas (in order):
 
       const totalUnits = filteredData.length;
       const longVacant = filteredData.filter(u => !u.occupiedYN && (u.daysVacant || 0) > 30).length;
-      const SH_SLS_CHAT = new Set(['AL', 'AL/MC', 'SL', 'VIL']);
-      const primaryDataChat = filteredData.filter(u => !(SH_SLS_CHAT.has(u.serviceLine) && /\/[B-Zb-z]$/.test(u.roomNumber || '')));
+      const primaryDataChat = filteredData.filter(u => !isBBedRow(u.serviceLine, u.roomNumber));
       const avgStreet = primaryDataChat.length > 0 ? primaryDataChat.reduce((s, u) => s + (u.streetRate || 0), 0) / primaryDataChat.length : 0;
 
-      const withModulo = filteredData.filter(u => u.moduloSuggestedRate && u.moduloSuggestedRate > 0);
-      const withAI = filteredData.filter(u => u.aiSuggestedRate && u.aiSuggestedRate > 0);
-      const avgModulo = withModulo.length ? withModulo.reduce((s, u) => s + u.moduloSuggestedRate!, 0) / withModulo.length : null;
-      const avgAI = withAI.length ? withAI.reduce((s, u) => s + u.aiSuggestedRate!, 0) / withAI.length : null;
+      // Proposed rate = manual override where one exists, else the rule-adjusted
+      // rate. The Modulo algorithm rate and the old Revenue-Target AI rate are
+      // retired and must never be put in front of the model. Uplift is measured
+      // against the street rates of the same units that carry a proposal.
+      const chatOverrideRows = await pool.query(
+        `SELECT location_name, service_line, room_type, override_rate
+           FROM manual_rate_overrides
+          WHERE client_id = $1 AND override_rate > 0`,
+        [clientId]
+      );
+      const chatOverrideMap = new Map<string, number>();
+      for (const o of chatOverrideRows.rows) {
+        chatOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, Number(o.override_rate));
+      }
+      const chatProposedUnits = primaryDataChat
+        .map(u => ({
+          u,
+          proposed: chatOverrideMap.get(`${u.location}||${u.serviceLine}||${u.roomType}`)
+            ?? (u.ruleAdjustedRate && u.ruleAdjustedRate > 0 ? u.ruleAdjustedRate : null),
+        }))
+        .filter((x): x is { u: typeof filteredData[0]; proposed: number } => x.proposed != null && x.proposed > 0);
+      const chatEligible = primaryDataChat.length;
+      const avgProposed = chatProposedUnits.length
+        ? chatProposedUnits.reduce((s, x) => s + x.proposed, 0) / chatProposedUnits.length : null;
+      const chatStreetOfProposed = chatProposedUnits.length
+        ? chatProposedUnits.reduce((s, x) => s + (x.u.streetRate || 0), 0) / chatProposedUnits.length : 0;
+      const chatProposedVsStreetPct = avgProposed !== null && chatStreetOfProposed > 0
+        ? ((avgProposed - chatStreetOfProposed) / chatStreetOfProposed * 100) : null;
 
       // ── Authoritative occupancy from room_type_occupancy_history ──────────
       // Query grouped by (location_name, service_line) so we can build per-campus
@@ -10024,8 +10108,7 @@ Focus areas (in order):
 **DATA SCOPE: ${scopeStr}**
 Units: ${totalUnits} total | ${occupiedUnits} occupied (${(occupancyRate * 100).toFixed(1)}%) | ${vacantUnits} vacant (${longVacant} vacant 30+ days)
 Avg street rate: $${Math.round(avgStreet).toLocaleString()} | Avg in-house rate: $${Math.round(avgInHouse).toLocaleString()}
-${avgModulo ? `Modulo suggested avg: $${Math.round(avgModulo).toLocaleString()} (${withModulo.length} units)` : 'Modulo rates: not calculated'}
-${avgAI ? `AI suggested avg: $${Math.round(avgAI).toLocaleString()} (${withAI.length} units)` : 'AI rates: not calculated'}
+${avgProposed !== null ? `Proposed rate (manual override, else adjustment rule): $${Math.round(avgProposed).toLocaleString()} avg on ${chatProposedUnits.length}/${chatEligible} units${chatProposedVsStreetPct !== null ? `, ${chatProposedVsStreetPct >= 0 ? '+' : ''}${chatProposedVsStreetPct.toFixed(1)}% vs those same units' street avg of $${Math.round(chatStreetOfProposed).toLocaleString()}` : ''} — the other ${chatEligible - chatProposedUnits.length} have no proposal and keep their street rate` : 'No unit in this scope has a proposed rate: no adjustment rule reaches them and no manual override is set'}
 ${avgCompRate ? `Market avg competitor rate: $${Math.round(avgCompRate).toLocaleString()} (${filteredCompetitors.length} competitors)` : 'No competitor rate data'}
 Campuses in scope: ${campusCount}
 Service line occupancy (across scope): ${slOccStr}
@@ -10034,7 +10117,7 @@ CAMPUS x SERVICE LINE OCCUPANCY (latest month — use this for any per-campus or
 ${campusOccLines.join('\n')}
 `.trim();
 
-      const systemPrompt = `You are an expert revenue management advisor for senior living facilities, working inside the Modulo platform. Answer the user's question conversationally and specifically, grounded in the data context provided. You have access to the full campus-by-service-line occupancy breakdown for the current scope — when asked to count, filter, or compare campuses or service lines by occupancy (e.g. "how many campuses have AL/MC under 90%"), compute the answer directly from the CAMPUS x SERVICE LINE OCCUPANCY table and list the qualifying campuses. Be concise (2-5 sentences unless a detailed breakdown is asked for); for counting questions give the count first, then the supporting campuses. Use **bold** for key figures. Never give generic advice or claim the data is unavailable when it is present in the context — always reference the actual numbers.`;
+      const systemPrompt = `You are an expert revenue management advisor for senior living facilities. Proposed street rates in this product come from adjustment rules and nothing else; a unit no rule reaches has no proposed rate and keeps its current street rate. Two older pricing models — a "Modulo" algorithm rate and a Revenue-Target "AI suggested" rate — have been retired and are no longer computed or served, so never cite, recommend, or name them. Answer the user's question conversationally and specifically, grounded in the data context provided. You have access to the full campus-by-service-line occupancy breakdown for the current scope — when asked to count, filter, or compare campuses or service lines by occupancy (e.g. "how many campuses have AL/MC under 90%"), compute the answer directly from the CAMPUS x SERVICE LINE OCCUPANCY table and list the qualifying campuses. Be concise (2-5 sentences unless a detailed breakdown is asked for); for counting questions give the count first, then the supporting campuses. Use **bold** for key figures. Never give generic advice or claim the data is unavailable when it is present in the context — always reference the actual numbers.`;
 
       const userTurn = `Here is the current portfolio data for your reference:\n${dataContext}\n\nUser question: ${message}`;
 

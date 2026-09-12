@@ -749,6 +749,12 @@ app.use((req, res, next) => {
       ALTER TABLE inhouse_planning_assumptions
         ADD COLUMN IF NOT EXISTS min_street_increase_pct real NOT NULL DEFAULT 0,
         ADD COLUMN IF NOT EXISTS desired_variance_to_top_competitor_pct real NOT NULL DEFAULT 0`));
+    // Nullable with no default: a NULL means "this scope never set tiers" and
+    // reads back as the shared defaults, which is different from an operator
+    // having deliberately saved a policy that happens to match them.
+    await db.execute(sql.raw(`
+      ALTER TABLE inhouse_planning_assumptions
+        ADD COLUMN IF NOT EXISTS occupancy_tier_policy jsonb`));
     // NULLS NOT DISTINCT so the campus-wide and portfolio-wide rows collide
     // with themselves and upsert cleanly instead of accumulating duplicates.
     await db.execute(sql.raw(`

@@ -73,6 +73,7 @@
 - [Revenue payer basis](revenue-payer-basis.md) — always report total AND private-pay revenue, labelled; private pay is ~43% of total, so an unlabelled figure is meaningless.
 - [Test runner conventions](test-runner-conventions.md) — *.vitest.ts = vitest, *.test.ts = standalone tsx scripts; mixing them made npm test always fail.
 - [Display fallback ≠ identity](display-fallback-not-identity.md) — null→"Other" must stay in the display layer; as a group/React key it merges distinct partitions and undercounts.
+- [Async result & loaded-value provenance](async-result-provenance.md) — slow results snapshot scope+inputs; populated ≠ loaded; invalidation doesn't evict.
 - [Browser-cached planning results](browser-cached-plans.md) — identity-scope resident-level cached results, purge on logout, and block approval when assumptions drift.
 - [Base-rate basis](base-rate-basis.md) — rates = single occupant, standard stay; HC/HC-MC needs a room-type arm beyond B-beds; COALESCE every column or the JS/SQL twins diverge on NULLs.
 - [Derived rate formulas](derived-rate-formulas.md) — six non-base products derived from the base rate; outputs only, round once, whole-set saves on a pinned connection, session-scoped mutations.
@@ -103,4 +104,5 @@
 - [External benchmark feeds](industry-context-benchmark-feeds.md) — public BLS requests can exhaust anonymous quotas; preserve reviewed snapshots and explicit unavailable/last-known states.
 - [Security pool transactions](security-pool-transactions.md) — MFA and recovery mutations must use one checked-out Neon client; pool-level BEGIN/COMMIT can split across connections.
 - [MatrixCare label recovery](matrixcare-label-recovery.md) — upload metadata keeps filenames, not workbook bytes; repairs must be dry-run, tenant/month-scoped, fill-only, and report unresolved rows.
+- [Absent content ≠ empty state](absent-content-is-not-empty-state.md) — a 200 demo-tenant fallback looks like "never generated"; separate not-ready / failed / stale / truly-empty, and scope async runs.
 - [Move-in date validation](malformed-move-in-dates.md) — PostgreSQL to_date throws on impossible dates; validate calendar components before conversion so turnover skips safely.

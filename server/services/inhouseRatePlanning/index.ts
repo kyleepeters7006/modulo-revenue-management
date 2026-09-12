@@ -21,6 +21,17 @@ import type {
   StreetRateSource,
 } from "@shared/inhousePlanning";
 import { formatMoney, formatPct } from "@shared/inhousePlanning";
+import {
+  applyOccupancyTier,
+  occupancyTierRangeLabel,
+  tierForOccupancy,
+  OCCUPANCY_TIER_IDS,
+  type OccupancyTierGuardrails,
+  type OccupancyTierId,
+  type OccupancyTierPlanCell,
+  type OccupancyTierPolicy,
+} from "@shared/inhousePlanning";
+import { fetchOccupancyByServiceLine, type OccupancySource } from "./dataAccess";
 import { DAYS_PER_MONTH } from "@shared/careRates";
 import { isDailyRateServiceLine } from "../rateNormalization";
 import {
@@ -155,21 +166,51 @@ export async function calculatePlan(input: CalculatePlanInput): Promise<PlanResu
 export async function calculatePlanDetailed(
   input: CalculatePlanInput,
 ): Promise<{ plan: PlanResult; audit: PlanAudit }> {
+  return (await preparePlan(input)).solve();
+}
+
+/** A service line's data, loaded once and solvable under many guardrails. */
+export interface PreparedPlan {
+  /** The line's assumptions with effective dates resolved. */
+  assumptions: PlanningAssumptions;
+  /** Latest rent-roll month the plan is built from. */
+  sourceMonth: string;
+  /**
+   * Solve under one set of tier guardrails, or under the line's own
+   * assumptions when omitted. Every database read already happened during
+   * preparation, so this is cheap enough to call once per occupancy tier.
+   */
+  solve(guardrails?: OccupancyTierGuardrails): { plan: PlanResult; audit: PlanAudit };
+}
+
+/**
+ * Load everything a service line's plan depends on, without solving it.
+ *
+ * The split exists because the occupancy-tier grid solves each line three
+ * times. A tier may only vary guardrails — never the effective dates, growth
+ * target or turnover — so the residents, the standardized history and the
+ * quarter baselines are identical across all three tiers of a line. Loading
+ * them once turns three plan builds into one.
+ */
+export async function preparePlan(input: CalculatePlanInput): Promise<PreparedPlan> {
   const scope: ScopeFilter = {
     clientId: input.clientId,
     location: input.location,
     serviceLine: input.serviceLine,
   };
 
-  const sourceMonth = await getLatestMonthForScope(scope);
-  if (!sourceMonth) {
+  const latestMonth = await getLatestMonthForScope(scope);
+  if (!latestMonth) {
     throw new PlanningDataError(
       `No occupied ${input.serviceLine} rent-roll rows found for ${input.location ?? "this portfolio"}.`,
     );
   }
+  // Re-bound as a typed const: the solve closure below does not inherit the
+  // non-null narrowing the guard above establishes.
+  const sourceMonth: string = latestMonth;
 
-  const assumptions = withResolvedDates(input.assumptions, sourceMonth);
-  const quarters = horizonQuarters(assumptions.inhouseEffectiveDate);
+  const resolvedAssumptions = withResolvedDates(input.assumptions, sourceMonth);
+  const quarters = horizonQuarters(resolvedAssumptions.inhouseEffectiveDate);
   // Prior-year quarters are what the horizon is judged against, and their
   // months define the window the standardization cohort must be stable across.
   const priorYearQuarters = quarters.map((q) => addQuarters(q, -4));
@@ -460,332 +501,448 @@ export async function calculatePlanDetailed(
       ? priorJanuaryComparison.matchedRooms / priorJanuaryComparison.currentRooms
       : 0;
 
-  const daily = isDailyRateServiceLine(input.serviceLine);
-  const solved = solvePlan({
-    residents,
-    assumptions,
-    baselineByQuarter,
-    quarters,
-    anchorMs,
-    currentStreetRateMonthly,
-    priorJanuaryStreetRateMonthly,
-    topCompetitorRateMonthly,
-    enforcePortfolioStreetPremium: input.location == null && input.locationId == null,
-    rateWeightBasis: daily ? "resident_days" : "resident_months",
-  });
-
-  const toDisplay = (monthlyValue: number) =>
-    daily ? Math.round((monthlyValue / DAYS_PER_MONTH) * 100) / 100 : Math.round(monthlyValue);
-
-  const streetMultiplierAtInhouse =
-    isoToMs(assumptions.streetRateEffectiveDate) <= isoToMs(assumptions.inhouseEffectiveDate)
-      ? 1 + solved.streetIncrease
-      : 1;
-
-  const recommendations = solved.allocation.allocations.map((a) =>
-    toRecommendation(a, {
-      daily,
-      streetMultiplierAtInhouse,
+  /**
+   * Everything above is tier-invariant and already in memory; everything below
+   * depends on the guardrails. `assumptions` shadows the prepared set on
+   * purpose so the solve body reads exactly as it did before the split.
+   */
+  function solveWith(assumptions: PlanningAssumptions): { plan: PlanResult; audit: PlanAudit } {
+    const daily = isDailyRateServiceLine(input.serviceLine);
+    const solved = solvePlan({
+      residents,
       assumptions,
-      toDisplay,
-    }),
-  );
+      baselineByQuarter,
+      quarters,
+      anchorMs,
+      currentStreetRateMonthly,
+      priorJanuaryStreetRateMonthly,
+      topCompetitorRateMonthly,
+      enforcePortfolioStreetPremium: input.location == null && input.locationId == null,
+      rateWeightBasis: daily ? "resident_days" : "resident_months",
+    });
 
-  const projectionCommon = {
-    anchorMs,
-    quarters,
-    inhouseEffectiveMs: isoToMs(assumptions.inhouseEffectiveDate),
-    currentStreetMonthly: currentStreetRateMonthly,
-    newStreetMonthly: solved.recommendedStreetMonthly,
-    streetEffectiveMs: isoToMs(assumptions.streetRateEffectiveDate),
-    annualTurnover: assumptions.annualTurnoverPct / 100,
-    weightBasis: daily ? "resident_days" as const : "resident_months" as const,
-  };
-  const firstHorizonMonth = `${quarters[0].year}-${String((quarters[0].quarter - 1) * 3 + 1).padStart(2, "0")}`;
-  const lastHorizonMonth = addMonths(firstHorizonMonth, quarters.length * 3 - 1);
-  const streetEffectiveMonth = assumptions.streetRateEffectiveDate.slice(0, 7);
-  // Include the month immediately before the Street Rate change so the chart
-  // visibly steps from the current rate to the recommendation.
-  const preStreetMonth = addMonths(streetEffectiveMonth, -1);
-  const chartStartMonth = preStreetMonth < firstHorizonMonth ? preStreetMonth : firstHorizonMonth;
-  const horizonMonths: string[] = [];
-  for (let month = chartStartMonth; month <= lastHorizonMonth; month = addMonths(month, 1)) {
-    horizonMonths.push(month);
-  }
-  const monthlyProjected = projectMonthlyRealizedRates(
-    {
-      ...projectionCommon,
-      existingAvgRateMonthly: solved.existingAvgRateMonthly,
-      postIncreaseAvgRateMonthly: solved.postIncreaseAvgRateMonthly,
-    },
-    horizonMonths,
-  );
-  const monthlyRateProjection = horizonMonths.map((month) => {
-    const projectedRateMonthly = monthlyProjected.get(month) ?? solved.existingAvgRateMonthly;
-    const monthEndMs = monthBoundsMs(month).endMs - 1;
-    const streetRateMonthly =
-      monthEndMs >= isoToMs(assumptions.streetRateEffectiveDate)
-        ? solved.recommendedStreetMonthly
-        : currentStreetRateMonthly;
-    return {
-      month,
-      projectedRateMonthly,
-      streetRateMonthly,
-      growthFromCurrentPct:
-        solved.existingAvgRateMonthly > 0
-          ? (projectedRateMonthly / solved.existingAvgRateMonthly - 1) * 100
-          : 0,
-    };
-  });
-  // A unit-rate projection isolates the expected future-move-in share. A
-  // street-rate projection then supplies the exact replacement contribution
-  // used by every room. Future people are unknowable, so this is deliberately
-  // labelled as a modeled share rather than inventing resident identities.
-  const replacementShareByQuarter = projectQuarterlyRealizedRates({
-    ...projectionCommon,
-    existingAvgRateMonthly: 0,
-    postIncreaseAvgRateMonthly: 0,
-    currentStreetMonthly: 1,
-    newStreetMonthly: 1,
-  });
-  const replacementContributionByQuarter = projectQuarterlyRealizedRates({
-    ...projectionCommon,
-    existingAvgRateMonthly: 0,
-    postIncreaseAvgRateMonthly: 0,
-  });
-  const recommendationByKey = new Map(recommendations.map((r) => [r.key, r]));
-  const roomProjectionByKey = new Map(
-    recommendations.map((r) => [
-      r.key,
-      projectQuarterlyRealizedRates({
-        ...projectionCommon,
-        existingAvgRateMonthly: r.currentRateMonthly,
-        postIncreaseAvgRateMonthly: r.newRateMonthly,
+    const toDisplay = (monthlyValue: number) =>
+      daily ? Math.round((monthlyValue / DAYS_PER_MONTH) * 100) / 100 : Math.round(monthlyValue);
+
+    const streetMultiplierAtInhouse =
+      isoToMs(assumptions.streetRateEffectiveDate) <= isoToMs(assumptions.inhouseEffectiveDate)
+        ? 1 + solved.streetIncrease
+        : 1;
+
+    const recommendations = solved.allocation.allocations.map((a) =>
+      toRecommendation(a, {
+        daily,
+        streetMultiplierAtInhouse,
+        assumptions,
+        toDisplay,
       }),
-    ]),
-  );
-  const residentWeightByKey = new Map(residents.map((r) => [r.key, r.weight]));
-  const quartersWithRoomDetail = solved.quarterResults.map((quarter) => {
-    const replacementShare = replacementShareByQuarter.get(quarter.label) ?? 0;
-    const existingShare = Math.max(0, 1 - replacementShare);
-    const replacementContribution = replacementContributionByQuarter.get(quarter.label) ?? 0;
-    const replacementRate = replacementShare > 0
-      ? replacementContribution / replacementShare
-      : 0;
-    const roomDetails = residents.map((resident) => {
-      const recommendation = recommendationByKey.get(resident.key)!;
-      const projectedRate = roomProjectionByKey.get(resident.key)?.get(quarter.label)
-        ?? resident.currentRateMonthly;
-      const existingRateUsed = existingShare > 0
-        ? (projectedRate - replacementContribution) / existingShare
-        : 0;
+    );
+
+    const projectionCommon = {
+      anchorMs,
+      quarters,
+      inhouseEffectiveMs: isoToMs(assumptions.inhouseEffectiveDate),
+      currentStreetMonthly: currentStreetRateMonthly,
+      newStreetMonthly: solved.recommendedStreetMonthly,
+      streetEffectiveMs: isoToMs(assumptions.streetRateEffectiveDate),
+      annualTurnover: assumptions.annualTurnoverPct / 100,
+      weightBasis: daily ? "resident_days" as const : "resident_months" as const,
+    };
+    const firstHorizonMonth = `${quarters[0].year}-${String((quarters[0].quarter - 1) * 3 + 1).padStart(2, "0")}`;
+    const lastHorizonMonth = addMonths(firstHorizonMonth, quarters.length * 3 - 1);
+    const streetEffectiveMonth = assumptions.streetRateEffectiveDate.slice(0, 7);
+    // Include the month immediately before the Street Rate change so the chart
+    // visibly steps from the current rate to the recommendation.
+    const preStreetMonth = addMonths(streetEffectiveMonth, -1);
+    const chartStartMonth = preStreetMonth < firstHorizonMonth ? preStreetMonth : firstHorizonMonth;
+    const horizonMonths: string[] = [];
+    for (let month = chartStartMonth; month <= lastHorizonMonth; month = addMonths(month, 1)) {
+      horizonMonths.push(month);
+    }
+    const monthlyProjected = projectMonthlyRealizedRates(
+      {
+        ...projectionCommon,
+        existingAvgRateMonthly: solved.existingAvgRateMonthly,
+        postIncreaseAvgRateMonthly: solved.postIncreaseAvgRateMonthly,
+      },
+      horizonMonths,
+    );
+    const monthlyRateProjection = horizonMonths.map((month) => {
+      const projectedRateMonthly = monthlyProjected.get(month) ?? solved.existingAvgRateMonthly;
+      const monthEndMs = monthBoundsMs(month).endMs - 1;
+      const streetRateMonthly =
+        monthEndMs >= isoToMs(assumptions.streetRateEffectiveDate)
+          ? solved.recommendedStreetMonthly
+          : currentStreetRateMonthly;
       return {
-        key: resident.key,
-        location: resident.location,
-        roomNumber: resident.roomNumber,
-        roomType: resident.roomType,
-        moveInDate: resident.moveInDate,
-        currentRateMonthly: resident.currentRateMonthly,
-        plannedExistingRateMonthly: recommendation.newRateMonthly,
-        existingRateUsedMonthly: existingRateUsed,
-        existingSharePct: existingShare * 100,
-        replacementSharePct: replacementShare * 100,
-        replacementRateMonthly: replacementRate,
-        projectedRateMonthly: projectedRate,
-        changeMonthly: projectedRate - resident.currentRateMonthly,
+        month,
+        projectedRateMonthly,
+        streetRateMonthly,
+        growthFromCurrentPct:
+          solved.existingAvgRateMonthly > 0
+            ? (projectedRateMonthly / solved.existingAvgRateMonthly - 1) * 100
+            : 0,
       };
     });
-    let weightedCurrent = 0;
-    let weightedExisting = 0;
-    let weightedProjected = 0;
-    let weight = 0;
-    for (const room of roomDetails) {
-      const roomWeight = residentWeightByKey.get(room.key) ?? 0;
-      weightedCurrent += room.currentRateMonthly * roomWeight;
-      weightedExisting += room.existingRateUsedMonthly * roomWeight;
-      weightedProjected += room.projectedRateMonthly * roomWeight;
-      weight += roomWeight;
-    }
-    const currentTotal = weight > 0 ? weightedCurrent / weight : 0;
-    const existingTotal = weight > 0 ? weightedExisting / weight : 0;
-    const projectedTotal = weight > 0 ? weightedProjected / weight : 0;
-    return {
-      ...quarter,
-      roomDetails,
-      roomDetailProjectedRateMonthly: projectedTotal,
-      roomDetailTotals: {
-        currentRateMonthly: currentTotal,
-        existingRateUsedMonthly: existingTotal,
-        existingSharePct: existingShare * 100,
-        replacementSharePct: replacementShare * 100,
-        replacementRateMonthly: replacementRate,
-        projectedRateMonthly: projectedTotal,
-        changeMonthly: projectedTotal - currentTotal,
-      },
-    };
-  });
-
-  const summary = summarize(residents, recommendations, solved.existingAvgRateMonthly);
-
-  const warnings = buildWarnings({
-    sourceMonth,
-    excluded,
-    baselineByQuarter,
-    quarters,
-    quarterlyGrowthPct,
-    residentsWithoutStreet: residents.filter((r) => r.streetRateMonthly <= 0).length,
-    residentCount: residents.length,
-    priorJanuaryMonth,
-    januaryMatchCoverage: matchCoverage,
-    suppressedQuarters,
-    thinComparisons: Array.from(comparisons.values()).filter(
-      (c) => c.usable && c.suppressedStrata.length > 0,
-    ),
-    crossUnitRedistribution: Array.from(comparisons.values())
-      .filter((c) => c.usable && c.redistributedAcrossUnitTypes)
-      .map((c) => c.baseQuarterLabel),
-    minMatchedRooms: DEFAULT_THRESHOLDS.minMatchedRooms,
-    coverageFloorPct: DEFAULT_THRESHOLDS.coverageFloorPct,
-  });
-  if (suppressionWouldEmptyScope) {
-    warnings.push(
-      `No prior-year quarter for this scope had enough matched rooms to measure price movement to the usual standard, so the baselines below are the best available rather than measurements that met it. A service line this small turns over a large share of its rooms in a year — treat the year-over-year figures as indicative.`,
+    // A unit-rate projection isolates the expected future-move-in share. A
+    // street-rate projection then supplies the exact replacement contribution
+    // used by every room. Future people are unknowable, so this is deliberately
+    // labelled as a modeled share rather than inventing resident identities.
+    const replacementShareByQuarter = projectQuarterlyRealizedRates({
+      ...projectionCommon,
+      existingAvgRateMonthly: 0,
+      postIncreaseAvgRateMonthly: 0,
+      currentStreetMonthly: 1,
+      newStreetMonthly: 1,
+    });
+    const replacementContributionByQuarter = projectQuarterlyRealizedRates({
+      ...projectionCommon,
+      existingAvgRateMonthly: 0,
+      postIncreaseAvgRateMonthly: 0,
+    });
+    const recommendationByKey = new Map(recommendations.map((r) => [r.key, r]));
+    const roomProjectionByKey = new Map(
+      recommendations.map((r) => [
+        r.key,
+        projectQuarterlyRealizedRates({
+          ...projectionCommon,
+          existingAvgRateMonthly: r.currentRateMonthly,
+          postIncreaseAvgRateMonthly: r.newRateMonthly,
+        }),
+      ]),
     );
-  }
-  if (
-    input.location == null &&
-    input.locationId == null &&
-    solved.recommendedStreetMonthly < solved.postIncreaseAvgRateMonthly * 1.01 - 0.01
-  ) {
-    const premiumPct =
-      solved.postIncreaseAvgRateMonthly > 0
-        ? (solved.recommendedStreetMonthly / solved.postIncreaseAvgRateMonthly - 1) * 100
+    const residentWeightByKey = new Map(residents.map((r) => [r.key, r.weight]));
+    const quartersWithRoomDetail = solved.quarterResults.map((quarter) => {
+      const replacementShare = replacementShareByQuarter.get(quarter.label) ?? 0;
+      const existingShare = Math.max(0, 1 - replacementShare);
+      const replacementContribution = replacementContributionByQuarter.get(quarter.label) ?? 0;
+      const replacementRate = replacementShare > 0
+        ? replacementContribution / replacementShare
         : 0;
-    warnings.push(
-      `${input.serviceLine} portfolio Street Rate ends ${premiumPct.toFixed(1)}% above its planned average in-house rate, below the 1.0% floor because the configured Street Rate ceiling or January-to-January limit binds.`,
-    );
-  }
+      const roomDetails = residents.map((resident) => {
+        const recommendation = recommendationByKey.get(resident.key)!;
+        const projectedRate = roomProjectionByKey.get(resident.key)?.get(quarter.label)
+          ?? resident.currentRateMonthly;
+        const existingRateUsed = existingShare > 0
+          ? (projectedRate - replacementContribution) / existingShare
+          : 0;
+        return {
+          key: resident.key,
+          location: resident.location,
+          roomNumber: resident.roomNumber,
+          roomType: resident.roomType,
+          moveInDate: resident.moveInDate,
+          currentRateMonthly: resident.currentRateMonthly,
+          plannedExistingRateMonthly: recommendation.newRateMonthly,
+          existingRateUsedMonthly: existingRateUsed,
+          existingSharePct: existingShare * 100,
+          replacementSharePct: replacementShare * 100,
+          replacementRateMonthly: replacementRate,
+          projectedRateMonthly: projectedRate,
+          changeMonthly: projectedRate - resident.currentRateMonthly,
+        };
+      });
+      let weightedCurrent = 0;
+      let weightedExisting = 0;
+      let weightedProjected = 0;
+      let weight = 0;
+      for (const room of roomDetails) {
+        const roomWeight = residentWeightByKey.get(room.key) ?? 0;
+        weightedCurrent += room.currentRateMonthly * roomWeight;
+        weightedExisting += room.existingRateUsedMonthly * roomWeight;
+        weightedProjected += room.projectedRateMonthly * roomWeight;
+        weight += roomWeight;
+      }
+      const currentTotal = weight > 0 ? weightedCurrent / weight : 0;
+      const existingTotal = weight > 0 ? weightedExisting / weight : 0;
+      const projectedTotal = weight > 0 ? weightedProjected / weight : 0;
+      return {
+        ...quarter,
+        roomDetails,
+        roomDetailProjectedRateMonthly: projectedTotal,
+        roomDetailTotals: {
+          currentRateMonthly: currentTotal,
+          existingRateUsedMonthly: existingTotal,
+          existingSharePct: existingShare * 100,
+          replacementSharePct: replacementShare * 100,
+          replacementRateMonthly: replacementRate,
+          projectedRateMonthly: projectedTotal,
+          changeMonthly: projectedTotal - currentTotal,
+        },
+      };
+    });
 
-  const planScope: PlanScope = {
-    clientId: input.clientId,
-    locationId: input.locationId,
-    location: input.location,
-    serviceLine: input.serviceLine,
-    sourceMonth,
-  };
+    const summary = summarize(residents, recommendations, solved.existingAvgRateMonthly);
 
-  const plan: PlanResult = {
-    scope: planScope,
-    assumptions,
-    feasible: solved.feasible,
-    rateBasis: daily ? "daily" : "monthly",
-
-    currentStreetRateMonthly,
-    recommendedStreetRateMonthly: solved.recommendedStreetMonthly,
-    streetIncreasePct: solved.streetIncrease * 100,
-    streetIncreaseDollarsMonthly: solved.recommendedStreetMonthly - currentStreetRateMonthly,
-    currentStreetRateDisplay: toDisplay(currentStreetRateMonthly),
-    recommendedStreetRateDisplay: toDisplay(solved.recommendedStreetMonthly),
-    adjustedTopCompetitorRateMonthly: topCompetitorRateMonthly,
-
-    requiredWeightedAvgIncreasePct: solved.requiredAvgIncrease * 100,
-
-    quarters: quartersWithRoomDetail,
-    monthlyRateProjection,
-    bindingQuarterLabel: solved.bindingQuarterLabel,
-
-    summary,
-    residents: recommendations,
-
-    infeasibility: solved.infeasibility,
-    explanation: explainPlan({
-      planScope,
-      assumptions,
-      solved,
-      summary,
-      currentStreetRateMonthly,
-    }),
-    warnings,
-    standardization: {
-      method: "two_point_matched_quarter",
-      endingQuarterLabel: endingQuarter?.label ?? "",
+    const warnings = buildWarnings({
+      sourceMonth,
+      excluded,
+      baselineByQuarter,
+      quarters,
+      quarterlyGrowthPct,
+      residentsWithoutStreet: residents.filter((r) => r.streetRateMonthly <= 0).length,
+      residentCount: residents.length,
+      priorJanuaryMonth,
+      januaryMatchCoverage: matchCoverage,
+      suppressedQuarters,
+      thinComparisons: Array.from(comparisons.values()).filter(
+        (c) => c.usable && c.suppressedStrata.length > 0,
+      ),
+      crossUnitRedistribution: Array.from(comparisons.values())
+        .filter((c) => c.usable && c.redistributedAcrossUnitTypes)
+        .map((c) => c.baseQuarterLabel),
       minMatchedRooms: DEFAULT_THRESHOLDS.minMatchedRooms,
       coverageFloorPct: DEFAULT_THRESHOLDS.coverageFloorPct,
-      comparisons: Array.from(comparisons.values())
-        .map(describeComparison)
-        .sort((a, b) => a.baseQuarterLabel.localeCompare(b.baseQuarterLabel)),
-      yearOverYear: yoyComparison ? describeComparison(yoyComparison) : null,
-      yearOverYearStrata: (yoyComparison?.strata ?? []).map((s) => ({
-        key: s.key,
-        unitType: s.unitType,
-        careLevel: s.careLevel,
-        priceBand: s.priceBand,
-        matchedRooms: s.matchedRooms,
-        endingRooms: s.endingRooms,
-        coverageByCountPct: s.coverageByCountPct,
-        coverageByRevenuePct: s.coverageByRevenuePct,
-        rateEffectPct: s.ratio != null ? (s.ratio - 1) * 100 : null,
-        endingWeightSharePct: s.endingWeightShare * 100,
-        baseWeightSharePct: s.baseWeightShare * 100,
-        suppressed: s.suppressed,
-        reasonCode: s.reasonCode,
-      })),
-      suppressedQuarters: Array.from(suppressedQuarters, ([label, reasonCode]) => ({
-        label,
-        reasonCode,
-      })),
-      parallelRun: priorYearQuarters.map((q) => {
-        const matched = baselines.get(q.label)?.realizedRateMonthly ?? null;
-        const panel = balancedPanelQuarters.get(q.label)?.realizedRateMonthly ?? null;
-        return {
-          label: q.label,
-          matchedPairRateMonthly: matched,
-          balancedPanelRateMonthly: panel,
-          differencePct:
-            matched != null && panel != null && panel > 0
-              ? (matched / panel - 1) * 100
-              : null,
-        };
+    });
+    if (suppressionWouldEmptyScope) {
+      warnings.push(
+        `No prior-year quarter for this scope had enough matched rooms to measure price movement to the usual standard, so the baselines below are the best available rather than measurements that met it. A service line this small turns over a large share of its rooms in a year — treat the year-over-year figures as indicative.`,
+      );
+    }
+    if (
+      input.location == null &&
+      input.locationId == null &&
+      solved.recommendedStreetMonthly < solved.postIncreaseAvgRateMonthly * 1.01 - 0.01
+    ) {
+      const premiumPct =
+        solved.postIncreaseAvgRateMonthly > 0
+          ? (solved.recommendedStreetMonthly / solved.postIncreaseAvgRateMonthly - 1) * 100
+          : 0;
+      warnings.push(
+        `${input.serviceLine} portfolio Street Rate ends ${premiumPct.toFixed(1)}% above its planned average in-house rate, below the 1.0% floor because the configured Street Rate ceiling or January-to-January limit binds.`,
+      );
+    }
+
+    const planScope: PlanScope = {
+      clientId: input.clientId,
+      locationId: input.locationId,
+      location: input.location,
+      serviceLine: input.serviceLine,
+      sourceMonth,
+    };
+
+    const plan: PlanResult = {
+      scope: planScope,
+      assumptions,
+      feasible: solved.feasible,
+      rateBasis: daily ? "daily" : "monthly",
+
+      currentStreetRateMonthly,
+      recommendedStreetRateMonthly: solved.recommendedStreetMonthly,
+      streetIncreasePct: solved.streetIncrease * 100,
+      streetIncreaseDollarsMonthly: solved.recommendedStreetMonthly - currentStreetRateMonthly,
+      currentStreetRateDisplay: toDisplay(currentStreetRateMonthly),
+      recommendedStreetRateDisplay: toDisplay(solved.recommendedStreetMonthly),
+      adjustedTopCompetitorRateMonthly: topCompetitorRateMonthly,
+
+      requiredWeightedAvgIncreasePct: solved.requiredAvgIncrease * 100,
+
+      quarters: quartersWithRoomDetail,
+      monthlyRateProjection,
+      bindingQuarterLabel: solved.bindingQuarterLabel,
+
+      summary,
+      residents: recommendations,
+
+      infeasibility: solved.infeasibility,
+      explanation: explainPlan({
+        planScope,
+        assumptions,
+        solved,
+        summary,
+        currentStreetRateMonthly,
       }),
-    },
-  };
+      warnings,
+      standardization: {
+        method: "two_point_matched_quarter",
+        endingQuarterLabel: endingQuarter?.label ?? "",
+        minMatchedRooms: DEFAULT_THRESHOLDS.minMatchedRooms,
+        coverageFloorPct: DEFAULT_THRESHOLDS.coverageFloorPct,
+        comparisons: Array.from(comparisons.values())
+          .map(describeComparison)
+          .sort((a, b) => a.baseQuarterLabel.localeCompare(b.baseQuarterLabel)),
+        yearOverYear: yoyComparison ? describeComparison(yoyComparison) : null,
+        yearOverYearStrata: (yoyComparison?.strata ?? []).map((s) => ({
+          key: s.key,
+          unitType: s.unitType,
+          careLevel: s.careLevel,
+          priceBand: s.priceBand,
+          matchedRooms: s.matchedRooms,
+          endingRooms: s.endingRooms,
+          coverageByCountPct: s.coverageByCountPct,
+          coverageByRevenuePct: s.coverageByRevenuePct,
+          rateEffectPct: s.ratio != null ? (s.ratio - 1) * 100 : null,
+          endingWeightSharePct: s.endingWeightShare * 100,
+          baseWeightSharePct: s.baseWeightShare * 100,
+          suppressed: s.suppressed,
+          reasonCode: s.reasonCode,
+        })),
+        suppressedQuarters: Array.from(suppressedQuarters, ([label, reasonCode]) => ({
+          label,
+          reasonCode,
+        })),
+        parallelRun: priorYearQuarters.map((q) => {
+          const matched = baselines.get(q.label)?.realizedRateMonthly ?? null;
+          const panel = balancedPanelQuarters.get(q.label)?.realizedRateMonthly ?? null;
+          return {
+            label: q.label,
+            matchedPairRateMonthly: matched,
+            balancedPanelRateMonthly: panel,
+            differencePct:
+              matched != null && panel != null && panel > 0
+                ? (matched / panel - 1) * 100
+                : null,
+          };
+        }),
+      },
+    };
 
-  const audit: PlanAudit = {
-    lambda: solved.allocation.lambda,
-    equalizationExponent: EQUALIZATION_EXPONENT[assumptions.equalizationStrength] ?? 0.5,
-    streetMultiplierAtInhouse,
-    minEffectiveFloor: assumptions.minInhouseIncreasePct / 100,
-    maxEffectiveCeiling: assumptions.maxInhouseIncreasePct / 100,
-    allowAboveStreet: true,
-    currentStreetRateMonthly,
-    recommendedStreetRateMonthly: solved.recommendedStreetMonthly,
-    monthlyRealized: monthly,
-    monthlyStandardized: mixStandardizedMonthly,
-    residents: solved.allocation.allocations.map((a) => ({
-      key: a.resident.key,
-      location: a.resident.location,
-      serviceLine: a.resident.serviceLine,
-      roomNumber: a.resident.roomNumber,
-      roomType: a.resident.roomType,
-      careLevel: a.resident.careLevel,
-      payorType: a.resident.payorType,
-      moveInDate: a.resident.moveInDate,
-      rateProduct: a.resident.rateProduct,
-      streetRateSource: a.resident.streetRateSource,
-      isCompanionBed: a.resident.isCompanionBed,
-      weight: a.resident.weight,
-      currentRateMonthly: a.resident.currentRateMonthly,
-      streetRateMonthly: a.resident.streetRateMonthly,
-      headroom: a.headroom,
-      shape: a.shape,
-      minEffective: a.minEffective,
-      maxEffective: a.maxEffective,
-      increase: a.increase,
-      constraint: a.constraint,
-    })),
-  };
+    const audit: PlanAudit = {
+      lambda: solved.allocation.lambda,
+      equalizationExponent: EQUALIZATION_EXPONENT[assumptions.equalizationStrength] ?? 0.5,
+      streetMultiplierAtInhouse,
+      minEffectiveFloor: assumptions.minInhouseIncreasePct / 100,
+      maxEffectiveCeiling: assumptions.maxInhouseIncreasePct / 100,
+      allowAboveStreet: true,
+      currentStreetRateMonthly,
+      recommendedStreetRateMonthly: solved.recommendedStreetMonthly,
+      monthlyRealized: monthly,
+      monthlyStandardized: mixStandardizedMonthly,
+      residents: solved.allocation.allocations.map((a) => ({
+        key: a.resident.key,
+        location: a.resident.location,
+        serviceLine: a.resident.serviceLine,
+        roomNumber: a.resident.roomNumber,
+        roomType: a.resident.roomType,
+        careLevel: a.resident.careLevel,
+        payorType: a.resident.payorType,
+        moveInDate: a.resident.moveInDate,
+        rateProduct: a.resident.rateProduct,
+        streetRateSource: a.resident.streetRateSource,
+        isCompanionBed: a.resident.isCompanionBed,
+        weight: a.resident.weight,
+        currentRateMonthly: a.resident.currentRateMonthly,
+        streetRateMonthly: a.resident.streetRateMonthly,
+        headroom: a.headroom,
+        shape: a.shape,
+        minEffective: a.minEffective,
+        maxEffective: a.maxEffective,
+        increase: a.increase,
+        constraint: a.constraint,
+      })),
+    };
 
-  return { plan, audit };
+    return { plan, audit };
+  }
+
+  return {
+    assumptions: resolvedAssumptions,
+    sourceMonth,
+    solve: (guardrails) =>
+      solveWith(
+        guardrails ? applyOccupancyTier(resolvedAssumptions, guardrails) : resolvedAssumptions,
+      ),
+  };
+}
+
+/* ── Occupancy-tier what-if grid ───────────────────────────────────────────── */
+
+export interface CalculatePlanTiersInput {
+  clientId: string;
+  locationId: string | null;
+  location: string | null;
+  serviceLine: string;
+  /** Service-line-level assumptions: effective dates, growth target, turnover. */
+  assumptions: PlanningAssumptions;
+  tierPolicy: OccupancyTierPolicy;
+}
+
+export interface CalculatePlanTiersResult {
+  serviceLine: string;
+  /** Measured occupancy percent, or null when it could not be read. */
+  occupancyPct: number | null;
+  occupancyMonth: string | null;
+  /** Which table the reading came from; null when the line has no reading. */
+  occupancySource: OccupancySource | null;
+  /** Tier the measured occupancy falls in; null when occupancy is unknown. */
+  currentTier: OccupancyTierId | null;
+  cells: OccupancyTierPlanCell[];
+  warnings: string[];
+}
+
+/**
+ * Solve one service line under all three of its occupancy tiers.
+ *
+ * The line's data is loaded once and solved three times, so this costs roughly
+ * one plan build rather than three. Callers fan out across service lines the
+ * same way they already do for single plans.
+ */
+export async function calculatePlanTiers(
+  input: CalculatePlanTiersInput,
+): Promise<CalculatePlanTiersResult> {
+  const [prepared, occupancy] = await Promise.all([
+    preparePlan({
+      clientId: input.clientId,
+      locationId: input.locationId,
+      location: input.location,
+      serviceLine: input.serviceLine,
+      assumptions: input.assumptions,
+    }),
+    fetchOccupancyByServiceLine(input.clientId, input.location),
+  ]);
+
+  const reading = occupancy.byServiceLine.get(input.serviceLine) ?? null;
+  const occupancyPct = reading?.occupancyPct ?? null;
+  const currentTier = tierForOccupancy(input.tierPolicy, occupancyPct);
+
+  const warnings: string[] = [];
+  if (reading == null) {
+    warnings.push(
+      `No occupancy reading for ${input.serviceLine}, so none of its tiers is marked as the one in force. The three plans below are still valid what-ifs.`,
+    );
+  } else if (reading.source === "rent_roll") {
+    warnings.push(
+      `Occupancy for ${input.serviceLine} came from the rent roll because occupancy history does not cover this service line. Rent-roll occupancy under-reports wherever companion beds exist, so confirm the tier it selected.`,
+    );
+  }
+
+  const cells: OccupancyTierPlanCell[] = OCCUPANCY_TIER_IDS.map((tier) => {
+    const identity = {
+      serviceLine: input.serviceLine,
+      tier,
+      rangeLabel: occupancyTierRangeLabel(input.tierPolicy, tier),
+      isCurrent: tier === currentTier,
+    };
+    try {
+      const { plan } = prepared.solve(input.tierPolicy.tiers[tier]);
+      return {
+        ...identity,
+        inhouseIncreasePct: plan.summary.weightedAvgIncreasePct,
+        streetIncreasePct: plan.streetIncreasePct,
+        feasible: plan.feasible,
+      };
+    } catch (err) {
+      // One unsolvable tier must not discard the other two: a guardrail set
+      // that cannot produce a plan is itself the answer for that cell.
+      return {
+        ...identity,
+        inhouseIncreasePct: null,
+        streetIncreasePct: null,
+        feasible: null,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
+  return {
+    serviceLine: input.serviceLine,
+    occupancyPct,
+    occupancyMonth: reading?.month ?? null,
+    occupancySource: reading?.source ?? null,
+    currentTier,
+    cells,
+    warnings,
+  };
 }
 
 /**

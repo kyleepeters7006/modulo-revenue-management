@@ -689,6 +689,13 @@ export const inhousePlanningAssumptions = pgTable("inhouse_planning_assumptions"
   minStreetIncreasePct: real("min_street_increase_pct").notNull().default(0),
   desiredVarianceToTopCompetitorPct: real("desired_variance_to_top_competitor_pct").notNull().default(0),
   maxYoYStreetIncreasePct: real("max_yoy_street_increase_pct").notNull().default(15),
+  /**
+   * Per-service-line occupancy tiers: two cutoffs plus one guardrail set per
+   * tier. Stored as JSON because it is a fixed three-element policy read and
+   * written whole — splitting it into a child table would add a join and a
+   * partial-write failure mode for data that has no independent identity.
+   */
+  occupancyTierPolicy: jsonb("occupancy_tier_policy"),
   updatedBy: text("updated_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

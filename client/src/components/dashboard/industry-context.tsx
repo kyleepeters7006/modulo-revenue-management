@@ -78,71 +78,115 @@ function formatTimestamp(value: string | null | undefined) {
   return new Date(value).toLocaleString();
 }
 
-function ContextCard({ metric, canEdit, onEdit }: { metric: Metric; canEdit: boolean; onEdit: (metric: Metric) => void }) {
+/**
+ * The label doubles as the methodology tooltip trigger. It truncates to keep
+ * the card to one header line, so the full string is also exposed as a native
+ * title — the tooltip carries the note, not the label, and a sighted user
+ * otherwise has no way to read a clipped label.
+ */
+function MetricLabel({ metric }: { metric: Metric }) {
   return (
-    <div
-      className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] p-4"
-      data-testid={`industry-metric-${metric.id}`}
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            title={metric.label}
+            className="cursor-help truncate border-b border-dotted border-current text-left text-[11px] font-semibold uppercase tracking-wide text-[var(--dashboard-muted-strong)]"
+          >
+            {metric.label}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-[280px] text-xs leading-relaxed">
+          {metric.note || "No methodology note provided."}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function StatusPill({ metric }: { metric: Metric }) {
+  return (
+    <span
+      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none ${
+        metric.status === "stale"
+          ? "bg-amber-100 text-amber-800"
+          : metric.status === "unavailable"
+            ? "bg-slate-100 text-slate-700"
+            : "bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal-dark)]"
+      }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <TooltipProvider delayDuration={150}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="cursor-help border-b border-dotted border-current text-left text-xs font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]"
-                >
-                  {metric.label}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-[280px] text-xs leading-relaxed">
-                {metric.note || "No methodology note provided."}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <p className="mt-2 text-2xl font-light text-[var(--dashboard-text)]">{formatValue(metric)}</p>
-        </div>
-        <span
-          className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium ${
-            metric.status === "stale"
-              ? "bg-amber-100 text-amber-800"
-              : metric.status === "unavailable"
-                ? "bg-slate-100 text-slate-700"
-                : "bg-[var(--trilogy-teal)]/10 text-[var(--trilogy-teal)]"
-          }`}
-        >
-          {statusLabel(metric)}
-        </span>
-      </div>
-      <p className="mt-2 text-xs font-medium text-[var(--dashboard-text)]">{metric.comparison}</p>
-      <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-[var(--dashboard-muted)]">
-        <span>As of {metric.asOf}</span>
-        <span className="inline-flex items-center gap-2">
-          {metric.revisionCount ? (
-            <span
-              className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800"
-              title={metric.previousValue == null ? undefined : `Previous value: ${metric.previousValue.toFixed(1)}%`}
-            >
-              Revised {metric.revisionCount}×
-            </span>
-          ) : null}
-        </span>
-      </div>
+      {statusLabel(metric)}
+    </span>
+  );
+}
+
+/**
+ * As-of date, source link, revision count and the admin edit affordance, on
+ * one wrapping line.
+ *
+ * Shared so every benchmark in the section carries it, the peer graphic
+ * included. A card that shows a number with no freshness state is worse than
+ * no card at all here — these figures frame pricing decisions, and a stale
+ * feed that still looks current is exactly the failure mode to avoid.
+ */
+function MetricMeta({ metric, canEdit, onEdit }: { metric: Metric; canEdit: boolean; onEdit: (metric: Metric) => void }) {
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-tight text-[var(--dashboard-muted-strong)]">
+      <span className="whitespace-nowrap">As of {metric.asOf}</span>
+      <span aria-hidden>·</span>
       <a
         href={metric.sourceUrl}
         target="_blank"
         rel="noreferrer"
-        className="mt-2 inline-flex max-w-full items-center gap-1 text-[11px] text-[var(--trilogy-teal)] hover:underline"
+        title={metric.sourceName}
+        className="inline-flex min-w-0 items-center gap-1 text-[var(--trilogy-teal-dark)] hover:underline"
       >
         <span className="truncate">{metric.sourceName}</span>
-        <ExternalLink className="h-3 w-3 shrink-0" />
+        <ExternalLink className="h-2.5 w-2.5 shrink-0" />
       </a>
+      {metric.revisionCount ? (
+        <span
+          className="whitespace-nowrap rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-800"
+          title={metric.previousValue == null ? undefined : `Previous value: ${metric.previousValue.toFixed(1)}%`}
+        >
+          Revised {metric.revisionCount}×
+        </span>
+      ) : null}
       {canEdit && (metric.status === "stale" || metric.status === "unavailable") ? (
-        <button type="button" onClick={() => onEdit(metric)} className="mt-3 block text-[11px] font-semibold text-[var(--trilogy-teal)] hover:underline">
-          Edit metric
+        <button
+          type="button"
+          onClick={() => onEdit(metric)}
+          className="whitespace-nowrap font-semibold text-[var(--trilogy-teal-dark)] hover:underline"
+        >
+          Edit
         </button>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Three dense lines: label + status, value + comparison, then provenance.
+ *
+ * Everything the taller card carried is still here. Condensing means
+ * collapsing the stacking, not dropping fields.
+ */
+function ContextCard({ metric, canEdit, onEdit }: { metric: Metric; canEdit: boolean; onEdit: (metric: Metric) => void }) {
+  return (
+    <div
+      className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-2.5 py-2"
+      data-testid={`industry-metric-${metric.id}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <MetricLabel metric={metric} />
+        <StatusPill metric={metric} />
+      </div>
+      <div className="mt-0.5 flex items-baseline gap-2">
+        <p className="shrink-0 text-lg font-light leading-tight text-[var(--dashboard-text)]">{formatValue(metric)}</p>
+        <p className="text-[11px] font-medium leading-snug text-[var(--dashboard-text)]">{metric.comparison}</p>
+      </div>
+      <MetricMeta metric={metric} canEdit={canEdit} onEdit={onEdit} />
     </div>
   );
 }
@@ -255,7 +299,7 @@ export default function IndustryContext() {
 
   return (
     <Card className="dashboard-card" data-testid="industry-context">
-      <CardHeader className="gap-3 pb-4 sm:flex-row sm:items-start sm:justify-between">
+      <CardHeader className="gap-2 pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
            <button
              type="button"
@@ -264,15 +308,15 @@ export default function IndustryContext() {
              aria-controls="industry-context-trends"
               className="group flex items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--trilogy-teal)]"
            >
-             <CardTitle className="flex items-center gap-2 text-xl font-semibold text-[var(--dashboard-text)]">
-               Industry Context <img src="/industry-context-icon.png" alt="" className="h-11 w-11 object-contain" />
+             <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[var(--dashboard-text)]">
+               Industry Context <img src="/industry-context-icon.png" alt="" className="h-8 w-8 object-contain" />
              </CardTitle>
              <ChevronDown className={`h-4 w-4 text-[var(--dashboard-muted)] transition-transform group-hover:text-[var(--dashboard-text)] ${expanded ? "rotate-180" : ""}`} />
            </button>
-           <p className="mt-1 max-w-2xl text-sm text-[var(--dashboard-muted)]">
+           <p className="max-w-2xl text-xs text-[var(--dashboard-muted)]">
               Market benchmarks calibrate rate targets.
             </p>
-           {feedback && !editing ? <p className={`mt-2 text-xs ${feedback.includes("failed") || feedback.includes("Choose") ? "text-red-700" : "text-[var(--trilogy-teal)]"}`} role="status">{feedback}</p> : null}
+           {feedback && !editing ? <p className={`mt-1 text-xs ${feedback.includes("failed") || feedback.includes("Choose") ? "text-red-700" : "text-[var(--trilogy-teal)]"}`} role="status">{feedback}</p> : null}
         </div>
           <div className="flex items-center gap-2">
          <Link href="/inhouse-increases">
@@ -282,39 +326,41 @@ export default function IndustryContext() {
          </Link>
          </div>
       </CardHeader>
-       {expanded ? <CardContent id="industry-context-trends" className="space-y-5">
+       {expanded ? <CardContent id="industry-context-trends" className="space-y-3 pt-0">
         {groups.map((group) => (
-           <section key={group.category} aria-labelledby={`industry-${group.category}`} className="mx-auto w-full max-w-5xl">
-            <div className="mb-3">
-              <h3 id={`industry-${group.category}`} className="text-sm font-semibold text-[var(--dashboard-text)]">
+           <section key={group.category} aria-labelledby={`industry-${group.category}`} className="mx-auto w-full max-w-6xl">
+            {/* Title and description share a line; the description is a gloss,
+                not a heading, so it does not need its own row. */}
+            <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2">
+              <h3 id={`industry-${group.category}`} className="text-xs font-semibold text-[var(--dashboard-text)]">
                 {group.title}
               </h3>
-              <p className="text-xs text-[var(--dashboard-muted)]">{group.description}</p>
+              <p className="text-[11px] text-[var(--dashboard-muted)]">{group.description}</p>
             </div>
-             <div className="grid gap-3 sm:grid-cols-2">
+             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                {group.metrics.map((metric) => (
                  metric.label.toLowerCase().includes("peer") && metric.label.toLowerCase().includes("same-store") ? (
-                   <PeerGraphic key={metric.id} isAdmin={isAdmin} uploading={uploading} fileRef={fileRef} onFile={uploadGraphic} version={graphicVersion} />
+                   <PeerGraphic key={metric.id} metric={metric} isAdmin={isAdmin} onEdit={setEditing} uploading={uploading} fileRef={fileRef} onFile={uploadGraphic} version={graphicVersion} />
                  ) : <ContextCard key={metric.id} metric={metric} canEdit={isAdmin} onEdit={setEditing} />
               ))}
             </div>
           </section>
         ))}
-        <div className="border-t border-[var(--dashboard-border)] pt-3 text-[11px] text-[var(--dashboard-muted)]">
+        {/* Refresh health is freshness information, not fine print — it says
+            how far the whole section can be trusted, so it uses the readable
+            muted token rather than the body-text one. */}
+        <div className="mx-auto w-full max-w-6xl border-t border-[var(--dashboard-border)] pt-2 text-[11px] leading-snug text-[var(--dashboard-muted-strong)]">
           <p>
             Last successful source refresh{" "}
              {formatTimestamp(liveRefresh.lastSuccessAt)} ·{" "}
-             {liveRefresh.schedule}. Reviewed snapshots are dated to their source publication.
-          </p>
-          <p className="mt-1">
-             {liveRefresh.provider} · Data is marked stale after{" "}
-             {liveRefresh.staleAfterHours} hours.
+             {liveRefresh.schedule} · {liveRefresh.provider} · Stale after{" "}
+             {liveRefresh.staleAfterHours} hours · Reviewed snapshots are dated to their source publication.
              {liveRefresh.revisionCount > 0
                ? ` ${liveRefresh.revisionCount} revision${liveRefresh.revisionCount === 1 ? "" : "s"} recorded.`
               : ""}
           </p>
            {query.data.liveSourceStatus === "partial" || liveRefresh.lastError ? (
-            <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-amber-800">
+            <p className="mt-1.5 rounded-md bg-amber-50 px-2 py-1 text-amber-800">
               BLS refresh issue:{" "}
                {liveRefresh.lastError ?? "one or more live series are stale or unavailable."}
                {liveRefresh.lastAttemptAt
@@ -374,7 +420,7 @@ export default function IndustryContext() {
   );
 }
 
-function PeerGraphic({ isAdmin, uploading, fileRef, onFile, version }: { isAdmin: boolean; uploading: boolean; fileRef: MutableRefObject<HTMLInputElement | null>; onFile: (file: File) => void; version: number }) {
+function PeerGraphic({ metric, isAdmin, onEdit, uploading, fileRef, onFile, version }: { metric: Metric; isAdmin: boolean; onEdit: (metric: Metric) => void; uploading: boolean; fileRef: MutableRefObject<HTMLInputElement | null>; onFile: (file: File) => void; version: number }) {
   const [expanded, setExpanded] = useState(false);
   const imageUrl = `/api/industry-context/peer-graphic?v=${version}`;
   const handleImageError = (event: React.SyntheticEvent<HTMLImageElement>) => {
@@ -383,15 +429,29 @@ function PeerGraphic({ isAdmin, uploading, fileRef, onFile, version }: { isAdmin
 
   return (
     <>
-      <div className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] p-3 sm:col-span-2">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <div><p className="text-xs font-semibold uppercase tracking-wide text-[var(--dashboard-muted)]">Peer same-store revenue growth</p><p className="mt-1 text-xs text-[var(--dashboard-muted)]">Quarterly comparison across senior housing operators</p></div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button type="button" onClick={() => setExpanded(true)} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--dashboard-border)] px-2.5 py-1.5 text-xs font-medium hover:bg-white"><Maximize2 className="h-3.5 w-3.5" /> Expand</button>
-            {isAdmin ? <><input ref={(node) => { fileRef.current = node; }} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} /><button type="button" disabled={uploading} onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--dashboard-border)] px-2.5 py-1.5 text-xs font-medium hover:bg-white disabled:opacity-50"><Upload className="h-3.5 w-3.5" /> {uploading ? "Uploading…" : "Replace graphic"}</button></> : null}
+      {/* Full width in both grid shapes. The inline image is a preview kept
+          small on purpose — Expand is the way to actually read it.
+
+          This is a benchmark like any other, so it carries the same status
+          pill and provenance row. Rendering it as a bare picture let a stale
+          or unavailable peer snapshot look perfectly current. */}
+      <div
+        className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-2.5 py-2 sm:col-span-2 xl:col-span-3"
+        data-testid={`industry-metric-${metric.id}`}
+      >
+        <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+            <MetricLabel metric={metric} />
+            <p className="text-[11px] text-[var(--dashboard-muted-strong)]">Quarterly comparison across senior housing operators</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <StatusPill metric={metric} />
+            <button type="button" onClick={() => setExpanded(true)} className="inline-flex items-center gap-1 rounded-md border border-[var(--dashboard-border)] px-2 py-1 text-[11px] font-medium hover:bg-white"><Maximize2 className="h-3 w-3" /> Expand</button>
+            {isAdmin ? <><input ref={(node) => { fileRef.current = node; }} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} /><button type="button" disabled={uploading} onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1 rounded-md border border-[var(--dashboard-border)] px-2 py-1 text-[11px] font-medium hover:bg-white disabled:opacity-50"><Upload className="h-3 w-3" /> {uploading ? "Uploading…" : "Replace"}</button></> : null}
           </div>
         </div>
-        <img key={version} src={imageUrl} alt="Peer same-store revenue growth comparison" className="max-h-[360px] w-full object-contain object-left" onError={handleImageError} />
+        <img key={version} src={imageUrl} alt="Peer same-store revenue growth comparison" className="mt-1.5 max-h-[180px] w-full cursor-zoom-in object-contain object-left" onClick={() => setExpanded(true)} onError={handleImageError} />
+        <MetricMeta metric={metric} canEdit={isAdmin} onEdit={onEdit} />
       </div>
       <Dialog open={expanded} onOpenChange={setExpanded}>
         <DialogContent className="flex h-[92vh] w-[96vw] max-w-[96vw] flex-col">

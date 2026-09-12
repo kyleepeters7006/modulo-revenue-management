@@ -43,14 +43,11 @@ function renderInline(text: string): (string | JSX.Element)[] {
 }
 
 function renderFormattedInsights(text: string) {
-  const placeholder = !text
-    || text === "AI insights will appear here after analysis..."
-    || text.startsWith("Analyzing")
-    || text.startsWith("Analysis failed");
-
-  if (placeholder) {
-    return <p className="text-sm text-gray-500 italic">{text}</p>;
-  }
+  // Transient states (loading, generating, failed) are rendered explicitly by
+  // the caller rather than smuggled through this string, so no prefix sniffing
+  // happens here — that used to misclassify any real analysis whose first word
+  // matched a sentinel.
+  if (!text) return null;
 
   const lines = text.split('\n');
   const elements: JSX.Element[] = [];
@@ -121,7 +118,10 @@ export default function AiInsights() {
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
   const [selectedServiceLine, setSelectedServiceLine] = useState<string>("all");
   const [isHydrated, setIsHydrated] = useState(false);
-  const [pendingText, setPendingText] = useState<string | null>(null);
+  // Generation failure is its own state. It used to be written into the
+  // displayed text, which made a failed run suppress both the Run Analysis
+  // button and the load-error banner, stranding the user with no action.
+  const [generationError, setGenerationError] = useState<string | null>(null);
 
   // Chat state
   const [chatOpen, setChatOpen] = useState(false);
@@ -140,28 +140,76 @@ export default function AiInsights() {
   const locations: string[] = Array.from(new Set(locationNames)).sort((a, b) => a.localeCompare(b));
   const serviceLines = ["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"];
 
-  // Fetch persisted insight from DB
+  // Fetch persisted insight from DB.
+  //
+  // A failed read must not be reported as "no analysis exists". The tenant
+  // middleware silently falls back to the demo client when a session cannot be
+  // revalidated, so a dropped session returns a perfectly valid
+  // `{ found: false }` for a scope whose analysis is sitting in the database
+  // under the real tenant. Swallowing the HTTP status here made that
+  // indistinguishable from a genuine empty state, and the offered remedy —
+  // Run Analysis — spends a full AI run to rediscover work already done.
   const insightQueryKey = ["/api/ai/insights", selectedLocation, selectedServiceLine];
-  const { data: insightData, isLoading: insightLoading } = useQuery({
+  const {
+    data: insightData,
+    isLoading: insightLoading,
+    isError: insightFailed,
+    error: insightError,
+    refetch: refetchInsight,
+    isFetching: insightFetching,
+  } = useQuery({
     queryKey: insightQueryKey,
     queryFn: async () => {
       const loc = selectedLocation !== 'all' ? selectedLocation : 'all';
       const sl = selectedServiceLine !== 'all' ? selectedServiceLine : 'all';
-      const res = await fetch(`/api/ai/insights?location=${encodeURIComponent(loc)}&serviceLine=${encodeURIComponent(sl)}`);
+      const res = await fetch(
+        `/api/ai/insights?location=${encodeURIComponent(loc)}&serviceLine=${encodeURIComponent(sl)}`,
+        { credentials: 'include' },
+      );
+      if (!res.ok) {
+        throw new Error(
+          res.status === 401 || res.status === 403
+            ? 'Your session has expired. Sign in again to see your saved analysis.'
+            : `Could not load the saved analysis (server returned ${res.status}).`,
+        );
+      }
       return res.json();
     },
     enabled: isHydrated,
   });
 
-  const storedContent: string | null = insightData?.found ? insightData.content : null;
+  // A row can exist with empty content. That is not an analysis, and treating
+  // it as one left the card showing a placeholder with no way to act.
+  const rawStored = insightData?.found ? insightData.content : null;
+  const storedContent: string | null =
+    typeof rawStored === 'string' && rawStored.trim() !== '' ? rawStored : null;
   const storedGeneratedAt: string | null = insightData?.found ? insightData.generatedAt : null;
+  const hasAnalysis = !!storedContent;
 
-  // Displayed content: pending (optimistic) → DB → placeholder
-  const displayText = pendingText
-    ?? storedContent
-    ?? "AI insights will appear here after analysis...";
+  // The query is disabled until the saved filters are restored, and a disabled
+  // query reports isLoading === false, so hydration has to be part of the
+  // not-ready test or the never-run placeholder paints first.
+  const notReady = !isHydrated || insightLoading;
 
-  const hasAnalysis = !!storedContent && !pendingText?.startsWith("Analyzing");
+  // A refetch keeps the previous data in cache, so a failure with content in
+  // hand is a different screen from a failure with nothing: one can still show
+  // the last known-good analysis, the other has nothing to show.
+  const loadFailedWithoutCache = insightFailed && !hasAnalysis;
+  const staleAfterFailedRefetch = insightFailed && hasAnalysis;
+
+  // Only a read that actually succeeded and came back with nothing usable
+  // proves this scope has no analysis. A failed or in-flight read proves
+  // nothing. This covers both found:false and a stored row with empty content.
+  const confirmedEmpty = !insightFailed && !notReady && !!insightData && !storedContent;
+
+  const displayText = storedContent ?? "";
+
+  // Generation is asynchronous and the filters are not. Every completion is
+  // matched against the scope it was started for, so a run for one scope can
+  // never report its result — or its failure — against another.
+  const scopeKey = `${selectedLocation}||${selectedServiceLine}`;
+  const currentScopeRef = useRef(scopeKey);
+  useEffect(() => { currentScopeRef.current = scopeKey; }, [scopeKey]);
 
   // ── Hydration: restore filters from localStorage ──────────────────────────
   useEffect(() => {
@@ -173,45 +221,71 @@ export default function AiInsights() {
     setIsHydrated(true);
   }, []);
 
-  // ── Persist filter changes & clear optimistic state ───────────────────────
+  // ── Persist filter changes & clear scope-specific state ───────────────────
+  // A generation failure belongs to the scope it was attempted for; carrying
+  // it across a filter change would report it against the wrong data.
+  //
+  // An open editor is abandoned for the same reason, and more urgently: the
+  // draft is text for the old scope, but Save writes to whatever the filters
+  // currently say, so keeping it would let one scope's edit overwrite
+  // another's saved analysis.
   useEffect(() => {
     if (!isHydrated) return;
     saveFilters({ location: selectedLocation, serviceLine: selectedServiceLine });
-    setPendingText(null);
+    setGenerationError(null);
+    setIsEditing(false);
+    setEditedContent("");
   }, [selectedLocation, selectedServiceLine, isHydrated]);
 
   // ── Generate insights mutation ────────────────────────────────────────────
+  type GenerationScope = { location: string; serviceLine: string };
+
+  // The toast always fires — the run really did finish — but the inline error
+  // is only shown when the filters still point at the scope that produced it.
+  const reportGenerationFailure = (scope: GenerationScope, msg: string) => {
+    if (`${scope.location}||${scope.serviceLine}` === currentScopeRef.current) {
+      setGenerationError(msg);
+    }
+    toast({ title: "Analysis Failed", description: msg, variant: "destructive" });
+  };
+
   const aiSuggestMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (scope: GenerationScope) => {
       return apiRequest('/api/ai/suggest', 'POST', {
-        location: selectedLocation !== 'all' ? selectedLocation : undefined,
-        serviceLine: selectedServiceLine !== 'all' ? selectedServiceLine : undefined
+        location: scope.location !== 'all' ? scope.location : undefined,
+        serviceLine: scope.serviceLine !== 'all' ? scope.serviceLine : undefined
       });
     },
-    onSuccess: async (response) => {
+    onSuccess: async (response, scope) => {
       try {
         const data = await response.json();
         if (data.ok) {
-          setPendingText(null);
-          // Invalidate DB cache so it re-fetches the newly saved insight
-          await queryClient.invalidateQueries({ queryKey: insightQueryKey });
+          if (`${scope.location}||${scope.serviceLine}` === currentScopeRef.current) {
+            setGenerationError(null);
+          }
+          // Invalidate the scope that was actually generated, not whatever the
+          // filters happen to show now.
+          await queryClient.invalidateQueries({
+            queryKey: ["/api/ai/insights", scope.location, scope.serviceLine],
+          });
           toast({ title: "Analysis Complete", description: "New insights generated successfully" });
         } else {
-          setPendingText(`Analysis failed: ${data.error || 'Unknown error'}`);
-          toast({ title: "Analysis Failed", description: data.error || 'Unknown error', variant: "destructive" });
+          reportGenerationFailure(scope, data.error || 'Unknown error');
         }
       } catch (err: any) {
-        const msg = err?.message || 'Failed to process response';
-        setPendingText(`Analysis failed: ${msg}`);
-        toast({ title: "Analysis Failed", description: msg, variant: "destructive" });
+        reportGenerationFailure(scope, err?.message || 'Failed to process response');
       }
     },
-    onError: (error: any) => {
-      const msg = error?.message || 'Unknown error';
-      setPendingText(`Analysis failed: ${msg}`);
-      toast({ title: "Analysis Failed", description: msg, variant: "destructive" });
+    onError: (error: any, scope) => {
+      reportGenerationFailure(scope, error?.message || 'Unknown error');
     },
   });
+
+  // A run started under different filters must not make this scope look busy.
+  const generatingScope = aiSuggestMutation.variables;
+  const isGeneratingThisScope = aiSuggestMutation.isPending
+    && !!generatingScope
+    && `${generatingScope.location}||${generatingScope.serviceLine}` === scopeKey;
 
   // ── Save edited content to DB ─────────────────────────────────────────────
   const saveEditMutation = useMutation({
@@ -277,8 +351,8 @@ export default function AiInsights() {
   };
 
   const handleGenerateInsights = () => {
-    setPendingText("Analyzing property data and market conditions...");
-    aiSuggestMutation.mutate();
+    setGenerationError(null);
+    aiSuggestMutation.mutate({ location: selectedLocation, serviceLine: selectedServiceLine });
   };
 
   const handleEditClick = () => { setEditedContent(displayText); setIsEditing(true); };
@@ -441,6 +515,60 @@ export default function AiInsights() {
               )}
             </div>
 
+            {/* Load failure — reported, never downgraded into an empty state.
+                With cached content in hand this is a staleness warning; with
+                nothing cached it is the only thing standing between the user
+                and a "you never ran this" screen that would be a lie. */}
+            {insightFailed && (
+              <div
+                role="alert"
+                className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5"
+                data-testid="banner-insights-load-failed"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+                <div className="min-w-0 flex-1 text-amber-800">
+                  <p className="text-sm font-medium">
+                    {staleAfterFailedRefetch
+                      ? "Couldn't refresh — showing the last copy loaded"
+                      : "Couldn't load the saved analysis"}
+                  </p>
+                  <p className="mt-0.5 text-xs leading-relaxed">
+                    {(insightError as Error)?.message || 'The request failed.'}{' '}
+                    {staleAfterFailedRefetch
+                      ? `The analysis below may no longer be current for ${getFilterDescription()}.`
+                      : `Anything already generated for ${getFilterDescription()} is still saved — this is a loading problem, not a missing result, so there is no need to re-run it.`}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => refetchInsight()}
+                  disabled={insightFetching}
+                  className="h-7 flex-shrink-0 gap-1.5 text-xs"
+                  data-testid="button-retry-insights"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${insightFetching ? 'animate-spin' : ''}`} />
+                  {insightFetching ? 'Retrying…' : 'Retry'}
+                </Button>
+              </div>
+            )}
+
+            {/* Generation failure — kept separate from the load failure so it
+                never suppresses the controls that let the user try again. */}
+            {generationError && !isGeneratingThisScope && (
+              <div
+                role="alert"
+                className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5"
+                data-testid="banner-generation-failed"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-500" />
+                <div className="min-w-0 flex-1 text-red-800">
+                  <p className="text-sm font-medium">Analysis failed</p>
+                  <p className="mt-0.5 text-xs leading-relaxed">{generationError}</p>
+                </div>
+              </div>
+            )}
+
             {/* Timestamp + Refresh row — shown when analysis exists */}
             {hasAnalysis && storedGeneratedAt && (
               <div className="flex items-center justify-between gap-2 px-1">
@@ -458,26 +586,32 @@ export default function AiInsights() {
                   className="h-7 text-xs gap-1.5"
                   data-testid="button-refresh-insights"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${aiSuggestMutation.isPending ? 'animate-spin' : ''}`} />
-                  {aiSuggestMutation.isPending ? 'Refreshing…' : 'Refresh'}
+                  <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingThisScope ? 'animate-spin' : ''}`} />
+                  {isGeneratingThisScope ? 'Refreshing…' : 'Refresh'}
                 </Button>
               </div>
             )}
 
-            {/* Primary Run Analysis button — shown when no stored analysis for this filter */}
-            {!hasAnalysis && !pendingText && (
+            {/* Primary Run Analysis button — only once a successful read has
+                confirmed this scope genuinely has no stored analysis. It stays
+                visible after a failed run so a first-time user is never left
+                without an action. */}
+            {confirmedEmpty && (
               <Button
                 onClick={handleGenerateInsights}
                 className="w-full bg-blue-500 hover:bg-blue-600 text-white gap-2"
-                disabled={aiSuggestMutation.isPending || insightLoading}
+                disabled={aiSuggestMutation.isPending}
                 data-testid="button-generate-insights"
               >
                 <PlayCircle className="w-4 h-4" />
-                {insightLoading ? "Loading…" : aiSuggestMutation.isPending ? "Analyzing…" : "Run Analysis"}
+                {isGeneratingThisScope ? "Analyzing…" : "Run Analysis"}
               </Button>
             )}
 
-            {/* Analysis content */}
+            {/* Analysis content. Hidden only when a failed initial load left
+                nothing to show — the banner above owns that state, and the
+                never-run placeholder would contradict it. */}
+            {!(loadFailedWithoutCache && !isGeneratingThisScope) && (
             <div className="p-4 bg-[var(--dashboard-bg)] rounded-lg border border-[var(--dashboard-border)]">
               {isEditing ? (
                 <div className="space-y-3">
@@ -496,6 +630,18 @@ export default function AiInsights() {
                     </Button>
                   </div>
                 </div>
+              ) : notReady ? (
+                <p role="status" className="text-sm text-gray-500 italic" data-testid="text-insights-loading">
+                  Loading saved analysis…
+                </p>
+              ) : isGeneratingThisScope ? (
+                <p role="status" className="text-sm text-gray-500 italic" data-testid="text-insights-generating">
+                  Analyzing property data and market conditions…
+                </p>
+              ) : !hasAnalysis ? (
+                <p className="text-sm text-gray-500 italic" data-testid="text-smart-suggestions">
+                  AI insights will appear here after analysis...
+                </p>
               ) : (
                 <div className="relative group" data-testid="text-smart-suggestions">
                   {renderFormattedInsights(displayText)}
@@ -513,6 +659,7 @@ export default function AiInsights() {
                 </div>
               )}
             </div>
+            )}
 
           </CardContent>
         </Card>

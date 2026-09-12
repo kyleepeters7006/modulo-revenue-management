@@ -23,6 +23,7 @@ import {
   type DerivedRateFormula,
 } from "@shared/derivedRates";
 import { isDailyRateServiceLine } from "../rateNormalization";
+import { slWeightSqlPredicate, splitCombinedSl } from "../slSplit";
 import type { RoomQuarterObservation } from "./twoPointIndex";
 import {
   buildRateBaselineJoin,
@@ -1126,4 +1127,155 @@ export function horizonQuarters(isoDate: string, count = 4): QuarterRef[] {
 /** Months a quarter should contain — used to report coverage honestly. */
 export function expectedMonths(ref: QuarterRef): string[] {
   return quarterMonths(ref);
+}
+
+/* ── Occupancy, for deciding which tier governs a service line ─────────────── */
+
+export type OccupancySource = "occupancy_history" | "rent_roll";
+
+/** One service line's occupancy reading, with the provenance it was read from. */
+export interface ServiceLineOccupancy {
+  /** Occupancy percent, e.g. 91.4. */
+  occupancyPct: number;
+  /** Month the reading came from, "YYYY-MM". */
+  month: string | null;
+  source: OccupancySource;
+}
+
+export interface ScopeOccupancy {
+  byServiceLine: Map<string, ServiceLineOccupancy>;
+}
+
+/**
+ * Measured occupancy per service line, used to pick each line's occupancy tier.
+ *
+ * `room_type_occupancy_history` is the authoritative source. Rent-roll
+ * `occupied_yn` double-counts companion and B-bed rows badly enough to read
+ * ~46% where history reads ~89%, which would put a line in the bottom tier on
+ * an artefact, so it is only ever used for a line history does not cover — and
+ * each line reports which source produced it rather than hiding the difference.
+ *
+ * The fallback is decided per service line, not for the scope as a whole. A
+ * campus whose history covers assisted living but not its villas would
+ * otherwise report the villas as unmeasurable while rent-roll rows for them sit
+ * right there; every line history does cover still keeps the better number.
+ *
+ * Both anchors are campus-local. Taking the client-wide latest month and then
+ * filtering to a campus reports nothing at all for any campus whose upload
+ * lags the portfolio, which reads identically to a campus with no data.
+ *
+ * Combined service-line rows ("AL, AL/MC") are split with the shared weighted
+ * helper, not divided evenly: an even split flattens a fuller memory-care wing
+ * into its building's blended average and can move it a whole tier.
+ */
+export async function fetchOccupancyByServiceLine(
+  clientId: string,
+  location: string | null,
+): Promise<ScopeOccupancy> {
+  const params: any[] = location ? [clientId, location] : [clientId];
+  const rtoLocFilter = location ? "AND COALESCE(roh.location_name, l2.name) = $2" : "";
+  const rrLocFilter = location ? "AND location = $2" : "";
+
+  // Anchored to the newest month occupancy history covers FOR THIS SCOPE, which
+  // can lag the rent roll. Reading the rent roll for a month history simply has
+  // not uploaded yet looks like an occupancy collapse rather than missing data.
+  const rtoSql = `
+    WITH anchor AS (
+      SELECT MAX(make_date(roh.year, roh.month, 1)) AS d
+        FROM room_type_occupancy_history roh
+        LEFT JOIN locations l2 ON l2.id = roh.location_id
+       WHERE roh.client_id = $1
+         ${rtoLocFilter}
+    )
+    SELECT roh.service_line AS sl,
+           SUM(roh.occ_units)::float       AS occ,
+           SUM(roh.available_units)::float AS avail,
+           to_char(MAX(make_date(roh.year, roh.month, 1)), 'YYYY-MM') AS m
+      FROM room_type_occupancy_history roh
+      LEFT JOIN locations l2 ON l2.id = roh.location_id
+     WHERE roh.client_id = $1
+       AND make_date(roh.year, roh.month, 1) = (SELECT d FROM anchor)
+       ${rtoLocFilter}
+     GROUP BY 1`;
+
+  // Serves two purposes: the weights that split a combined service-line row,
+  // and the per-line fallback for any line history does not reach. The weights
+  // must never depend on the service line being asked about, or two callers get
+  // different splits of one row.
+  const weightSql = `
+    SELECT service_line AS sl,
+           COUNT(*)::float                              AS units,
+           COUNT(*) FILTER (WHERE occupied_yn)::float   AS occupied,
+           MAX(upload_month)                            AS m
+      FROM rent_roll_data
+     WHERE client_id = $1
+       AND upload_month = (
+             SELECT MAX(upload_month)
+               FROM rent_roll_data
+              WHERE client_id = $1
+                ${rrLocFilter}
+           )
+       AND ${slWeightSqlPredicate()}
+       ${rrLocFilter}
+     GROUP BY 1`;
+
+  const [rtoRes, weightRes] = await Promise.all([
+    pool.query(rtoSql, params),
+    pool.query(weightSql, params),
+  ]);
+
+  const weights = new Map<string, { units: number; occupied: number }>();
+  let rentRollMonth: string | null = null;
+  for (const r of weightRes.rows as any[]) {
+    const sl = String(r.sl ?? "").trim();
+    if (!sl) continue;
+    rentRollMonth = rentRollMonth ?? (r.m ? String(r.m) : null);
+    weights.set(sl, { units: Number(r.units) || 0, occupied: Number(r.occupied) || 0 });
+  }
+  const weightFor = (sl: string) => weights.get(sl) ?? { units: 0, occupied: 0 };
+
+  const totals = new Map<string, { occ: number; avail: number }>();
+  const add = (sl: string, occ: number, avail: number) => {
+    const prev = totals.get(sl) ?? { occ: 0, avail: 0 };
+    totals.set(sl, { occ: prev.occ + occ, avail: prev.avail + avail });
+  };
+
+  let historyMonth: string | null = null;
+  for (const r of rtoRes.rows as any[]) {
+    const raw = String(r.sl ?? "").trim();
+    if (!raw) continue;
+    historyMonth = historyMonth ?? (r.m ? String(r.m) : null);
+    const occ = Number(r.occ) || 0;
+    const avail = Number(r.avail) || 0;
+    if (avail <= 0) continue;
+    const tokens = raw.split(",").map((t) => t.trim()).filter(Boolean);
+    for (const part of splitCombinedSl(tokens, occ, avail, weightFor)) {
+      add(part.sl, part.occ, part.avail);
+    }
+  }
+
+  // Percentage computed from summed units, before any rounding, so this agrees
+  // with every other occupancy surface to the decimal.
+  const byServiceLine = new Map<string, ServiceLineOccupancy>();
+  totals.forEach((v, sl) => {
+    if (v.avail > 0) {
+      byServiceLine.set(sl, {
+        occupancyPct: (v.occ / v.avail) * 100,
+        month: historyMonth,
+        source: "occupancy_history",
+      });
+    }
+  });
+
+  // Per-line fallback: only for a line the authoritative source never reached.
+  weights.forEach((w, sl) => {
+    if (byServiceLine.has(sl) || w.units <= 0) return;
+    byServiceLine.set(sl, {
+      occupancyPct: (w.occupied / w.units) * 100,
+      month: rentRollMonth,
+      source: "rent_roll",
+    });
+  });
+
+  return { byServiceLine };
 }

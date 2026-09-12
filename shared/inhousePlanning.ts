@@ -124,6 +124,208 @@ export const DEFAULT_ASSUMPTIONS: PlanningAssumptions = {
   maxYoYStreetIncreasePct: 15,
 };
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * Occupancy tiers
+ *
+ * Pricing policy is not one set of guardrails per service line — how hard a
+ * community can push rate depends on how full it is. Each service line defines
+ * two occupancy cutoffs, which split it into three tiers, and each tier carries
+ * its own guardrails.
+ *
+ * Only the guardrails vary by tier. The horizon-defining inputs — effective
+ * dates, rate growth target, annual turnover, measurement mode — stay at the
+ * service-line level, which is what lets all three tiers of a line be solved
+ * from a single load of that line's data.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export type OccupancyTierId = "low" | "target" | "high";
+
+/** Ordered low to high. Iterate this rather than `Object.keys`. */
+export const OCCUPANCY_TIER_IDS: readonly OccupancyTierId[] = ["low", "target", "high"] as const;
+
+export const OCCUPANCY_TIER_LABELS: Record<OccupancyTierId, string> = {
+  low: "Low",
+  target: "Target",
+  high: "High",
+};
+
+/** The guardrails an occupancy tier is allowed to override. */
+export interface OccupancyTierGuardrails {
+  minInhouseIncreasePct: number;
+  maxInhouseIncreasePct: number;
+  minStreetIncreasePct: number;
+  maxStreetIncreasePct: number;
+  maxYoYStreetIncreasePct: number;
+  desiredVarianceToTopCompetitorPct: number;
+  equalizationStrength: EqualizationStrength;
+}
+
+/** Exactly the keys above — used to copy tier fields without naming each one. */
+export const OCCUPANCY_TIER_GUARDRAIL_KEYS: ReadonlyArray<keyof OccupancyTierGuardrails> = [
+  "minInhouseIncreasePct",
+  "maxInhouseIncreasePct",
+  "minStreetIncreasePct",
+  "maxStreetIncreasePct",
+  "maxYoYStreetIncreasePct",
+  "desiredVarianceToTopCompetitorPct",
+  "equalizationStrength",
+] as const;
+
+export interface OccupancyTierPolicy {
+  /** Occupancy strictly below this percent is the low tier. */
+  lowCutoffPct: number;
+  /** Occupancy at or above this percent is the high tier. */
+  highCutoffPct: number;
+  tiers: Record<OccupancyTierId, OccupancyTierGuardrails>;
+}
+
+/**
+ * Softer as occupancy falls: a community that cannot fill its rooms has no
+ * pricing power, so both its resident ceiling and its street ceiling tighten,
+ * and it targets a position below the Top Competitor. A full community does the
+ * reverse. These are starting values an operator is expected to edit per line.
+ */
+export const DEFAULT_OCCUPANCY_TIER_POLICY: OccupancyTierPolicy = {
+  lowCutoffPct: 88,
+  highCutoffPct: 95,
+  tiers: {
+    low: {
+      minInhouseIncreasePct: 0,
+      maxInhouseIncreasePct: 5,
+      minStreetIncreasePct: 0,
+      maxStreetIncreasePct: 8,
+      maxYoYStreetIncreasePct: 8,
+      desiredVarianceToTopCompetitorPct: -3,
+      equalizationStrength: "medium",
+    },
+    target: {
+      minInhouseIncreasePct: 0,
+      maxInhouseIncreasePct: 8,
+      minStreetIncreasePct: 0,
+      maxStreetIncreasePct: 12,
+      maxYoYStreetIncreasePct: 12,
+      desiredVarianceToTopCompetitorPct: 0,
+      equalizationStrength: "medium",
+    },
+    high: {
+      minInhouseIncreasePct: 2,
+      maxInhouseIncreasePct: 10,
+      minStreetIncreasePct: 2,
+      maxStreetIncreasePct: 15,
+      maxYoYStreetIncreasePct: 15,
+      desiredVarianceToTopCompetitorPct: 3,
+      equalizationStrength: "medium",
+    },
+  },
+};
+
+export function defaultOccupancyTierPolicy(): OccupancyTierPolicy {
+  return {
+    lowCutoffPct: DEFAULT_OCCUPANCY_TIER_POLICY.lowCutoffPct,
+    highCutoffPct: DEFAULT_OCCUPANCY_TIER_POLICY.highCutoffPct,
+    tiers: {
+      low: { ...DEFAULT_OCCUPANCY_TIER_POLICY.tiers.low },
+      target: { ...DEFAULT_OCCUPANCY_TIER_POLICY.tiers.target },
+      high: { ...DEFAULT_OCCUPANCY_TIER_POLICY.tiers.high },
+    },
+  };
+}
+
+/**
+ * Which tier an occupancy level falls in.
+ *
+ * Returns null for unknown occupancy rather than guessing a tier: picking one
+ * silently would apply guardrails the operator never chose to a plan that looks
+ * exactly like a measured one.
+ */
+export function tierForOccupancy(
+  policy: OccupancyTierPolicy,
+  occupancyPct: number | null | undefined,
+): OccupancyTierId | null {
+  if (occupancyPct == null || !Number.isFinite(occupancyPct)) return null;
+  if (occupancyPct < policy.lowCutoffPct) return "low";
+  if (occupancyPct < policy.highCutoffPct) return "target";
+  return "high";
+}
+
+/** Human-readable band for a tier, e.g. "below 88%" / "88–95%" / "95%+". */
+export function occupancyTierRangeLabel(policy: OccupancyTierPolicy, tier: OccupancyTierId): string {
+  const low = formatCutoff(policy.lowCutoffPct);
+  const high = formatCutoff(policy.highCutoffPct);
+  if (tier === "low") return `below ${low}%`;
+  if (tier === "target") return `${low}–${high}%`;
+  return `${high}%+`;
+}
+
+function formatCutoff(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+/**
+ * Overlay a tier's guardrails onto the service line's assumptions.
+ *
+ * Everything not listed in `OccupancyTierGuardrails` is deliberately carried
+ * through untouched, so a tier can never move an effective date, the growth
+ * target, or turnover — the three things the shared data load depends on.
+ */
+export function applyOccupancyTier(
+  base: PlanningAssumptions,
+  guardrails: OccupancyTierGuardrails,
+): PlanningAssumptions {
+  return {
+    ...base,
+    minInhouseIncreasePct: guardrails.minInhouseIncreasePct,
+    maxInhouseIncreasePct: guardrails.maxInhouseIncreasePct,
+    minStreetIncreasePct: guardrails.minStreetIncreasePct,
+    maxStreetIncreasePct: guardrails.maxStreetIncreasePct,
+    maxYoYStreetIncreasePct: guardrails.maxYoYStreetIncreasePct,
+    desiredVarianceToTopCompetitorPct: guardrails.desiredVarianceToTopCompetitorPct,
+    equalizationStrength: guardrails.equalizationStrength,
+  };
+}
+
+/** Pull the tier-varying fields back out of a full assumptions object. */
+export function guardrailsFromAssumptions(a: PlanningAssumptions): OccupancyTierGuardrails {
+  return {
+    minInhouseIncreasePct: a.minInhouseIncreasePct,
+    maxInhouseIncreasePct: a.maxInhouseIncreasePct,
+    minStreetIncreasePct: a.minStreetIncreasePct,
+    maxStreetIncreasePct: a.maxStreetIncreasePct,
+    maxYoYStreetIncreasePct: a.maxYoYStreetIncreasePct,
+    desiredVarianceToTopCompetitorPct: a.desiredVarianceToTopCompetitorPct,
+    equalizationStrength: a.equalizationStrength,
+  };
+}
+
+/** One cell of the what-if grid: a service line solved under one tier. */
+export interface OccupancyTierPlanCell {
+  serviceLine: string;
+  tier: OccupancyTierId;
+  /** Occupancy band this tier covers, for display. */
+  rangeLabel: string;
+  /** True when this is the tier the line's measured occupancy falls in. */
+  isCurrent: boolean;
+  /** Resident-weighted average in-house increase, in percent. */
+  inhouseIncreasePct: number | null;
+  /** Recommended street rate increase, in percent. */
+  streetIncreasePct: number | null;
+  /** Whether the plan clears its growth target in every testable quarter. */
+  feasible: boolean | null;
+  /** Set when this cell could not be solved at all. */
+  error?: string;
+}
+
+export interface OccupancyTierGridResult {
+  cells: OccupancyTierPlanCell[];
+  /** Measured occupancy per service line, in percent; null when unknown. */
+  occupancyByServiceLine: Record<string, number | null>;
+  /** Which month the occupancy reading came from, per service line. */
+  occupancyMonthByServiceLine: Record<string, string | null>;
+  /** Service lines that could not be planned at all, with the reason. */
+  skipped: Array<{ serviceLine: string; reason: string }>;
+  warnings: string[];
+}
+
 /**
  * Where a resident's comparison street rate came from.
  *

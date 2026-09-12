@@ -30,6 +30,10 @@
   --dashboard-border: hsl(210, 20%, 90%);
   --dashboard-text: hsl(210, 45%, 25%);
   --dashboard-muted: hsl(210, 15%, 55%);
+  /* --dashboard-muted is tuned for body-size text and lands near 3.2:1 on
+     --dashboard-bg. Use this darker pair (about 5.4:1) for small metadata that
+     still has to be readable, such as dense card provenance rows. */
+  --dashboard-muted-strong: hsl(210, 20%, 40%);
   
   /* Trilogy Brand Colors - Dark Blue, Light Blue, Grey + Teal */
   --trilogy-dark-blue: hsl(210, 45%, 25%);

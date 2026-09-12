@@ -13,13 +13,16 @@ import { db, pool } from "../db";
 import { inhousePlanningAssumptions, inhouseRatePlans, locations } from "@shared/schema";
 import {
   DEFAULT_ASSUMPTIONS,
+  defaultOccupancyTierPolicy,
   type InhousePlanHistoryEntry,
+  type OccupancyTierPolicy,
   type PlanSummary,
   type PlanningAssumptions,
 } from "@shared/inhousePlanning";
 import {
   calculatePlan,
   calculatePlanDetailed,
+  calculatePlanTiers,
   PlanningDataError,
 } from "../services/inhouseRatePlanning";
 import { buildRatePlanWorkbook } from "../services/inhouseRatePlanning/excelExport";
@@ -68,6 +71,48 @@ const scopeSchema = z.object({
   locationId: z.string().nullable().optional(),
   serviceLine: z.string().min(1),
 });
+
+/**
+ * The guardrails an occupancy tier is allowed to move. Everything absent here
+ * — effective dates, the growth target, turnover, the measurement mode — is
+ * deliberately excluded: a tier that could shift the horizon would compare
+ * three plans built over different periods and label the difference "tier".
+ */
+const tierGuardrailsSchema = z.object({
+  minInhouseIncreasePct: z.number().min(0).max(100),
+  maxInhouseIncreasePct: z.number().min(0).max(100),
+  minStreetIncreasePct: z.number().min(0).max(100),
+  maxStreetIncreasePct: z.number().min(0).max(100),
+  maxYoYStreetIncreasePct: z.number().min(0).max(100),
+  desiredVarianceToTopCompetitorPct: z.number().min(-100).max(100),
+  equalizationStrength: z.enum(["low", "medium", "high"]),
+}).refine((d) => d.minInhouseIncreasePct <= d.maxInhouseIncreasePct, {
+  message: "A tier's minimum increase cannot exceed its maximum increase",
+}).refine((d) => d.minStreetIncreasePct <= d.maxStreetIncreasePct, {
+  message: "A tier's minimum Street Rate increase cannot exceed its maximum",
+});
+
+const tierPolicySchema = z.object({
+  lowCutoffPct: z.number().min(0).max(100),
+  highCutoffPct: z.number().min(0).max(100),
+  tiers: z.object({
+    low: tierGuardrailsSchema,
+    target: tierGuardrailsSchema,
+    high: tierGuardrailsSchema,
+  }),
+}).refine((d) => d.lowCutoffPct <= d.highCutoffPct, {
+  message: "The lower cutoff cannot sit above the upper cutoff",
+});
+
+/**
+ * Stored policy JSON is re-validated on read, not trusted. The column is
+ * nullable and predates nothing, so an unparseable or absent value falls back
+ * to the shared defaults rather than failing the whole assumptions fetch.
+ */
+function rowToTierPolicy(row: any): OccupancyTierPolicy {
+  const parsed = tierPolicySchema.safeParse(row?.occupancyTierPolicy);
+  return parsed.success ? parsed.data : defaultOccupancyTierPolicy();
+}
 /** Rows come back snake_case from the driver; drizzle rows do not. */
 export function rowToAssumptions(row: any): PlanningAssumptions {
   return {
@@ -106,7 +151,18 @@ async function resolveAssumptions(
   clientId: string,
   locationId: string | null,
   serviceLine: string | null,
-): Promise<{ assumptions: PlanningAssumptions; scopeLevel: string }> {
+): Promise<{
+  assumptions: PlanningAssumptions;
+  tierPolicy: OccupancyTierPolicy;
+  /**
+   * False when `tierPolicy` is the shared default rather than something this
+   * scope saved. The editor seeds its middle tier from the scope's own
+   * guardrails in that case, so the grid's target column reproduces the plan
+   * the operator already sees instead of a set of numbers nobody chose.
+   */
+  tierPolicyStored: boolean;
+  scopeLevel: string;
+}> {
   const tiers: Array<{ level: string; where: any }> = [];
   if (locationId && serviceLine) {
     tiers.push({
@@ -156,9 +212,23 @@ async function resolveAssumptions(
       .from(inhousePlanningAssumptions)
       .where(tier.where)
       .limit(1);
-    if (row) return { assumptions: rowToAssumptions(row), scopeLevel: tier.level };
+    if (row) {
+      return {
+        assumptions: rowToAssumptions(row),
+        // Taken from the row that won, so the tier policy and the assumptions
+        // it modifies always come from the same scope.
+        tierPolicy: rowToTierPolicy(row),
+        tierPolicyStored: tierPolicySchema.safeParse(row?.occupancyTierPolicy).success,
+        scopeLevel: tier.level,
+      };
+    }
   }
-  return { assumptions: { ...DEFAULT_ASSUMPTIONS }, scopeLevel: "default" };
+  return {
+    assumptions: { ...DEFAULT_ASSUMPTIONS },
+    tierPolicy: defaultOccupancyTierPolicy(),
+    tierPolicyStored: false,
+    scopeLevel: "default",
+  };
 }
 
 /** Campus name for a location id, scoped to the caller's client. */
@@ -208,6 +278,7 @@ export function registerInhousePlanningRoutes(app: Express) {
           locationId: z.string().nullable().optional(),
           serviceLine: z.string().nullable().optional(),
           assumptions: assumptionsSchema,
+          tierPolicy: tierPolicySchema.optional(),
         })
         .safeParse(req.body);
       if (!body.success) {
@@ -235,6 +306,10 @@ export function registerInhousePlanningRoutes(app: Express) {
         minStreetIncreasePct: assumptions.minStreetIncreasePct,
         desiredVarianceToTopCompetitorPct: assumptions.desiredVarianceToTopCompetitorPct,
         maxYoYStreetIncreasePct: assumptions.maxYoYStreetIncreasePct,
+        // Omitted rather than nulled when the caller did not send one, so a
+        // save from a screen that does not edit tiers leaves the stored policy
+        // alone instead of silently resetting it to the defaults.
+        ...(body.data.tierPolicy ? { occupancyTierPolicy: body.data.tierPolicy } : {}),
         updatedBy: req.session?.userId || null,
         updatedAt: new Date(),
       };
@@ -316,6 +391,52 @@ export function registerInhousePlanningRoutes(app: Express) {
       }
       console.error("[inhouse-planning] calculate failed:", error);
       res.status(500).json({ error: "Failed to calculate the in-house rate plan" });
+    }
+  });
+
+  // ── Occupancy-tier what-if grid (never writes a rate) ────────────────────
+
+  /**
+   * One service line, solved under all three of its occupancy tiers. The
+   * client fans out across service lines exactly as it does for single plans,
+   * so the grid fills in line by line instead of behind one long request.
+   */
+  app.post("/api/inhouse-planning/calculate-tiers", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || "demo";
+      const body = scopeSchema
+        .extend({
+          assumptions: assumptionsSchema.optional(),
+          tierPolicy: tierPolicySchema.optional(),
+        })
+        .safeParse(req.body);
+      if (!body.success) {
+        return res
+          .status(400)
+          .json({ error: body.error.errors[0]?.message || "Invalid tier grid request" });
+      }
+      const locationId = body.data.locationId || null;
+      const location = await resolveLocationName(clientId, locationId);
+      const stored = await resolveAssumptions(clientId, locationId, body.data.serviceLine);
+      const assumptions = enforceCurrentPlanningPolicy(
+        body.data.assumptions ?? stored.assumptions,
+      );
+      const result = await calculatePlanTiers({
+        clientId,
+        locationId,
+        location,
+        serviceLine: body.data.serviceLine,
+        assumptions,
+        tierPolicy: body.data.tierPolicy ?? stored.tierPolicy,
+      });
+      res.setHeader("Cache-Control", "no-store");
+      res.json(result);
+    } catch (error) {
+      if (error instanceof PlanningDataError) {
+        return res.status(422).json({ error: error.message });
+      }
+      console.error("[inhouse-planning] tier grid failed:", error);
+      res.status(500).json({ error: "Failed to calculate the occupancy tier grid" });
     }
   });
 

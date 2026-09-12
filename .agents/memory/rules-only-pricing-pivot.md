@@ -28,6 +28,31 @@ rate and allow null. Do not reintroduce a Modulo fallback for the served rate.
 The Modulo algorithm still exists for analysis/comparison, just not as the served
 proposed rate.
 
+## Amendment — LLM prompts are their own surface
+
+Retiring a pricing model means auditing what is put in front of a model, not
+just what is served. The AI insights and AI chat prompt builders kept feeding
+the Modulo and Revenue-Target AI rates long after both were retired, and the
+prompts explicitly asked the model to pick between them — so the product kept
+recommending "raise street rates to Modulo" as a headline action even though
+nothing downstream could act on it. Prompt context does not show up in any
+serving path, type error, or rate query, so it survives a pivot silently.
+
+Two rules for any rate figure placed in a prompt:
+
+- State the pricing model in the prompt and name the retired ones as forbidden,
+  in the system prompt AND in the formatting instruction of the second model
+  when a two-model chain is used. The returned text comes from the last model.
+- Measure uplift on paired populations. Averaging the proposed rate over only
+  the covered units and comparing it to the whole-scope street average
+  manufactures lift whenever coverage is selective. Compare the covered units'
+  proposed average to those same units' street average, and report coverage
+  (`n/eligible`) as a separate number. The same applies per room type.
+
+Companion-bed exclusion and the manual-override-first precedence apply to
+prompt aggregates exactly as they do to query aggregates; a prompt that skips
+them describes a population no other surface reports.
+
 ## Amendment — applied annual in-house increases
 
 "Rules-only" no longer holds for occupied rooms. An applied in-house increase
