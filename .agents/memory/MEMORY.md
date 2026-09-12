@@ -105,4 +105,5 @@
 - [Security pool transactions](security-pool-transactions.md) — MFA and recovery mutations must use one checked-out Neon client; pool-level BEGIN/COMMIT can split across connections.
 - [MatrixCare label recovery](matrixcare-label-recovery.md) — upload metadata keeps filenames, not workbook bytes; repairs must be dry-run, tenant/month-scoped, fill-only, and report unresolved rows.
 - [Absent content ≠ empty state](absent-content-is-not-empty-state.md) — a 200 demo-tenant fallback looks like "never generated"; separate not-ready / failed / stale / truly-empty, and scope async runs.
+- [Tenant default vs auth failure](tenant-default-vs-auth-failure.md) — a demo-tenant default turns auth failures into silent 200s; classify session state, reject stale sessions, keep the marker sticky.
 - [Move-in date validation](malformed-move-in-dates.md) — PostgreSQL to_date throws on impossible dates; validate calendar components before conversion so turnover skips safely.

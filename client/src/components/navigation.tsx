@@ -56,7 +56,11 @@ export default function Navigation({ className }: NavigationProps) {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
-  const { isAuthenticated, clientId, clientName, isLoading } = useAuth();
+  const { isAuthenticated, authState, clientId, clientName, isLoading } = useAuth();
+  // A dropped session gets its own app-wide notice, which says something the
+  // generic demo banner cannot: the data on screen is not this user's. Showing
+  // both would stack two different explanations of the same state.
+  const showDemoBanner = !isLoading && !isAuthenticated && authState !== "session_expired";
   // Inflect is an internal Trilogy resource. Hide it while auth is loading,
   // for demo visitors, and for every other tenant.
   const showInflectLink = !isLoading && isAuthenticated && clientId.toLowerCase() === "trilogy";
@@ -94,7 +98,7 @@ export default function Navigation({ className }: NavigationProps) {
   return (
     <div className={cn("sticky top-0 z-50", className)}>
       {/* Demo mode banner */}
-      {!isLoading && !isAuthenticated && (
+      {showDemoBanner && (
         <div className="bg-[var(--trilogy-teal)] text-white text-center py-1 px-3 text-xs flex flex-wrap items-center justify-center gap-1.5 sm:gap-3">
           <Shield className="h-3 w-3 flex-shrink-0" />
           <span>

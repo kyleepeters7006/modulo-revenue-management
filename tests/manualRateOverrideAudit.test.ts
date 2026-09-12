@@ -506,7 +506,19 @@ async function main() {
     const legacyReference = await fetch(`${BASE}/api/reference-data`, {
       headers: { Cookie: authA.cookie },
     });
-    assert("legacy session reads fall back to the demo tenant", legacyReference.status === 200);
+    // A session that can no longer be revalidated must be rejected, not
+    // silently answered for the demo tenant: well-formed demo rows under a 200
+    // are indistinguishable from "your tenant has nothing saved", which is how
+    // a dropped session used to surface as empty pages across the whole app.
+    const legacyReferenceBody = await legacyReference.json() as { code?: string };
+    assert(
+      "legacy session reads are rejected instead of answered for the demo tenant",
+      legacyReference.status === 401 && legacyReferenceBody.code === "session_expired",
+    );
+    assert(
+      "rejected legacy read names the auth state in a header",
+      legacyReference.headers.get("x-auth-state") === "session_expired",
+    );
     const legacyAuthUserAgain = await fetch(`${BASE}/api/auth/user`, {
       headers: { Cookie: authA.cookie },
     });
@@ -532,7 +544,34 @@ async function main() {
     const revokedReference = await fetch(`${BASE}/api/reference-data`, {
       headers: { Cookie: authB.cookie },
     });
-    assert("revoked session reads fall back to the demo tenant", revokedReference.status === 200);
+    const revokedReferenceBody = await revokedReference.json() as { code?: string };
+    assert(
+      "revoked session reads are rejected instead of answered for the demo tenant",
+      revokedReference.status === 401 && revokedReferenceBody.code === "session_expired",
+    );
+    // The rejection must not take the demo tenant down with it: someone who
+    // never had a session is still shown the demo portfolio.
+    const anonymousReference = await fetch(`${BASE}/api/reference-data`);
+    assert(
+      "an anonymous visitor still reads the demo tenant",
+      anonymousReference.status === 200 &&
+        anonymousReference.headers.get("x-auth-state") === "anonymous",
+    );
+    // Sign-in has to stay reachable, or the 401 locks the user out of its own
+    // remedy.
+    const revokedAuthUserAfter = await fetch(`${BASE}/api/auth/user`, {
+      headers: { Cookie: authB.cookie },
+    });
+    const revokedAuthUserBody = await revokedAuthUserAfter.json() as { authState?: string };
+    assert(
+      "auth status stays reachable and reports the expired session",
+      revokedAuthUserAfter.status === 200 &&
+        revokedAuthUserBody.authState === "session_expired",
+    );
+    const revokedCsrf = await fetch(`${BASE}/api/auth/csrf`, {
+      headers: { Cookie: authB.cookie },
+    });
+    assert("CSRF token stays reachable for re-login", revokedCsrf.status === 200);
   } finally {
     await cleanup();
     await pool.end();

@@ -128,6 +128,13 @@ import { buildRuleFromStructured } from "./structuredRuleBuilder";
 import { buildReferenceDataAuditWorkbook, REFERENCE_DATA_AUDIT_CONTENT_TYPE, REFERENCE_DATA_AUDIT_FILENAME } from "./services/referenceDataAuditWorkbook";
 import { advertisedMetricsList } from "./services/ruleMetricCatalog";
 import {
+  classifyApiAuthState,
+  shouldRejectStaleSession,
+  staleMarkerExpired,
+  SESSION_EXPIRED_CODE,
+  SESSION_EXPIRED_MESSAGE,
+} from "./services/apiSessionState";
+import {
   sameCalendarMonthLastYear,
   sameMonthRateYoYGrowth,
 } from "@shared/referenceDataAgg";
@@ -1738,13 +1745,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Tenant selection and session validation run before every API route. A
   // legacy, revoked, or disabled-account session must never retain its
   // persisted tenant in req.clientId, even for a read-only request.
-  app.use('/api', async (req: any, _res, next) => {
+  //
+  // Falling back to the demo tenant is only honest for a visitor who never had
+  // one. When a session that DID carry a tenant stops revalidating, answering
+  // with demo data produces a well-formed HTTP 200 the client cannot
+  // distinguish from "your tenant has nothing saved" — the whole app quietly
+  // renders empty states while the user still looks signed in. Those requests
+  // are rejected with a 401 that names the cause instead.
+  app.use('/api', async (req: any, res, next) => {
     const session = req.session as any;
     req.clientId = "demo";
     const hasPendingMfa = Boolean(session?.mfaPendingUserId && session?.mfaPendingAt);
-    if (session?.userId || session?.clientId || session?.authenticatedAt) {
-      let valid = false;
-      if (!hasPendingMfa && req.sessionID && session?.userId && session?.clientId && session?.authenticatedAt) {
+    const hasTenantMarkers = Boolean(session?.userId || session?.clientId || session?.authenticatedAt);
+    let sessionRevalidated = false;
+    if (hasTenantMarkers && req.sessionID && session?.userId && session?.clientId && session?.authenticatedAt) {
       const result = await pool.query(
         `SELECT 1
            FROM auth_sessions s
@@ -1757,19 +1771,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
           LIMIT 1`,
         [req.sessionID, session.userId, session.clientId],
       );
-        valid = result.rows.length > 0;
-      }
-      if (valid) {
-        req.clientId = session.clientId;
-      } else if (!hasPendingMfa) {
-        delete session.userId;
-        delete session.username;
-        delete session.clientId;
-        delete session.role;
-        delete session.authenticatedAt;
-        delete session.mfaVerifiedAt;
+      sessionRevalidated = result.rows.length > 0;
+    }
+
+    const staleMarkedAt = Number(session?.sessionExpiredAt || 0) || null;
+    const authState = classifyApiAuthState({
+      hasTenantMarkers,
+      sessionRevalidated,
+      hasPendingMfa,
+      staleMarkedAt,
+    });
+    req.authState = authState;
+
+    if (authState === "authenticated") {
+      req.clientId = session.clientId;
+      if (session.sessionExpiredAt) {
+        delete session.sessionExpiredAt;
         await sessionSave(req);
       }
+    } else if (authState === "session_expired" && hasTenantMarkers) {
+      delete session.userId;
+      delete session.username;
+      delete session.clientId;
+      delete session.role;
+      delete session.authenticatedAt;
+      delete session.mfaVerifiedAt;
+      // Sticky marker: the tenant markers have to go now, but without this the
+      // next request in the same page load would look like a first-time
+      // visitor and be answered with demo data and a 200.
+      session.sessionExpiredAt = Date.now();
+      await sessionSave(req);
+    } else if (session?.sessionExpiredAt && staleMarkerExpired(staleMarkedAt)) {
+      delete session.sessionExpiredAt;
+      await sessionSave(req);
+    }
+
+    // Machine-readable on every API response, so a client can also detect the
+    // tenant it was actually answered for without inspecting each payload.
+    res.setHeader("X-Auth-State", authState);
+    res.setHeader("X-Tenant-Id", req.clientId);
+
+    if (shouldRejectStaleSession(authState, req.path || "")) {
+      return res
+        .status(401)
+        .set("Cache-Control", "no-store")
+        .json({
+          error: SESSION_EXPIRED_MESSAGE,
+          code: SESSION_EXPIRED_CODE,
+          authState,
+        });
     }
     next();
   });
@@ -1806,6 +1856,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (user && clientRows.length > 0 && user.account_status === "active") {
           return res.json({
             isAuthenticated: true,
+            authState: "authenticated",
             id: user.id,
             username: user.username,
             clientId: clientRows[0].id,
@@ -1819,7 +1870,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('Error fetching auth user:', e);
       }
     }
-    res.json({ isAuthenticated: false, clientId: 'demo', clientName: 'Demo' });
+    // The state is reported alongside the flag so the client can separate a
+    // visitor who never signed in (anonymous), a sign-in waiting on its second
+    // factor (mfa_pending), and a session that just stopped revalidating
+    // (session_expired) — all three of which are "not authenticated", but only
+    // the first is an honest reason to be looking at demo data.
+    res.json({
+      isAuthenticated: false,
+      authState: req.authState === "authenticated" ? "anonymous" : (req.authState || "anonymous"),
+      clientId: 'demo',
+      clientName: 'Demo',
+    });
   });
 
   // POST /api/auth/login — username + password login

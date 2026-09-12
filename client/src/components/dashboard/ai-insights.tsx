@@ -13,7 +13,7 @@ import {
   SelectValue 
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { ApiError, apiRequest } from "@/lib/queryClient";
 
 const AI_INSIGHTS_FILTERS_KEY = 'ai-insights-filters-v2';
 
@@ -142,13 +142,15 @@ export default function AiInsights() {
 
   // Fetch persisted insight from DB.
   //
-  // A failed read must not be reported as "no analysis exists". The tenant
-  // middleware silently falls back to the demo client when a session cannot be
-  // revalidated, so a dropped session returns a perfectly valid
-  // `{ found: false }` for a scope whose analysis is sitting in the database
-  // under the real tenant. Swallowing the HTTP status here made that
-  // indistinguishable from a genuine empty state, and the offered remedy —
-  // Run Analysis — spends a full AI run to rediscover work already done.
+  // A failed read must not be reported as "no analysis exists". A session that
+  // stops revalidating is now answered with a 401 instead of a demo-tenant
+  // read, so the two cases are finally distinguishable — but only if the
+  // status is surfaced. Swallowing it made a dropped session look like a
+  // genuine empty state, and the offered remedy — Run Analysis — spends a full
+  // AI run to rediscover work already sitting in the database.
+  //
+  // The request goes through apiRequest so the app-wide session-expiry signal
+  // is raised here too, rather than this panel being the only place that knows.
   const insightQueryKey = ["/api/ai/insights", selectedLocation, selectedServiceLine];
   const {
     data: insightData,
@@ -162,18 +164,20 @@ export default function AiInsights() {
     queryFn: async () => {
       const loc = selectedLocation !== 'all' ? selectedLocation : 'all';
       const sl = selectedServiceLine !== 'all' ? selectedServiceLine : 'all';
-      const res = await fetch(
-        `/api/ai/insights?location=${encodeURIComponent(loc)}&serviceLine=${encodeURIComponent(sl)}`,
-        { credentials: 'include' },
-      );
-      if (!res.ok) {
+      try {
+        const res = await apiRequest(
+          `/api/ai/insights?location=${encodeURIComponent(loc)}&serviceLine=${encodeURIComponent(sl)}`,
+          'GET',
+        );
+        return await res.json();
+      } catch (err) {
+        const status = err instanceof ApiError ? err.status : 0;
         throw new Error(
-          res.status === 401 || res.status === 403
-            ? 'Your session has expired. Sign in again to see your saved analysis.'
-            : `Could not load the saved analysis (server returned ${res.status}).`,
+          status === 401 || status === 403
+            ? 'Your session has ended. Sign in again to see your saved analysis.'
+            : `Could not load the saved analysis (${status ? `server returned ${status}` : 'the request failed'}).`,
         );
       }
-      return res.json();
     },
     enabled: isHydrated,
   });

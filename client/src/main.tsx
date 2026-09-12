@@ -1,6 +1,12 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { installApiResponseInspector } from "./lib/apiResponseInspector";
+
+// Installed before anything can issue a request, so a session that stopped
+// revalidating is noticed on every route — including pages that fetch directly
+// and never mount the nav.
+installApiResponseInspector();
 
 // Radix UI dropdowns (Select, Popover, etc.) use ResizeObserver to position a
 // floating panel. When opening a tall list, the observer callback mutates layout

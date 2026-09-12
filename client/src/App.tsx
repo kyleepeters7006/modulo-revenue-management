@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { UploadProvider } from "@/contexts/upload-context";
+import SessionExpiredNotice from "@/components/session-expired-notice";
 import { usePrefetch } from "@/hooks/usePrefetch";
 import Overview from "@/pages/overview";
 import DataManagement from "@/pages/data-management";
@@ -31,6 +32,7 @@ function AppContent() {
     <TooltipProvider>
       <div className="dark">
         <Toaster />
+        <SessionExpiredNotice />
         <Router />
       </div>
     </TooltipProvider>
