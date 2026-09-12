@@ -50,6 +50,8 @@ const SESSION_RECOVERY_PATHS = new Set([
   "/auth/user",
   "/auth/csrf",
   "/auth/login",
+  "/auth/forgot-password",
+  "/auth/password-reset",
   "/auth/logout",
   "/auth/mfa/setup",
   "/auth/mfa/setup/confirm",
@@ -63,7 +65,8 @@ function normalizePath(path: string): string {
 }
 
 export function isSessionRecoveryPath(path: string): boolean {
-  return SESSION_RECOVERY_PATHS.has(normalizePath(path));
+  const normalized = normalizePath(path);
+  return SESSION_RECOVERY_PATHS.has(normalized) || normalized.startsWith("/auth/password-reset/");
 }
 
 /**

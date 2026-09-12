@@ -107,3 +107,5 @@
 - [Absent content ≠ empty state](absent-content-is-not-empty-state.md) — a 200 demo-tenant fallback looks like "never generated"; separate not-ready / failed / stale / truly-empty, and scope async runs.
 - [Tenant default vs auth failure](tenant-default-vs-auth-failure.md) — a demo-tenant default turns auth failures into silent 200s; classify session state, reject stale sessions, keep the marker sticky.
 - [Move-in date validation](malformed-move-in-dates.md) — PostgreSQL to_date throws on impossible dates; validate calendar components before conversion so turnover skips safely.
+- [Managed-account recovery](managed-account-recovery.md) — admins send expiring links; Trilogy alone may review tenant-partitioned security activity.
+- [Global portfolio assistant boundaries](global-portfolio-assistant.md) — Claude Opus can analyze tenant data only through bounded read-only tools; no arbitrary SQL, resident PII, or demo fallback.

@@ -1070,6 +1070,15 @@ export default function InhouseIncreases() {
   const [plans, setPlans] = useState<PlanWithSl[] | null>(null);
   const [expandedQuarter, setExpandedQuarter] = useState<string | null>(null);
   const [expandedResident, setExpandedResident] = useState<string | null>(null);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    scope: false,
+    assumptions: false,
+    occupancyTiers: false,
+  });
+
+  function toggleSection(section: "scope" | "assumptions" | "occupancyTiers") {
+    setExpandedSections((current) => ({ ...current, [section]: !current[section] }));
+  }
   const [sortKey, setSortKey] = useState<SortKey>("increasePct");
   const [sortDesc, setSortDesc] = useState(true);
   const [constrainedOnly, setConstrainedOnly] = useState(false);
@@ -2153,14 +2162,27 @@ export default function InhouseIncreases() {
 
       {/* ── Scope ─────────────────────────────────────────────────────── */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Scope</CardTitle>
-          <CardDescription>
-            Assumptions are saved per campus and service line. Selecting multiple service lines
-            uses one shared set of assumptions, saving to each selected line.
-          </CardDescription>
+        <CardHeader className={cn("pb-3", expandedSections.scope && "border-b")}>
+          <button
+            type="button"
+            className="flex w-full items-start justify-between gap-4 text-left"
+            onClick={() => toggleSection("scope")}
+            aria-expanded={expandedSections.scope}
+            aria-controls="inhouse-scope-content"
+            data-testid="button-toggle-inhouse-scope"
+          >
+            <div>
+              <CardTitle className="text-base">Scope</CardTitle>
+              <CardDescription>
+                Choose the campuses and service lines included in the plan.
+              </CardDescription>
+            </div>
+            {expandedSections.scope
+              ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}
+          </button>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {expandedSections.scope && <CardContent id="inhouse-scope-content" className="grid gap-4 pt-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">Campus</Label>
             <Select
@@ -2267,18 +2289,32 @@ export default function InhouseIncreases() {
               </p>
             )}
           </div>
-        </CardContent>
+        </CardContent>}
       </Card>
 
       {/* ── Assumptions ───────────────────────────────────────────────── */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Assumptions</CardTitle>
-          <CardDescription>
-            The objective and the guardrails the solver has to work inside.
-          </CardDescription>
+        <CardHeader className={cn("pb-3", expandedSections.assumptions && "border-b")}>
+          <button
+            type="button"
+            className="flex w-full items-start justify-between gap-4 text-left"
+            onClick={() => toggleSection("assumptions")}
+            aria-expanded={expandedSections.assumptions}
+            aria-controls="inhouse-assumptions-content"
+            data-testid="button-toggle-inhouse-assumptions"
+          >
+            <div>
+              <CardTitle className="text-base">Assumptions</CardTitle>
+              <CardDescription>
+                Growth targets, turnover, effective dates, and occupancy-tier guardrails.
+              </CardDescription>
+            </div>
+            {expandedSections.assumptions
+              ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}
+          </button>
         </CardHeader>
-        <CardContent className="space-y-5">
+        {expandedSections.assumptions && <CardContent id="inhouse-assumptions-content" className="space-y-5 pt-4">
           {/* Rate growth target + Annual turnover: per-line when multiple SLs selected */}
           {serviceLines.length > 1 ? (
             <div className="space-y-2">
@@ -2666,7 +2702,7 @@ export default function InhouseIncreases() {
               </p>
             )}
           </div>
-        </CardContent>
+        </CardContent>}
       </Card>
 
       {/* ── Occupancy tier summary ────────────────────────────────────── */}
@@ -2681,14 +2717,27 @@ export default function InhouseIncreases() {
 
       {tierGrid && (
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Increases by occupancy tier</CardTitle>
-            <CardDescription>
-              What each service line's plan becomes under each of its tiers. The tier its measured
-              occupancy actually falls in is marked; the other two are what-ifs, not proposals.
-            </CardDescription>
+          <CardHeader className={cn("pb-3", expandedSections.occupancyTiers && "border-b")}>
+            <button
+              type="button"
+              className="flex w-full items-start justify-between gap-4 text-left"
+              onClick={() => toggleSection("occupancyTiers")}
+              aria-expanded={expandedSections.occupancyTiers}
+              aria-controls="inhouse-occupancy-tiers-content"
+              data-testid="button-toggle-inhouse-occupancy-tiers"
+            >
+              <div>
+                <CardTitle className="text-base">Increases by occupancy tier</CardTitle>
+                <CardDescription>
+                  Compare the measured tier with the other occupancy scenarios.
+                </CardDescription>
+              </div>
+              {expandedSections.occupancyTiers
+                ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}
+            </button>
           </CardHeader>
-          <CardContent className="space-y-2">
+          {expandedSections.occupancyTiers && <CardContent id="inhouse-occupancy-tiers-content" className="space-y-2 pt-4">
             {tierGridStale && (
               <p
                 className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-amber-600 dark:text-amber-400"
@@ -2814,7 +2863,7 @@ export default function InhouseIncreases() {
               })()}
               A “!” marks a tier whose guardrails cannot reach the growth target.
             </p>
-          </CardContent>
+          </CardContent>}
         </Card>
       )}
 

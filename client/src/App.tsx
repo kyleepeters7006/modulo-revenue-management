@@ -25,6 +25,9 @@ import DataImports from "@/pages/data-imports";
 import StreetRateQuality from "@/pages/street-rate-quality";
 import InhouseIncreases from "@/pages/inhouse-increases";
 import NotFound from "@/pages/not-found";
+import UserManagement from "@/pages/user-management";
+import ResetPassword from "@/pages/reset-password";
+import ModuloAssistant from "@/components/assistant/ModuloAssistant";
 
 function AppContent() {
   usePrefetch();
@@ -34,6 +37,7 @@ function AppContent() {
         <Toaster />
         <SessionExpiredNotice />
         <Router />
+        <ModuloAssistant />
       </div>
     </TooltipProvider>
   );
@@ -66,6 +70,8 @@ function Router() {
       </Route>
       <Route path="/about" component={AboutUs} />
       <Route path="/pricing-algorithm" component={PricingAlgorithmDocs} />
+      <Route path="/user-management" component={UserManagement} />
+      <Route path="/reset-password" component={ResetPassword} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -80,6 +80,7 @@ import { isPrivatePayer, privatePaySql } from "@shared/payerScope";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
+import { ReplitConnectors } from "@replit/connectors-sdk";
 import { getRefDataCache, setRefDataCache, invalidateRefDataCache } from "./refDataCache";
 import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics, uploadHistory, inquiryMetrics, competitorRateJobs, serviceLineEnum, mfaRecoveryCodes, securityAuditEvents, authSessions } from "@shared/schema";
 import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
@@ -568,6 +569,7 @@ async function isRuleAdmin(req: any): Promise<boolean> {
 
 const loginThrottle = new ProgressiveThrottle();
 const mfaThrottle = new ProgressiveThrottle();
+const passwordResetThrottle = new ProgressiveThrottle();
 const GENERIC_AUTH_ERROR = "Unable to sign in with those credentials.";
 const RECENT_MFA_WINDOW_MS = 15 * 60 * 1000;
 const SEED_SECRET_PATHS = new Set([
@@ -642,6 +644,18 @@ async function ensureSecuritySchema(): Promise<void> {
       name text PRIMARY KEY,
       applied_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash varchar(64) NOT NULL UNIQUE,
+      expires_at timestamptz NOT NULL,
+      consumed_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS password_reset_tokens_user_idx
+      ON password_reset_tokens(user_id, consumed_at, expires_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS password_reset_tokens_one_active_idx
+      ON password_reset_tokens(user_id) WHERE consumed_at IS NULL;
   `);
   // Existing *_admin accounts are migrated once. The marker prevents a
   // deliberate role demotion from being undone on a later restart.
@@ -657,6 +671,89 @@ async function ensureSecuritySchema(): Promise<void> {
       WHERE role = 'operator' AND lower(coalesce(username, '')) LIKE '%\\_admin' ESCAPE '\\'
     `);
   }
+}
+
+const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
+const GENERIC_RESET_RESPONSE = "If an account matches those details, a password reset link has been sent.";
+
+function hashPasswordResetToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function safeResetOrigin(req: any): string | null {
+  const configured = process.env.RESET_URL_ORIGIN || process.env.PUBLIC_APP_URL || process.env.APP_URL;
+  const forwardedProto = String(req.get?.("x-forwarded-proto") || req.protocol || "https").split(",")[0].trim();
+  const forwardedHost = String(req.get?.("x-forwarded-host") || req.get?.("host") || "").split(",")[0].trim();
+  const requestOrigin = String(req.get?.("origin") || "").trim();
+  let sameHostOrigin = "";
+  if (requestOrigin) {
+    try {
+      const parsedOrigin = new URL(requestOrigin);
+      if (!forwardedHost || parsedOrigin.host === forwardedHost) sameHostOrigin = parsedOrigin.origin;
+    } catch {
+      // Fall back to the trusted forwarded host below.
+    }
+  }
+  const candidate = configured || sameHostOrigin || (forwardedHost ? `${forwardedProto}://${forwardedHost}` : "");
+  if (!candidate) return null;
+  try {
+    const url = new URL(candidate);
+    const hostname = url.hostname.toLowerCase();
+    // Never put a local/dev host into a credential-bearing email.
+    if (url.protocol !== "https:" ||
+      hostname === "localhost" ||
+      hostname === "::1" ||
+      hostname.startsWith("127.") ||
+      hostname.endsWith(".replit.dev") ||
+      hostname.endsWith(".repl.co") ||
+      hostname.endsWith(".replit.com")) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+async function sendPasswordResetEmail(req: any, email: string, token: string, purpose: "setup" | "reset"): Promise<void> {
+  const origin = safeResetOrigin(req);
+  if (!origin) throw new Error("A safe HTTPS reset URL origin is not configured.");
+  // Resend's documented sandbox sender works without inventing an
+  // unverified domain; production deployments can override it.
+  const sender = process.env.RESEND_FROM_EMAIL || "Modulo Security <onboarding@resend.dev>";
+  const connectors = new ReplitConnectors();
+  const response = await connectors.proxy("resend", "/emails", {
+    method: "POST",
+    body: {
+      from: sender,
+      to: [email],
+      subject: purpose === "setup" ? "Set up your Modulo account" : "Reset your Modulo password",
+      html: `<p>${purpose === "setup" ? "An administrator created a Modulo account for you." : "A password reset was requested for your Modulo account."}</p>
+        <p><a href="${origin}/reset-password?token=${encodeURIComponent(token)}">Continue securely</a></p>
+        <p>This link expires in one hour and can be used only once. If you did not request it, you can ignore this email.</p>`,
+    },
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Reset email delivery failed (${response.status})${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+  }
+}
+
+function validPassword(password: string): boolean {
+  return password.length >= 12 && /[A-Za-z]/.test(password) && /\d/.test(password);
+}
+
+async function revokeUserSessions(client: any, userId: string): Promise<void> {
+  await client.query(`UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [userId]);
+  await client.query(`DELETE FROM sessions WHERE sid IN (SELECT session_id FROM auth_sessions WHERE user_id = $1)`, [userId]);
+}
+
+async function invalidatePasswordResetTokens(userId: string): Promise<void> {
+  await pool.query(
+    `UPDATE password_reset_tokens SET consumed_at = now()
+      WHERE user_id = $1 AND consumed_at IS NULL`,
+    [userId],
+  );
 }
 
 async function writeSecurityAudit(
@@ -800,10 +897,13 @@ async function securityRequestGate(req: any, res: any, next: any): Promise<void>
   if ([
     "/auth/csrf",
     "/auth/login",
+    "/auth/forgot-password",
+    "/auth/password-reset",
     "/auth/mfa/setup",
     "/auth/mfa/setup/confirm",
     "/auth/mfa/challenge",
   ].includes(pathName)) return next();
+  if (pathName.startsWith("/auth/password-reset/")) return next();
   if (pathName === "/auth/mfa/step-up") {
     if (!isAuthenticatedSession(req)) {
       return res.status(401).json({ error: "Authentication required" });
@@ -1835,6 +1935,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // In-house rate planning (assumptions, solver, apply/versioning)
   const { registerInhousePlanningRoutes } = await import('./routes/inhousePlanningRoutes');
   registerInhousePlanningRoutes(app);
+  // Tenant-scoped global assistant. Kept in a focused router so its closed
+  // tool allowlist and data-access policy do not grow this legacy route file.
+  const { registerAssistantRoutes } = await import('./routes/assistantRoutes');
+  registerAssistantRoutes(app);
 
   // GET /api/auth/csrf — token for non-browser clients and explicit CSRF headers
   app.get('/api/auth/csrf', async (req: any, res) => {
@@ -1925,6 +2029,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (e) {
       console.error('Login error:', e);
       res.status(500).json({ error: GENERIC_AUTH_ERROR });
+    }
+  });
+
+  // Password recovery deliberately returns the same response for every
+  // username/email and delivery outcome. This prevents account enumeration.
+  app.post('/api/auth/forgot-password', async (req: any, res) => {
+    const identifier = String(req.body?.identifier || req.body?.username || req.body?.email || "").trim();
+    const accountKey = `reset-account:${identifier.toLowerCase()}`;
+    const ipKey = `reset-ip:${req.ip || "unknown"}`;
+    if (!identifier || passwordResetThrottle.isBlocked(accountKey) || passwordResetThrottle.isBlocked(ipKey)) {
+      return res.json({ message: GENERIC_RESET_RESPONSE });
+    }
+    passwordResetThrottle.recordFailure(accountKey);
+    passwordResetThrottle.recordFailure(ipKey);
+    try {
+      const result = await pool.query(
+        `SELECT id, email FROM users
+          WHERE (lower(username) = lower($1) OR lower(email) = lower($1))
+            AND email IS NOT NULL
+          LIMIT 1`,
+        [identifier],
+      );
+      const target = result.rows[0];
+      if (target?.email) {
+        const rawToken = randomSecurityToken();
+        try {
+          // Invalidate any earlier link first. If delivery fails, no usable
+          // link remains for this account.
+          await invalidatePasswordResetTokens(target.id);
+          await sendPasswordResetEmail(req, target.email, rawToken, "reset");
+          const client = await pool.connect();
+          try {
+            await client.query("BEGIN");
+            await client.query(
+              `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+               VALUES ($1, $2, $3)`,
+              [target.id, hashPasswordResetToken(rawToken), new Date(Date.now() + PASSWORD_RESET_TTL_MS)],
+            );
+            await client.query("COMMIT");
+          } catch (tokenError) {
+            await client.query("ROLLBACK").catch(() => undefined);
+            throw tokenError;
+          } finally {
+            client.release();
+          }
+          await writeSecurityAudit(req, "password_reset_requested", true);
+        } catch (deliveryError) {
+          console.error("[security] forgot-password delivery failed:", deliveryError);
+          await writeSecurityAudit(req, "password_reset_requested", false);
+        }
+      }
+    } catch (error) {
+      console.error("[security] forgot-password failed:", error);
+    }
+    return res.json({ message: GENERIC_RESET_RESPONSE });
+  });
+
+  app.get('/api/auth/password-reset/:token', async (req: any, res) => {
+    const tokenHash = hashPasswordResetToken(String(req.params.token || ""));
+    const result = await pool.query(
+      `SELECT 1 FROM password_reset_tokens
+        WHERE token_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+        LIMIT 1`,
+      [tokenHash],
+    );
+    res.set("Cache-Control", "no-store").json({ valid: result.rows.length > 0 });
+  });
+
+  app.post('/api/auth/password-reset', async (req: any, res) => {
+    const token = String(req.body?.token || "");
+    const newPassword = String(req.body?.password || "");
+    if (!token || !validPassword(newPassword)) {
+      return res.status(400).json({ error: "Choose a password with at least 12 characters, including a letter and a number." });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const tokenResult = await client.query(
+        `SELECT id, user_id FROM password_reset_tokens
+          WHERE token_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+          FOR UPDATE`,
+        [hashPasswordResetToken(token)],
+      );
+      if (tokenResult.rows.length !== 1) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "This reset link is invalid or has expired." });
+      }
+      const tokenRow = tokenResult.rows[0];
+      const passwordHash = await bcrypt.hash(newPassword, 12);
+      const updated = await client.query(
+        `UPDATE users SET password_hash = $1, updated_at = now()
+          WHERE id = $2 AND account_status = 'active'
+          RETURNING id`,
+        [passwordHash, tokenRow.user_id],
+      );
+      if (updated.rows.length !== 1) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "This reset link is invalid or has expired." });
+      }
+      const consumed = await client.query(
+        `UPDATE password_reset_tokens SET consumed_at = now()
+          WHERE id = $1 AND consumed_at IS NULL RETURNING id`,
+        [tokenRow.id],
+      );
+      if (consumed.rows.length !== 1) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "This reset link is invalid or has expired." });
+      }
+      await revokeUserSessions(client, tokenRow.user_id);
+      await client.query("COMMIT");
+      await writeSecurityAudit(req, "password_reset_completed", true, { userId: tokenRow.user_id });
+      return res.json({ success: true });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      console.error("[security] password reset failed:", error);
+      return res.status(500).json({ error: "Unable to reset password right now." });
+    } finally {
+      client.release();
     }
   });
 
@@ -2189,58 +2411,255 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ success: true });
   });
 
-  // Admin-controlled recovery for an operator who can no longer sign in.
-  // The global gate requires an active admin session, admin role, and CSRF.
-  app.post('/api/admin/users/:id/recover', async (req: any, res) => {
-    const newPassword = String(req.body?.newPassword || "");
-    const resetMfa = req.body?.resetMfa === true;
-    if (newPassword.length < 12 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
-      return res.status(400).json({ error: "Choose a password with at least 12 characters, including a letter and a number." });
+  // User management is tenant-scoped in every query. The global security gate
+  // already requires an authenticated admin/security_admin session.
+  app.get('/api/admin/users', async (req: any, res) => {
+    const result = await pool.query(
+      `SELECT id, username, email, first_name, last_name, role, account_status,
+              mfa_enabled, created_at, updated_at
+         FROM users WHERE client_id = $1 ORDER BY lower(username), id`,
+      [req.session.clientId],
+    );
+    res.json({ users: result.rows });
+  });
+
+  // Trilogy administrators support the full hosted environment and may review
+  // recent security activity by tenant. Every other administrator receives
+  // only the activity for their own tenant.
+  app.get('/api/admin/user-activity', async (req: any, res) => {
+    const sessionClientId = String(req.session.clientId || "");
+    const canReviewAllTenants = sessionClientId.toLowerCase() === "trilogy";
+    const [result, tenantResult] = await Promise.all([
+      pool.query(
+      `WITH ranked_events AS (
+         SELECT sae.id,
+                sae.client_id,
+                c.name AS client_name,
+                sae.event_type,
+                sae.success,
+                sae.created_at,
+                COALESCE(u.username, u.email, 'System') AS actor,
+                ROW_NUMBER() OVER (
+                  PARTITION BY sae.client_id
+                  ORDER BY sae.created_at DESC, sae.id DESC
+                ) AS tenant_rank
+           FROM security_audit_events sae
+           LEFT JOIN clients c ON c.id = sae.client_id
+           LEFT JOIN users u ON u.id = sae.user_id
+          WHERE ($1::boolean = true OR sae.client_id = $2)
+       )
+       SELECT id, client_id, COALESCE(client_name, client_id, 'Unknown tenant') AS client_name,
+              event_type, success, created_at, actor
+         FROM ranked_events
+        WHERE tenant_rank <= 50
+        ORDER BY CASE WHEN client_id = $2 THEN 0 ELSE 1 END,
+                 lower(COALESCE(client_name, client_id, '')),
+                 created_at DESC`,
+      [canReviewAllTenants, sessionClientId],
+      ),
+      pool.query(
+        `SELECT id, name FROM clients
+          WHERE ($1::boolean = true OR id = $2)
+          ORDER BY CASE WHEN id = $2 THEN 0 ELSE 1 END, lower(name), id`,
+        [canReviewAllTenants, sessionClientId],
+      ),
+    ]);
+    res.set("Cache-Control", "no-store").json({
+      scope: canReviewAllTenants ? "all_tenants" : "current_tenant",
+      tenants: tenantResult.rows,
+      events: result.rows,
+    });
+  });
+
+  app.post('/api/admin/users', async (req: any, res) => {
+    const username = String(req.body?.username || "").trim();
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const requestedRole = String(req.body?.role || "operator");
+    const status = String(req.body?.accountStatus || "active");
+    const actorRole = String(req.session.role || "");
+    if (!username || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: "Username and a valid email are required." });
     }
+    if (!["operator", "admin", "security_admin"].includes(requestedRole) ||
+      !["active", "disabled"].includes(status) ||
+      (requestedRole === "security_admin" && actorRole !== "security_admin")) {
+      return res.status(400).json({ error: "Invalid role or account status." });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const inserted = await client.query(
+        `INSERT INTO users (username, email, client_id, role, account_status, password_hash, mfa_enabled)
+         VALUES ($1, $2, $3, $4, $5, NULL, false)
+         RETURNING id, username, email, client_id, role, account_status`,
+        [username, email, req.session.clientId, requestedRole, status],
+      );
+      const user = inserted.rows[0];
+      const rawToken = randomSecurityToken();
+      // Do not commit a passwordless account until delivery has succeeded.
+      await sendPasswordResetEmail(req, email, rawToken, "setup");
+      await client.query(
+        `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+         VALUES ($1, $2, $3)`,
+        [user.id, hashPasswordResetToken(rawToken), new Date(Date.now() + PASSWORD_RESET_TTL_MS)],
+      );
+      await client.query("COMMIT");
+      await writeSecurityAudit(req, "user_created", true, { targetUserId: user.id, role: requestedRole });
+      return res.status(201).json({ user });
+    } catch (error: any) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      const duplicate = String(error?.code || "") === "23505";
+      return res.status(duplicate ? 409 : 502).json({
+        error: duplicate ? "That username or email is already in use." : "Account could not be created because the setup email was not delivered.",
+      });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.patch('/api/admin/users/:id', async (req: any, res) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const currentResult = await client.query(
+        `SELECT id, username, email, role, account_status
+           FROM users WHERE id = $1 AND client_id = $2 FOR UPDATE`,
+        [req.params.id, req.session.clientId],
+      );
+      const current = currentResult.rows[0];
+      if (!current) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "User not found in this tenant." });
+      }
+      const actorRole = String(req.session.role || "");
+      const nextRole = req.body?.role === undefined ? current.role : String(req.body.role);
+      const nextStatus = req.body?.accountStatus === undefined ? current.account_status : String(req.body.accountStatus);
+      const nextUsername = req.body?.username === undefined ? current.username : String(req.body.username).trim();
+      const nextEmail = req.body?.email === undefined ? current.email : String(req.body.email).trim().toLowerCase();
+      if (!nextUsername || !nextEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail) ||
+        !["operator", "admin", "security_admin"].includes(nextRole) ||
+        !["active", "disabled"].includes(nextStatus)) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Username, email, role, and account status are required." });
+      }
+      if ((nextRole === "security_admin" || current.role === "security_admin") && actorRole !== "security_admin") {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ error: "Only a security administrator can manage security administrator roles." });
+      }
+      const removingAdmin = ["admin", "security_admin"].includes(String(current.role)) &&
+        !["admin", "security_admin"].includes(nextRole);
+      const disablingAdmin = ["admin", "security_admin"].includes(String(current.role)) &&
+        nextStatus !== "active";
+      if (removingAdmin || disablingAdmin) {
+        await client.query(
+          `SELECT id FROM users
+            WHERE client_id = $1 AND account_status = 'active'
+              AND role IN ('admin', 'security_admin')
+            FOR UPDATE`,
+          [req.session.clientId],
+        );
+        const count = await client.query(
+          `SELECT count(*)::int AS count FROM users
+            WHERE client_id = $1 AND account_status = 'active'
+              AND role IN ('admin', 'security_admin')`,
+          [req.session.clientId],
+        );
+        if (Number(count.rows[0]?.count || 0) <= 1) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ error: "The last active administrator cannot be disabled or demoted." });
+        }
+      }
+      const updated = await client.query(
+        `UPDATE users
+            SET username = $1, email = $2, role = $3, account_status = $4, updated_at = now()
+          WHERE id = $5 AND client_id = $6
+          RETURNING id, username, email, role, account_status`,
+        [nextUsername, nextEmail, nextRole, nextStatus, current.id, req.session.clientId],
+      );
+      await revokeUserSessions(client, current.id);
+      await client.query("COMMIT");
+      await writeSecurityAudit(req, "user_updated", true, { targetUserId: current.id });
+      return res.json({ user: updated.rows[0] });
+    } catch (error: any) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      return res.status(String(error?.code || "") === "23505" ? 409 : 500).json({
+        error: String(error?.code || "") === "23505" ? "That username or email is already in use." : "User could not be updated.",
+      });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.post('/api/admin/users/:id/send-reset', async (req: any, res) => {
     const target = await pool.query(
-      `SELECT id, client_id
-         FROM users
-        WHERE id = $1 AND client_id = $2 AND account_status = 'active'
-        LIMIT 1`,
+      `SELECT id, email FROM users WHERE id = $1 AND client_id = $2 LIMIT 1`,
       [req.params.id, req.session.clientId],
     );
-    if (!target.rows[0]) return res.status(404).json({ error: "Account could not be recovered." });
-    const dbClient = await pool.connect();
+    if (!target.rows[0]?.email) return res.status(404).json({ error: "User not found or has no email address." });
+    const rawToken = randomSecurityToken();
     try {
-      await dbClient.query("BEGIN");
-      if (resetMfa) {
-        await dbClient.query(
-          `UPDATE users
-              SET password_hash = $1,
-                  mfa_secret_encrypted = NULL,
-                  mfa_pending_secret_encrypted = NULL,
-                  mfa_enabled = false,
-                  mfa_enrolled_at = NULL,
-                  mfa_last_used_step = NULL,
-                  updated_at = now()
-            WHERE id = $2`,
-          [await bcrypt.hash(newPassword, 12), target.rows[0].id],
+      await invalidatePasswordResetTokens(target.rows[0].id);
+      await sendPasswordResetEmail(req, target.rows[0].email, rawToken, "reset");
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+          [target.rows[0].id, hashPasswordResetToken(rawToken), new Date(Date.now() + PASSWORD_RESET_TTL_MS)],
         );
-        await dbClient.query(`DELETE FROM mfa_recovery_codes WHERE user_id = $1`, [target.rows[0].id]);
-      } else {
-        await dbClient.query(
-          `UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2`,
-          [await bcrypt.hash(newPassword, 12), target.rows[0].id],
-        );
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
       }
-      await dbClient.query(
-        `UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1`,
+      await writeSecurityAudit(req, "admin_password_reset_requested", true, { targetUserId: target.rows[0].id });
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("[security] admin reset email failed:", error);
+      await writeSecurityAudit(req, "admin_password_reset_requested", false, { targetUserId: target.rows[0].id });
+      return res.status(502).json({ error: "Reset email could not be delivered; no reset link was created." });
+    }
+  });
+
+  app.post('/api/admin/users/:id/reset-mfa', async (req: any, res) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const target = await client.query(
+        `SELECT id FROM users WHERE id = $1 AND client_id = $2 FOR UPDATE`,
+        [req.params.id, req.session.clientId],
+      );
+      if (!target.rows[0]) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "User not found in this tenant." });
+      }
+      await client.query(
+        `UPDATE users
+            SET mfa_secret_encrypted = NULL, mfa_pending_secret_encrypted = NULL,
+                mfa_enabled = false, mfa_enrolled_at = NULL, mfa_last_used_step = NULL,
+                updated_at = now()
+          WHERE id = $1`,
         [target.rows[0].id],
       );
-      await dbClient.query("COMMIT");
+      await client.query(`DELETE FROM mfa_recovery_codes WHERE user_id = $1`, [target.rows[0].id]);
+      await revokeUserSessions(client, target.rows[0].id);
+      await client.query("COMMIT");
+      await writeSecurityAudit(req, "admin_mfa_reset", true, { targetUserId: target.rows[0].id });
+      return res.json({ success: true });
     } catch (error) {
-      await dbClient.query("ROLLBACK");
-      throw error;
+      await client.query("ROLLBACK").catch(() => undefined);
+      return res.status(500).json({ error: "MFA could not be reset." });
     } finally {
-      dbClient.release();
+      client.release();
     }
-    await writeSecurityAudit(req, "account_recovery", true, { resetMfa });
-    res.json({ success: true, mfaSetupRequired: resetMfa });
+  });
+
+  // Retired endpoint: administrators must send a one-time reset link instead
+  // of choosing another person's password.
+  app.post('/api/admin/users/:id/recover', async (_req: any, res) => {
+    res.status(410).json({ error: "Direct password recovery is retired. Send a one-time reset link instead." });
   });
 
   app.post('/api/auth/mfa/recovery/regenerate', async (req: any, res) => {

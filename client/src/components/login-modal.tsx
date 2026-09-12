@@ -16,7 +16,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  const [stage, setStage] = useState<"credentials" | "challenge" | "setup" | "recovery">("credentials");
+  const [stage, setStage] = useState<"credentials" | "challenge" | "setup" | "recovery" | "forgot">("credentials");
   const [setup, setSetup] = useState<{ qrCode: string; secret: string } | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -86,11 +86,29 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
     onError: (err: Error) => setError(err.message),
   });
 
+  const forgotMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ identifier: username }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to request a reset");
+      return data;
+    },
+    onSuccess: (data) => setError(data.message || "If an account matches those details, a password reset link has been sent."),
+    onError: (err: Error) => setError(err.message),
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     if (stage === "credentials") {
       loginMutation.mutate({ username, password });
+    } else if (stage === "forgot") {
+      forgotMutation.mutate();
     } else if (stage === "setup") {
       mfaMutation.mutate({ endpoint: "/api/auth/mfa/setup/confirm", code });
     } else {
@@ -107,6 +125,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
             {stage === "challenge" && "Verify your identity"}
             {stage === "setup" && "Set up authenticator app"}
             {stage === "recovery" && "Save your recovery codes"}
+            {stage === "forgot" && "Forgot password"}
           </DialogTitle>
           <DialogDescription className="sr-only">
             Enter your credentials to access your client environment.
@@ -160,6 +179,12 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
               required
             />
           </div>
+          </> : stage === "forgot" ? <>
+            <p className="text-sm text-gray-600">Enter your username or email. If an account matches, we’ll send a one-time reset link.</p>
+            <div className="space-y-1">
+              <Label htmlFor="forgot-identifier">Username or email</Label>
+              <Input id="forgot-identifier" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required />
+            </div>
           </> : stage === "setup" ? <>
             <p className="text-sm text-gray-600">
               Scan this QR code with Google Authenticator, 1Password, Microsoft Authenticator, or another TOTP app.
@@ -186,10 +211,10 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
 
           <Button
             type="submit"
-            disabled={loginMutation.isPending || mfaMutation.isPending}
+            disabled={loginMutation.isPending || mfaMutation.isPending || forgotMutation.isPending}
             className="w-full bg-[var(--trilogy-teal)] hover:bg-[var(--trilogy-teal-dark)] text-white"
           >
-            {loginMutation.isPending || mfaMutation.isPending ? (
+            {loginMutation.isPending || mfaMutation.isPending || forgotMutation.isPending ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 Signing in...
@@ -197,13 +222,15 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
             ) : (
               <>
                 <LogIn className="h-4 w-4 mr-2" />
-                {stage === "credentials" ? "Sign In" : stage === "setup" ? "Confirm enrollment" : "Verify and continue"}
+                {stage === "credentials" ? "Sign In" : stage === "forgot" ? "Send reset link" : stage === "setup" ? "Confirm enrollment" : "Verify and continue"}
               </>
             )}
           </Button>
 
+          {stage === "credentials" && <button type="button" className="w-full text-center text-xs text-[var(--trilogy-teal)] underline" onClick={() => { setError(""); setStage("forgot"); }}>Forgot password?</button>}
+          {stage === "forgot" && <button type="button" className="w-full text-center text-xs text-[var(--trilogy-teal)] underline" onClick={() => { setError(""); setStage("credentials"); }}>Back to sign in</button>}
           <p className="text-xs text-center text-gray-500">
-            {stage === "credentials" ? "Please log in to access your data. Demo mode is available without login." : "Your password is verified before this additional factor is requested."}
+            {stage === "credentials" || stage === "forgot" ? "Please log in to access your data. Demo mode is available without login." : "Your password is verified before this additional factor is requested."}
           </p>
         </form>}
       </DialogContent>

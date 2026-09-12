@@ -25,6 +25,7 @@ import {
   Shield,
   ChevronDown,
   TrendingUp,
+  Users,
 } from "lucide-react";
 
 const primaryItems = [
@@ -56,7 +57,8 @@ export default function Navigation({ className }: NavigationProps) {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
-  const { isAuthenticated, authState, clientId, clientName, isLoading } = useAuth();
+  const { isAuthenticated, authState, clientId, clientName, isLoading, isAdmin } = useAuth();
+  const adminItems = [{ path: "/user-management", label: "User Management", icon: Users }];
   // A dropped session gets its own app-wide notice, which says something the
   // generic demo banner cannot: the data on screen is not this user's. Showing
   // both would stack two different explanations of the same state.
@@ -93,7 +95,7 @@ export default function Navigation({ className }: NavigationProps) {
 
   const isMoreActive = moreItems.some(
     (item) => location === item.path
-  );
+  ) || (isAdmin && location === "/user-management");
 
   return (
     <div className={cn("sticky top-0 z-50", className)}>
@@ -170,7 +172,7 @@ export default function Navigation({ className }: NavigationProps) {
 
                   {moreOpen && (
                     <div className="absolute left-0 top-full mt-1 w-48 rounded-md shadow-lg bg-white border border-gray-200 py-1 z-50">
-                      {moreItems.map((item) => {
+                       {[...moreItems, ...(isAdmin ? adminItems : [])].map((item) => {
                         const Icon = item.icon;
                         const isActive = location === item.path;
                         return (
@@ -266,7 +268,7 @@ export default function Navigation({ className }: NavigationProps) {
         {isMobileMenuOpen && (
           <div className="md:hidden border-t border-gray-200">
             <div className="px-2 pt-2 pb-3 space-y-1 bg-gray-50">
-              {allItems.map((item) => {
+               {[...allItems, ...(isAdmin ? adminItems : [])].map((item) => {
                 const Icon = item.icon;
                 const isActive = location === item.path || (location === "/" && item.path === "/overview");
                 

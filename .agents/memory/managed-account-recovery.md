@@ -1,0 +1,12 @@
+---
+name: Managed-account recovery
+description: Security boundaries for administrator-managed accounts, password recovery, and MFA resets.
+---
+
+Administrators may create and edit accounts only inside their current tenant. Account setup and password recovery use emailed, expiring, single-use links whose raw tokens are never stored. Administrators never choose another user’s password and never enroll MFA on another user’s behalf. MFA reset is a separate audited action that revokes sessions and requires the user to enroll their own factor again.
+
+Account-activity visibility has one deliberate exception: administrators authenticated in the Trilogy tenant may review security activity partitioned into a Trilogy section and one section for every other tenant. Administrators in all other tenants may review only their own tenant’s activity. This exception applies to activity review, not cross-tenant user editing.
+
+**Why:** Combining administrator-selected passwords or MFA secrets with account management lets an administrator impersonate the user and weakens the independence of the second factor. Separating password and MFA recovery also avoids silently removing both protections during a routine password reset.
+
+**How to apply:** Keep future user-management, invitation, recovery, and support flows tenant-scoped. Preserve the Trilogy-only, read-only activity-review exception and keep each tenant visibly partitioned. Store only reset-token digests, revoke sessions after credential changes, soft-disable accounts rather than deleting them, and prevent removal of the last active tenant administrator.

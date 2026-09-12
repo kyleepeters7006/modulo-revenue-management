@@ -75,6 +75,17 @@ export const mfaRecoveryCodes = pgTable("mfa_recovery_codes", {
   usedAt: timestamp("used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Password setup/reset links are single-use and only their SHA-256 digest is
+// stored.  The raw value is delivered out of band and is never persisted.
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 export const serviceLineEnum = ["HC", "HC/MC", "AL", "AL/MC", "SL", "VIL"] as const;
 export type ServiceLine = typeof serviceLineEnum[number];
 

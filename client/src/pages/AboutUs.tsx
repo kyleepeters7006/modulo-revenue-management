@@ -251,40 +251,62 @@ export default function AboutUs() {
           <CardHeader>
             <CardTitle className="text-2xl font-light text-[var(--trilogy-dark-blue)] flex items-center gap-3">
               <ShieldCheck className="h-6 w-6 text-[var(--trilogy-teal)]" />
-              Security
+              How Modulo protects your account
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-sm leading-relaxed text-[var(--trilogy-grey)]">
-            <p>
-              Modulo enforces application-layer identity, tenant isolation, role checks, and request auditing on the server. The controls below describe the current implementation so security teams can evaluate what the application does—and what still depends on the hosting environment and organizational policy.
+          <CardContent className="space-y-5 text-sm leading-relaxed text-[var(--trilogy-grey)]">
+            <p className="max-w-3xl text-base">
+              Your Modulo account is personal to you. You sign in with your own password and your own authenticator, and your organization&apos;s data stays separate from other organizations.
             </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {[
-                [
-                  "Identity and MFA",
-                  "Passwords are stored as bcrypt hashes (cost factor 12). Authentication requires a 6-digit, 30-second TOTP from a standard authenticator app. TOTP replay is rejected. MFA secrets are encrypted at rest by the application; recovery codes are stored as hashes, are single-use, and are displayed only when issued.",
-                ],
-                [
-                  "Session controls",
-                  "Session data is stored in PostgreSQL, not in the browser. The cookie is HttpOnly, SameSite=Lax, Secure in production, and has a rolling 7-day expiration. The session identifier is regenerated after authentication. Logout, password resets, account changes, and explicit session termination revoke server-side session records.",
-                ],
-                [
-                  "Tenant and role enforcement",
-                  "Each authenticated request resolves the user by both user ID and client ID and rejects inactive or revoked accounts. Data access is scoped by client ID. Roles are operator, admin, and security_admin; administrative routes require an admin role. MFA is verified when the user signs in and the authenticated session remains valid while the user works in the platform.",
-                ],
-                [
-                  "Request and audit controls",
-                  "State-changing requests require either a same-host Origin/Referer or the session CSRF token. Security events record event type, success, client and user IDs, timestamp, IP address, user agent, and limited operation metadata. Passwords, TOTP values, recovery codes, MFA secrets, session tokens, and resident records are not written to security-event metadata.",
-                ],
-              ].map(([title, body]) => (
-                <div key={title} className="rounded-lg border border-[var(--trilogy-grey)]/20 bg-gray-50 p-4">
-                  <h3 className="font-semibold text-[var(--trilogy-dark-blue)] mb-1">{title}</h3>
-                  <p className="text-xs">{body}</p>
+                {
+                  title: "Your sign-in has two steps",
+                  summary: "After your password, Modulo asks for a code from your authenticator app. Each person sets up their own authenticator.",
+                  technical: "Passwords are stored as bcrypt hashes using cost factor 12. The second factor is a six-digit, 30-second TOTP. TOTP replay is rejected. MFA secrets are encrypted at rest; recovery codes are hashed, single-use, and displayed only when issued.",
+                },
+                {
+                  title: "Password recovery is private",
+                  summary: "If you forget your password, Modulo emails you a secure, one-time link. An administrator can send the link, but cannot see or choose your new password.",
+                  technical: "Reset links are delivered through the configured transactional email service, expire after one hour, and can be used once. Only a SHA-256 digest of the token is stored. Completing a reset revokes existing sessions. A password reset does not silently remove MFA.",
+                },
+                {
+                  title: "Admins manage access—not identities",
+                  summary: "Admins can create accounts, update roles, disable access, send reset links, and reset MFA when someone loses their authenticator. You complete your own password and MFA setup.",
+                  technical: "User-management operations are restricted to the administrator's current tenant. Accounts are soft-disabled rather than deleted. The final active tenant administrator cannot be disabled or demoted. MFA reset clears the encrypted factor and recovery codes, revokes sessions, and requires fresh enrollment at the next sign-in.",
+                },
+                {
+                  title: "Your session and data are separated",
+                  summary: "Modulo checks your account, organization, and permission level on the server. Signing out or changing security settings ends affected sessions.",
+                  technical: "Sessions are stored in PostgreSQL. Cookies are HttpOnly, SameSite=Lax, Secure in production, and use a rolling seven-day expiration. Session IDs are regenerated after authentication. Authenticated requests resolve both user ID and client ID, reject disabled or revoked accounts, and scope data access by client ID.",
+                },
+              ].map(({ title, summary, technical }) => (
+                <div key={title} className="rounded-xl border border-[var(--trilogy-grey)]/20 bg-gray-50 p-4">
+                  <h3 className="font-semibold text-[var(--trilogy-dark-blue)]">{title}</h3>
+                  <p className="mt-1 text-sm">{summary}</p>
+                  <details className="group mt-3 border-t border-[var(--trilogy-grey)]/15 pt-3">
+                    <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-semibold text-[var(--trilogy-teal)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--trilogy-teal)]">
+                      <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+                      View technical details
+                    </summary>
+                    <p className="mt-2 pl-5 text-xs leading-relaxed">{technical}</p>
+                  </details>
                 </div>
               ))}
             </div>
+            <details className="group rounded-xl border border-[var(--trilogy-dark-blue)]/15 bg-[var(--trilogy-dark-blue)]/[0.03] p-4">
+              <summary className="flex cursor-pointer list-none items-center gap-2 font-semibold text-[var(--trilogy-dark-blue)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--trilogy-teal)]">
+                <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
+                Request protection and security audit details
+              </summary>
+              <div className="mt-3 space-y-2 pl-6 text-xs">
+                <p>State-changing requests require either a same-host Origin/Referer or the session CSRF token.</p>
+                <p>Security events record the event type, success status, client and user IDs, timestamp, IP address, user agent, and limited operation metadata.</p>
+                <p>Passwords, authenticator codes, recovery codes, MFA secrets, session tokens, reset tokens, and resident records are not written to security-event metadata.</p>
+              </div>
+            </details>
             <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-4 py-3 text-xs text-amber-950">
-              <strong>Scope of this statement:</strong> These are application controls verified in the Modulo codebase. This statement is not a SOC 2, HIPAA, or other certification claim and does not define hosting-provider controls, network architecture, infrastructure encryption, backups, disaster recovery, vulnerability-management cadence, audit-log retention, or your organization&apos;s access-review and incident-response procedures. Those items should be evaluated separately during vendor and deployment review.
+              <strong>What this covers:</strong> These are protections built into the Modulo application. This is not a SOC 2, HIPAA, or other certification claim. Hosting, network security, infrastructure encryption, backups, disaster recovery, vulnerability management, log retention, access reviews, and incident response should be evaluated separately.
             </div>
           </CardContent>
         </Card>
