@@ -376,6 +376,35 @@ async function testLiveGrid(clientId: string, serviceLine: string) {
     "every cell carries the band it governs",
     flatGrid.cells.every((c) => typeof c.rangeLabel === "string" && c.rangeLabel.length > 0),
   );
+  if (flatGrid.currentTier && flatGrid.occupancyPct != null) {
+    const currentGuardrails = flat.tiers[flatGrid.currentTier];
+    const currentCell = flatGrid.cells.find((cell) => cell.tier === flatGrid.currentTier);
+    ok(
+      "the primary recommendation is the measured tier's plan",
+      currentCell?.inhouseIncreasePct === flatGrid.currentPlan.summary.weightedAvgIncreasePct &&
+        currentCell?.streetIncreasePct === flatGrid.currentPlan.streetIncreasePct,
+    );
+    ok(
+      "every resident stays under the measured tier's maximum",
+      flatGrid.currentPlan.residents.every(
+        (resident) => resident.increasePct <= currentGuardrails.maxInhouseIncreasePct + 1e-9,
+      ),
+      `max=${currentGuardrails.maxInhouseIncreasePct}, actual=${Math.max(...flatGrid.currentPlan.residents.map((resident) => resident.increasePct))}`,
+    );
+    ok(
+      "the measured tier's full guardrail set reaches the primary plan",
+      Object.entries(currentGuardrails).every(
+        ([key, value]) =>
+          flatGrid.currentPlan.assumptions[key as keyof PlanningAssumptions] === value,
+      ),
+    );
+    ok(
+      "resident descriptions name the occupancy tier that governed the calculation",
+      flatGrid.currentPlan.residents.every((resident) =>
+        resident.explanation.steps.some((step) => step.label === "Occupancy tier"),
+      ),
+    );
+  }
 
   console.log("\n-- Looser guardrails produce a different, not identical, plan --");
   const spread = defaultOccupancyTierPolicy();

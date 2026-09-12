@@ -12,8 +12,10 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { db, pool } from "../db";
 import { inhousePlanningAssumptions, inhouseRatePlans, locations } from "@shared/schema";
 import {
+  applyOccupancyTier,
   DEFAULT_ASSUMPTIONS,
   defaultOccupancyTierPolicy,
+  tierForOccupancy,
   type InhousePlanHistoryEntry,
   type OccupancyTierPolicy,
   type PlanSummary,
@@ -27,7 +29,10 @@ import {
 } from "../services/inhouseRatePlanning";
 import { buildRatePlanWorkbook } from "../services/inhouseRatePlanning/excelExport";
 import { computeHistoricalTurnover } from "../services/inhouseRatePlanning/historicalTurnover";
-import { fetchOccupancyByCampus } from "../services/inhouseRatePlanning/dataAccess";
+import {
+  fetchOccupancyByCampus,
+  fetchOccupancyByServiceLine,
+} from "../services/inhouseRatePlanning/dataAccess";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -104,6 +109,19 @@ const tierPolicySchema = z.object({
 }).refine((d) => d.lowCutoffPct <= d.highCutoffPct, {
   message: "The lower cutoff cannot sit above the upper cutoff",
 });
+
+async function assumptionsForMeasuredTier(
+  clientId: string,
+  location: string | null,
+  serviceLine: string,
+  assumptions: PlanningAssumptions,
+  tierPolicy: OccupancyTierPolicy,
+): Promise<PlanningAssumptions> {
+  const occupancy = await fetchOccupancyByServiceLine(clientId, location);
+  const reading = occupancy.byServiceLine.get(serviceLine) ?? null;
+  const tier = tierForOccupancy(tierPolicy, reading?.occupancyPct ?? null);
+  return tier ? applyOccupancyTier(assumptions, tierPolicy.tiers[tier]) : assumptions;
+}
 
 /**
  * Stored policy JSON is re-validated on read, not trusted. The column is
@@ -364,7 +382,10 @@ export function registerInhousePlanningRoutes(app: Express) {
     try {
       const clientId = req.clientId || "demo";
       const body = scopeSchema
-        .extend({ assumptions: assumptionsSchema.optional() })
+        .extend({
+          assumptions: assumptionsSchema.optional(),
+          tierPolicy: tierPolicySchema.optional(),
+        })
         .safeParse(req.body);
       if (!body.success) {
         return res
@@ -373,9 +394,16 @@ export function registerInhousePlanningRoutes(app: Express) {
       }
       const locationId = body.data.locationId || null;
       const location = await resolveLocationName(clientId, locationId);
-      const assumptions = enforceCurrentPlanningPolicy(
-        body.data.assumptions ??
-        (await resolveAssumptions(clientId, locationId, body.data.serviceLine)).assumptions,
+      const stored = await resolveAssumptions(clientId, locationId, body.data.serviceLine);
+      const baseAssumptions = enforceCurrentPlanningPolicy(
+        body.data.assumptions ?? stored.assumptions,
+      );
+      const assumptions = await assumptionsForMeasuredTier(
+        clientId,
+        location,
+        body.data.serviceLine,
+        baseAssumptions,
+        body.data.tierPolicy ?? stored.tierPolicy,
       );
       const plan = await calculatePlan({
         clientId,
@@ -475,6 +503,7 @@ export function registerInhousePlanningRoutes(app: Express) {
       const body = scopeSchema
         .extend({
           assumptions: assumptionsSchema.optional(),
+          tierPolicy: tierPolicySchema.optional(),
         })
         .safeParse(req.body);
       if (!body.success) {
@@ -484,9 +513,16 @@ export function registerInhousePlanningRoutes(app: Express) {
       }
       const locationId = body.data.locationId || null;
       const location = await resolveLocationName(clientId, locationId);
-      const assumptions = enforceCurrentPlanningPolicy(
-        body.data.assumptions ??
-        (await resolveAssumptions(clientId, locationId, body.data.serviceLine)).assumptions,
+      const stored = await resolveAssumptions(clientId, locationId, body.data.serviceLine);
+      const baseAssumptions = enforceCurrentPlanningPolicy(
+        body.data.assumptions ?? stored.assumptions,
+      );
+      const assumptions = await assumptionsForMeasuredTier(
+        clientId,
+        location,
+        body.data.serviceLine,
+        baseAssumptions,
+        body.data.tierPolicy ?? stored.tierPolicy,
       );
 
       const { plan, audit } = await calculatePlanDetailed({
@@ -533,12 +569,21 @@ export function registerInhousePlanningRoutes(app: Express) {
       const clientId = req.clientId || "demo";
       const body = scopeSchema.extend({
         assumptions: assumptionsSchema,
+        tierPolicy: tierPolicySchema.optional(),
       }).safeParse(req.body);
       if (!body.success) {
         return res.status(400).json({ error: body.error.errors[0]?.message || "Invalid apply request" });
       }
       const locationId = body.data.locationId || null;
       const location = await resolveLocationName(clientId, locationId);
+      const stored = await resolveAssumptions(clientId, locationId, body.data.serviceLine);
+      const assumptions = await assumptionsForMeasuredTier(
+        clientId,
+        location,
+        body.data.serviceLine,
+        enforceCurrentPlanningPolicy(body.data.assumptions),
+        body.data.tierPolicy ?? stored.tierPolicy,
+      );
 
       // Recalculate server-side rather than trusting a posted plan: the client
       // must not be able to apply numbers the solver never produced.
@@ -547,7 +592,7 @@ export function registerInhousePlanningRoutes(app: Express) {
         locationId,
         location,
         serviceLine: body.data.serviceLine,
-        assumptions: body.data.assumptions,
+        assumptions,
       });
 
       if (!plan.feasible) {

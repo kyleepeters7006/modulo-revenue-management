@@ -69,6 +69,7 @@ import {
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
 import { DAYS_PER_MONTH } from "@shared/careRates";
 import {
+  applyOccupancyTier,
   DEFAULT_ASSUMPTIONS,
   formatMoney,
   formatPct,
@@ -854,6 +855,7 @@ interface TierGridLine {
   occupancyMonth: string | null;
   occupancySource: "occupancy_history" | "rent_roll" | null;
   currentTier: OccupancyTierId | null;
+  currentPlan: PlanResult;
   cells: OccupancyTierPlanCell[];
   warnings: string[];
 }
@@ -861,6 +863,8 @@ interface TierGridLine {
 interface TierGridResult {
   lines: TierGridLine[];
   skipped: Array<{ sl: string; message: string }>;
+  identityKey: string | null;
+  planScopeKey: string;
   /**
    * The scope and the full set of solver inputs the grid was built from,
    * captured when the request went out. A grid takes ~30 seconds to build,
@@ -1473,6 +1477,7 @@ export default function InhouseIncreases() {
           locationId: scopeLocationId,
           serviceLine: sl,
           assumptions: assumptionsForLine(sl),
+          tierPolicy: tierPolicyFor(sl),
         }),
       });
       if (!res.ok) {
@@ -1594,6 +1599,8 @@ export default function InhouseIncreases() {
       const scopeKey = tierScopeKey;
       const inputsKey = tierInputsKey;
       const locationIdAtStart = scopeLocationId;
+      const identityKey = storageIdentityKey;
+      const planScopeKey = calculatedPlanScopeKey(locationIdAtStart, requested);
       const settled = await Promise.allSettled(
         requested.map(async (sl) => {
           const res = await apiRequest("/api/inhouse-planning/calculate-tiers", "POST", {
@@ -1626,7 +1633,7 @@ export default function InhouseIncreases() {
             : "No service lines were selected.",
         );
       }
-      return { lines, skipped, scopeKey, inputsKey };
+      return { lines, skipped, scopeKey, inputsKey, identityKey, planScopeKey };
     },
     onSuccess: (result) => {
       // The scope moved while this was in flight. Showing it would label one
@@ -1640,6 +1647,32 @@ export default function InhouseIncreases() {
         return;
       }
       setTierGrid(result);
+      const calculatedPlans = result.lines.map((line) => ({
+        sl: line.serviceLine,
+        plan: line.currentPlan,
+      }));
+      if (result.identityKey) {
+        void Promise.all([
+          writeInhousePlan(result.identityKey, result.planScopeKey, calculatedPlans),
+          ...calculatedPlans.map((calculated) =>
+            writeInhousePlan(
+              result.identityKey!,
+              calculatedPlanScopeKey(calculated.plan.scope.locationId ?? null, [calculated.sl]),
+              [calculated],
+            ),
+          ),
+        ]);
+      }
+      if (
+        result.identityKey === currentStorageIdentity.current &&
+        result.planScopeKey === calculatedPlanScopeKey(scopeLocationId, serviceLines)
+      ) {
+        setPlans(calculatedPlans);
+        setVisibleCount(50);
+        setExpandedResident(null);
+        const first = calculatedPlans.find((entry) => entry.plan.feasible) ?? calculatedPlans[0];
+        setExpandedQuarter(first?.plan.bindingQuarterLabel ?? null);
+      }
       if (result.skipped.length > 0) {
         toast({
           title: `${result.skipped.length} service line${result.skipped.length === 1 ? "" : "s"} skipped`,
@@ -1727,7 +1760,17 @@ export default function InhouseIncreases() {
         throw new Error("No service lines currently reach the target. Recalculate after adjusting the assumptions.");
       }
       const hasChangedAssumptions = submittablePlans.some(
-        ({ sl, plan }) => !planAssumptionsMatch(plan.assumptions, assumptionsForLine(sl)),
+        ({ sl, plan }) => {
+          const line = tierGrid?.lines.find((candidate) => candidate.serviceLine === sl);
+          const currentTier = line?.currentTier ?? null;
+          const effective = currentTier
+            ? applyOccupancyTier(
+                assumptionsForLine(sl),
+                tierPolicyFor(sl).tiers[currentTier],
+              )
+            : assumptionsForLine(sl);
+          return !planAssumptionsMatch(plan.assumptions, effective);
+        },
       );
       if (hasChangedAssumptions) {
         throw new Error("These results were calculated with different assumptions. Recalculate the plan before submitting it.");
@@ -1738,6 +1781,7 @@ export default function InhouseIncreases() {
             locationId: scopeLocationId,
             serviceLine: sl,
             assumptions: assumptionsForLine(sl),
+            tierPolicy: tierPolicyFor(sl),
           }).then((r) => r.json()),
         ),
       );
@@ -1812,7 +1856,6 @@ export default function InhouseIncreases() {
   }
 
   function calculatePlanAndTiers() {
-    calculate.mutate(currentCalculateRequest());
     calculateTiers.mutate();
   }
 

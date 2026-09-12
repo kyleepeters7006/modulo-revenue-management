@@ -180,7 +180,16 @@ export interface PreparedPlan {
    * assumptions when omitted. Every database read already happened during
    * preparation, so this is cheap enough to call once per occupancy tier.
    */
-  solve(guardrails?: OccupancyTierGuardrails): { plan: PlanResult; audit: PlanAudit };
+  solve(
+    guardrails?: OccupancyTierGuardrails,
+    tierContext?: OccupancyTierSolveContext,
+  ): { plan: PlanResult; audit: PlanAudit };
+}
+
+interface OccupancyTierSolveContext {
+  tier: OccupancyTierId;
+  rangeLabel: string;
+  occupancyPct: number;
 }
 
 /**
@@ -506,7 +515,10 @@ export async function preparePlan(input: CalculatePlanInput): Promise<PreparedPl
    * depends on the guardrails. `assumptions` shadows the prepared set on
    * purpose so the solve body reads exactly as it did before the split.
    */
-  function solveWith(assumptions: PlanningAssumptions): { plan: PlanResult; audit: PlanAudit } {
+  function solveWith(
+    assumptions: PlanningAssumptions,
+    tierContext?: OccupancyTierSolveContext,
+  ): { plan: PlanResult; audit: PlanAudit } {
     const daily = isDailyRateServiceLine(input.serviceLine);
     const solved = solvePlan({
       residents,
@@ -534,6 +546,7 @@ export async function preparePlan(input: CalculatePlanInput): Promise<PreparedPl
         daily,
         streetMultiplierAtInhouse,
         assumptions,
+        tierContext,
         toDisplay,
       }),
     );
@@ -838,9 +851,10 @@ export async function preparePlan(input: CalculatePlanInput): Promise<PreparedPl
   return {
     assumptions: resolvedAssumptions,
     sourceMonth,
-    solve: (guardrails) =>
+    solve: (guardrails, tierContext) =>
       solveWith(
         guardrails ? applyOccupancyTier(resolvedAssumptions, guardrails) : resolvedAssumptions,
+        tierContext,
       ),
   };
 }
@@ -866,6 +880,8 @@ export interface CalculatePlanTiersResult {
   occupancySource: OccupancySource | null;
   /** Tier the measured occupancy falls in; null when occupancy is unknown. */
   currentTier: OccupancyTierId | null;
+  /** Full recommendation solved under the measured tier's guardrails. */
+  currentPlan: PlanResult;
   cells: OccupancyTierPlanCell[];
   warnings: string[];
 }
@@ -906,6 +922,7 @@ export async function calculatePlanTiers(
     );
   }
 
+  let currentPlan: PlanResult | null = null;
   const cells: OccupancyTierPlanCell[] = OCCUPANCY_TIER_IDS.map((tier) => {
     const identity = {
       serviceLine: input.serviceLine,
@@ -914,7 +931,11 @@ export async function calculatePlanTiers(
       isCurrent: tier === currentTier,
     };
     try {
-      const { plan } = prepared.solve(input.tierPolicy.tiers[tier]);
+      const tierContext = tier === currentTier && occupancyPct != null
+        ? { tier, rangeLabel: identity.rangeLabel, occupancyPct }
+        : undefined;
+      const { plan } = prepared.solve(input.tierPolicy.tiers[tier], tierContext);
+      if (tier === currentTier) currentPlan = plan;
       return {
         ...identity,
         inhouseIncreasePct: plan.summary.weightedAvgIncreasePct,
@@ -934,12 +955,20 @@ export async function calculatePlanTiers(
     }
   });
 
+  // Unknown occupancy cannot select a tier safely. Preserve the existing
+  // service-line assumptions for the primary recommendation and say so in the
+  // warnings rather than silently choosing low, target or high.
+  if (currentPlan == null) {
+    currentPlan = prepared.solve().plan;
+  }
+
   return {
     serviceLine: input.serviceLine,
     occupancyPct,
     occupancyMonth: reading?.month ?? null,
     occupancySource: reading?.source ?? null,
     currentTier,
+    currentPlan,
     cells,
     warnings,
   };
@@ -969,6 +998,7 @@ function toRecommendation(
     daily: boolean;
     streetMultiplierAtInhouse: number;
     assumptions: PlanningAssumptions;
+    tierContext?: OccupancyTierSolveContext;
     toDisplay: (v: number) => number;
   },
 ): ResidentRecommendation {
@@ -1003,7 +1033,7 @@ function toRecommendation(
     newRateDisplay: ctx.toDisplay(newRate),
     increaseDollarsDisplay: ctx.toDisplay(newRate) - ctx.toDisplay(r.currentRateMonthly),
     weight: r.weight,
-    explanation: explainResident(a, effectiveStreet, ctx.assumptions),
+    explanation: explainResident(a, effectiveStreet, ctx.assumptions, ctx.tierContext),
   };
 }
 
@@ -1036,10 +1066,18 @@ function explainResident(
   a: ResidentAllocation,
   effectiveStreet: number,
   assumptions: PlanningAssumptions,
+  tierContext?: OccupancyTierSolveContext,
 ): CalcExplanation {
   const r = a.resident;
   const newRate = r.currentRateMonthly * (1 + a.increase);
   const steps: CalcExplanation["steps"] = [
+    ...(tierContext
+      ? [{
+          label: "Occupancy tier",
+          value: `${tierContext.tier[0].toUpperCase()}${tierContext.tier.slice(1)} (${tierContext.rangeLabel})`,
+          note: `${r.serviceLine} occupancy is ${formatPct(tierContext.occupancyPct)}. This tier sets the resident and Street Rate guardrails used below.`,
+        }]
+      : []),
     { label: "Current in-house rate", value: formatMoney(r.currentRateMonthly) },
     {
       label: `Street rate — ${RATE_PRODUCT_LABEL[r.rateProduct].toLowerCase()}`,
@@ -1070,6 +1108,11 @@ function explainResident(
   ];
 
   const narrative: string[] = [];
+  if (tierContext) {
+    narrative.push(
+      `${formatPct(tierContext.occupancyPct)} occupancy places ${r.serviceLine} in its ${tierContext.tier} tier. This recommendation uses that tier's ${formatPct(assumptions.minInhouseIncreasePct)} to ${formatPct(assumptions.maxInhouseIncreasePct)} resident increase range.`,
+    );
+  }
   switch (a.constraint) {
     case "at_or_above_street":
       narrative.push(

@@ -149,6 +149,23 @@ and keep app, diagnostics, exports, and tests on the same policy. Never give an
 at/above-street resident a literal zero allocation weight: use a positive floor
 so the curve can still reach that resident's allowed maximum when required.
 
+### The measured occupancy tier must produce the primary plan
+
+The occupancy-tier grid and the resident recommendation cannot be separate
+solver paths. Load a service line once, solve its three tier what-ifs, and use
+the plan from the tier selected by measured occupancy as the primary result.
+The same effective tier guardrails must be used when exporting or submitting.
+
+**Why:** when the grid alone received tier inputs, it could show a 5% resident
+maximum while the separately calculated primary plan still used the old 9%
+general maximum. Running both paths also doubled the expensive data preparation.
+
+**How to apply:** every resident explanation must name the measured occupancy,
+selected tier and tier range. Assert that every tier-varying input reaches the
+primary plan and that no resident exceeds the selected tier's maximum. If
+occupancy is unavailable, retain the service-line assumptions and warn rather
+than guessing a tier.
+
 **Why:** a zero shape permanently held those residents at the minimum while the
 feasibility search still counted their configured maximum as achievable. That
 made a plan report infeasible even when its displayed required average was below
