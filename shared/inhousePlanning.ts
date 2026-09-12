@@ -499,6 +499,8 @@ export interface ResidentRecommendation {
   currentRateDisplay: number;
   newRateDisplay: number;
   increaseDollarsDisplay: number;
+  /** Resident-day/month weight used by the solver's revenue-weighted allocation. */
+  weight: number;
   explanation: CalcExplanation;
 }
 

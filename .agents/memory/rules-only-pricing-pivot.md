@@ -51,7 +51,20 @@ Two rules for any rate figure placed in a prompt:
 
 Companion-bed exclusion and the manual-override-first precedence apply to
 prompt aggregates exactly as they do to query aggregates; a prompt that skips
-them describes a population no other surface reports.
+them describes a population no other surface reports. Keep the prompt's own
+wording in step with this: a heading or preamble claiming rates come from rules
+"and nothing else" contradicts its own data the moment overrides are included,
+and the model resolves the contradiction however it likes.
+
+A third rule, because a prompt has no schema to catch it:
+
+- Never hand a model a dollar figure without its unit of measure, and never
+  blend bases. `HC`/`HC/MC` are per-day and everything else is per-month, so a
+  scope spanning both has no meaningful average. Suppress the blended figure —
+  own rates, competitor rates and per-unit upside alike — and supply
+  per-service-line figures each suffixed `/day` or `/mo` instead. State plainly
+  that the average is withheld and why; a silently missing number reads to the
+  model as a missing market, which it will then recommend into.
 
 ## Amendment — applied annual in-house increases
 

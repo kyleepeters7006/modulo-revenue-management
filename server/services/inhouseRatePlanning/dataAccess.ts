@@ -1146,6 +1146,12 @@ export interface ScopeOccupancy {
   byServiceLine: Map<string, ServiceLineOccupancy>;
 }
 
+export interface CampusServiceLineOccupancy extends ServiceLineOccupancy {
+  locationId: string | null;
+  location: string;
+  serviceLine: string;
+}
+
 /**
  * Measured occupancy per service line, used to pick each line's occupancy tier.
  *
@@ -1278,4 +1284,133 @@ export async function fetchOccupancyByServiceLine(
   });
 
   return { byServiceLine };
+}
+
+/**
+ * Batch form of fetchOccupancyByServiceLine. Both source queries anchor per
+ * campus (not per client), so a lagging upload cannot inherit another campus's
+ * month. Combined RTO rows are split with weights from the same campus.
+ */
+export async function fetchOccupancyByCampus(
+  clientId: string,
+): Promise<CampusServiceLineOccupancy[]> {
+  const rtoSql = `
+    WITH anchored AS (
+      SELECT roh.location_id,
+             COALESCE(roh.location_name, l.name) AS location,
+             MAX(make_date(roh.year, roh.month, 1)) AS anchor
+        FROM room_type_occupancy_history roh
+        LEFT JOIN locations l ON l.id = roh.location_id
+       WHERE roh.client_id = $1
+       GROUP BY roh.location_id, COALESCE(roh.location_name, l.name)
+    )
+    SELECT roh.location_id,
+           COALESCE(roh.location_name, l.name) AS location,
+           roh.service_line AS sl,
+           SUM(roh.occ_units)::float AS occ,
+           SUM(roh.available_units)::float AS avail,
+           to_char(a.anchor, 'YYYY-MM') AS m
+      FROM room_type_occupancy_history roh
+      LEFT JOIN locations l ON l.id = roh.location_id
+      JOIN anchored a
+        ON a.location_id IS NOT DISTINCT FROM roh.location_id
+       AND a.location IS NOT DISTINCT FROM COALESCE(roh.location_name, l.name)
+       AND make_date(roh.year, roh.month, 1) = a.anchor
+     WHERE roh.client_id = $1
+     GROUP BY roh.location_id, COALESCE(roh.location_name, l.name), a.anchor, roh.service_line`;
+
+  const weightSql = `
+    WITH anchored AS (
+      SELECT location_id, location, MAX(upload_month) AS upload_month
+        FROM rent_roll_data
+       WHERE client_id = $1
+       GROUP BY location_id, location
+    )
+    SELECT rr.location_id, rr.location,
+           rr.service_line AS sl,
+           COUNT(*)::float AS units,
+           COUNT(*) FILTER (WHERE rr.occupied_yn)::float AS occupied,
+           a.upload_month AS m
+      FROM rent_roll_data rr
+      JOIN anchored a
+        ON a.location_id IS NOT DISTINCT FROM rr.location_id
+       AND a.location = rr.location
+       AND a.upload_month = rr.upload_month
+     WHERE rr.client_id = $1
+       AND ${slWeightSqlPredicate("rr.")}
+     GROUP BY rr.location_id, rr.location, rr.service_line, a.upload_month`;
+
+  const [rtoRes, weightRes] = await Promise.all([
+    pool.query(rtoSql, [clientId]),
+    pool.query(weightSql, [clientId]),
+  ]);
+  type CampusKey = string;
+  const keyOf = (locationId: unknown, location: unknown) =>
+    `${String(locationId ?? "")}\x1f${String(location ?? "")}`;
+  const weights = new Map<CampusKey, Map<string, { units: number; occupied: number }>>();
+  const months = new Map<CampusKey, string>();
+  for (const row of weightRes.rows as any[]) {
+    const key = keyOf(row.location_id, row.location);
+    const byLine = weights.get(key) ?? new Map();
+    byLine.set(String(row.sl ?? "").trim(), {
+      units: Number(row.units) || 0,
+      occupied: Number(row.occupied) || 0,
+    });
+    weights.set(key, byLine);
+    if (row.m) months.set(key, String(row.m));
+  }
+  const totals = new Map<CampusKey, Map<string, { occ: number; avail: number }>>();
+  for (const row of rtoRes.rows as any[]) {
+    const location = String(row.location ?? "").trim();
+    if (!location) continue;
+    const key = keyOf(row.location_id, location);
+    const raw = String(row.sl ?? "").trim();
+    const occ = Number(row.occ) || 0;
+    const avail = Number(row.avail) || 0;
+    if (!raw || avail <= 0) continue;
+    const byLineWeights = weights.get(key) ?? new Map();
+    const weightFor = (sl: string) => byLineWeights.get(sl) ?? { units: 0, occupied: 0 };
+    const byLine = totals.get(key) ?? new Map();
+    for (const part of splitCombinedSl(raw.split(",").map((s) => s.trim()).filter(Boolean), occ, avail, weightFor)) {
+      const previous = byLine.get(part.sl) ?? { occ: 0, avail: 0 };
+      byLine.set(part.sl, {
+        occ: previous.occ + part.occ,
+        avail: previous.avail + part.avail,
+      });
+    }
+    totals.set(key, byLine);
+    if (row.m) months.set(key, String(row.m));
+  }
+  const output: CampusServiceLineOccupancy[] = [];
+  totals.forEach((byLine, key) => {
+    const [locationId, location] = key.split("\x1f");
+    byLine.forEach((value, serviceLine) => {
+      if (value.avail > 0) {
+        output.push({
+          locationId: locationId || null,
+          location,
+          serviceLine,
+          occupancyPct: (value.occ / value.avail) * 100,
+          month: months.get(key) ?? null,
+          source: "occupancy_history",
+        });
+      }
+    });
+  });
+  weights.forEach((byLine, key) => {
+    const [locationId, location] = key.split("\x1f");
+    const measured = totals.get(key) ?? new Map();
+    byLine.forEach((value, serviceLine) => {
+      if (measured.has(serviceLine) || value.units <= 0) return;
+      output.push({
+        locationId: locationId || null,
+        location,
+        serviceLine,
+        occupancyPct: (value.occupied / value.units) * 100,
+        month: months.get(key) ?? null,
+        source: "rent_roll",
+      });
+    });
+  });
+  return output;
 }

@@ -25,3 +25,16 @@ new scope.
 line separately. On filter change, prefer the exact cached selection and fill
 missing combinations from the line-level entries. Keep assumption-drift approval
 blocking active for every restored line.
+
+Keep the **render-scope key** separate from the **persistence key**. An
+unauthenticated demo calculation has no safe identity key and therefore must not
+be written to browser storage, but it still has a campus/service-line scope and
+must render for the current page session.
+
+**Why:** treating a null persistence key as a null scope makes a successful demo
+calculation fail the stale-result guard and disappear without an error.
+
+**How to apply:** gate writes on authenticated identity, but compare every
+completed request against a scope key derived directly from the current campus
+and service-line selection. Never use “can this be persisted?” to decide “can
+this be displayed now?”

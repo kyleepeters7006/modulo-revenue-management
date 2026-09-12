@@ -30,7 +30,7 @@
 - [RT-specific comp benchmark](rt-specific-comp-benchmark.md) — benchmarkForRT() gives room-type-specific comp; SL-level blending distorts variance for mixed-price RTs; compVarMap now keyed campus||sl||rt with SL fallback.
 - [Comp benchmark client_id + AL/MC type](comp-benchmark-client-id.md) — survey rows were once all client_id=NULL; NULL-tolerant predicate still worth keeping; AL/MC mapping depends on what each client's import actually produced.
 - [Dev vs production database URLs](db-url-distinction.md) — runtime DATABASE_URL is environment-scoped; the manual production-sync secret can become stale or point at a disabled endpoint.
-- [room_type_groupings branded names](rtg-branded-names.md) — group_name has branded values like "Legacy Lane - Studio"; breaks ILIKE 'studio%' filter; use rr.room_type directly in competitive-position endpoint.
+- [room_type_groupings branded names](rtg-branded-names.md) — branded group_name breaks ILIKE 'studio%'; the grouping joins on source_room_type, so a canonical-keyed branded lookup silently misses.
 - [`dark:` variants always on](dark-variant-always-on.md) — App.tsx wraps everything in `.dark`; literal dark palette colours paint a translucent wash. Sticky cells must be opaque in every branch.
 - [Tooltips in scrollable dialogs](dialog-tooltip-portal.md) — portal to body + viewport-clamp, never flip above/below; two identically-titled bubble maps exist, fix both.
 - [Rule-adjusted rate persistence](rule-rate-persistence.md) — bulk writer must preserve rule cols on `undefined` (null still clears); two rival pricing paths, only one applies rules.
@@ -53,7 +53,7 @@
 - [MC care-rate inheritance](care-level2-mc-inheritance.md) — AL/MC→AL and HC/MC→HC when no care row exists; flag as inherited, never insert client care data.
 - [Competitor care ADJ column](comp-care-adj-column.md) — ADJ is theirs−ours (uniform per room type by construction); the editable cell inverse-writes the survey's raw care rate.
 - [Care rate null vs zero](care-rate-null-vs-zero.md) — three states: never surveyed (~half of rows) / charges nothing / real rate. Never `|| 0` on display; a 0 must clear the plausibility band too.
-- [Care rate daily vs monthly](care-rate-daily-vs-monthly.md) — HC care column mixes bases; one shared normalizer or surfaces disagree ~30x. HC comp care is ~98% absent — check data before math.
+- [Care rate daily vs monthly](care-rate-daily-vs-monthly.md) — HC care column mixes bases; one shared normalizer or surfaces disagree ~30x; competitor serviceLines are survey types (incl. daily SMC), not rent-roll lines.
 - [Competitor payload aggregation traps](competitor-payload-traps.md) — map-reduce create/append branches must carry identical fields; never default a missing rate to a plausible number.
 - [Rule table display vs priority order](rule-table-priority-vs-display.md) — sort a copy; badges come from canonical order. Status tiers never invert. serviceLine has a legacy string form.
 - [AI suggest page scope](ai-suggest-page-scope.md) — campus/region/division filters must reach the datasets, the shown impacts, AND the rule Accept persists, or scope leaks portfolio-wide.

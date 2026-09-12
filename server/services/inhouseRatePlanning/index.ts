@@ -1002,6 +1002,7 @@ function toRecommendation(
     currentRateDisplay: ctx.toDisplay(r.currentRateMonthly),
     newRateDisplay: ctx.toDisplay(newRate),
     increaseDollarsDisplay: ctx.toDisplay(newRate) - ctx.toDisplay(r.currentRateMonthly),
+    weight: r.weight,
     explanation: explainResident(a, effectiveStreet, ctx.assumptions),
   };
 }

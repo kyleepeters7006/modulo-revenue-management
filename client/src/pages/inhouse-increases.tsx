@@ -14,9 +14,12 @@ import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } f
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
+  Cell,
   CartesianGrid,
   Line,
   LineChart,
+  Scatter,
+  ScatterChart,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
   XAxis,
@@ -210,6 +213,14 @@ function quarterCellLabel(quarter: number, year: number, singleYear: boolean): s
 }
 
 const SERVICE_LINES = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
+const PLAN_SCATTER_COLORS: Record<string, string> = {
+  AL: "#0d9488",
+  "AL/MC": "#1e3a5f",
+  HC: "#d97706",
+  "HC/MC": "#0284c7",
+  SL: "#16a34a",
+  VIL: "#67e8f9",
+};
 
 /** One service line's measured turnover, from /api/inhouse-planning/historical-turnover. */
 interface ServiceLineTurnover {
@@ -656,6 +667,155 @@ function DateField({
 /** A PlanResult tagged with the service line it was calculated for. */
 interface PlanWithSl { sl: string; plan: PlanResult }
 
+interface CampusOccupancyReading {
+  locationId: string;
+  location: string;
+  serviceLine: string;
+  occupancyPct: number | null;
+  month: string | null;
+  source: "occupancy_history" | "rent_roll";
+}
+
+function PlanScatterReview({
+  plans,
+  selectedLocationId,
+  tierGrid,
+  campusOccupancy,
+}: {
+  plans: PlanWithSl[];
+  selectedLocationId: string | null;
+  tierGrid: TierGridResult | null;
+  campusOccupancy: CampusOccupancyReading[];
+}) {
+  const [highlight, setHighlight] = useState<string | null>(null);
+  const occupancyByLine = useMemo(() => {
+    const map = new Map<string, CampusOccupancyReading>();
+    campusOccupancy
+      .filter((reading) => selectedLocationId === null || reading.locationId === selectedLocationId)
+      .forEach((reading) =>
+        map.set(`${reading.location}::${reading.serviceLine}`, reading),
+      );
+    if (map.size === 0 && selectedLocationId !== null) {
+      tierGrid?.lines.forEach((line) =>
+        map.set(`${plans[0]?.plan.scope.location ?? ""}::${line.serviceLine}`, {
+          locationId: selectedLocationId,
+          location: plans[0]?.plan.scope.location ?? "Selected campus",
+          serviceLine: line.serviceLine,
+          occupancyPct: line.occupancyPct,
+          month: line.occupancyMonth,
+          source: line.occupancySource ?? "rent_roll",
+        }),
+      );
+    }
+    return map;
+  }, [campusOccupancy, plans, selectedLocationId, tierGrid]);
+
+  const points = useMemo(() => {
+    return plans.flatMap(({ sl, plan }) => {
+      const grouped = new Map<string, { revenue: number; increase: number; weight: number; residents: number }>();
+      plan.residents.forEach((resident) => {
+        const key = resident.location;
+        const weight = Number.isFinite(resident.weight) ? resident.weight : 0;
+        const revenue = resident.currentRateMonthly * weight;
+        const row = grouped.get(key) ?? { revenue: 0, increase: 0, weight: 0, residents: 0 };
+        row.revenue += revenue;
+        row.increase += revenue * resident.increasePct;
+        row.weight += weight;
+        row.residents += 1;
+        grouped.set(key, row);
+      });
+      return Array.from(grouped, ([location, row]) => {
+        const occupancy = occupancyByLine.get(`${location}::${sl}`);
+        return {
+          location,
+          serviceLine: sl,
+          occupancy: occupancy?.occupancyPct ?? null,
+          inhouseIncrease: row.revenue > 0 ? row.increase / row.revenue : null,
+          streetIncrease: plan.streetIncreasePct,
+          streetSource: "calculated service-line recommendation",
+          occupancyMonth: occupancy?.month ?? null,
+          residents: row.residents,
+        };
+      });
+    }).filter((point) => point.occupancy != null && Number.isFinite(point.occupancy));
+  }, [occupancyByLine, plans]);
+
+  const unknownCount = useMemo(() => {
+    const combos = new Set(plans.flatMap(({ sl, plan }) => plan.residents.map((r) => `${r.location}::${sl}`)));
+    return Array.from(combos).filter((key) => !occupancyByLine.get(key)?.occupancyPct && occupancyByLine.get(key)?.occupancyPct !== 0).length;
+  }, [occupancyByLine, plans]);
+
+  const tooltip = (key: "inhouseIncrease" | "streetIncrease") => ({ active, payload }: any) => {
+    if (!active || !payload?.length) return null;
+    const point = payload[0].payload;
+    return (
+      <div className="rounded-md border bg-background px-3 py-2 text-xs shadow-md">
+        <p className="font-semibold">{point.location}</p>
+        <p className="text-muted-foreground">{point.serviceLine}</p>
+        <p className="mt-1">Occupancy: <strong>{point.occupancy.toFixed(1)}%</strong></p>
+        <p>{key === "inhouseIncrease" ? "In-house increase" : "Street Rate increase"}: <strong>{point[key].toFixed(2)}%</strong></p>
+        {key === "streetIncrease" && <p className="text-[10px] text-muted-foreground">{point.streetSource}</p>}
+      </div>
+    );
+  };
+
+  const renderChart = (key: "inhouseIncrease" | "streetIncrease", title: string) => (
+    <div className="min-w-0 flex-1">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      <div className="h-[250px] w-full">
+        <ResponsiveContainer>
+          <ScatterChart margin={{ top: 8, right: 14, bottom: 22, left: 2 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis type="number" dataKey="occupancy" domain={["auto", "auto"]} tickFormatter={(v) => `${v}%`} fontSize={11} label={{ value: "Occupancy", position: "insideBottom", offset: -12, fontSize: 11 }} />
+            <YAxis type="number" dataKey={key} tickFormatter={(v) => `${v}%`} fontSize={11} width={42} label={{ value: "Increase", angle: -90, position: "insideLeft", fontSize: 11 }} />
+            <RechartsTooltip content={tooltip(key)} />
+            <Scatter data={points} name={title}>
+              {points.map((point) => (
+                <Cell key={`${key}-${point.location}-${point.serviceLine}`} fill={PLAN_SCATTER_COLORS[point.serviceLine] ?? "#64748b"} fillOpacity={highlight && highlight !== point.serviceLine ? 0.16 : 0.9} />
+              ))}
+            </Scatter>
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+
+  if (points.length === 0) return null;
+  return (
+    <Card data-testid="card-inhouse-scatterplots">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Campus pricing position</CardTitle>
+        <CardDescription>Each dot is a campus and service-line combination. Occupancy is measured; unknown readings are not plotted.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="mb-4 flex flex-wrap gap-x-4 gap-y-2 border-y py-3">
+          {Array.from(new Set(points.map((p) => p.serviceLine))).map((sl) => (
+            <button
+              key={sl}
+              type="button"
+              onClick={() => setHighlight((current) => current === sl ? null : sl)}
+              className={cn("flex items-center gap-1.5 text-xs transition-opacity", highlight && highlight !== sl && "opacity-35")}
+              aria-pressed={highlight === sl}
+            >
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PLAN_SCATTER_COLORS[sl] ?? "#64748b" }} />
+              <span>{sl}</span>
+            </button>
+          ))}
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          {renderChart("inhouseIncrease", "In-house resident rate increase")}
+          {renderChart("streetIncrease", "Street Rate increase")}
+        </div>
+        {unknownCount > 0 && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {unknownCount} campus/service-line combination{unknownCount === 1 ? "" : "s"} omitted because occupancy was unavailable.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 interface CalculateRequest {
   identityKey: string | null;
   locationId: string | null;
@@ -1000,6 +1160,12 @@ export default function InhouseIncreases() {
     queryKey: ["/api/locations"],
   });
   const locations = locationsData?.locations ?? [];
+
+  const { data: campusOccupancyData } = useQuery<{ readings: CampusOccupancyReading[] }>({
+    queryKey: ["/api/inhouse-planning/occupancy-by-campus"],
+    enabled: plans !== null,
+    staleTime: 5 * 60 * 1000,
+  });
 
   // Saved assumptions for this scope. Loading them replaces the editor state
   // only while the operator has not started editing, so a fetch settling late
@@ -1370,8 +1536,7 @@ export default function InhouseIncreases() {
       // one.
       if (
         identityKey !== currentStorageIdentity.current ||
-        scopeKey !== calculatedPlanKey ||
-        !identityKey
+        scopeKey !== calculatedPlanScopeKey(scopeLocationId, serviceLines)
       ) return;
       setPlans(results);
       setVisibleCount(50);
@@ -1608,6 +1773,23 @@ export default function InhouseIncreases() {
     const overrides = perLineTargets[sl];
     if (!overrides) return assumptions;
     return { ...assumptions, ...overrides };
+  }
+
+  function currentCalculateRequest(): CalculateRequest {
+    const selectedLines = [...serviceLines];
+    return {
+      identityKey: storageIdentityKey,
+      locationId: scopeLocationId,
+      serviceLines: selectedLines,
+      assumptionsByLine: Object.fromEntries(
+        selectedLines.map((sl) => [sl, { ...assumptionsForLine(sl) }]),
+      ),
+    };
+  }
+
+  function calculatePlanAndTiers() {
+    calculate.mutate(currentCalculateRequest());
+    calculateTiers.mutate();
   }
 
   function tierPolicyFor(sl: string): OccupancyTierPolicy {
@@ -2364,78 +2546,6 @@ export default function InhouseIncreases() {
             />
           </div>
 
-          <Separator />
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <NumberField
-              testId="input-min-increase"
-              label="Minimum resident increase"
-              value={assumptions.minInhouseIncreasePct}
-              onChange={(v) => update("minInhouseIncreasePct", v)}
-              suffix="%"
-              hint="Floor for anyone who has room to move."
-            />
-            <NumberField
-              testId="input-max-increase"
-              label="Maximum resident increase"
-              value={assumptions.maxInhouseIncreasePct}
-              onChange={(v) => update("maxInhouseIncreasePct", v)}
-              suffix="%"
-              hint="No resident is ever raised past this, even if the target needs it."
-            />
-            <NumberField
-              testId="input-min-street"
-              label="Minimum street increase"
-              value={assumptions.minStreetIncreasePct}
-              onChange={(v) => update("minStreetIncreasePct", v)}
-              suffix="%"
-              hint="Minimum Street Rate movement when the plan is calculated; hard maximums still apply."
-            />
-            <NumberField
-              testId="input-desired-top-comp-variance"
-              label="Desired variance to Top Competitor"
-              value={assumptions.desiredVarianceToTopCompetitorPct}
-              onChange={(v) => update("desiredVarianceToTopCompetitorPct", v)}
-              suffix="%"
-              hint="Directional target: negative stays below Top Competitor, positive moves above. It pushes underpriced rates more but never caps an increase."
-            />
-            <NumberField
-              testId="input-max-street"
-              label="Maximum street increase"
-              value={assumptions.maxStreetIncreasePct}
-              onChange={(v) => update("maxStreetIncreasePct", v)}
-              suffix="%"
-              hint="How far the solver may push street rate to create headroom."
-            />
-            <NumberField
-              testId="input-max-yoy-street"
-              label="Maximum YoY street increase"
-              value={assumptions.maxYoYStreetIncreasePct}
-              onChange={(v) => update("maxYoYStreetIncreasePct", v)}
-              suffix="%"
-              hint="Caps the proposed January rate versus January of the prior year—for example, 1/1/27 versus 1/1/26."
-            />
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Equalization</Label>
-              <Select
-                value={assumptions.equalizationStrength}
-                onValueChange={(v) => update("equalizationStrength", v as EqualizationStrength)}
-              >
-                <SelectTrigger className="h-9" data-testid="select-equalization">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="low">Low — nearly the same increase for everyone</SelectItem>
-                  <SelectItem value="medium">Medium — moderate catch-up</SelectItem>
-                  <SelectItem value="high">High — aggressive catch-up</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] leading-snug text-muted-foreground">
-                How much more the residents furthest below street get than those closest to it.
-              </p>
-            </div>
-          </div>
-
           {rangeError && (
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
@@ -2446,40 +2556,21 @@ export default function InhouseIncreases() {
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
-              onClick={() => {
-                const selectedLines = [...serviceLines];
-                calculate.mutate({
-                  identityKey: storageIdentityKey,
-                  locationId: scopeLocationId,
-                  serviceLines: selectedLines,
-                  assumptionsByLine: Object.fromEntries(
-                    selectedLines.map((sl) => [sl, { ...assumptionsForLine(sl) }]),
-                  ),
-                });
-              }}
-              disabled={!!rangeError || calculate.isPending}
+              onClick={calculatePlanAndTiers}
+              disabled={
+                !!rangeError ||
+                calculate.isPending ||
+                calculateTiers.isPending ||
+                !tierPoliciesReady
+              }
               data-testid="button-calculate"
             >
-              {calculate.isPending ? (
+              {calculate.isPending || calculateTiers.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Calculator className="mr-2 h-4 w-4" />
               )}
               Calculate plan
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => calculateTiers.mutate()}
-              disabled={!!rangeError || calculateTiers.isPending || !tierPoliciesReady}
-              data-testid="button-calculate-tiers"
-            >
-              {calculateTiers.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Calculator className="mr-2 h-4 w-4" />
-              )}
-              Compare occupancy tiers
             </Button>
             <Button
               variant="outline"
@@ -3453,6 +3544,15 @@ export default function InhouseIncreases() {
             </CardContent>
           </Card>
 
+          {plans.length > 0 && (
+            <PlanScatterReview
+              plans={plans}
+              selectedLocationId={scopeLocationId}
+              tierGrid={tierGrid}
+              campusOccupancy={campusOccupancyData?.readings ?? []}
+            />
+          )}
+
           {/* ── Submit proposals ─────────────────────────────────────── */}
           <Card>
             <CardHeader className="pb-3">
@@ -3496,8 +3596,13 @@ export default function InhouseIncreases() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => calculate.mutate()}
-                      disabled={!!rangeError || calculate.isPending}
+                      onClick={calculatePlanAndTiers}
+                      disabled={
+                        !!rangeError ||
+                        calculate.isPending ||
+                        calculateTiers.isPending ||
+                        !tierPoliciesReady
+                      }
                       className="shrink-0"
                     >
                       {calculate.isPending ? (

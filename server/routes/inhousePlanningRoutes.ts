@@ -27,6 +27,7 @@ import {
 } from "../services/inhouseRatePlanning";
 import { buildRatePlanWorkbook } from "../services/inhouseRatePlanning/excelExport";
 import { computeHistoricalTurnover } from "../services/inhouseRatePlanning/historicalTurnover";
+import { fetchOccupancyByCampus } from "../services/inhouseRatePlanning/dataAccess";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -437,6 +438,21 @@ export function registerInhousePlanningRoutes(app: Express) {
       }
       console.error("[inhouse-planning] tier grid failed:", error);
       res.status(500).json({ error: "Failed to calculate the occupancy tier grid" });
+    }
+  });
+
+  // Campus-level occupancy for the calculated-plan review charts. This is kept
+  // separate from the tier endpoint because the all-campus plan needs one
+  // measured reading per campus/service line, not a portfolio aggregate.
+  app.get("/api/inhouse-planning/occupancy-by-campus", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || "demo";
+      const readings = await fetchOccupancyByCampus(clientId);
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ readings });
+    } catch (error) {
+      console.error("[inhouse-planning] campus occupancy failed:", error);
+      res.status(500).json({ error: "Failed to load campus occupancy" });
     }
   });
 

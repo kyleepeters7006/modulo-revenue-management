@@ -60,3 +60,25 @@ Carrying such a value forward fabricates a portfolio-wide adjustment.
 **How to apply:** when a care adjustment is reported missing, first group the survey table by
 month and competitor type counting non-null care rates. No code change can conjure an
 adjustment the source data does not contain — that fix belongs in the import or the survey.
+
+## A competitor's service lines are SURVEY types, not rent-roll service lines
+
+The same basis split governs **street** rates, and the two sides name their lines
+differently. A competitor object's `serviceLines` is built from the survey row's
+`competitorType`, whose vocabulary includes the legacy **`SMC`** — a daily-basis type with no
+rent-roll counterpart. So the rent-roll daily set (`HC`, `HC/MC`) is the wrong predicate for
+a competitor: it excludes an SMC competitor from a daily scope and, worse, admits it into a
+monthly one, where a daily rate gets averaged in and labelled `/mo`.
+
+`isDailySurveyType()` in `server/services/competitorMatchPolicy.ts` is the survey-side
+predicate. Keep the two classifications distinct: rent-roll scope by the rent-roll set,
+competitor rows by the survey predicate.
+
+**Why:** competitors are filtered by *location* and never by service line, so any
+location-wide competitor aggregate spans that market's whole product mix. Nothing downstream
+re-checks the basis, and a blended figure is indistinguishable from a correct one.
+
+**How to apply:** before averaging or comparing competitor street rates against ours, keep
+only competitors whose service lines *all* sit on the scope's basis, and drop the dollar
+figure entirely when the scope itself mixes bases. Report the count and say explicitly that
+no average is shown — an omitted number must not read as an absent market.

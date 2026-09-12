@@ -464,6 +464,7 @@ import { getSentenceExplanation, generateOverallExplanation } from "./sentenceEx
 import { syncLocationsFromRentRoll } from "./syncLocations";
 import { importProductionData } from "./importProductionData";
 import { matchAndAdjustCompetitor } from "./services/competitorLookup";
+import { isDailySurveyType } from "./services/competitorMatchPolicy";
 import { processAllUnitsForCompetitorRates, getCompetitorRateSummary } from "./services/competitorRateMatching";
 import { startCompetitorRateJob, getJobStatus, getJobsForMonth, resumeInterruptedJobs } from "./services/competitorRateJobService";
 import { normalizeRoomType } from "@shared/roomTypes";
@@ -9592,6 +9593,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // AI Insights
+  // ── Shared proposed-rate resolution for the LLM prompt builders ──────────
+  //
+  // The proposed rate is a manual override where one exists, otherwise the
+  // rule-adjusted rate — the same precedence every other pricing surface uses.
+  //
+  // `manual_rate_overrides.room_type` is stored under whichever name the
+  // surface that created the override displayed. Reference Data shows the
+  // branded group name from `room_type_groupings` (e.g. "Legacy Lane - Studio")
+  // while `rent_roll_data.room_type` holds the canonical spelling (e.g.
+  // "Studio"), so looking up the canonical name alone silently misses grouped
+  // overrides and reports the rule rate — or no proposal at all — instead.
+  // Branded first, then canonical, matching the Reference Data endpoint.
+  //
+  // The grouping table joins on the RAW spelling: `room_type_groupings.
+  // source_room_type` matches `rent_roll_data.source_room_type` (e.g. "Studio -
+  // Double 300 SQ FT"), not the normalized `room_type`. Keying the branded
+  // lookup off `roomType` finds nothing except where the two happen to be
+  // identical, which is exactly the case where branding does not matter.
+  type ProposedRateRow = {
+    location: string;
+    serviceLine: string;
+    roomType: string | null;
+    sourceRoomType: string | null;
+    ruleAdjustedRate: number | null;
+  };
+  async function buildProposedRateResolver(clientId: string) {
+    const [overrideRes, groupingRes] = await Promise.all([
+      pool.query(
+        `SELECT location_name, service_line, room_type, override_rate
+           FROM manual_rate_overrides
+          WHERE client_id = $1 AND override_rate > 0`,
+        [clientId]
+      ),
+      pool.query(
+        `SELECT location, service_line, source_room_type, group_name
+           FROM room_type_groupings
+          WHERE client_id = $1`,
+        [clientId]
+      ),
+    ]);
+
+    const overrideMap = new Map<string, number>();
+    for (const o of overrideRes.rows) {
+      overrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, Number(o.override_rate));
+    }
+    const brandedMap = new Map<string, string>();
+    for (const g of groupingRes.rows) {
+      if (g.source_room_type && g.group_name) {
+        brandedMap.set(`${g.location}||${g.service_line}||${g.source_room_type}`, g.group_name);
+      }
+    }
+
+    const overrideFor = (u: ProposedRateRow): number | null => {
+      const branded = u.sourceRoomType
+        ? brandedMap.get(`${u.location}||${u.serviceLine}||${u.sourceRoomType}`)
+        : undefined;
+      const hit = (branded ? overrideMap.get(`${u.location}||${u.serviceLine}||${branded}`) : undefined)
+        ?? overrideMap.get(`${u.location}||${u.serviceLine}||${u.roomType}`);
+      return hit && hit > 0 ? hit : null;
+    };
+    const proposedFor = (u: ProposedRateRow): number | null =>
+      overrideFor(u) ?? (u.ruleAdjustedRate && u.ruleAdjustedRate > 0 ? u.ruleAdjustedRate : null);
+
+    return { overrideFor, proposedFor };
+  }
+
+  // HC and HC/MC store rates per day; every other service line stores them per
+  // month. A single blended dollar average across a mixed scope is not a real
+  // number, so the prompt reports per service line and says which basis each
+  // uses rather than handing the model a figure ~30x off for one of them.
+  const DAILY_RATE_SLS = new Set(['HC', 'HC/MC']);
+  const rateBasisLabel = (sl: string) => (DAILY_RATE_SLS.has(sl) ? '/day' : '/mo');
+  const scopeMixesRateBasis = (sls: string[]) =>
+    sls.some(sl => DAILY_RATE_SLS.has(sl)) && sls.some(sl => !DAILY_RATE_SLS.has(sl));
+
   app.post("/api/ai/suggest", async (req: any, res) => {
     try {
       const clientId = req.clientId || 'demo';
@@ -9679,25 +9755,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const avgInHouse = filteredData.reduce((s, u) => s + (u.inHouseRate || 0), 0) / totalUnits;
 
       // ── Proposed rates ────────────────────────────────────────────────────
-      // A proposed rate is a manual override where one exists, otherwise the
-      // rule-adjusted rate — the same precedence every other pricing surface
-      // uses. The Modulo algorithm rate and the old Revenue-Target AI rate
-      // were retired as served rates, so putting them in front of the model
-      // makes it recommend pricing this product no longer runs.
-      const overrideRows = await pool.query(
-        `SELECT location_name, service_line, room_type, override_rate
-           FROM manual_rate_overrides
-          WHERE client_id = $1 AND override_rate > 0`,
-        [clientId]
-      );
-      const overrideMap = new Map<string, number>();
-      for (const o of overrideRows.rows) {
-        overrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, Number(o.override_rate));
-      }
-      const overrideFor = (u: typeof filteredData[0]) =>
-        overrideMap.get(`${u.location}||${u.serviceLine}||${u.roomType}`) || null;
-      const proposedFor = (u: typeof filteredData[0]): number | null =>
-        overrideFor(u) ?? (u.ruleAdjustedRate && u.ruleAdjustedRate > 0 ? u.ruleAdjustedRate : null);
+      // Manual override first, then the rule-adjusted rate. The Modulo
+      // algorithm rate and the old Revenue-Target AI rate were retired as
+      // served rates, so putting them in front of the model makes it
+      // recommend pricing this product no longer runs.
+      const { overrideFor, proposedFor } = await buildProposedRateResolver(clientId);
+
+      const slsInScope = Array.from(new Set(primaryUnits.map(u => u.serviceLine)));
+      const mixedRateBasis = scopeMixesRateBasis(slsInScope);
+      // Suffix appended to every single-basis dollar figure in the prompt, so
+      // no rate is ever presented to the model without its unit of measure.
+      const scopeBasis = mixedRateBasis ? '' : rateBasisLabel(slsInScope[0] || '');
+      const scopeIsDaily = slsInScope.length > 0 && slsInScope.every(sl => DAILY_RATE_SLS.has(sl));
 
       // Uplift is measured on the units that actually carry a proposal, against
       // those same units' street rates. Comparing a selectively-covered
@@ -9753,25 +9822,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ── Service line & room type breakdown ────────────────────────────────
       const slBreakdown: Record<string, number> = {};
       filteredData.forEach(u => { const sl = u.serviceLine || 'Unknown'; slBreakdown[sl] = (slBreakdown[sl] || 0) + 1; });
-      // Room-type rates use the same companion-excluded population, and carry
-      // the street total of the proposed subset so the per-room-type percentage
-      // is also a paired comparison.
-      const rtRates: Record<string, { street: number; count: number; proposed: number; proposedCount: number; proposedStreet: number }> = {};
-      primaryUnits.forEach(u => {
-        const rt = u.roomType || 'Unknown';
-        if (!rtRates[rt]) rtRates[rt] = { street: 0, count: 0, proposed: 0, proposedCount: 0, proposedStreet: 0 };
-        rtRates[rt].street += u.streetRate || 0;
-        rtRates[rt].count += 1;
-        const p = proposedFor(u);
+      // Room-type and service-line rates use the same companion-excluded
+      // population and carry the street total of the proposed subset, so both
+      // percentages are paired comparisons. Room-type keys are qualified by
+      // service line: the same room label exists under a daily-rate HC line and
+      // a monthly AL line, and merging them averages incompatible units.
+      type RateAgg = { street: number; count: number; proposed: number; proposedCount: number; proposedStreet: number };
+      const emptyAgg = (): RateAgg => ({ street: 0, count: 0, proposed: 0, proposedCount: 0, proposedStreet: 0 });
+      const addToAgg = (agg: RateAgg, u: typeof primaryUnits[0], p: number | null) => {
+        agg.street += u.streetRate || 0;
+        agg.count += 1;
         if (p !== null) {
-          rtRates[rt].proposed += p;
-          rtRates[rt].proposedCount += 1;
-          rtRates[rt].proposedStreet += u.streetRate || 0;
+          agg.proposed += p;
+          agg.proposedCount += 1;
+          agg.proposedStreet += u.streetRate || 0;
         }
+      };
+      const rtRates: Record<string, RateAgg> = {};
+      const slRates: Record<string, RateAgg> = {};
+      primaryUnits.forEach(u => {
+        const sl = u.serviceLine || 'Unknown';
+        const rtKey = `${sl} · ${u.roomType || 'Unknown'}`;
+        if (!rtRates[rtKey]) rtRates[rtKey] = emptyAgg();
+        if (!slRates[sl]) slRates[sl] = emptyAgg();
+        const p = proposedFor(u);
+        addToAgg(rtRates[rtKey], u, p);
+        addToAgg(slRates[sl], u, p);
       });
 
+      const formatRateAgg = (label: string, d: RateAgg, basis: string) => {
+        const avgSt = d.count ? Math.round(d.street / d.count) : 0;
+        if (!d.proposedCount) return `- ${label}: street $${avgSt.toLocaleString()}${basis} (${d.count} units), no proposed rate`;
+        const avgPr = Math.round(d.proposed / d.proposedCount);
+        const baseSt = d.proposedStreet / d.proposedCount;
+        const pct = baseSt > 0 ? ` (${((avgPr - baseSt) / baseSt * 100).toFixed(1)}% vs their own street avg)` : '';
+        return `- ${label}: street $${avgSt.toLocaleString()}${basis} (${d.count} units), proposed $${avgPr.toLocaleString()}${basis} on ${d.proposedCount} of them${pct}`;
+      };
+
+      const serviceLineRateSection = Object.entries(slRates)
+        .map(([sl, d]) => formatRateAgg(sl, d, rateBasisLabel(sl)))
+        .join('\n');
+
       // ── Competitor context ─────────────────────────────────────────────────
-      const competitorRates = filteredCompetitors.map(c => c.streetRate).filter(Boolean) as number[];
+      // A competitor's street rate carries no basis marker, so it can only be
+      // averaged against ours when the competitor sells on the same basis.
+      // Competitors are filtered by location, never by service line, so a
+      // location-wide average mixes a competitor's daily skilled-nursing rate
+      // into a monthly assisted-living comparison. Only competitors whose
+      // service lines all sit on the scope's basis contribute to the average;
+      // everything else gets a count with no dollar figure.
+      //
+      // Competitor service lines are survey types, not rent-roll service
+      // lines: they include the legacy SMC type, whose rates live in the same
+      // daily bucket as HC and HC/MC. Classify them with the shared survey
+      // predicate — DAILY_RATE_SLS only knows rent-roll spellings, so it would
+      // wave an SMC competitor into a monthly average.
+      const basisMatchedCompetitors = mixedRateBasis ? [] : filteredCompetitors.filter(c => {
+        const sls = (c.serviceLines || []).filter(Boolean);
+        if (!sls.length) return false;
+        return sls.every(sl => isDailySurveyType(sl) === scopeIsDaily);
+      });
+      const competitorRates = basisMatchedCompetitors.map(c => c.streetRate).filter(Boolean) as number[];
       const avgCompRate = competitorRates.length
         ? competitorRates.reduce((s, r) => s + r, 0) / competitorRates.length : null;
       const marketSentiment = marketDataCache.lastMonthReturnPct > 1 ? 'bullish' : marketDataCache.lastMonthReturnPct < -1 ? 'bearish' : 'neutral';
@@ -9781,15 +9892,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .filter(Boolean).join(' | ') || 'All locations & service lines';
 
       const rateSection = [
-        `- Street rate avg: $${Math.round(avgStreet).toLocaleString()}`,
-        `- In-house rate avg: $${Math.round(avgInHouse).toLocaleString()}`,
-        avgProposed !== null
-          ? `- **Proposed rate**: $${Math.round(avgProposed).toLocaleString()} avg across the ${proposedUnits.length}/${eligibleUnits} units that have one${
-              proposedVsStreetPct !== null
-                ? ` — ${proposedVsStreetPct >= 0 ? '+' : ''}${proposedVsStreetPct.toFixed(1)}% vs those same units' current street avg of $${Math.round(avgStreetOfProposed).toLocaleString()}`
-                : ''
-            }`
-          : '- No unit in this scope has a proposed rate: no adjustment rule reaches them and no manual override is set',
+        mixedRateBasis
+          ? `- This scope mixes service lines whose rates are stored per DAY (${slsInScope.filter(sl => DAILY_RATE_SLS.has(sl)).join(', ')}) with service lines stored per MONTH. Blended dollar averages across the whole scope are therefore meaningless — use the per-service-line figures below and never add or compare a daily rate to a monthly one.`
+          : '',
+        mixedRateBasis ? '' : `- Street rate avg: $${Math.round(avgStreet).toLocaleString()}${scopeBasis}`,
+        mixedRateBasis ? '' : `- In-house rate avg: $${Math.round(avgInHouse).toLocaleString()}${scopeBasis}`,
+        avgProposed === null
+          ? '- No unit in this scope has a proposed rate: no adjustment rule reaches them and no manual override is set'
+          : mixedRateBasis
+            ? `- **Proposed rate**: ${proposedUnits.length}/${eligibleUnits} units carry one (see the per-service-line rates below for dollar figures)`
+            : `- **Proposed rate**: $${Math.round(avgProposed).toLocaleString()}${scopeBasis} avg across the ${proposedUnits.length}/${eligibleUnits} units that have one${
+                proposedVsStreetPct !== null
+                  ? ` — ${proposedVsStreetPct >= 0 ? '+' : ''}${proposedVsStreetPct.toFixed(1)}% vs those same units' current street avg of $${Math.round(avgStreetOfProposed).toLocaleString()}${scopeBasis}`
+                  : ''
+              }`,
         avgProposed !== null && unpricedUnits > 0
           ? `- Units with no proposal: ${unpricedUnits}/${eligibleUnits} (no rule reaches them, so they stay at their current street rate)`
           : '',
@@ -9797,7 +9913,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         Object.keys(ruleNameCounts).length
           ? `- Rules producing the remaining proposals: ${Object.entries(ruleNameCounts).sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n} (${c} units)`).join('; ')}`
           : '',
-        vacantWithUpside.length ? `- Vacant units whose proposed rate exceeds current street: ${vacantWithUpside.length} (avg upside: $${Math.round(vacantWithUpside.reduce((s, x) => s + (x.proposed - (x.u.streetRate || 0)), 0) / vacantWithUpside.length).toLocaleString()}/unit)` : '',
+        vacantWithUpside.length
+          ? mixedRateBasis
+            ? `- Vacant units whose proposed rate exceeds current street: ${vacantWithUpside.length} (per-unit upside not totalled here — this scope mixes daily and monthly rates)`
+            : `- Vacant units whose proposed rate exceeds current street: ${vacantWithUpside.length} (avg upside: $${Math.round(vacantWithUpside.reduce((s, x) => s + (x.proposed - (x.u.streetRate || 0)), 0) / vacantWithUpside.length).toLocaleString()}${scopeBasis} per unit)`
+          : '',
       ].filter(Boolean).join('\n');
 
       const attrSection = [
@@ -9825,23 +9945,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : '- No revenue growth targets saved yet';
 
       const roomTypeSection = Object.entries(rtRates)
-        .map(([rt, d]) => {
-          const avgSt = d.count ? Math.round(d.street / d.count) : 0;
-          if (!d.proposedCount) return `- ${rt}: street $${avgSt.toLocaleString()} (${d.count} units), no proposed rate`;
-          const avgPr = Math.round(d.proposed / d.proposedCount);
-          const baseSt = d.proposedStreet / d.proposedCount;
-          const pct = baseSt > 0 ? ` (${((avgPr - baseSt) / baseSt * 100).toFixed(1)}% vs their own street avg)` : '';
-          return `- ${rt}: street $${avgSt.toLocaleString()} (${d.count} units), proposed $${avgPr.toLocaleString()} on ${d.proposedCount} of them${pct}`;
-        }).join('\n');
+        .map(([rtKey, d]) => formatRateAgg(rtKey, d, rateBasisLabel(rtKey.split(' · ')[0])))
+        .join('\n');
 
-      const competitorSection = avgCompRate
-        ? `- ${filteredCompetitors.length} competitors tracked | avg market rate: $${Math.round(avgCompRate).toLocaleString()} | our street rate is ${avgStreet >= avgCompRate ? '+' : ''}${((avgStreet - avgCompRate) / avgCompRate * 100).toFixed(1)}% vs market`
-        : `- ${filteredCompetitors.length} competitors tracked (no rate data)`;
+      // A market dollar figure is only shown when our own average and the
+      // competitor average are on the same basis. Otherwise: count only.
+      const competitorSection = mixedRateBasis
+        ? `- ${filteredCompetitors.length} competitors tracked — no market average or comparison is shown because this scope mixes daily and monthly rates; compare per service line instead`
+        : !avgCompRate
+          ? `- ${filteredCompetitors.length} competitors tracked (none with rate data on this scope's ${scopeIsDaily ? 'daily' : 'monthly'} basis, so no market average is shown)`
+          : `- ${competitorRates.length} of ${filteredCompetitors.length} competitors sell on this scope's ${scopeIsDaily ? 'daily' : 'monthly'} basis | avg market rate: $${Math.round(avgCompRate).toLocaleString()}${scopeBasis} | our street rate is ${avgStreet >= avgCompRate ? '+' : ''}${((avgStreet - avgCompRate) / avgCompRate * 100).toFixed(1)}% vs market`;
 
       const prompt = `You are analyzing real data from a senior living revenue management platform. Your job is to provide specific, actionable recommendations grounded in the numbers below.
 
 **HOW PRICING WORKS HERE — read before recommending anything**
-Proposed street rates come from adjustment rules and nothing else. A unit that no rule reaches has no proposed rate and simply keeps its current street rate. Changing pricing means creating, retargeting, or retuning a rule.
+A unit's proposed street rate is its manual override when one is set, and otherwise the rate produced by an adjustment rule. An override always supersedes the rule. Nothing else produces a proposed rate: a unit with neither has none and simply keeps its current street rate. Changing pricing at scale means creating, retargeting, or retuning a rule.
 
 This product previously ran two other pricing models — a "Modulo" algorithm rate and a Revenue-Target "AI suggested" rate. Both have been retired and neither is computed or served any more. Never recommend adopting them, never compare against them, and never use the words "Modulo" or "AI suggested rate" in your response.
 
@@ -9850,10 +9968,13 @@ Units: ${totalUnits} total | ${occupiedUnits} occupied (${(occupancyRate * 100).
 
 ---
 
-**PROPOSED RATE PERFORMANCE (FROM ADJUSTMENT RULES)**
+**PROPOSED RATE PERFORMANCE (OVERRIDE FIRST, OTHERWISE ADJUSTMENT RULE)**
 ${rateSection}
 
-**ROOM TYPE BREAKDOWN**
+**RATES BY SERVICE LINE** (each line labelled with its own basis — /mo or /day)
+${serviceLineRateSection}
+
+**ROOM TYPE BREAKDOWN** (keyed service line · room type)
 ${roomTypeSection}
 
 **SERVICE LINE MIX**
@@ -9960,23 +10081,15 @@ Focus areas (in order):
       // rate. The Modulo algorithm rate and the old Revenue-Target AI rate are
       // retired and must never be put in front of the model. Uplift is measured
       // against the street rates of the same units that carry a proposal.
-      const chatOverrideRows = await pool.query(
-        `SELECT location_name, service_line, room_type, override_rate
-           FROM manual_rate_overrides
-          WHERE client_id = $1 AND override_rate > 0`,
-        [clientId]
-      );
-      const chatOverrideMap = new Map<string, number>();
-      for (const o of chatOverrideRows.rows) {
-        chatOverrideMap.set(`${o.location_name}||${o.service_line}||${o.room_type}`, Number(o.override_rate));
-      }
+      const { proposedFor: chatProposedFor } = await buildProposedRateResolver(clientId);
+      const chatSls = Array.from(new Set(primaryDataChat.map(u => u.serviceLine)));
+      const chatMixedBasis = scopeMixesRateBasis(chatSls);
+      // Suffix on every single-basis dollar figure, so no rate reaches the
+      // model without its unit of measure.
+      const chatBasis = chatMixedBasis ? '' : rateBasisLabel(chatSls[0] || '');
       const chatProposedUnits = primaryDataChat
-        .map(u => ({
-          u,
-          proposed: chatOverrideMap.get(`${u.location}||${u.serviceLine}||${u.roomType}`)
-            ?? (u.ruleAdjustedRate && u.ruleAdjustedRate > 0 ? u.ruleAdjustedRate : null),
-        }))
-        .filter((x): x is { u: typeof filteredData[0]; proposed: number } => x.proposed != null && x.proposed > 0);
+        .map(u => ({ u, proposed: chatProposedFor(u) }))
+        .filter((x): x is { u: typeof filteredData[0]; proposed: number } => x.proposed !== null);
       const chatEligible = primaryDataChat.length;
       const avgProposed = chatProposedUnits.length
         ? chatProposedUnits.reduce((s, x) => s + x.proposed, 0) / chatProposedUnits.length : null;
@@ -9984,6 +10097,34 @@ Focus areas (in order):
         ? chatProposedUnits.reduce((s, x) => s + (x.u.streetRate || 0), 0) / chatProposedUnits.length : 0;
       const chatProposedVsStreetPct = avgProposed !== null && chatStreetOfProposed > 0
         ? ((avgProposed - chatStreetOfProposed) / chatStreetOfProposed * 100) : null;
+
+      // Per-service-line rates, each on its own basis, so a mixed scope never
+      // hands the model a blended daily/monthly dollar figure. proposedStreet
+      // carries the covered rows' own street total: without it the model would
+      // read a covered-only proposed average against an all-rows street average
+      // and infer uplift that is not there.
+      const chatSlRates: Record<string, { street: number; count: number; proposed: number; proposedCount: number; proposedStreet: number }> = {};
+      primaryDataChat.forEach(u => {
+        const sl = u.serviceLine || 'Unknown';
+        if (!chatSlRates[sl]) chatSlRates[sl] = { street: 0, count: 0, proposed: 0, proposedCount: 0, proposedStreet: 0 };
+        chatSlRates[sl].street += u.streetRate || 0;
+        chatSlRates[sl].count += 1;
+        const p = chatProposedFor(u);
+        if (p !== null) {
+          chatSlRates[sl].proposed += p;
+          chatSlRates[sl].proposedCount += 1;
+          chatSlRates[sl].proposedStreet += u.streetRate || 0;
+        }
+      });
+      const chatSlRateLines = Object.entries(chatSlRates).map(([sl, d]) => {
+        const b = rateBasisLabel(sl);
+        const st = d.count ? Math.round(d.street / d.count) : 0;
+        if (!d.proposedCount) return `  ${sl}: street $${st.toLocaleString()}${b} (${d.count} units), no proposed rate`;
+        const pr = Math.round(d.proposed / d.proposedCount);
+        const baseSt = d.proposedStreet / d.proposedCount;
+        const pct = baseSt > 0 ? ` (${((pr - baseSt) / baseSt * 100).toFixed(1)}% vs those same units' street avg of $${Math.round(baseSt).toLocaleString()}${b})` : '';
+        return `  ${sl}: street $${st.toLocaleString()}${b} across all ${d.count} units; proposed $${pr.toLocaleString()}${b} on ${d.proposedCount} of them${pct}`;
+      }).join('\n');
 
       // ── Authoritative occupancy from room_type_occupancy_history ──────────
       // Query grouped by (location_name, service_line) so we can build per-campus
@@ -10097,7 +10238,18 @@ Focus areas (in order):
       let allCompetitors = await storage.getCompetitors(clientId);
       let filteredCompetitors = location && location !== 'all'
         ? allCompetitors.filter(c => c.location === location) : allCompetitors;
-      const competitorRates = filteredCompetitors.map(c => c.streetRate).filter(Boolean) as number[];
+      // Competitors are filtered by location, never by service line, and their
+      // street rates carry no basis marker. Only competitors selling entirely
+      // on this scope's basis can be averaged against our own rates. Their
+      // service lines are survey types (which include the daily legacy SMC),
+      // so they need the survey predicate, not the rent-roll set.
+      const chatScopeIsDaily = chatSls.length > 0 && chatSls.every(sl => DAILY_RATE_SLS.has(sl));
+      const chatBasisMatchedComps = chatMixedBasis ? [] : filteredCompetitors.filter(c => {
+        const sls = (c.serviceLines || []).filter(Boolean);
+        if (!sls.length) return false;
+        return sls.every(sl => isDailySurveyType(sl) === chatScopeIsDaily);
+      });
+      const competitorRates = chatBasisMatchedComps.map(c => c.streetRate).filter(Boolean) as number[];
       const avgCompRate = competitorRates.length
         ? competitorRates.reduce((s, r) => s + r, 0) / competitorRates.length : null;
 
@@ -10107,9 +10259,21 @@ Focus areas (in order):
       const dataContext = `
 **DATA SCOPE: ${scopeStr}**
 Units: ${totalUnits} total | ${occupiedUnits} occupied (${(occupancyRate * 100).toFixed(1)}%) | ${vacantUnits} vacant (${longVacant} vacant 30+ days)
-Avg street rate: $${Math.round(avgStreet).toLocaleString()} | Avg in-house rate: $${Math.round(avgInHouse).toLocaleString()}
-${avgProposed !== null ? `Proposed rate (manual override, else adjustment rule): $${Math.round(avgProposed).toLocaleString()} avg on ${chatProposedUnits.length}/${chatEligible} units${chatProposedVsStreetPct !== null ? `, ${chatProposedVsStreetPct >= 0 ? '+' : ''}${chatProposedVsStreetPct.toFixed(1)}% vs those same units' street avg of $${Math.round(chatStreetOfProposed).toLocaleString()}` : ''} — the other ${chatEligible - chatProposedUnits.length} have no proposal and keep their street rate` : 'No unit in this scope has a proposed rate: no adjustment rule reaches them and no manual override is set'}
-${avgCompRate ? `Market avg competitor rate: $${Math.round(avgCompRate).toLocaleString()} (${filteredCompetitors.length} competitors)` : 'No competitor rate data'}
+${chatMixedBasis
+  ? `Portfolio-wide dollar averages are deliberately omitted: this scope mixes per-day service lines (${chatSls.filter(sl => DAILY_RATE_SLS.has(sl)).join(', ')}) with per-month ones, so any blended figure would be meaningless. Use the per-service-line rates below and never add or compare a daily rate to a monthly one.`
+  : `Avg street rate: $${Math.round(avgStreet).toLocaleString()}${chatBasis} | Avg in-house rate: $${Math.round(avgInHouse).toLocaleString()}${chatBasis}`}
+${avgProposed === null
+  ? 'No unit in this scope has a proposed rate: no adjustment rule reaches them and no manual override is set'
+  : chatMixedBasis
+    ? `Proposed rate (manual override, else adjustment rule): ${chatProposedUnits.length}/${chatEligible} units carry one; the other ${chatEligible - chatProposedUnits.length} have none and keep their street rate. This scope mixes per-day service lines (${chatSls.filter(sl => DAILY_RATE_SLS.has(sl)).join(', ')}) with per-month ones, so no blended dollar average is given — read the per-service-line rates below.`
+    : `Proposed rate (manual override, else adjustment rule): $${Math.round(avgProposed).toLocaleString()}${chatBasis} avg on ${chatProposedUnits.length}/${chatEligible} units${chatProposedVsStreetPct !== null ? `, ${chatProposedVsStreetPct >= 0 ? '+' : ''}${chatProposedVsStreetPct.toFixed(1)}% vs those same units' street avg of $${Math.round(chatStreetOfProposed).toLocaleString()}${chatBasis}` : ''} — the other ${chatEligible - chatProposedUnits.length} have no proposal and keep their street rate`}
+RATES BY SERVICE LINE (each on its own basis):
+${chatSlRateLines}
+${chatMixedBasis
+  ? `${filteredCompetitors.length} competitors tracked — no market average is shown because this scope mixes daily and monthly rates`
+  : !avgCompRate
+    ? `${filteredCompetitors.length} competitors tracked (none with rate data on this scope's ${chatScopeIsDaily ? 'daily' : 'monthly'} basis, so no market average is shown)`
+    : `Market avg competitor rate: $${Math.round(avgCompRate).toLocaleString()}${chatBasis} (${competitorRates.length} of ${filteredCompetitors.length} competitors sell on this scope's ${chatScopeIsDaily ? 'daily' : 'monthly'} basis)`}
 Campuses in scope: ${campusCount}
 Service line occupancy (across scope): ${slOccStr}
 
@@ -10117,7 +10281,7 @@ CAMPUS x SERVICE LINE OCCUPANCY (latest month — use this for any per-campus or
 ${campusOccLines.join('\n')}
 `.trim();
 
-      const systemPrompt = `You are an expert revenue management advisor for senior living facilities. Proposed street rates in this product come from adjustment rules and nothing else; a unit no rule reaches has no proposed rate and keeps its current street rate. Two older pricing models — a "Modulo" algorithm rate and a Revenue-Target "AI suggested" rate — have been retired and are no longer computed or served, so never cite, recommend, or name them. Answer the user's question conversationally and specifically, grounded in the data context provided. You have access to the full campus-by-service-line occupancy breakdown for the current scope — when asked to count, filter, or compare campuses or service lines by occupancy (e.g. "how many campuses have AL/MC under 90%"), compute the answer directly from the CAMPUS x SERVICE LINE OCCUPANCY table and list the qualifying campuses. Be concise (2-5 sentences unless a detailed breakdown is asked for); for counting questions give the count first, then the supporting campuses. Use **bold** for key figures. Never give generic advice or claim the data is unavailable when it is present in the context — always reference the actual numbers.`;
+      const systemPrompt = `You are an expert revenue management advisor for senior living facilities. A unit's proposed street rate is its manual override when one is set, and otherwise the rate produced by an adjustment rule; an override always supersedes the rule, and a unit with neither has no proposed rate and keeps its current street rate. Two older pricing models — a "Modulo" algorithm rate and a Revenue-Target "AI suggested" rate — have been retired and are no longer computed or served, so never cite, recommend, or name them. HC and HC/MC rates are stored per day while all other service lines are per month: never add, average, or compare a daily rate against a monthly one. Answer the user's question conversationally and specifically, grounded in the data context provided. You have access to the full campus-by-service-line occupancy breakdown for the current scope — when asked to count, filter, or compare campuses or service lines by occupancy (e.g. "how many campuses have AL/MC under 90%"), compute the answer directly from the CAMPUS x SERVICE LINE OCCUPANCY table and list the qualifying campuses. Be concise (2-5 sentences unless a detailed breakdown is asked for); for counting questions give the count first, then the supporting campuses. Use **bold** for key figures. Never give generic advice or claim the data is unavailable when it is present in the context — always reference the actual numbers.`;
 
       const userTurn = `Here is the current portfolio data for your reference:\n${dataContext}\n\nUser question: ${message}`;
 
