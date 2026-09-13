@@ -173,13 +173,16 @@ interface QuarterYoyCell {
   /** Null when the prior-year quarter has no realized rate to measure against. */
   yoyPct: number | null;
   passes: boolean;
+  unavailableLabel?: string;
+  unavailableExplanation?: string;
 }
 
 /**
  * Per-quarter YoY under the column average. Quarter labels drop the year while
  * every quarter shares one, which is the usual single-plan-year case. A quarter
- * with no prior-year baseline reads "n/a" — the solver scores it as 0% and
- * passing, which would otherwise show as a green 0.0%.
+ * with an incomplete prior-year baseline reads "Partial"; other unavailable
+ * comparisons read "n/a". The solver scores them as 0% and passing, which
+ * would otherwise show as a green 0.0%.
  */
 function QuarterYoyBreakdown({ quarters }: { quarters: QuarterYoyCell[] }) {
   if (quarters.length === 0) return null;
@@ -192,7 +195,12 @@ function QuarterYoyBreakdown({ quarters }: { quarters: QuarterYoyCell[] }) {
         <div key={quarter.key} className="flex items-baseline gap-1.5">
           <span className="text-muted-foreground">{quarter.label}</span>
           {quarter.yoyPct == null ? (
-            <span className="font-medium text-muted-foreground">n/a</span>
+            <span
+              className="font-medium text-muted-foreground"
+              title={quarter.unavailableExplanation}
+            >
+              {quarter.unavailableLabel ?? "n/a"}
+            </span>
           ) : (
             <span
               className={cn(
@@ -2973,11 +2981,18 @@ export default function InhouseIncreases() {
                     const priorRate = quarter.priorYear.realizedRateMonthly;
                     const measurable =
                       priorRate != null && priorRate > 0 && Number.isFinite(quarter.yoyGrowthPct);
+                    const partial = !measurable && quarter.priorYear.basis === "partial";
                     return {
                       key: `${quarter.year}-Q${quarter.quarter}`,
                       label: quarterCellLabel(quarter.quarter, quarter.year, singleQuarterYear),
                       yoyPct: measurable ? quarter.yoyGrowthPct : null,
                       passes: quarter.passes,
+                      unavailableLabel: partial
+                        ? `Partial (${quarter.priorYear.monthsAvailable}/3)`
+                        : undefined,
+                      unavailableExplanation: partial
+                        ? `${quarter.priorYear.label} has ${quarter.priorYear.monthsAvailable} of 3 months available, so it is excluded from measured quarterly YoY.`
+                        : "No usable prior-year comparison is available.",
                     };
                   });
                   const quartersMeetingGoal = plan.quarters.filter((quarter) => quarter.passes).length;
