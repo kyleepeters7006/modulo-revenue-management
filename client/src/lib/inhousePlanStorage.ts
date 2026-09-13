@@ -40,6 +40,11 @@ const LEGACY_DB_NAMES = [
 ];
 const STORE_NAME = "calculated-plans";
 
+function shouldAvoidIndexedDb(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /iP(?:hone|ad|od)/.test(navigator.userAgent) && /WebKit/.test(navigator.userAgent);
+}
+
 function storageKey(identityKey: string, scopeKey: string): string {
   return `${identityKey}::${scopeKey}`;
 }
@@ -78,7 +83,7 @@ export async function readInhousePlan<T>(
   const key = storageKey(identityKey, scopeKey);
 
   try {
-    if (!window.indexedDB) throw new Error("IndexedDB unavailable");
+    if (!window.indexedDB || shouldAvoidIndexedDb()) throw new Error("IndexedDB unavailable");
     const db = await openDb();
     return await new Promise((resolve, reject) => {
       const request = db
@@ -116,7 +121,7 @@ export async function writeInhousePlan<T>(
   const key = storageKey(identityKey, scopeKey);
 
   try {
-    if (!window.indexedDB) throw new Error("IndexedDB unavailable");
+    if (!window.indexedDB || shouldAvoidIndexedDb()) throw new Error("IndexedDB unavailable");
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(STORE_NAME, "readwrite");

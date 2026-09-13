@@ -55,3 +55,14 @@ loading because startup tried to clone a previously saved portfolio result.
 **How to apply:** keep full resident detail only in current-session memory or an
 authorized server store. Label compact restores and require recalculation before
 showing resident-level detail.
+
+iOS WebKit must use compact localStorage plan snapshots directly, even when
+IndexedDB exists. Do not probe or open the calculated-plan IndexedDB on iPhone or
+iPad; its structured-clone path can terminate the page before an error is raised.
+
+**Why:** compacting and versioning the payload alone did not stop repeat iPhone
+process crashes during authenticated plan restoration.
+
+**How to apply:** route both reads and writes at the storage boundary by user
+agent, retaining identity/filter keys and explicit success reporting on both
+backends.

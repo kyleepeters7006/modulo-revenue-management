@@ -52,6 +52,30 @@ assert.equal(
   "a different identity cannot restore this plan",
 );
 
+Object.defineProperty(globalThis, "navigator", {
+  configurable: true,
+  value: {
+    userAgent:
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+  },
+});
+(globalThis as any).window.indexedDB = {
+  open: () => {
+    throw new Error("iOS must not open IndexedDB for calculated plans");
+  },
+};
+const iosScope = "ALL_CAMPUSES::SL";
+assert.equal(
+  await writeInhousePlan(identity, iosScope, saved),
+  true,
+  "iOS writes the compact plan through localStorage without opening IndexedDB",
+);
+assert.deepEqual(
+  await readInhousePlan(identity, iosScope),
+  saved,
+  "iOS restores the compact plan without opening IndexedDB",
+);
+
 (globalThis as any).window.localStorage = {
   getItem: () => null,
   setItem: () => {
