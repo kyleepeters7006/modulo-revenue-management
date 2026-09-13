@@ -46,6 +46,7 @@ import {
   makeProductStreetResolver,
   projectMissingQuarters,
   realizedRateWeightBasis,
+  rollMonthsIntoQuarters,
   type ProductStreetBaselines,
   type RawResidentRow,
 } from "../server/services/inhouseRatePlanning/dataAccess";
@@ -266,6 +267,21 @@ console.log("-- 0. Missing-quarter projection uses chronological quarter order -
     "Q4 continues the latest Q2-to-partial-Q3 trajectory instead of jumping from an old trend",
     withPartialQ3.baselines.get(q4.label)?.realizedRateMonthly ?? 0,
     110.4003636364,
+    0.0001,
+  );
+
+  const measuredPartial = rollMonthsIntoQuarters([
+    { month: "2026-07", rateMonthly: 100, residentDays: 30, weightBasis: "resident_months" },
+    { month: "2026-08", rateMonthly: 110, residentDays: 60, weightBasis: "resident_months" },
+  ]);
+  const retainedQ3 = projectMissingQuarters(measuredPartial, [q3]).baselines.get(q3.label);
+  ok("a measured two-month Q3 keeps the Q3 2026 prior-year label", retainedQ3?.label === "Q3 2026");
+  ok("a measured two-month Q3 remains partial", retainedQ3?.basis === "partial");
+  ok("a measured two-month Q3 reports two available months", retainedQ3?.monthsAvailable === 2);
+  near(
+    "a measured two-month Q3 exposes its weighted prior rate",
+    retainedQ3?.realizedRateMonthly ?? 0,
+    106.6666666667,
     0.0001,
   );
 }

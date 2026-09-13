@@ -318,7 +318,10 @@ current July/August run rate being nearly flat.
 
 **How to apply:** use actual and partial quarters as observed trend points, keep
 the extrapolated result labelled projected, and never present the partial anchor
-or projected result as a complete actual quarter.
+or projected result as a complete actual quarter. A needed partial prior-year
+quarter must remain in the baseline map with its original quarter label, weighted
+rate, available-month count, and `partial` basis; do not drop it and then create
+a null or wrong-year projected placeholder for that same horizon row.
 
 ## Scope fallback chains must enumerate every tier the writer can produce
 

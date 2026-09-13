@@ -417,6 +417,7 @@ export async function preparePlan(
     availableMonths: expectedMonths(q),
     residentDays: quarterWeight(q),
   });
+  const observedQuarters = rollMonthsIntoQuarters(monthly);
 
   // A percentage coverage floor is a poor judge of a small campus: at seven
   // rooms one turnover costs fourteen points, so it ends up measuring portfolio
@@ -441,6 +442,18 @@ export async function preparePlan(
     knownQuarters.set(endingQuarter.label, asBaseline(endingQuarter, currentPlanningAverage));
   }
   for (const q of baseQuarterList) {
+    const observed = observedQuarters.get(q.label);
+    if (
+      observed?.basis === "partial" &&
+      observed.realizedRateMonthly != null &&
+      observed.realizedRateMonthly > 0
+    ) {
+      // A partial quarter is still real prior-rate evidence. Preserve its
+      // measured months and label instead of replacing it with a projected
+      // placeholder; the UI keeps it distinct from a complete YoY quarter.
+      knownQuarters.set(q.label, observed);
+      continue;
+    }
     const comparison = comparisons.get(q.label);
     const gated = comparison?.usable === true;
     const ratio = gated
