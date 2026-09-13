@@ -1398,6 +1398,14 @@ function explainPlan(ctx: {
   currentStreetRateMonthly: number;
 }): CalcExplanation {
   const { assumptions: a, solved, summary } = ctx;
+  const currentStreetPremiumPct =
+    summary.currentAvgInhouseRateMonthly > 0
+      ? (ctx.currentStreetRateMonthly / summary.currentAvgInhouseRateMonthly - 1) * 100
+      : 0;
+  const recommendedStreetPremiumPct =
+    summary.newAvgInhouseRateMonthly > 0
+      ? (solved.recommendedStreetMonthly / summary.newAvgInhouseRateMonthly - 1) * 100
+      : 0;
   const steps: CalcExplanation["steps"] = [
     {
       label: "Growth target",
@@ -1410,23 +1418,19 @@ function explainPlan(ctx: {
       note: `Private-pay ${ctx.planScope.serviceLine} residents occupied in ${ctx.planScope.sourceMonth}.`,
     },
     {
-      label: "Current average in-house rate",
-      value: formatMoney(summary.currentAvgInhouseRateMonthly),
-      note: "Resident-day weighted.",
+      label: "In-house rate · current → recommended",
+      value: `${formatMoney(summary.currentAvgInhouseRateMonthly)} → ${formatMoney(summary.newAvgInhouseRateMonthly)}`,
+      note: `${formatPct(solved.requiredAvgIncrease * 100, 2)} increase, effective ${a.inhouseEffectiveDate}. Both values use the same private-pay resident rooms and resident-day weights.`,
     },
     {
-      label: "Current street rate",
-      value: formatMoney(ctx.currentStreetRateMonthly),
+      label: "Street Rate · current → recommended",
+      value: `${formatMoney(ctx.currentStreetRateMonthly)} → ${formatMoney(solved.recommendedStreetMonthly)}`,
+      note: `${formatPct(solved.streetIncrease * 100)} increase, effective ${a.streetRateEffectiveDate}. Both values use the same private-pay room and payer mix as the in-house comparison.`,
     },
     {
-      label: "Recommended street rate",
-      value: formatMoney(solved.recommendedStreetMonthly),
-      note: `${formatPct(solved.streetIncrease * 100)} increase, effective ${a.streetRateEffectiveDate}. Every move-in from that date pays the new rate, and it is also the ceiling in-house rates may rise to.`,
-    },
-    {
-      label: "Required average in-house increase",
-      value: formatPct(solved.requiredAvgIncrease * 100, 2),
-      note: `Effective ${a.inhouseEffectiveDate}. Weighted by resident-days and by each resident's current rate, so it reconciles exactly to the aggregate rate move.`,
+      label: "Street premium over in-house · current → recommended",
+      value: `${formatPct(currentStreetPremiumPct, 2)} → ${formatPct(recommendedStreetPremiumPct, 2)}`,
+      note: "Current is compared with current and recommended with recommended, using the same matched resident-room cohort.",
     },
     {
       label: "Turnover assumption",
