@@ -3096,6 +3096,26 @@ export default function InhouseIncreases() {
               Saved totals and projections restored. Run Calculate Plan to reload resident details.
             </p>
           )}
+          <Button
+            type="button"
+            size="sm"
+            onClick={calculatePlanAndTiers}
+            disabled={
+              !!rangeError ||
+              calculate.isPending ||
+              calculateTiers.isPending ||
+              !tierPoliciesReady
+            }
+            className="mt-2 w-full sm:w-auto"
+            data-testid="button-recalculate-top"
+          >
+            {calculate.isPending || calculateTiers.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Calculator className="mr-2 h-4 w-4" />
+            )}
+            Recalculate plan
+          </Button>
         </div>
       )}
 
