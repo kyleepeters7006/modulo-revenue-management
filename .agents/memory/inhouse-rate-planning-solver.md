@@ -162,6 +162,26 @@ product-matched Street gap, then calibrates one scalar so those resident
 increases reconcile exactly to the service-line revenue-weighted target. Low is
 flat; high favors the deepest discounts more aggressively.
 
+### Explain YoY growth as a bridge, not as the sum of two increases
+
+Every quarterly explanation must distinguish the prior-year realized rate,
+today's in-house rate, today's Street-to-in-house variance, the proposed
+in-house and Street increases, and the turnover blend. Explicitly show how much
+growth is already embedded in today's in-house rate from earlier pricing
+actions (including dynamic pricing) and resident-mix changes.
+
+**Why:** operators reasonably read a 4% in-house recommendation and a 4% Street
+recommendation as incompatible with a 6% YoY result unless the screen shows
+that both recommendations start from today's rates, while YoY starts from a
+lower prior-year quarter. Street and in-house increases are not additive;
+turnover gradually replaces part of the existing cohort with move-ins at the
+Street Rate in force.
+
+**How to apply:** keep this bridge in both the expandable quarter explanation
+and the Excel rate-history output. Show actual rates, current-vs-prior growth,
+Street variance, existing/replacement shares, and replacement rate rather than
+describing the mechanism only in prose.
+
 ### Every calculation endpoint is a read-only POST
 
 The single-plan, batch-plan, single-tier, and batch-tier endpoints are all

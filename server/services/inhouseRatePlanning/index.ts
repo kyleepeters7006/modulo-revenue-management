@@ -707,8 +707,34 @@ export async function preparePlan(
       const currentTotal = weight > 0 ? weightedCurrent / weight : 0;
       const existingTotal = weight > 0 ? weightedExisting / weight : 0;
       const projectedTotal = weight > 0 ? weightedProjected / weight : 0;
+      const priorYearRate = quarter.priorYear.realizedRateMonthly;
+      const currentToPriorGrowthPct =
+        priorYearRate != null && priorYearRate > 0
+          ? (currentTotal / priorYearRate - 1) * 100
+          : null;
+      const currentStreetVariancePct =
+        currentTotal > 0 ? (currentStreetRateMonthly / currentTotal - 1) * 100 : null;
+      const replacementLiftPct =
+        currentTotal > 0 ? (replacementRate / currentTotal - 1) * 100 : null;
       return {
         ...quarter,
+        explanation: {
+          ...quarter.explanation,
+          steps: [
+            ...quarter.explanation.steps,
+            {
+              label: `${quarter.label} turnover bridge`,
+              value: `${existingShare * 100 < 99.95 ? `${(existingShare * 100).toFixed(1)}% existing + ${(replacementShare * 100).toFixed(1)}% replacements` : "Existing resident mix"}`,
+              note:
+                `Today’s in-house rate is ${currentTotal.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}` +
+                `${currentToPriorGrowthPct == null ? "" : ` (${currentToPriorGrowthPct.toFixed(2)}% above the prior-year quarter)`}. ` +
+                `Current Street is ${currentStreetRateMonthly.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}` +
+                `${currentStreetVariancePct == null ? "" : ` (${currentStreetVariancePct.toFixed(2)}% vs current in-house)`}. ` +
+                `Modeled replacements average ${replacementRate.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}` +
+                `${replacementLiftPct == null ? "" : ` (${replacementLiftPct.toFixed(2)}% vs current in-house)`}, so turnover carries prior pricing and Street-rate headroom into the projected YoY result.`,
+            },
+          ],
+        },
         roomDetails,
         roomDetailProjectedRateMonthly: projectedTotal,
         roomDetailTotals: {

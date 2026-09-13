@@ -1322,6 +1322,22 @@ function explainQuarter(
       note: basisNote,
     },
     {
+      label: "Current in-house rate before this plan",
+      value: formatMoney(ctx.baseAvg),
+      note:
+        prior == null || prior <= 0
+          ? "Today’s resident-weighted rate, before the proposed annual increase."
+          : `${formatPct((ctx.baseAvg / prior - 1) * 100, 2)} above ${base.label}. This growth is already in today’s rate from earlier pricing actions, including dynamic pricing, and resident-mix changes; it is not created by this plan.`,
+    },
+    {
+      label: "Current Street Rate vs current in-house",
+      value: formatMoney(ctx.input.currentStreetRateMonthly),
+      note:
+        ctx.baseAvg > 0
+          ? `${formatPct((ctx.input.currentStreetRateMonthly / ctx.baseAvg - 1) * 100, 2)} variance. Turnover moves part of the quarter from today’s in-house rate toward the Street Rate in force when replacements move in.`
+          : "No current in-house rate is available for the variance calculation.",
+    },
+    {
       label: "Growth target",
       value: formatPct(ctx.target * 100),
     },
@@ -1346,6 +1362,9 @@ function explainQuarter(
     const growth = projectedRate / prior - 1;
     narrative.push(
       `${q.label} is projected to realize ${formatMoney(projectedRate)} against ${formatMoney(prior)} a year earlier — ${formatPct(growth * 100)} growth against a ${formatPct(ctx.target * 100)} target.`,
+    );
+    narrative.push(
+      `The YoY result is not the ${formatPct(avgIncrease * 100)} in-house increase plus the ${formatPct(streetIncrease * 100)} Street increase. Today’s in-house rate is already ${formatPct((ctx.baseAvg / prior - 1) * 100, 2)} above ${base.label}; the model then blends continuing residents with replacements entering at Street as turnover occurs.`,
     );
     narrative.push(
       growth >= ctx.target - PASS_EPSILON

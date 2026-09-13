@@ -1244,7 +1244,7 @@ interface HistoryLayout {
 
 function buildHistorySheet(ws: ExcelJS.Worksheet, plan: PlanResult, audit: PlanAudit): HistoryLayout {
   ws.getColumn(1).width = 16;
-  for (let c = 2; c <= 7; c++) ws.getColumn(c).width = 18;
+  for (let c = 2; c <= 11; c++) ws.getColumn(c).width = 18;
 
   ws.getRow(1).getCell(1).value = "Rate history and the target";
   ws.getRow(1).getCell(1).font = { bold: true, size: 14, color: { argb: "FF1F3864" } };
@@ -1252,13 +1252,13 @@ function buildHistorySheet(ws: ExcelJS.Worksheet, plan: PlanResult, audit: PlanA
     "Realized rate is private-pay in-house room revenue divided by resident-days, in monthly-equivalent dollars. " +
     "It is the ROOM rate only — care fees are priced separately and an in-house increase does not move them.";
   ws.getRow(2).getCell(1).font = { italic: true, size: 10, color: { argb: "FF666666" } };
-  ws.mergeCells(2, 1, 2, 7);
+  ws.mergeCells(2, 1, 2, 11);
   ws.getRow(2).height = 28;
 
   const quarterHeaderRow = 4;
-  sectionTitle(ws, quarterHeaderRow - 1, "QUARTERLY YEAR-OVER-YEAR — what the plan is judged against", 7);
+  sectionTitle(ws, quarterHeaderRow - 1, "QUARTERLY YEAR-OVER-YEAR — what the plan is judged against", 11);
   const qh = ws.getRow(quarterHeaderRow);
-  ["Quarter", "Prior-year rate", "Projected with plan", "Required rate", "YoY growth", "Target met", "Prior-year basis"]
+  ["Quarter", "Prior-year rate", "Current in-house", "Current vs prior year", "Current Street", "Street vs in-house", "Projected with plan", "Required rate", "YoY growth", "Target met", "Prior-year basis"]
     .forEach((h, i) => (qh.getCell(i + 1).value = h));
   styleHeaderRow(qh);
 
@@ -1268,19 +1268,31 @@ function buildHistorySheet(ws: ExcelJS.Worksheet, plan: PlanResult, audit: PlanA
     row.getCell(1).value = q.label;
     row.getCell(2).value = q.priorYear.realizedRateMonthly ?? null;
     row.getCell(2).numFmt = FMT_MONEY;
-    row.getCell(3).value = q.projectedRateMonthly;
+    row.getCell(3).value = plan.summary.currentAvgInhouseRateMonthly;
     row.getCell(3).numFmt = FMT_MONEY;
-    row.getCell(4).value = q.requiredRateMonthly;
-    row.getCell(4).numFmt = FMT_MONEY;
-    // Live, so it moves if a prior-year figure is corrected by hand.
-    row.getCell(5).value = {
+    row.getCell(4).value = {
       formula: `IF(B${quarterFirst + i}=0,"",C${quarterFirst + i}/B${quarterFirst + i}-1)`,
     } as ExcelJS.CellFormulaValue;
-    row.getCell(5).numFmt = FMT_PCT2;
+    row.getCell(4).numFmt = FMT_PCT2;
+    row.getCell(5).value = plan.currentStreetRateMonthly;
+    row.getCell(5).numFmt = FMT_MONEY;
     row.getCell(6).value = {
-      formula: `IF(B${quarterFirst + i}="","n/a",IF(C${quarterFirst + i}>=D${quarterFirst + i},"Yes","No"))`,
+      formula: `IF(C${quarterFirst + i}=0,"",E${quarterFirst + i}/C${quarterFirst + i}-1)`,
     } as ExcelJS.CellFormulaValue;
-    row.getCell(7).value =
+    row.getCell(6).numFmt = FMT_PCT2;
+    row.getCell(7).value = q.projectedRateMonthly;
+    row.getCell(7).numFmt = FMT_MONEY;
+    row.getCell(8).value = q.requiredRateMonthly;
+    row.getCell(8).numFmt = FMT_MONEY;
+    // Live, so it moves if a prior-year figure is corrected by hand.
+    row.getCell(9).value = {
+      formula: `IF(B${quarterFirst + i}=0,"",G${quarterFirst + i}/B${quarterFirst + i}-1)`,
+    } as ExcelJS.CellFormulaValue;
+    row.getCell(9).numFmt = FMT_PCT2;
+    row.getCell(10).value = {
+      formula: `IF(B${quarterFirst + i}="","n/a",IF(G${quarterFirst + i}>=H${quarterFirst + i},"Yes","No"))`,
+    } as ExcelJS.CellFormulaValue;
+    row.getCell(11).value =
       q.priorYear.basis === "actual"
         ? `Actual (${q.priorYear.monthsAvailable}/${q.priorYear.monthsExpected} months)`
         : q.priorYear.basis === "partial"
