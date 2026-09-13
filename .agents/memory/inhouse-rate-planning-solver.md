@@ -321,7 +321,10 @@ the extrapolated result labelled projected, and never present the partial anchor
 or projected result as a complete actual quarter. A needed partial prior-year
 quarter must remain in the baseline map with its original quarter label, weighted
 rate, available-month count, and `partial` basis; do not drop it and then create
-a null or wrong-year projected placeholder for that same horizon row.
+a null or wrong-year projected placeholder for that same horizon row. Normalize
+the partial quarter to today's planning mix before rolling it up; using its raw
+occupied-resident average mixes composition into price and compounds the false
+jump into the next projected quarter.
 
 ## Scope fallback chains must enumerate every tier the writer can produce
 

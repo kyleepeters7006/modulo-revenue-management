@@ -1092,6 +1092,20 @@ export function rollMonthsIntoQuarters(months: MonthlyRealized[]): Map<string, B
   return out;
 }
 
+/** Put incomplete monthly observations on the same current-room-mix level as complete baselines. */
+export function standardizeMonthlyToCurrentMix(
+  months: MonthlyRealized[],
+  currentPlanningAverage: number,
+): MonthlyRealized[] {
+  return months.map((month) => ({
+    ...month,
+    rateMonthly:
+      (month.currentMixRateMonthly ?? 0) > 0
+        ? month.rateMonthly * (currentPlanningAverage / month.currentMixRateMonthly!)
+        : month.rateMonthly,
+  }));
+}
+
 /**
  * Fill in a prior-year quarter that has no data at all.
  *

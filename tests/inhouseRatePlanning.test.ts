@@ -47,6 +47,7 @@ import {
   projectMissingQuarters,
   realizedRateWeightBasis,
   rollMonthsIntoQuarters,
+  standardizeMonthlyToCurrentMix,
   type ProductStreetBaselines,
   type RawResidentRow,
 } from "../server/services/inhouseRatePlanning/dataAccess";
@@ -282,6 +283,34 @@ console.log("-- 0. Missing-quarter projection uses chronological quarter order -
     "a measured two-month Q3 exposes its weighted prior rate",
     retainedQ3?.realizedRateMonthly ?? 0,
     106.6666666667,
+    0.0001,
+  );
+
+  const normalizedPartial = rollMonthsIntoQuarters(
+    standardizeMonthlyToCurrentMix(
+      [
+        {
+          month: "2026-07",
+          rateMonthly: 120,
+          currentMixRateMonthly: 120,
+          residentDays: 30,
+          weightBasis: "resident_months",
+        },
+        {
+          month: "2026-08",
+          rateMonthly: 120,
+          currentMixRateMonthly: 120,
+          residentDays: 30,
+          weightBasis: "resident_months",
+        },
+      ],
+      100,
+    ),
+  ).get(q3.label);
+  near(
+    "a partial quarter uses the current planning mix instead of the higher raw occupied-resident average",
+    normalizedPartial?.realizedRateMonthly ?? 0,
+    100,
     0.0001,
   );
 }

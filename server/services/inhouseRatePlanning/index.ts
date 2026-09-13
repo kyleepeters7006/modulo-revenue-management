@@ -57,6 +57,7 @@ import {
   projectMissingQuarters,
   realizedRateWeightBasis,
   rollMonthsIntoQuarters,
+  standardizeMonthlyToCurrentMix,
   type MonthlyRealized,
   type ScopeFilter,
 } from "./dataAccess";
@@ -321,13 +322,7 @@ export async function preparePlan(
   ]);
   const currentPlanningAverage = residentDayWeightedAverageRate(residents);
   const standardize = (rows: MonthlyRealized[]) =>
-    rows.map((m) => ({
-      ...m,
-      rateMonthly:
-        (m.currentMixRateMonthly ?? 0) > 0
-          ? m.rateMonthly * (currentPlanningAverage / m.currentMixRateMonthly!)
-          : m.rateMonthly,
-    }));
+    standardizeMonthlyToCurrentMix(rows, currentPlanningAverage);
 
   // The ending quarter is the latest one the rent roll actually covers in full.
   // Requiring all three months present rules out both the quarter in progress
@@ -417,7 +412,11 @@ export async function preparePlan(
     availableMonths: expectedMonths(q),
     residentDays: quarterWeight(q),
   });
-  const observedQuarters = rollMonthsIntoQuarters(monthly);
+  // Partial quarters cannot use the strict three-month matched-room comparison,
+  // but they still must use the same current-mix level as complete baselines.
+  // Rolling the raw occupied-resident average here makes turnover/composition
+  // look like price growth and then compounds that false jump into projections.
+  const observedQuarters = rollMonthsIntoQuarters(standardize(monthly));
 
   // A percentage coverage floor is a poor judge of a small campus: at seven
   // rooms one turnover costs fourteen points, so it ends up measuring portfolio
