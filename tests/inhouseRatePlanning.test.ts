@@ -712,6 +712,56 @@ console.log("\n-- 6d. Variance to Top Competitor decides Street vs in-house --")
   );
 }
 
+// ── 6e. Joint target fit beats a Street-first lever split ─────────────────
+console.log("\n-- 6e. Joint optimization minimizes avoidable later-quarter excess --");
+{
+  const solveWithStreetFloor = (minStreetIncreasePct: number) =>
+    solvePlan({
+      residents: roomyPopulation(),
+      assumptions: assumptions({
+        rateGrowthTargetPct: 6,
+        annualTurnoverPct: 90,
+        minStreetIncreasePct,
+        desiredVarianceToTopCompetitorPct: 0,
+      }),
+      baselineByQuarter: flatBaseline(4200),
+      quarters: QUARTERS,
+      anchorMs: ANCHOR_MS,
+      currentStreetRateMonthly: 5000,
+    });
+  const joint = solveWithStreetFloor(0);
+  const streetFirst = solveWithStreetFloor(8);
+  const referenceCandidates = [0, 2, 4, 6, 8].map(solveWithStreetFloor);
+  const excess = (result: ReturnType<typeof solvePlan>) =>
+    result.quarterResults.reduce((sum, q) => sum + Math.max(0, -q.shortfallPct) / 100, 0);
+
+  ok("joint plan remains feasible in the high-turnover fixture", joint.feasible);
+  ok(
+    "joint plan has no more maximum quarterly excess than a Street-first floor",
+    Math.max(...joint.quarterResults.map((q) => Math.max(0, -q.shortfallPct))) <=
+      Math.max(...streetFirst.quarterResults.map((q) => Math.max(0, -q.shortfallPct))) + 0.01,
+  );
+  ok(
+    "joint plan reduces cumulative avoidable excess",
+    excess(joint) < excess(streetFirst) - 0.001,
+    `joint=${excess(joint)}, Street-first=${excess(streetFirst)}`,
+  );
+  ok(
+    "joint plan is no worse than the deterministic coarse reference candidates",
+    excess(joint) <= Math.min(...referenceCandidates.map(excess)) + 0.0005,
+  );
+  ok(
+    "one affine projection model is built per Street candidate, not per bisection step",
+    joint.projectionModelCount === joint.jointCandidateCount &&
+      joint.projectionModelCount <= 305,
+    `candidates=${joint.jointCandidateCount}, models=${joint.projectionModelCount}`,
+  );
+  ok(
+    "the explanation identifies modeled excess instead of claiming exact quarterly fit",
+    joint.optimizationNote?.includes("cumulative modeled overshoot") === true,
+  );
+}
+
 // ── 7. Impossible because the maximum increase is too low ──────────────────
 console.log("\n-- 7. An unreachable target is reported, not silently approximated --");
 {

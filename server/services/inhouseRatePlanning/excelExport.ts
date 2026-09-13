@@ -8,12 +8,12 @@
  *
  * ── The one value that is not a formula ────────────────────────────────────
  * `lambda` is the scalar the solver bisects for: every resident's increase is
- * `clamp(lambda * shape, min, max)`, and lambda is chosen so the revenue-
- * weighted average lands exactly on the required target. A bisection has no
- * closed form, so it cannot be written as a cell formula. It is therefore
- * exported as a solved INPUT, clearly labelled, with the achieved average
- * written next to it as a live formula — so the reconciliation is visible, and
- * Excel's Goal Seek can re-derive lambda if an operator changes an assumption.
+ * `clamp(lambda * shape, min, max)`, and lambda is chosen for the required
+ * average at the selected Street-rate candidate. The candidate itself was
+ * selected by comparing the full quarterly projection across both levers.
+ * A bisection has no closed form, so it cannot be written as a cell formula.
+ * It is therefore exported as a solved INPUT, clearly labelled, with the
+ * achieved average written next to it as a live formula.
  *
  * ── One rate space ─────────────────────────────────────────────────────────
  * Everything here is in normalized MONTHLY dollars, exactly as the solver works.
@@ -796,6 +796,13 @@ function buildSummarySheet(
     ws.getRow(r).getCell(2).value = plan.bindingQuarterLabel;
     r++;
   }
+  if (plan.optimizationNote) {
+    ws.getRow(r).getCell(1).value = "Optimization note";
+    ws.getRow(r).getCell(1).font = { bold: true };
+    ws.getRow(r).getCell(3).value = plan.optimizationNote;
+    ws.getRow(r).getCell(3).alignment = { wrapText: true, vertical: "top" };
+    r++;
+  }
   if (plan.infeasibility) {
     ws.getRow(r).getCell(1).value = "Why not";
     ws.getRow(r).getCell(1).font = { bold: true };
@@ -1414,7 +1421,7 @@ function buildMethodSheet(
     ],
     [
       "Lambda",
-      "The one value that is solved, not derived. It is found by bisection so the weighted average lands exactly on the required target — a search with no closed form, so it cannot be written as a cell formula. To re-solve after changing an assumption, use Data > What-If Analysis > Goal Seek: set the achieved average cell to the required average by changing the lambda cell.",
+      "The one value that is solved, not derived. It is found by bisection for the Street-rate candidate selected by the joint quarterly optimizer. To re-solve after changing an assumption, use Data > What-If Analysis > Goal Seek: set the achieved average cell to the required average by changing the lambda cell, then recalculate the plan in the app to re-run the joint candidate search.",
       `'Plan summary'!B${SUMMARY_CELLS.lambda} = ${(audit.lambda * 100).toFixed(4)}% (solved)`,
     ],
   ];

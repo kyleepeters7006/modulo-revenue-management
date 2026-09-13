@@ -605,6 +605,8 @@ export interface PlanResult {
   residents: ResidentRecommendation[];
 
   infeasibility: Infeasibility | null;
+  /** Why the joint quarterly optimizer selected this combination or could not fully fit it. */
+  optimizationNote?: string | null;
   explanation: CalcExplanation;
   /** Data-quality caveats an operator needs to see, in plain language. */
   warnings: string[];

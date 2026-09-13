@@ -262,35 +262,45 @@ Three rules make that room match trustworthy:
   private pay is precisely the artifact being removed. Hold the historical side
   to the same base-product and plausibility rules, but not the same payer.
 
-## Favor in-house growth; portfolio service lines keep a 1% Street premium
+## Jointly fit the quarterly target before preferring either lever
 
-Growth is taken from in-house resident increases wherever the guardrails allow.
-The quarterly growth target is NOT a Street Rate floor. Street only moves for
-one of three reasons: the operator's configured minimum, a positive gap to the
-desired position versus the Top Competitor, or in-house being exhausted while
-quarters still fail. Competitive pressure is capped at the growth objective.
+Street and in-house increases are candidate combinations, not two sequential
+targets. For each bounded Street candidate, solve the resident allocation
+against the full quarterly projection, including effective dates, turnover, and
+replacement Street Rates. Rank feasible candidates by maximum quarterly excess
+first, then cumulative excess; use a small material-equivalence tolerance before
+using market positioning and dependable in-house revenue as tie-breakers.
 
-For a whole-portfolio service-line plan only, the resident-weighted recommended
-Street Rate must finish at least 1% above that service line's resident-weighted
-planned in-house average. This is not a location-level rule.
+Configured minimums, resident maximums, the January-to-January ceiling, and
+data-validity gates remain hard constraints. Competitive position and the
+portfolio-level 1% Street premium are soft preferences: they may select among
+similar target fits but must not manufacture avoidable growth. Location-level
+plans do not inherit the portfolio premium.
 
-**Why:** using the growth objective as a street floor raised the asking rate by
-the full target on every scope, even when resident increases alone cleared every
-quarter. Letting competitive pressure exceed the objective pushed Street Rate
-too hard despite weaker sales certainty. Conversely, enforcing the 1% premium
-at every location needlessly raised local asking rates; the product owner
-explicitly confirmed that the relationship is by service line at portfolio level.
+**Why:** solving only the hardest quarter can leave later quarters several
+points above target when replacement residents enter at a rising Street Rate.
+The rejected zero-turnover overlay had the same double-counting problem. A
+joint quarterly comparison preserves dependable in-house revenue without
+turning Street Rate or modeled turnover into automatic excess.
 
-**How to apply:** solve the in-house increase against the modeled quarterly
-outcome after occupancy/turnover and replacement Street Rates are included.
-Choose the smallest increase that clears the hardest testable quarter; do not
-add a separate zero-turnover target because that double-counts growth and makes
-every modeled replacement pure overshoot. Keep the Street floor at the maximum
-of the configured minimum and the positive competitive gap capped at the
-objective. Apply the 1% premium only when location scope is absent, and keep
-both Street ceilings authoritative. Warn if a ceiling prevents the service-line
-portfolio premium. Individual locations and residents may legitimately finish
-above Street Rate.
+**How to apply:** search the valid Street interval, re-run the in-house
+allocation for every candidate, and keep the best complete projection. Keep
+the selected binding quarter and a plain-language note when excess is caused by
+the modeled Street/turnover path or a binding guardrail. Do not introduce
+days-vacant or time-to-sell as solver inputs until their grain, provenance,
+coverage, scale, and missing-data behavior are validated.
+
+The daily projection is affine in the pre-increase in-house rate, post-increase
+in-house rate, current Street Rate, and proposed Street Rate. Cache those
+coefficients once per Street candidate; never run a full daily simulation
+inside the in-house bisection.
+
+**Why:** a bounded Street search with a daily simulation inside every
+bisection step turned portfolio planning into a request-timeout risk.
+
+**How to apply:** keep the coefficient model numerically equivalent to the
+daily cohort simulation, and guard the candidate/model counts in regression
+tests so future changes do not reintroduce nested full projections.
 
 ## `computed || fallback` erases a legitimate zero
 
