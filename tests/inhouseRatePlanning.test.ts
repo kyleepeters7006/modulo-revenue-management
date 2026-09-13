@@ -455,8 +455,8 @@ console.log("\n-- 6. An achievable target is balanced across Street and in-house
   });
   ok("plan is feasible", result.feasible);
   ok(
-    "the in-house lever carries at least the growth objective",
-    result.requiredAvgIncrease * 100 >= 5 - 0.01,
+    "turnover into the replacement Street Rate reduces the in-house increase",
+    result.requiredAvgIncrease * 100 < 5 - 0.01,
   );
   ok(
     "Street Rate is not pushed past the objective to do in-house's work",
@@ -467,6 +467,13 @@ console.log("\n-- 6. An achievable target is balanced across Street and in-house
     result.recommendedStreetMonthly >= result.postIncreaseAvgRateMonthly * 1.01 - 0.01,
   );
   ok("every quarter passes", result.quarterResults.every((q) => q.passes));
+  const binding = result.quarterResults.find((q) => q.isBinding);
+  near(
+    "the binding quarter lands on the growth target after turnover is included",
+    binding?.yoyGrowthPct ?? Number.NaN,
+    5,
+    0.01,
+  );
   ok("no infeasibility block", result.infeasibility === null);
   ok(
     "the required increase is within the configured maximum",
@@ -498,11 +505,9 @@ console.log("\n-- 6a. Street Rate keeps a 1% premium over the planned in-house a
     "the asking rate is lifted above the residents it would otherwise sit under",
     atStreet.recommendedStreetMonthly >= plannedInhouse * 1.01 - 0.01,
   );
-  near(
-    "the portfolio service-line premium reaches 1%",
-    (atStreet.recommendedStreetMonthly / plannedInhouse - 1) * 100,
-    1,
-    0.001,
+  ok(
+    "the portfolio service-line premium is at least 1%",
+    (atStreet.recommendedStreetMonthly / plannedInhouse - 1) * 100 >= 1 - 0.001,
   );
 
   const local = solvePlan({
@@ -667,9 +672,8 @@ console.log("\n-- 6d. Variance to Top Competitor decides Street vs in-house --")
     wellBelow.streetIncrease * 100 <= 5 + 0.01,
   );
   ok(
-    "the in-house lever carries the objective in both directions",
-    wellAbove.requiredAvgIncrease * 100 >= 5 - 0.01 &&
-      wellBelow.requiredAvgIncrease * 100 >= 5 - 0.01,
+    "more replacement Street Rate growth requires less in-house increase",
+    wellBelow.requiredAvgIncrease < wellAbove.requiredAvgIncrease - 1e-6,
   );
   ok(
     "both directions still clear every quarter",

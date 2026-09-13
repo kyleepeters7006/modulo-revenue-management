@@ -679,11 +679,9 @@ export function solvePlan(input: SolveInput): SolveOutput {
   }
 
   /**
-   * What the in-house lever should carry at a given Street Rate. Aiming at the
-   * growth objective itself — rather than at whatever remainder the asking rate
-   * leaves behind — is what keeps the guaranteed lever off its configured
-   * minimum. Resident guardrails still bound it, and a target the asking rate
-   * cannot reach on its own still raises it further.
+   * What the in-house lever must carry after turnover and replacement Street
+   * Rates have contributed their share of the projected growth. The target is
+   * an outcome for each quarter, not a separate target for every lever.
    *
    * Individual residents and location/service-line averages are deliberately
    * NOT held below the asking rate. Only the resident guardrails limit them;
@@ -695,8 +693,7 @@ export function solvePlan(input: SolveInput): SolveOutput {
     const required = feasible
       ? requiredAvgIncreaseAt(ctx, g, Math.max(headroom, ctx.max))
       : headroom;
-    const preferred = clamp(ctx.target, ctx.min, ctx.max);
-    return Math.min(Math.max(required, preferred), Math.max(headroom, 0));
+    return Math.min(required, Math.max(headroom, 0));
   };
 
   const allocation = allocationFor(ctx, streetIncrease, plannedAvgAt(streetIncrease));

@@ -207,10 +207,11 @@ gets reported as infeasible. The plan and its own verdict disagree.
 **How to apply:** any bisection whose result is later re-verified by the same
 projection function — solve exact, round/tolerate at the presentation edge.
 
-## An operator's ceiling clamps a derived floor, never the reverse
+## An operator's ceiling clamps a derived Street floor, never the reverse
 
-The street increase has a natural floor (the growth target) and an operator-set
-ceiling (`maxStreetIncreasePct`). The floor must be clamped by the ceiling.
+The Street increase has derived floors from the configured minimum and
+competitive position, plus an operator-set ceiling. Every derived floor must be
+clamped by the ceiling.
 
 **Why:** a floor that ignores a zero ceiling silently overrides the operator's
 "do not raise street rates" instruction and then misattributes the resulting
@@ -276,13 +277,14 @@ too hard despite weaker sales certainty. Conversely, enforcing the 1% premium
 at every location needlessly raised local asking rates; the product owner
 explicitly confirmed that the relationship is by service line at portfolio level.
 
-**How to apply:** anchor the planned average in-house increase at the growth
-objective within resident guardrails. Keep the Street floor at the maximum of
-the configured minimum and the positive competitive gap capped at the objective;
-let feasibility pull Street higher only as a last resort. Apply the 1% premium
-only when location scope is absent, and keep both Street ceilings authoritative.
-Warn if a ceiling prevents the service-line portfolio premium. Individual
-locations and residents may legitimately finish above Street Rate.
+**How to apply:** solve the planned average in-house increase only after
+projecting turnover into replacement Street Rates; the quarterly outcome, not
+each lever, targets the growth objective. Keep the Street floor at the maximum
+of the configured minimum and the positive competitive gap capped at the
+objective; let feasibility pull Street higher only as a last resort. Apply the
+1% premium only when location scope is absent, and keep both Street ceilings
+authoritative. Warn if a ceiling prevents the service-line portfolio premium.
+Individual locations and residents may legitimately finish above Street Rate.
 
 ## `computed || fallback` erases a legitimate zero
 
