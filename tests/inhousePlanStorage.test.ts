@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 
 class MemoryStorage {
-  private values = new Map<string, string>();
+  protected values = new Map<string, string>();
   getItem(key: string) {
     return this.values.get(key) ?? null;
   }
@@ -10,6 +10,14 @@ class MemoryStorage {
   }
   removeItem(key: string) {
     this.values.delete(key);
+  }
+}
+
+class QuotaStorage extends MemoryStorage {
+  maxLength = Number.POSITIVE_INFINITY;
+  override setItem(key: string, value: string) {
+    if (value.length > this.maxLength) throw new Error("quota exceeded");
+    super.setItem(key, value);
   }
 }
 
@@ -74,6 +82,31 @@ assert.deepEqual(
   await readInhousePlan(identity, iosScope),
   saved,
   "iOS restores the compact plan without opening IndexedDB",
+);
+
+const quotaStorage = new QuotaStorage();
+quotaStorage.setItem(
+  "inhouse-rate-planning:calculated-plans:v17",
+  "x".repeat(2_000),
+);
+quotaStorage.setItem(
+  "inhouse-rate-planning:calculated-plans:v18",
+  JSON.stringify({
+    old1: { ...saved, padding: "x".repeat(600) },
+    old2: { ...saved, padding: "x".repeat(600) },
+  }),
+);
+quotaStorage.maxLength = 500;
+(globalThis as any).window.localStorage = quotaStorage;
+assert.equal(
+  await writeInhousePlan(identity, "ALL_CAMPUSES::HC", saved),
+  true,
+  "quota pressure evicts obsolete snapshots instead of losing the newest plan",
+);
+assert.deepEqual(
+  await readInhousePlan(identity, "ALL_CAMPUSES::HC"),
+  saved,
+  "the newest plan survives quota recovery",
 );
 
 (globalThis as any).window.localStorage = {

@@ -39,6 +39,7 @@ const LEGACY_DB_NAMES = [
   "inhouse-rate-planning",
 ];
 const STORE_NAME = "calculated-plans";
+const MAX_LOCAL_PLAN_SCOPES = 12;
 
 function shouldAvoidIndexedDb(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -47,6 +48,38 @@ function shouldAvoidIndexedDb(): boolean {
 
 function storageKey(identityKey: string, scopeKey: string): string {
   return `${identityKey}::${scopeKey}`;
+}
+
+function storedAt(value: unknown): number {
+  if (!value || typeof value !== "object") return 0;
+  const lastRunAt = (value as { lastRunAt?: unknown }).lastRunAt;
+  return typeof lastRunAt === "string" ? Date.parse(lastRunAt) || 0 : 0;
+}
+
+function writeLocalPlan(key: string, value: unknown): boolean {
+  // Old versions can consume the entire iOS per-origin quota even though the
+  // current compact record is small. They are never read after a version bump.
+  for (const legacyKey of LEGACY_STORAGE_KEYS) window.localStorage.removeItem(legacyKey);
+
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  const stored = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+  stored[key] = value;
+
+  const bounded = Object.fromEntries(
+    Object.entries(stored)
+      .sort((a, b) => storedAt(b[1]) - storedAt(a[1]))
+      .slice(0, MAX_LOCAL_PLAN_SCOPES),
+  );
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(bounded));
+    return true;
+  } catch {
+    // If existing compact scopes still exhaust quota, retain the calculation
+    // the user just ran rather than failing the whole persistence operation.
+    window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ [key]: value }));
+    return true;
+  }
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -139,11 +172,7 @@ export async function writeInhousePlan<T>(
   } catch {
     // Persistence is best-effort; a storage failure must not fail Calculate.
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      const stored = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-      stored[key] = value;
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
-      return true;
+      return writeLocalPlan(key, value);
     } catch {
       // The browser has no writable storage.
       return false;

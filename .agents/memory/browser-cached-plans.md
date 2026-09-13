@@ -65,4 +65,6 @@ process crashes during authenticated plan restoration.
 
 **How to apply:** route both reads and writes at the storage boundary by user
 agent, retaining identity/filter keys and explicit success reporting on both
-backends.
+backends. Before localStorage writes, remove obsolete version keys and bound the
+number of retained filter scopes. On quota failure, retry with the newest
+calculation alone so stale drafts cannot block the result the user just ran.
