@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  formatQuarterLabels,
   formatQuarterYoyDisplay,
   getQuarterYoyDisplay,
 } from "../client/src/lib/inhouseQuarterYoyDisplay";
@@ -24,6 +25,20 @@ function display(overrides: Partial<Parameters<typeof getQuarterYoyDisplay>[0]> 
 }
 
 describe("quarterly YoY display", () => {
+  it("keeps labels distinct when a plan crosses a year boundary", () => {
+    expect(formatQuarterLabels([
+      { quarter: 4, year: 2026 },
+      { quarter: 1, year: 2027 },
+    ])).toEqual(["Q4 '26", "Q1 '27"]);
+  });
+
+  it("uses compact labels when all plan quarters share one year", () => {
+    expect(formatQuarterLabels([
+      { quarter: 1, year: 2026 },
+      { quarter: 2, year: 2026 },
+    ])).toEqual(["Q1", "Q2"]);
+  });
+
   it("shows a partial 2-of-3-month prior-year quarter as Partial (2/3)", () => {
     const quarter = display({
       basis: "partial",

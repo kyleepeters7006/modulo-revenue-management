@@ -15,6 +15,24 @@ export interface QuarterYoyDisplay {
   unavailableExplanation?: string;
 }
 
+export interface QuarterLabelInput {
+  quarter: number;
+  year: number;
+}
+
+/**
+ * Keep quarter labels compact for a single-year plan, but include the year
+ * whenever the plan crosses a year boundary so adjacent labels stay distinct.
+ */
+export function formatQuarterLabels(
+  quarters: ReadonlyArray<QuarterLabelInput>,
+): string[] {
+  const singleYear = new Set(quarters.map(({ year }) => year)).size <= 1;
+  return quarters.map(({ quarter, year }) =>
+    singleYear ? `Q${quarter}` : `Q${quarter} '${String(year).slice(-2)}`,
+  );
+}
+
 /**
  * Convert a quarter's prior-year baseline into the value the summary displays.
  *

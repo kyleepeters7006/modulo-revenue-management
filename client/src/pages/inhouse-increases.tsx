@@ -104,6 +104,7 @@ import {
 } from "@shared/turnoverBounds";
 import {
   formatQuarterYoyDisplay,
+  formatQuarterLabels,
   getQuarterYoyDisplay,
   type QuarterYoyDisplay,
 } from "@/lib/inhouseQuarterYoyDisplay";
@@ -216,11 +217,6 @@ function QuarterYoyBreakdown({ quarters }: { quarters: QuarterYoyCell[] }) {
       ))}
     </div>
   );
-}
-
-/** "Q1" when the whole set sits in one year, otherwise "Q1 '27". */
-function quarterCellLabel(quarter: number, year: number, singleYear: boolean): string {
-  return singleYear ? `Q${quarter}` : `Q${quarter} '${String(year).slice(-2)}`;
 }
 
 const SERVICE_LINES = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
@@ -2207,7 +2203,7 @@ export default function InhouseIncreases() {
     const orderedQuarters = Array.from(quarterTotals.entries()).sort(
       ([, a], [, b]) => a.year - b.year || a.quarter - b.quarter,
     );
-    const singleQuarterYear = new Set(orderedQuarters.map(([, q]) => q.year)).size <= 1;
+    const quarterLabels = formatQuarterLabels(orderedQuarters.map(([, q]) => q));
     return {
       residents,
       streetCurrentMonthly,
@@ -2240,13 +2236,13 @@ export default function InhouseIncreases() {
       averageQuarterlyYoyPct: residents > 0 ? quarterlyYoyWeighted / residents : 0,
       quartersMeetingGoal,
       projectedQuarterCount,
-      quarterlyBreakdown: orderedQuarters.map(([key, bucket]) => {
+      quarterlyBreakdown: orderedQuarters.map(([key, bucket], index) => {
         const measurable = bucket.residents > 0;
         const yoyPct = measurable ? bucket.weighted / bucket.residents : null;
         const goalPct = measurable ? bucket.goalWeighted / bucket.residents : 0;
         return {
           key,
-          label: quarterCellLabel(bucket.quarter, bucket.year, singleQuarterYear),
+          label: quarterLabels[index],
           yoyPct,
           // Colour the weighted number against the weighted goal, so it always
           // describes the value shown rather than a per-line pass tally.
@@ -3142,9 +3138,8 @@ export default function InhouseIncreases() {
                     ? quarterlyYoyValues.reduce((sum, value) => sum + value, 0) / quarterlyYoyValues.length
                     : 0;
                   const fullYearYoy = fullYearYoyFromQuarters(plan.quarters, plan.rateBasis);
-                  const planYear = plan.quarters[0]?.year;
-                  const singleQuarterYear = new Set(plan.quarters.map((quarter) => quarter.year)).size <= 1;
-                  const quarterCells: QuarterYoyCell[] = plan.quarters.map((quarter) => {
+                  const quarterLabels = formatQuarterLabels(plan.quarters);
+                  const quarterCells: QuarterYoyCell[] = plan.quarters.map((quarter, index) => {
                     const display = getQuarterYoyDisplay({
                       priorRate: quarter.priorYear.realizedRateMonthly,
                       yoyGrowthPct: quarter.yoyGrowthPct,
@@ -3154,7 +3149,7 @@ export default function InhouseIncreases() {
                     });
                     return {
                       key: `${quarter.year}-Q${quarter.quarter}`,
-                      label: quarterCellLabel(quarter.quarter, quarter.year, singleQuarterYear),
+                      label: quarterLabels[index],
                       ...display,
                       passes: quarter.passes,
                     };
