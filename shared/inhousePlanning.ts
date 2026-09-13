@@ -636,6 +636,8 @@ export interface InhousePlanHistoryEntry {
   serviceLine: string;
   summary: PlanSummary;
   assumptions: PlanningAssumptions;
+  /** Structured solver explanation, or null for plans saved before this field existed. */
+  targetDeviationDiagnostic: TargetDeviationDiagnostic | null;
   recommendedStreetRate: number | null;
   inhouseEffectiveDate: string | null;
   appliedBy: string | null;

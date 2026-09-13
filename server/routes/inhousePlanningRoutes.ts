@@ -21,6 +21,7 @@ import {
   type OccupancyTierPolicy,
   type PlanSummary,
   type PlanningAssumptions,
+  type TargetDeviationDiagnostic,
 } from "@shared/inhousePlanning";
 import {
   calculatePlan,
@@ -827,10 +828,10 @@ export function registerInhousePlanningRoutes(app: Express) {
         const inserted = await client.query<{ id: string }>(
           `INSERT INTO inhouse_rate_plans
              (client_id, location_id, location, service_line, version, status,
-              assumptions, summary, quarters, residents,
+               assumptions, summary, quarters, residents, target_deviation_diagnostic,
               street_rate_effective_date, inhouse_effective_date,
               recommended_street_rate, applied_by)
-            VALUES ($1,$2,$3,$4,$5,'proposed',$6,$7,$8,$9,$10,$11,$12,$13)
+             VALUES ($1,$2,$3,$4,$5,'proposed',$6,$7,$8,$9,$10,$11,$12,$13,$14)
            RETURNING id`,
           [
             clientId,
@@ -842,6 +843,9 @@ export function registerInhousePlanningRoutes(app: Express) {
             JSON.stringify(plan.summary),
             JSON.stringify(plan.quarters),
             JSON.stringify(plan.residents),
+            plan.targetDeviationDiagnostic
+              ? JSON.stringify(plan.targetDeviationDiagnostic)
+              : null,
             plan.assumptions.streetRateEffectiveDate,
             plan.assumptions.inhouseEffectiveDate,
             plan.recommendedStreetRateDisplay,
@@ -1012,6 +1016,7 @@ export function registerInhousePlanningRoutes(app: Express) {
           serviceLine: inhouseRatePlans.serviceLine,
           summary: inhouseRatePlans.summary,
           assumptions: inhouseRatePlans.assumptions,
+           targetDeviationDiagnostic: inhouseRatePlans.targetDeviationDiagnostic,
           recommendedStreetRate: inhouseRatePlans.recommendedStreetRate,
           inhouseEffectiveDate: inhouseRatePlans.inhouseEffectiveDate,
           appliedBy: inhouseRatePlans.appliedBy,
@@ -1026,6 +1031,8 @@ export function registerInhousePlanningRoutes(app: Express) {
         ...row,
         summary: row.summary as PlanSummary,
         assumptions: row.assumptions as PlanningAssumptions,
+        targetDeviationDiagnostic:
+          (row.targetDeviationDiagnostic as TargetDeviationDiagnostic | null) ?? null,
         createdAt: row.createdAt?.toISOString?.() ?? (row.createdAt ? String(row.createdAt) : null),
       }));
       res.setHeader("Cache-Control", "no-store");

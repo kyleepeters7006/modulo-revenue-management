@@ -740,6 +740,7 @@ export const inhouseRatePlans = pgTable("inhouse_rate_plans", {
   summary: jsonb("summary").notNull(),
   quarters: jsonb("quarters").notNull(),
   residents: jsonb("residents").notNull(),
+  targetDeviationDiagnostic: jsonb("target_deviation_diagnostic"),
   streetRateEffectiveDate: text("street_rate_effective_date"),
   inhouseEffectiveDate: text("inhouse_effective_date"),
   recommendedStreetRate: real("recommended_street_rate"),

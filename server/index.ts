@@ -813,12 +813,16 @@ app.use((req, res, next) => {
         summary                     jsonb NOT NULL,
         quarters                    jsonb NOT NULL,
         residents                   jsonb NOT NULL,
+        target_deviation_diagnostic jsonb,
         street_rate_effective_date  text,
         inhouse_effective_date      text,
         recommended_street_rate     real,
         applied_by                  text,
         created_at                  timestamp DEFAULT now()
       )`));
+    await db.execute(sql.raw(`
+      ALTER TABLE inhouse_rate_plans
+        ADD COLUMN IF NOT EXISTS target_deviation_diagnostic jsonb`));
     await db.execute(sql.raw(`
       ALTER TABLE inhouse_rate_plans
         ALTER COLUMN status SET DEFAULT 'proposed'`));

@@ -82,6 +82,7 @@ import {
   type PlanResult,
   type PlanningAssumptions,
   type ResidentRecommendation,
+  type TargetDeviationDiagnostic,
   defaultOccupancyTierPolicy,
   guardrailsFromAssumptions,
   OCCUPANCY_TIER_IDS,
@@ -249,13 +250,24 @@ const DEVIATION_DRIVER_STATUS: Record<string, { label: string; className: string
   not_applicable: { label: "Not applicable", className: "text-muted-foreground" },
 };
 
-function TargetDeviationDiagnosticView({ plan }: { plan: PlanResult }) {
-  const diagnostic = plan.targetDeviationDiagnostic;
+function TargetDeviationDiagnosticView({
+  diagnostic,
+  targetPct,
+  rateBasis = "monthly",
+}: {
+  diagnostic: TargetDeviationDiagnostic | null | undefined;
+  targetPct: number;
+  rateBasis?: "monthly" | "daily";
+}) {
   if (!diagnostic) return null;
-  const unit = plan.rateBasis === "daily" ? "/day" : "/mo";
+  const unit = rateBasis === "daily" ? "/day" : "/mo";
   const maxQuarter = diagnostic.maximumQuarterLabel
-    ? plan.quarters.find((q) => q.label === diagnostic.maximumQuarterLabel)
+    ? diagnostic.quarters.find((q) => q.label === diagnostic.maximumQuarterLabel)
     : null;
+  const maxQuarterYoy =
+    maxQuarter?.priorYearRateMonthly != null && maxQuarter.priorYearRateMonthly > 0
+      ? (maxQuarter.projectedRateMonthly / maxQuarter.priorYearRateMonthly - 1) * 100
+      : null;
   return (
     <div className="rounded-md border bg-background p-3" data-testid="target-deviation-diagnostic">
       <div className="mb-3">
@@ -271,7 +283,7 @@ function TargetDeviationDiagnosticView({ plan }: { plan: PlanResult }) {
           <p className="font-mono text-lg font-semibold">{formatPct(diagnostic.maximumQuarterDeviationPct, 2)}</p>
           <p className="text-xs text-muted-foreground">
             {diagnostic.maximumQuarterLabel ?? "No testable quarter"}
-            {maxQuarter ? ` · ${formatPct(maxQuarter.yoyGrowthPct, 2)} realized` : ""}
+            {maxQuarterYoy != null ? ` · ${formatPct(maxQuarterYoy, 2)} realized` : ""}
           </p>
         </div>
         <div className="rounded border px-3 py-2">
@@ -281,7 +293,7 @@ function TargetDeviationDiagnosticView({ plan }: { plan: PlanResult }) {
         </div>
         <div className="rounded border px-3 py-2">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Target basis</p>
-          <p className="font-mono text-lg font-semibold">{formatPct(plan.assumptions.rateGrowthTargetPct, 2)}</p>
+          <p className="font-mono text-lg font-semibold">{formatPct(targetPct, 2)}</p>
           <p className="text-xs text-muted-foreground">Each testable quarter · rates {unit}</p>
         </div>
       </div>
@@ -3698,7 +3710,11 @@ export default function InhouseIncreases() {
                 </CardHeader>
                 <CardContent><Explanation explanation={plan.explanation} /></CardContent>
               </Card>
-              <TargetDeviationDiagnosticView plan={plan} />
+              <TargetDeviationDiagnosticView
+                diagnostic={plan.targetDeviationDiagnostic}
+                targetPct={plan.assumptions.rateGrowthTargetPct}
+                rateBasis={plan.rateBasis}
+              />
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">Quarterly realized rate vs prior year{plans.length > 1 ? ` · ${sl}` : ""}</CardTitle>
@@ -4141,30 +4157,45 @@ export default function InhouseIncreases() {
                     key={p.id}
                     className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-2"
                   >
-                    <span className="font-medium">v{p.version}</span>
-                    <span className="text-muted-foreground">
-                      {p.location || "All campuses"} · {p.serviceLine}
-                    </span>
-                    <span className="font-mono text-xs">
-                      {formatPct(p.summary?.weightedAvgIncreasePct ?? 0, 2)} avg
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      effective {p.inhouseEffectiveDate}
-                    </span>
-                    {p.status === "proposed" && (
-                      <Badge variant="outline" className="text-[11px] font-normal">
-                        Proposed
-                      </Badge>
-                    )}
-                    {(p.status === "applied" || p.status === "published") && (
-                      <Badge variant="outline" className="text-[11px] font-normal">
-                        Applied
-                      </Badge>
-                    )}
-                    {p.status === "superseded" && (
-                      <Badge variant="outline" className="text-[11px] font-normal">
-                        Superseded
-                      </Badge>
+                    <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="font-medium">v{p.version}</span>
+                      <span className="text-muted-foreground">
+                        {p.location || "All campuses"} · {p.serviceLine}
+                      </span>
+                      <span className="font-mono text-xs">
+                        {formatPct(p.summary?.weightedAvgIncreasePct ?? 0, 2)} avg
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        effective {p.inhouseEffectiveDate}
+                      </span>
+                      {p.status === "proposed" && (
+                        <Badge variant="outline" className="text-[11px] font-normal">
+                          Proposed
+                        </Badge>
+                      )}
+                      {(p.status === "applied" || p.status === "published") && (
+                        <Badge variant="outline" className="text-[11px] font-normal">
+                          Applied
+                        </Badge>
+                      )}
+                      {p.status === "superseded" && (
+                        <Badge variant="outline" className="text-[11px] font-normal">
+                          Superseded
+                        </Badge>
+                      )}
+                    </div>
+                    {p.targetDeviationDiagnostic ? (
+                      <div className="w-full">
+                        <TargetDeviationDiagnosticView
+                          diagnostic={p.targetDeviationDiagnostic}
+                          targetPct={p.assumptions.rateGrowthTargetPct}
+                        />
+                      </div>
+                    ) : (
+                      <p className="w-full text-xs text-muted-foreground">
+                        Quarterly deviation diagnostic unavailable for this saved plan. It was
+                        created before these explanations were persisted.
+                      </p>
                     )}
                     {p.status === "withdrawn" && (
                       <Badge variant="outline" className="text-[11px] font-normal">
