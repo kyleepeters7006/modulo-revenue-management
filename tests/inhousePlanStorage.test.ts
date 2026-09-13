@@ -30,6 +30,7 @@ const localStorage = new MemoryStorage();
 const {
   readInhousePlan,
   writeInhousePlan,
+  writeInhousePlanBundle,
 } = await import("../client/src/lib/inhousePlanStorage");
 
 const identity = "client::user";
@@ -107,6 +108,35 @@ assert.deepEqual(
   await readInhousePlan(identity, "ALL_CAMPUSES::HC"),
   saved,
   "the newest plan survives quota recovery",
+);
+
+const combinedScope = "ALL_CAMPUSES::AL,AL/MC,HC,HC/MC,SL,VIL";
+const combined = {
+  plans: ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"].map((sl) => ({
+    sl,
+    plan: { summary: {}, padding: "x".repeat(40) },
+  })),
+  lastRunAt: "2026-09-13T18:30:00.000Z",
+};
+quotaStorage.maxLength = JSON.stringify({
+  [`${identity}::${combinedScope}`]: combined,
+}).length + 10;
+assert.equal(
+  await writeInhousePlanBundle(
+    identity,
+    { scopeKey: combinedScope, value: combined },
+    ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"].map((sl) => ({
+      scopeKey: `ALL_CAMPUSES::${sl}`,
+      value: { ...saved, plans: [{ sl, plan: { summary: {} } }] },
+    })),
+  ),
+  true,
+  "quota recovery reports success when the complete scope is preserved",
+);
+assert.deepEqual(
+  await readInhousePlan(identity, combinedScope),
+  combined,
+  "the complete multi-line plan is the protected final snapshot",
 );
 
 (globalThis as any).window.localStorage = {

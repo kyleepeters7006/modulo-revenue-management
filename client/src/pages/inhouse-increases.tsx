@@ -65,7 +65,7 @@ import {
 import {
   clearInhousePlanStorage,
   readInhousePlan,
-  writeInhousePlan,
+  writeInhousePlanBundle,
 } from "@/lib/inhousePlanStorage";
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
 import { DAYS_PER_MONTH } from "@shared/careRates";
@@ -1674,17 +1674,18 @@ export default function InhouseIncreases() {
           lastRunAt,
           detailsOmitted: true,
         };
-        const writes = await Promise.all([
-          writeInhousePlan(identityKey, scopeKey, stored),
-          ...compactResults.map((result) =>
-            writeInhousePlan(
-              identityKey,
-              calculatedPlanScopeKey(result.plan.scope.locationId ?? null, [result.sl]),
-              { plans: [result], lastRunAt, detailsOmitted: true } satisfies StoredCalculatedPlan,
-            ),
-          ),
-        ]);
-        saved = writes.every(Boolean);
+        saved = await writeInhousePlanBundle(
+          identityKey,
+          { scopeKey, value: stored },
+          compactResults.map((result) => ({
+            scopeKey: calculatedPlanScopeKey(result.plan.scope.locationId ?? null, [result.sl]),
+            value: {
+              plans: [result],
+              lastRunAt,
+              detailsOmitted: true,
+            } satisfies StoredCalculatedPlan,
+          })),
+        );
       }
       // If the operator changed scope while the request was running, retain
       // the result under its original scope but never render it under the new
@@ -1793,17 +1794,18 @@ export default function InhouseIncreases() {
           lastRunAt,
           detailsOmitted: true,
         };
-        const writes = await Promise.all([
-          writeInhousePlan(result.identityKey, result.planScopeKey, stored),
-          ...compactPlans.map((calculated) =>
-            writeInhousePlan(
-              result.identityKey!,
-              calculatedPlanScopeKey(calculated.plan.scope.locationId ?? null, [calculated.sl]),
-              { plans: [calculated], lastRunAt, detailsOmitted: true } satisfies StoredCalculatedPlan,
-            ),
-          ),
-        ]);
-        saved = writes.every(Boolean);
+        saved = await writeInhousePlanBundle(
+          result.identityKey,
+          { scopeKey: result.planScopeKey, value: stored },
+          compactPlans.map((calculated) => ({
+            scopeKey: calculatedPlanScopeKey(calculated.plan.scope.locationId ?? null, [calculated.sl]),
+            value: {
+              plans: [calculated],
+              lastRunAt,
+              detailsOmitted: true,
+            } satisfies StoredCalculatedPlan,
+          })),
+        );
       }
       if (
         result.identityKey === currentStorageIdentity.current &&

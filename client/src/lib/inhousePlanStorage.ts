@@ -180,6 +180,29 @@ export async function writeInhousePlan<T>(
   }
 }
 
+/**
+ * Save optional single-scope fallbacks first and the complete selected scope
+ * last. On iOS quota recovery keeps only the latest write, so the primary
+ * snapshot must be the final write rather than the last service line.
+ */
+export async function writeInhousePlanBundle<T>(
+  identityKey: string | null,
+  primary: { scopeKey: string; value: T },
+  fallbacks: Array<{ scopeKey: string; value: T }>,
+): Promise<boolean> {
+  const fallbackWrites = await Promise.all(
+    fallbacks.map(({ scopeKey, value }) =>
+      writeInhousePlan(identityKey, scopeKey, value),
+    ),
+  );
+  const primaryWrite = await writeInhousePlan(
+    identityKey,
+    primary.scopeKey,
+    primary.value,
+  );
+  return primaryWrite && fallbackWrites.every(Boolean);
+}
+
 export async function clearInhousePlanStorage(): Promise<void> {
   if (typeof window === "undefined") return;
 

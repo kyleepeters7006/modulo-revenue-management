@@ -68,3 +68,6 @@ agent, retaining identity/filter keys and explicit success reporting on both
 backends. Before localStorage writes, remove obsolete version keys and bound the
 number of retained filter scopes. On quota failure, retry with the newest
 calculation alone so stale drafts cannot block the result the user just ran.
+When saving a multi-line calculation plus single-line fallbacks, write the
+complete selected scope last; quota recovery protects the final write, so a
+single-line write must never be allowed to replace the complete result.
