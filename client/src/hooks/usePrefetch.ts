@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 
 const TILE_TYPES = ["occupancy", "current-revenue", "units", "potential-revenue"] as const;
 
@@ -11,8 +12,14 @@ async function apiFetch(url: string) {
 
 export function usePrefetch() {
   const queryClient = useQueryClient();
+  const [location] = useLocation();
 
   useEffect(() => {
+    // This batch exists to warm the Overview dashboard. Running it on every
+    // route makes data-heavy dashboard queries compete with focused workflows
+    // such as portfolio in-house planning.
+    if (location !== "/" && location !== "/overview") return;
+
     const prefetch = async () => {
       await Promise.allSettled([
         queryClient.prefetchQuery({
@@ -83,5 +90,5 @@ export function usePrefetch() {
     };
 
     prefetch();
-  }, [queryClient]);
+  }, [location, queryClient]);
 }

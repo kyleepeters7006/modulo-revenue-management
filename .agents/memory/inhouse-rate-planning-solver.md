@@ -129,6 +129,15 @@ back to the per-month set only when no room survives the whole window, and say s
 in a warning; the standardized level is still anchored to the full planning
 average, so a partial cohort supplies only the price relationship.
 
+The retired cohort/balanced-panel method must not run as a parallel diagnostic
+inside an interactive calculation.
+
+**Why:** across six portfolio service lines, those unused cohort queries were
+the dominant source of latency and did not change the active solver result.
+
+**How to apply:** keep the old reader available for dedicated validation, but
+exclude it from the user-facing request path.
+
 ## The configured increase is a range ceiling, not a flat increase
 
 Resident increases vary within the configured minimum-to-maximum range based on

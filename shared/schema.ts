@@ -211,7 +211,13 @@ export const rentRollData = pgTable("rent_roll_data", {
   sourceRoomType: text("source_room_type"), // Raw room type string from import, before normalization
   clientId: varchar("client_id").references(() => clients.id), // Multi-tenant: which client owns this record
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  clientServiceLineMonthIdx: index("idx_rrd_client_service_line_month").on(
+    table.clientId,
+    table.serviceLine,
+    table.uploadMonth,
+  ),
+}));
 
 // Rate card summary by room type and service line
 export const rateCard = pgTable("rate_card", {

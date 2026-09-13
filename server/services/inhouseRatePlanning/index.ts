@@ -45,7 +45,6 @@ import {
   fetchTopCompetitorRate,
   fetchQuarterRoomRates,
   fetchRecordedMonths,
-  fetchCohortMonthlyRealizedRates,
   fetchMonthlyRealizedRates,
   fetchProductStreetBaselines,
   fetchResidentRows,
@@ -314,11 +313,9 @@ export async function preparePlan(
   // directly has neither weakness — see twoPointIndex.ts. The balanced panel is
   // still computed so the two series can be compared before the old one is
   // retired.
-  const cohortWindow = priorYearQuarters.flatMap((q) => expectedMonths(q));
-  const [monthly, balancedPanel, recordedMonths] = await Promise.all([
+  const [monthly, recordedMonths] = await Promise.all([
     fetchMonthlyRealizedRates(scope, "2000-01", unitMix),
-    fetchCohortMonthlyRealizedRates(scope, "2000-01", unitMix, cohortWindow),
-    fetchRecordedMonths(scope, cohortWindow),
+    fetchRecordedMonths(scope, priorYearQuarters.flatMap((q) => expectedMonths(q))),
   ]);
   const currentPlanningAverage = residentDayWeightedAverageRate(residents);
   const standardize = (rows: MonthlyRealized[]) =>
@@ -492,15 +489,6 @@ export async function preparePlan(
     )
     .filter((m) => m.residentDays > 0 && m.rateMonthly > 0)
     .sort((a, b) => a.month.localeCompare(b.month));
-
-  // Parallel run: the balanced panel this replaces, kept alongside so the
-  // entry/exit effect between the two is inspectable.
-  const balancedPanelMonthly = standardize(
-    balancedPanel.months.length > 0 && balancedPanel.cohortRooms > 0
-      ? balancedPanel.months
-      : [],
-  );
-  const balancedPanelQuarters = rollMonthsIntoQuarters(balancedPanelMonthly);
 
   const { baselines, quarterlyGrowthPct } = projectMissingQuarters(
     knownQuarters,
@@ -837,15 +825,13 @@ export async function preparePlan(
         })),
         parallelRun: priorYearQuarters.map((q) => {
           const matched = baselines.get(q.label)?.realizedRateMonthly ?? null;
-          const panel = balancedPanelQuarters.get(q.label)?.realizedRateMonthly ?? null;
           return {
             label: q.label,
             matchedPairRateMonthly: matched,
-            balancedPanelRateMonthly: panel,
-            differencePct:
-              matched != null && panel != null && panel > 0
-                ? (matched / panel - 1) * 100
-                : null,
+            // The balanced-panel method was retired from interactive runs:
+            // its six historical cohort queries dominated request latency.
+            balancedPanelRateMonthly: null,
+            differencePct: null,
           };
         }),
       },
