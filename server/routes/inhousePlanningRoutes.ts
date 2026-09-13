@@ -317,6 +317,32 @@ export function registerInhousePlanningRoutes(app: Express) {
     }
   });
 
+  app.get("/api/inhouse-planning/assumptions-batch", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || "demo";
+      const locationId = (req.query.locationId as string) || null;
+      const serviceLines = String(req.query.serviceLines || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .slice(0, 12);
+      if (serviceLines.length === 0) {
+        return res.status(400).json({ error: "At least one service line is required." });
+      }
+      const resolvedEntries = await Promise.all(
+        serviceLines.map(async (serviceLine) => [
+          serviceLine,
+          await resolveAssumptions(clientId, locationId, serviceLine),
+        ] as const),
+      );
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ policies: Object.fromEntries(resolvedEntries) });
+    } catch (error) {
+      console.error("[inhouse-planning] assumptions batch fetch failed:", error);
+      res.status(500).json({ error: "Failed to load planning assumptions" });
+    }
+  });
+
   app.post("/api/inhouse-planning/assumptions", async (req: any, res) => {
     try {
       const clientId = req.clientId || "demo";

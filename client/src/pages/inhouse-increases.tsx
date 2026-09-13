@@ -1283,16 +1283,22 @@ export default function InhouseIncreases() {
     queryFn: async ({ signal }) => {
       // The campus this run is answering for, captured before any awaiting.
       const scopeKey = scopeLocationId ?? "all";
-      const entries = await Promise.all(
-        serviceLines.map(async (sl) => {
-          const params = new URLSearchParams({ serviceLine: sl });
-          if (scopeLocationId) params.set("locationId", scopeLocationId);
-          const res = await fetch(`/api/inhouse-planning/assumptions?${params}`, {
-            credentials: "include",
-            signal,
-          });
-          if (!res.ok) throw new Error(await res.text());
-          const json = await res.json();
+      const params = new URLSearchParams({ serviceLines: serviceLines.join(",") });
+      if (scopeLocationId) params.set("locationId", scopeLocationId);
+      const controller = new AbortController();
+      const cancelForQuery = () => controller.abort();
+      signal.addEventListener("abort", cancelForQuery, { once: true });
+      const timeout = window.setTimeout(() => controller.abort(), 15_000);
+      try {
+        const res = await fetch(`/api/inhouse-planning/assumptions-batch?${params}`, {
+          credentials: "include",
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const payload = await res.json();
+        const entries = serviceLines.map((sl) => {
+          const json = payload.policies?.[sl];
+          if (!json) throw new Error(`No saved occupancy tier response for ${sl}`);
           const loaded: OccupancyTierPolicy = json.tierPolicy ?? defaultOccupancyTierPolicy();
           // A line that never saved a policy starts its middle tier at the
           // guardrails already in force, so the grid's target column
@@ -1308,10 +1314,20 @@ export default function InhouseIncreases() {
                 },
               };
           return [sl, seeded] as const;
-        }),
-      );
-      return { scopeKey, policies: Object.fromEntries(entries) };
+        });
+        return { scopeKey, policies: Object.fromEntries(entries) };
+      } catch (error) {
+        if (controller.signal.aborted && !signal.aborted) {
+          throw new Error("Saved occupancy tier settings took too long to load.");
+        }
+        throw error;
+      } finally {
+        window.clearTimeout(timeout);
+        signal.removeEventListener("abort", cancelForQuery);
+      }
     },
+    retry: 8,
+    retryDelay: (attempt) => Math.min(2_000 + attempt * 1_000, 5_000),
   });
 
   /**
@@ -2684,17 +2700,30 @@ export default function InhouseIncreases() {
               Save assumptions
             </Button>
             {!tierPoliciesReady && (
-              <p
+              <div
                 className={cn(
-                  "self-center text-[11px] leading-snug",
+                  "flex items-center gap-2 self-center text-[11px] leading-snug",
                   tierPoliciesQuery.isError ? "text-destructive" : "text-muted-foreground",
                 )}
                 data-testid="tier-policies-status"
               >
-                {tierPoliciesQuery.isError
-                  ? "The saved occupancy tier settings could not be loaded, so saving is blocked — saving now would overwrite them with defaults. Reload the page to try again."
-                  : "Loading each service line's saved occupancy tier settings…"}
-              </p>
+                <span>
+                  {tierPoliciesQuery.isError
+                    ? "Saved occupancy tier settings could not be loaded."
+                    : "Loading saved occupancy tier settings…"}
+                </span>
+                {tierPoliciesQuery.isError && (
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0 text-[11px]"
+                    onClick={() => tierPoliciesQuery.refetch()}
+                  >
+                    Retry
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         </CardContent>}

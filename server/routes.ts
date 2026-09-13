@@ -1824,13 +1824,17 @@ export async function registerRoutes(
   })();
 
   let databaseReadyError: unknown = null;
+  let databaseReadySettled = false;
   const initializationReady = Promise.all([
     routeInitialization,
     options.databaseReady ?? Promise.resolve(),
   ]);
   const databaseReady = initializationReady.then(
-    () => undefined,
+    () => {
+      databaseReadySettled = true;
+    },
     (error) => {
+      databaseReadySettled = true;
       databaseReadyError = error;
       console.error("[migration] API readiness failed:", error);
     },
@@ -1840,11 +1844,16 @@ export async function registerRoutes(
   // Do not let API requests race schema changes. The listener can be ready
   // immediately, while affected endpoints remain unavailable until all
   // required initialization has completed safely.
-  app.use("/api", async (_req, res, next) => {
-    await databaseReady;
-    if (databaseReadyError) {
+  app.use("/api", (_req, res, next) => {
+    if (!databaseReadySettled) {
+      res.setHeader("Retry-After", "3");
       return res.status(503).json({
         error: "The application is still initializing its database. Please retry shortly.",
+      });
+    }
+    if (databaseReadyError) {
+      return res.status(503).json({
+        error: "The application could not initialize its database. Please retry shortly.",
       });
     }
     next();
