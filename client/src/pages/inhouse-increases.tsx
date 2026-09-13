@@ -897,7 +897,7 @@ const NO_TIER_POLICIES: Record<string, OccupancyTierPolicy> = {};
 
 /** Column track for the tier summary grid, shared by its headers and rows. */
 const TIER_SUMMARY_COLS =
-  "grid grid-cols-[6rem_5.5rem_repeat(3,minmax(6.5rem,1fr))] gap-x-2";
+  "grid grid-cols-[4rem_4.75rem_1fr] gap-x-2 sm:grid-cols-[6rem_5.5rem_repeat(3,minmax(6.5rem,1fr))]";
 
 /** Signed one-decimal percent, or an em dash when the tier produced nothing. */
 function formatTierPct(value: number | null | undefined): string {
@@ -2526,79 +2526,7 @@ export default function InhouseIncreases() {
               </p>
             </div>
 
-            <div className="space-y-2 sm:hidden">
-              <div className="flex items-center justify-between gap-3">
-                <Label htmlFor="mobile-occupancy-tier" className="text-xs">
-                  Occupancy scenario
-                </Label>
-                <Select
-                  value={mobileTier}
-                  onValueChange={(value) => setMobileTier(value as OccupancyTierId)}
-                >
-                  <SelectTrigger
-                    id="mobile-occupancy-tier"
-                    className="h-8 w-36"
-                    data-testid="select-mobile-occupancy-tier"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {OCCUPANCY_TIER_IDS.map((tier) => (
-                      <SelectItem key={tier} value={tier}>
-                        {OCCUPANCY_TIER_LABELS[tier]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid grid-cols-[4rem_4.75rem_1fr] items-end border-b pb-1 text-[11px] font-medium text-muted-foreground">
-                <span>Line</span>
-                <HeaderHelp
-                  label="Occupancy"
-                  explanation="Measured occupancy for this service line. This selects the scenario currently in force."
-                />
-                <span className="text-right">In-house / street</span>
-              </div>
-              {tierGrid.lines.map((line) => {
-                const cell = line.cells.find((candidate) => candidate.tier === mobileTier);
-                const current = line.currentTier === mobileTier;
-                return (
-                  <div
-                    key={`mobile-${line.serviceLine}`}
-                    className="grid grid-cols-[4rem_4.75rem_1fr] items-center border-b py-1.5 last:border-b-0"
-                    data-testid={`mobile-tier-summary-${line.serviceLine}`}
-                  >
-                    <span className="text-xs font-medium">{line.serviceLine}</span>
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {line.occupancyPct == null ? "—" : `${line.occupancyPct.toFixed(1)}%`}
-                    </span>
-                    <div
-                      className={cn(
-                        "justify-self-end rounded px-2 py-1 text-xs tabular-nums",
-                        current && "bg-primary/10 font-medium ring-1 ring-primary/30",
-                      )}
-                      title={cell?.error ?? cell?.rangeLabel}
-                    >
-                      {!cell || cell.error ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <>
-                          <span>{formatTierPct(cell.inhouseIncreasePct)}</span>
-                          <span className="text-muted-foreground"> / </span>
-                          <span>{formatTierPct(cell.streetIncreasePct)}</span>
-                          {cell.feasible === false && <span className="ml-1 text-amber-500">!</span>}
-                          {current && (
-                            <span className="ml-1.5 text-[10px] font-normal text-primary">Current</span>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="hidden overflow-x-auto sm:block">
+            <div className="overflow-x-auto">
               <div className="min-w-[46rem]">
                 <div
                   className={cn(
@@ -2921,8 +2849,32 @@ export default function InhouseIncreases() {
                 reading anything into them.
               </p>
             )}
+            <div
+              className="grid grid-cols-3 rounded-md border p-0.5 sm:hidden"
+              role="group"
+              aria-label="Occupancy scenario"
+              data-testid="mobile-occupancy-tier-options"
+            >
+              {OCCUPANCY_TIER_IDS.map((tier) => (
+                <button
+                  key={tier}
+                  type="button"
+                  className={cn(
+                    "rounded px-2 py-1.5 text-xs font-medium",
+                    mobileTier === tier
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground",
+                  )}
+                  onClick={() => setMobileTier(tier)}
+                  aria-pressed={mobileTier === tier}
+                  data-testid={`button-mobile-tier-${tier}`}
+                >
+                  {OCCUPANCY_TIER_LABELS[tier]}
+                </button>
+              ))}
+            </div>
             <div className="overflow-x-auto">
-              <div className="min-w-[42rem]">
+              <div className="sm:min-w-[42rem]">
                 <div
                   className={cn(
                     TIER_SUMMARY_COLS,
@@ -2935,7 +2887,10 @@ export default function InhouseIncreases() {
                     explanation="Measured occupancy for this service line, from occupancy history. This is what selects the tier in force."
                   />
                   {OCCUPANCY_TIER_IDS.map((tier) => (
-                    <span key={tier} className="text-center">
+                    <span
+                      key={tier}
+                      className={cn("text-center", tier !== mobileTier && "hidden sm:block")}
+                    >
                       {OCCUPANCY_TIER_LABELS[tier]}
                     </span>
                   ))}
@@ -2949,7 +2904,10 @@ export default function InhouseIncreases() {
                   <span />
                   <span />
                   {OCCUPANCY_TIER_IDS.map((tier) => (
-                    <span key={tier} className="text-center">
+                    <span
+                      key={tier}
+                      className={cn("text-center", tier !== mobileTier && "hidden sm:block")}
+                    >
                       in-house / street
                     </span>
                   ))}
@@ -2975,6 +2933,7 @@ export default function InhouseIncreases() {
                             key={tier}
                             className={cn(
                               "rounded px-1.5 py-1 text-center text-xs tabular-nums",
+                              tier !== mobileTier && "hidden sm:block",
                               current && "bg-primary/10 font-medium ring-1 ring-primary/30",
                             )}
                             title={cell?.error ?? cell?.rangeLabel}
@@ -2992,6 +2951,11 @@ export default function InhouseIncreases() {
                                     title="The solver could not hit the growth target inside this tier's guardrails."
                                   >
                                     !
+                                  </span>
+                                )}
+                                {current && (
+                                  <span className="ml-1.5 text-[10px] font-normal text-primary sm:hidden">
+                                    Current
                                   </span>
                                 )}
                               </>
