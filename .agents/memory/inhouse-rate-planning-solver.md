@@ -281,15 +281,16 @@ too hard despite weaker sales certainty. Conversely, enforcing the 1% premium
 at every location needlessly raised local asking rates; the product owner
 explicitly confirmed that the relationship is by service line at portfolio level.
 
-**How to apply:** first solve the in-house increase against a zero-turnover case,
-so uncertain replacement revenue cannot reduce an achievable contracted
-increase. Push toward that guaranteed level up to the resident maximum; only
-then may modeled turnover and replacement Street Rates close a remaining gap.
-Keep the Street floor at the maximum of the configured minimum and the positive
-competitive gap capped at the objective. Apply the 1% premium only when location
-scope is absent, and keep both Street ceilings authoritative. Warn if a ceiling
-prevents the service-line portfolio premium. Individual locations and residents
-may legitimately finish above Street Rate.
+**How to apply:** solve the in-house increase against the modeled quarterly
+outcome after occupancy/turnover and replacement Street Rates are included.
+Choose the smallest increase that clears the hardest testable quarter; do not
+add a separate zero-turnover target because that double-counts growth and makes
+every modeled replacement pure overshoot. Keep the Street floor at the maximum
+of the configured minimum and the positive competitive gap capped at the
+objective. Apply the 1% premium only when location scope is absent, and keep
+both Street ceilings authoritative. Warn if a ceiling prevents the service-line
+portfolio premium. Individual locations and residents may legitimately finish
+above Street Rate.
 
 ## `computed || fallback` erases a legitimate zero
 

@@ -470,7 +470,7 @@ console.log("\n-- 5. A resident above street may still receive an increase --");
 }
 
 // ── 6. Achievable target ───────────────────────────────────────────────────
-console.log("\n-- 6. An achievable target favors guaranteed in-house revenue --");
+console.log("\n-- 6. An achievable target solves the modeled quarterly outcome --");
 {
   const solveWithTurnover = (annualTurnoverPct: number) => solvePlan({
     residents: roomyPopulation(),
@@ -484,11 +484,9 @@ console.log("\n-- 6. An achievable target favors guaranteed in-house revenue --"
   const result = solveWithTurnover(30);
   const noTurnover = solveWithTurnover(0);
   ok("plan is feasible", result.feasible);
-  near(
-    "modeled turnover does not reduce an achievable guaranteed in-house increase",
-    result.requiredAvgIncrease,
-    noTurnover.requiredAvgIncrease,
-    1e-6,
+  ok(
+    "modeled replacement revenue reduces the in-house increase needed",
+    result.requiredAvgIncrease < noTurnover.requiredAvgIncrease,
   );
   ok(
     "Street Rate is not pushed past the objective to do in-house's work",
@@ -500,9 +498,11 @@ console.log("\n-- 6. An achievable target favors guaranteed in-house revenue --"
   );
   ok("every quarter passes", result.quarterResults.every((q) => q.passes));
   const binding = result.quarterResults.find((q) => q.isBinding);
-  ok(
-    "modeled turnover remains upside above the guaranteed target",
-    (binding?.yoyGrowthPct ?? 0) >= 5,
+  near(
+    "the binding quarter lands on the target instead of treating turnover as excess upside",
+    binding?.yoyGrowthPct ?? 0,
+    5,
+    0.001,
   );
   ok("no infeasibility block", result.infeasibility === null);
   ok(
@@ -701,11 +701,9 @@ console.log("\n-- 6d. Variance to Top Competitor decides Street vs in-house --")
     "but never past the growth objective",
     wellBelow.streetIncrease * 100 <= 5 + 0.01,
   );
-  near(
-    "more replacement Street Rate growth does not reduce the guaranteed in-house increase",
-    wellBelow.requiredAvgIncrease,
-    wellAbove.requiredAvgIncrease,
-    1e-6,
+  ok(
+    "more replacement Street Rate growth reduces the in-house increase needed",
+    wellBelow.requiredAvgIncrease < wellAbove.requiredAvgIncrease,
   );
   ok(
     "both directions still clear every quarter",

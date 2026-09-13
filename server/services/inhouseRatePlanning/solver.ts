@@ -709,27 +709,11 @@ export function solvePlan(input: SolveInput): SolveOutput {
    * the portfolio-wide relationship is reported after aggregation rather than
    * forcing every local plan to satisfy it.
    */
-  // Prefer contracted revenue over modeled replacement revenue. Solve the
-  // target once with zero turnover: this is the increase that reaches the
-  // objective using residents already in place, without assuming anyone leaves
-  // and is replaced at Street Rate.
-  const guaranteedRequired = requiredAvgIncreaseAt(
-    { ...ctx, turnover: 0 },
-    0,
-    ctx.max,
-  );
   const plannedAvgAt = (g: number) => {
     const headroom = maxAvgAt(g);
-    const outcomeRequired = feasible
+    return feasible
       ? requiredAvgIncreaseAt(ctx, g, Math.max(headroom, ctx.max))
       : headroom;
-    // Push toward that guaranteed level as far as resident guardrails allow.
-    // Turnover still closes any remaining gap when the maximum is insufficient.
-    const preferred = Math.max(
-      outcomeRequired,
-      Math.min(guaranteedRequired, Math.max(headroom, 0)),
-    );
-    return Math.min(preferred, Math.max(headroom, 0));
   };
 
   const allocation = allocationFor(ctx, streetIncrease, plannedAvgAt(streetIncrease));
