@@ -71,3 +71,5 @@ calculation alone so stale drafts cannot block the result the user just ran.
 When saving a multi-line calculation plus single-line fallbacks, write the
 complete selected scope last; quota recovery protects the final write, so a
 single-line write must never be allowed to replace the complete result.
+Optional single-line fallback failures must not mark the calculation unsaved
+when that protected complete-scope write succeeds.

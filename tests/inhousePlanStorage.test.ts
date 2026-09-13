@@ -21,6 +21,13 @@ class QuotaStorage extends MemoryStorage {
   }
 }
 
+class RejectFallbackStorage extends MemoryStorage {
+  override setItem(key: string, value: string) {
+    if (value.includes("fallback-only")) throw new Error("optional fallback rejected");
+    super.setItem(key, value);
+  }
+}
+
 const localStorage = new MemoryStorage();
 (globalThis as any).window = {
   indexedDB: undefined,
@@ -137,6 +144,30 @@ assert.deepEqual(
   await readInhousePlan(identity, combinedScope),
   combined,
   "the complete multi-line plan is the protected final snapshot",
+);
+
+const rejectFallbackStorage = new RejectFallbackStorage();
+(globalThis as any).window.localStorage = rejectFallbackStorage;
+const primaryAfterRejectedFallback = {
+  ...saved,
+  plans: [{ sl: "AL", plan: { summary: {}, marker: "complete-primary" } }],
+};
+assert.equal(
+  await writeInhousePlanBundle(
+    identity,
+    { scopeKey: combinedScope, value: primaryAfterRejectedFallback },
+    [{
+      scopeKey: "ALL_CAMPUSES::AL",
+      value: { ...saved, marker: "fallback-only" },
+    }],
+  ),
+  true,
+  "a rejected optional fallback does not report that the complete plan was unsaved",
+);
+assert.deepEqual(
+  await readInhousePlan(identity, combinedScope),
+  primaryAfterRejectedFallback,
+  "the complete primary remains readable after an optional fallback fails",
 );
 
 (globalThis as any).window.localStorage = {

@@ -200,7 +200,12 @@ export async function writeInhousePlanBundle<T>(
     primary.scopeKey,
     primary.value,
   );
-  return primaryWrite && fallbackWrites.every(Boolean);
+  // Per-line records are optional recovery aids. Quota pressure may reject one
+  // of them even though the complete selected-scope record saves successfully.
+  // Only the protected primary determines whether the user's calculation was
+  // actually saved; otherwise the UI shows a false destructive warning.
+  void fallbackWrites;
+  return primaryWrite;
 }
 
 export async function clearInhousePlanStorage(): Promise<void> {
