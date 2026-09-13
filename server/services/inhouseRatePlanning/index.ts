@@ -1420,7 +1420,7 @@ function explainPlan(ctx: {
     {
       label: "In-house rate · current → recommended",
       value: `${formatMoney(summary.currentAvgInhouseRateMonthly)} → ${formatMoney(summary.newAvgInhouseRateMonthly)}`,
-      note: `${formatPct(solved.requiredAvgIncrease * 100, 2)} increase, effective ${a.inhouseEffectiveDate}. Both values use the same private-pay resident rooms and resident-day weights.`,
+      note: `${formatPct(solved.requiredAvgIncrease * 100, 2)} increase, effective ${a.inhouseEffectiveDate}. It is set to pursue the growth target without crediting uncertain turnover; modeled replacements remain upside. Resident increases slide with each resident's product-matched gap to Street, then reconcile to this service-line weighted average.`,
     },
     {
       label: "Street Rate · current → recommended",

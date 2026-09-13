@@ -470,21 +470,25 @@ console.log("\n-- 5. A resident above street may still receive an increase --");
 }
 
 // ── 6. Achievable target ───────────────────────────────────────────────────
-console.log("\n-- 6. An achievable target is balanced across Street and in-house rates --");
+console.log("\n-- 6. An achievable target favors guaranteed in-house revenue --");
 {
-  const result = solvePlan({
+  const solveWithTurnover = (annualTurnoverPct: number) => solvePlan({
     residents: roomyPopulation(),
-    assumptions: assumptions({ rateGrowthTargetPct: 5 }),
+    assumptions: assumptions({ rateGrowthTargetPct: 5, annualTurnoverPct }),
     baselineByQuarter: flatBaseline(4200),
     quarters: QUARTERS,
     anchorMs: ANCHOR_MS,
     currentStreetRateMonthly: 5000,
     enforcePortfolioStreetPremium: true,
   });
+  const result = solveWithTurnover(30);
+  const noTurnover = solveWithTurnover(0);
   ok("plan is feasible", result.feasible);
-  ok(
-    "turnover into the replacement Street Rate reduces the in-house increase",
-    result.requiredAvgIncrease * 100 < 5 - 0.01,
+  near(
+    "modeled turnover does not reduce an achievable guaranteed in-house increase",
+    result.requiredAvgIncrease,
+    noTurnover.requiredAvgIncrease,
+    1e-6,
   );
   ok(
     "Street Rate is not pushed past the objective to do in-house's work",
@@ -496,11 +500,9 @@ console.log("\n-- 6. An achievable target is balanced across Street and in-house
   );
   ok("every quarter passes", result.quarterResults.every((q) => q.passes));
   const binding = result.quarterResults.find((q) => q.isBinding);
-  near(
-    "the binding quarter lands on the growth target after turnover is included",
-    binding?.yoyGrowthPct ?? Number.NaN,
-    5,
-    0.01,
+  ok(
+    "modeled turnover remains upside above the guaranteed target",
+    (binding?.yoyGrowthPct ?? 0) >= 5,
   );
   ok("no infeasibility block", result.infeasibility === null);
   ok(
@@ -699,9 +701,11 @@ console.log("\n-- 6d. Variance to Top Competitor decides Street vs in-house --")
     "but never past the growth objective",
     wellBelow.streetIncrease * 100 <= 5 + 0.01,
   );
-  ok(
-    "more replacement Street Rate growth requires less in-house increase",
-    wellBelow.requiredAvgIncrease < wellAbove.requiredAvgIncrease - 1e-6,
+  near(
+    "more replacement Street Rate growth does not reduce the guaranteed in-house increase",
+    wellBelow.requiredAvgIncrease,
+    wellAbove.requiredAvgIncrease,
+    1e-6,
   );
   ok(
     "both directions still clear every quarter",
@@ -1052,6 +1056,23 @@ console.log("\n-- 12. Resident allocation reconciles back to the required aggreg
       ),
     );
   }
+
+  const proportional = allocateIncreases({
+    residents: population,
+    targetAvgIncrease: 0.03,
+    minIncrease: 0,
+    maxIncrease: 0.2,
+    strength: "medium",
+    allowAboveStreet: false,
+    streetMultiplier: 1,
+  }).allocations.filter(
+    (a) => a.headroom > 0.001 && a.constraint === "none",
+  );
+  const closedShares = proportional.map((a) => a.increase / a.headroom);
+  ok(
+    "medium equalization closes one common share of each resident's Street gap",
+    Math.max(...closedShares) - Math.min(...closedShares) < 1e-9,
+  );
 
   // Equalization strength must actually change the spread.
   const spreadOf = (strength: "low" | "medium" | "high") => {

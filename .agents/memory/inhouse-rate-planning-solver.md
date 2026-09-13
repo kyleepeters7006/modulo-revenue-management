@@ -157,6 +157,10 @@ bound. Ignore legacy saved values that attempted to disable above-street rates,
 and keep app, diagnostics, exports, and tests on the same policy. Never give an
 at/above-street resident a literal zero allocation weight: use a positive floor
 so the curve can still reach that resident's allowed maximum when required.
+The default medium curve closes one common proportion of each resident's
+product-matched Street gap, then calibrates one scalar so those resident
+increases reconcile exactly to the service-line revenue-weighted target. Low is
+flat; high favors the deepest discounts more aggressively.
 
 ### Every calculation endpoint is a read-only POST
 
@@ -277,14 +281,15 @@ too hard despite weaker sales certainty. Conversely, enforcing the 1% premium
 at every location needlessly raised local asking rates; the product owner
 explicitly confirmed that the relationship is by service line at portfolio level.
 
-**How to apply:** solve the planned average in-house increase only after
-projecting turnover into replacement Street Rates; the quarterly outcome, not
-each lever, targets the growth objective. Keep the Street floor at the maximum
-of the configured minimum and the positive competitive gap capped at the
-objective; let feasibility pull Street higher only as a last resort. Apply the
-1% premium only when location scope is absent, and keep both Street ceilings
-authoritative. Warn if a ceiling prevents the service-line portfolio premium.
-Individual locations and residents may legitimately finish above Street Rate.
+**How to apply:** first solve the in-house increase against a zero-turnover case,
+so uncertain replacement revenue cannot reduce an achievable contracted
+increase. Push toward that guaranteed level up to the resident maximum; only
+then may modeled turnover and replacement Street Rates close a remaining gap.
+Keep the Street floor at the maximum of the configured minimum and the positive
+competitive gap capped at the objective. Apply the 1% premium only when location
+scope is absent, and keep both Street ceilings authoritative. Warn if a ceiling
+prevents the service-line portfolio premium. Individual locations and residents
+may legitimately finish above Street Rate.
 
 ## `computed || fallback` erases a legitimate zero
 

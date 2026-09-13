@@ -689,7 +689,7 @@ function buildSummarySheet(
   labelRow(ws, C.equalizationLabel, L.equalizationLabel, plan.assumptions.equalizationStrength,
     "A name for the exponent below, which is the value the formulas actually use.");
   inputRow(ws, C.exponent, L.exponent, audit.equalizationExponent, FMT_NUM2,
-    "0 = everyone gets the same increase. 1 = increases scale fully with room to street. 0.5 = half way.");
+    "0 = everyone gets the same increase. 1 = everyone closes the same proportion of their gap to Street. Values above 1 favor the deepest discounts more aggressively.");
   labelRow(ws, C.allowAboveStreet, L.allowAboveStreet, true,
     "Fixed planning policy: Street Rate shapes how increases are distributed but never caps an existing resident's rate.");
   inputRow(ws, C.streetEffective, L.streetEffective, plan.assumptions.streetRateEffectiveDate, undefined,

@@ -48,15 +48,17 @@ const PASS_EPSILON = 1e-6;
 /**
  * How far the allocation curve tilts toward residents with more headroom.
  * 0 gives every resident the same percentage; 1 makes the increase directly
- * proportional to the gap to street. The spread is derived from the
+ * proportional to the gap to street, closing one common share of every
+ * resident's dollar gap. Values above 1 favor the deepest discounts more
+ * aggressively. The spread is derived from the
  * configured min/max and the required average — deliberately not from
  * hard-coded percentage bands, which would silently ignore the operator's
  * own bounds.
  */
 export const EQUALIZATION_EXPONENT: Record<EqualizationStrength, number> = {
   low: 0,
-  medium: 0.5,
-  high: 1,
+  medium: 1,
+  high: 1.5,
 };
 
 // ───────────────────────────────────────────────────────────── projection ──
@@ -707,12 +709,27 @@ export function solvePlan(input: SolveInput): SolveOutput {
    * the portfolio-wide relationship is reported after aggregation rather than
    * forcing every local plan to satisfy it.
    */
+  // Prefer contracted revenue over modeled replacement revenue. Solve the
+  // target once with zero turnover: this is the increase that reaches the
+  // objective using residents already in place, without assuming anyone leaves
+  // and is replaced at Street Rate.
+  const guaranteedRequired = requiredAvgIncreaseAt(
+    { ...ctx, turnover: 0 },
+    0,
+    ctx.max,
+  );
   const plannedAvgAt = (g: number) => {
     const headroom = maxAvgAt(g);
-    const required = feasible
+    const outcomeRequired = feasible
       ? requiredAvgIncreaseAt(ctx, g, Math.max(headroom, ctx.max))
       : headroom;
-    return Math.min(required, Math.max(headroom, 0));
+    // Push toward that guaranteed level as far as resident guardrails allow.
+    // Turnover still closes any remaining gap when the maximum is insufficient.
+    const preferred = Math.max(
+      outcomeRequired,
+      Math.min(guaranteedRequired, Math.max(headroom, 0)),
+    );
+    return Math.min(preferred, Math.max(headroom, 0));
   };
 
   const allocation = allocationFor(ctx, streetIncrease, plannedAvgAt(streetIncrease));
