@@ -9,8 +9,11 @@ export interface QuarterYoyDisplayInput {
 }
 
 export interface QuarterYoyDisplay {
-  /** Null when the prior-year quarter has no complete realized comparison. */
+  /** Null only when there is no usable prior-year comparison. */
   yoyPct: number | null;
+  /** Partial values are shown but excluded from measured-quarter rollups. */
+  includedInSummary: boolean;
+  qualifierLabel?: string;
   unavailableLabel?: string;
   unavailableExplanation?: string;
 }
@@ -54,12 +57,11 @@ export function getQuarterYoyDisplay(
   const partial = input.basis === "partial";
 
   return {
-    yoyPct: measurable && !partial ? input.yoyGrowthPct : null,
-    unavailableLabel: partial
-      ? `Partial (${input.monthsAvailable}/3)`
-      : undefined,
-    unavailableExplanation: partial
-      ? `${input.priorYearLabel} has ${input.monthsAvailable} of 3 months available, so it is excluded from measured quarterly YoY.`
+    yoyPct: measurable ? input.yoyGrowthPct : null,
+    includedInSummary: measurable && !partial,
+    qualifierLabel: partial ? `Partial (${input.monthsAvailable}/3)` : undefined,
+    unavailableExplanation: measurable
+      ? undefined
       : "No usable prior-year comparison is available.",
   };
 }
@@ -80,8 +82,9 @@ export function summarizeQuarterYoy(
   inputs: QuarterYoyDisplayInput[],
 ): QuarterYoySummary {
   const measuredValues = inputs
-    .map((input) => getQuarterYoyDisplay(input).yoyPct)
-    .filter((value): value is number => value != null);
+    .map((input) => getQuarterYoyDisplay(input))
+    .filter((display) => display.includedInSummary && display.yoyPct != null)
+    .map((display) => display.yoyPct as number);
 
   return {
     averagePct:

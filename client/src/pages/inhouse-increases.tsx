@@ -218,14 +218,21 @@ function QuarterYoyBreakdown({ quarters }: { quarters: QuarterYoyCell[] }) {
               {formatQuarterYoyDisplay(quarter)}
             </span>
           ) : (
-            <span
-              className={cn(
-                "font-medium tabular-nums",
-                quarter.passes ? "text-emerald-600" : "text-amber-600",
+            <>
+              {quarter.qualifierLabel && (
+                <span className="font-medium text-muted-foreground">
+                  {quarter.qualifierLabel}
+                </span>
               )}
-            >
-              {formatPct(quarter.yoyPct, 1)}
-            </span>
+              <span
+                className={cn(
+                  "font-medium tabular-nums",
+                  quarter.passes ? "text-emerald-600" : "text-amber-600",
+                )}
+              >
+                {formatPct(quarter.yoyPct, 1)}
+              </span>
+            </>
           )}
         </div>
       ))}
@@ -3205,7 +3212,7 @@ export default function InhouseIncreases() {
                     };
                   });
                   const quartersMeetingGoal = quarterCells.filter(
-                    (quarter) => quarter.yoyPct != null && quarter.passes,
+                    (quarter) => quarter.includedInSummary && quarter.passes,
                   ).length;
                   const measuredQuarterCount = quarterlyYoySummary.measuredQuarterCount;
                   const adjustedTopComp = plan.adjustedTopCompetitorRateMonthly;
