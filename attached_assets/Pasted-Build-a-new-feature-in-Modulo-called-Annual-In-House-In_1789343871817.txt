@@ -1,0 +1,530 @@
+Build a new feature in Modulo called Annual In-House Increase Plan.
+
+The purpose is to take the completed/calculated annual in-house increase recommendation and turn it into a polished one-page executive decision document that can be:
+
+* Viewed inside Modulo
+* Expanded to full screen
+* Printed
+* Exported as a one-page PDF
+
+This should answer four questions immediately:
+
+1. What is Modulo recommending?
+2. How much additional revenue will it generate?
+3. How will the increase change the relationship between in-house and street rates?
+4. Does the recommendation appropriately balance revenue growth with resident retention and market positioning?
+
+Do not build this as a generic report. It should specifically summarize the output of the Annual In-House Increase calculation/planning tool already in Modulo.
+
+⸻
+
+ENTRY POINT
+
+On the Annual In-House Increase calculation/results page, add a prominent button:
+
+View Annual Increase Plan
+
+This should use the currently calculated plan and open a polished report view.
+
+Add these actions in the report:
+
+Export PDF | Print | Full Screen | Back to Plan
+
+Do not require the user to re-enter any information.
+
+The report must use the exact same calculated plan currently displayed in the Annual In-House Increase tool.
+
+⸻
+
+ONE-PAGE DESIGN
+
+Design this as an executive one-page document.
+
+Use a landscape PDF if that produces the best layout.
+
+The PDF and in-platform version should be visually consistent.
+
+Use Modulo’s existing:
+
+* Typography
+* Colors
+* Cards
+* Chart styling
+* Spacing
+* Rate formatting
+* Branding
+
+It should feel like a native part of Modulo, not a separate reporting application.
+
+The page should tell this story visually:
+
+Current Position → Recommended Increase → Revenue Impact → Future Rate Position
+
+⸻
+
+HEADER
+
+At the top display:
+
+Annual In-House Increase Plan
+
+Include:
+
+* Operator / Portfolio
+* Campus or selected campus group
+* Plan year
+* Effective date
+* Date generated
+
+If the calculation covers the entire portfolio, clearly identify it as Portfolio.
+
+⸻
+
+EXECUTIVE RECOMMENDATION
+
+Immediately below the header, create a prominent recommendation section.
+
+Show the most important calculated outputs as KPI cards.
+
+At minimum:
+
+Recommended Average Increase
+
+X.X%
+
+Incremental Revenue
+
+$XXX,XXX
+
+Show both current-year impact and annualized run-rate if those are different.
+
+Current In-House Variance to Street
+
+X.X%
+
+Post-Increase Variance to Street
+
+X.X%
+
+Current Occupancy
+
+XX.X%
+
+Revenue Growth Target
+
+X.X%
+
+These must come from the Annual In-House Increase calculation and existing Modulo data.
+
+Do not hard-code any values.
+
+⸻
+
+REUSE THE EXISTING OVERVIEW CHARTS
+
+This is extremely important.
+
+Modulo already has Street Rate vs In-House Rate charts on the Overview page.
+
+REUSE THOSE EXISTING CHART COMPONENTS.
+
+Do not create a new visual style.
+
+The existing Overview charts have:
+
+SNF
+
+* Solid teal = Street Rate
+* Dashed teal = In-House Rate
+* Daily rates
+
+Senior Housing
+
+* Solid orange = Street Rate
+* Dashed orange = In-House Rate
+* Monthly rates
+* Existing NIC MAP benchmark/tier lines
+
+Preserve the existing:
+
+* Colors
+* Line styles
+* Axis styling
+* Labels
+* Typography
+* Legends
+* NIC MAP treatment
+* SNF vs Senior Housing distinction
+
+Refactor the existing chart component if necessary so the Overview page, Annual Increase Plan and PDF all use the same reusable component.
+
+DO NOT recreate the chart separately for the PDF.
+
+⸻
+
+MODIFY THE CHART DATA FOR RATE PLANNING
+
+The Annual Increase Plan version of these charts should show both historical actuals and the calculated future plan.
+
+The timeline should flow:
+
+Historical → Current → Increase Effective Date → T3 → T6 → T12
+
+Show:
+
+* Historical street rates
+* Historical in-house rates
+* Current street rate
+* Current in-house rate
+* Recommended in-house increase
+* New in-house rate after the increase
+* Projected future street rates
+* Projected future in-house rates
+* NIC MAP benchmarks where applicable
+
+Use the existing Modulo forecast/calculation data.
+
+Do not invent a separate forecasting methodology for this report.
+
+⸻
+
+ANNUAL INCREASE MARKER
+
+Add a subtle vertical marker on the chart at the effective date.
+
+Label it:
+
+Annual Increase
+
+The dashed in-house line should visibly step/change at this point based on the calculated increase.
+
+This should make it immediately obvious what happens to the relationship between street and in-house rates when the recommendation takes effect.
+
+⸻
+
+FUTURE PERIOD COMPARISON
+
+Future comparisons are very important.
+
+Never compare a future in-house rate to today’s street rate.
+
+For every future period compare:
+
+Projected In-House Rate at that period
+
+against
+
+Projected Street Rate at that same period
+
+Use at least:
+
+* Current
+* Effective Date / Post Increase
+* T3
+* T6
+* T12
+
+⸻
+
+RATE POSITION SUMMARY
+
+Next to or immediately below the charts, create a compact section called:
+
+Rate Position
+
+Show:
+
+Period	Street Rate	In-House Rate	$ Variance	% Variance
+Current				
+Post Increase				
+T3				
+T6				
+T12				
+
+Use the appropriate rate format:
+
+* SNF = daily
+* Senior Housing = monthly
+
+If both SNF and Senior Housing are included, either show separate compact tables or clearly distinguish the service line within the table.
+
+⸻
+
+CURRENT VS FUTURE POSITION
+
+Make three comparisons particularly easy to see:
+
+CURRENT
+
+Street Rate
+In-House Rate
+Dollar Gap
+Percentage Gap
+
+POST INCREASE
+
+Projected Street Rate
+Recommended In-House Rate
+Dollar Gap
+Percentage Gap
+
+T12
+
+Projected Street Rate
+Projected In-House Rate
+Dollar Gap
+Percentage Gap
+
+The user should be able to understand in seconds whether Modulo is closing an excessive gap without pushing existing residents materially above street pricing.
+
+⸻
+
+INCREASE DISTRIBUTION
+
+The calculated plan may recommend different increases for different residents, units, campuses or rate situations.
+
+Show a compact Increase Distribution.
+
+Suggested bands:
+
+* <3%
+* 3–4.9%
+* 5–5.9%
+* 6–6.9%
+* 7–7.9%
+* 8%+
+
+For each band show:
+
+* Resident/unit count
+* Percentage of affected residents
+
+Also show:
+
+Minimum Increase
+Median Increase
+Average Increase
+Maximum Increase
+
+The Average Increase should be properly weighted based on the population/revenue methodology already used by the annual increase calculation.
+
+If every resident receives exactly the same increase, automatically hide the distribution visualization and use the space for other information.
+
+⸻
+
+REVENUE IMPACT
+
+Create a compact financial summary.
+
+Show:
+
+Current Annualized In-House Revenue
+
+plus
+
+Incremental Revenue from Recommended Increase
+
+equals
+
+Projected Annualized In-House Revenue
+
+Then prominently show:
+
+Full-Year Incremental Revenue
+
++$XXX,XXX
+
+Also show:
+
+Current-Year Incremental Revenue
+
++$XXX,XXX
+
+if the effective date means the current-year impact differs from the annual run rate.
+
+These amounts MUST reconcile to the detailed annual increase calculation.
+
+⸻
+
+REVENUE TARGET
+
+Show whether the recommendation achieves the revenue target established in the Annual In-House Increase tool.
+
+Display:
+
+Revenue Growth Target: X.X%
+
+Growth Produced by Recommended Plan: X.X%
+
+Then show a simple status:
+
+Target Achieved
+
+or
+
+Below Target by X.X%
+
+or
+
+Above Target by X.X%
+
+Do not imply that exceeding the target is automatically better. The plan should continue balancing rate growth against street-rate positioning and resident retention.
+
+⸻
+
+WHY MODULO RECOMMENDS THIS PLAN
+
+Add a short section:
+
+Why Modulo Recommends This Plan
+
+Generate 2–4 concise sentences using actual plan data.
+
+Do not produce generic AI commentary.
+
+Explain the important economics.
+
+For example, the logic might communicate:
+
+“Current in-house rates are 6.4% below street rates. The recommended 5.8% average annual increase captures dependable revenue from the existing resident base while maintaining an estimated 2.1% discount to projected street rates immediately after the increase. Projected street-rate growth creates additional pricing room over the following 12 months.”
+
+The actual text must dynamically reflect the calculated results.
+
+Relevant factors can include:
+
+* Current in-house/street variance
+* Post-increase variance
+* T12 variance
+* Occupancy
+* Competitive positioning
+* NIC MAP benchmarks
+* Revenue target
+* Recommended increase
+* Revenue generated
+* Resident retention considerations
+
+Only mention a factor if actual data exists to support it.
+
+⸻
+
+CORE PRICING PHILOSOPHY
+
+The report should reflect the pricing logic of the Annual In-House Increase model.
+
+In-house increases are especially valuable because they apply to the existing resident base and therefore represent a relatively dependable source of revenue.
+
+The model should attempt to capture appropriate annual in-house increases while also protecting against excessive increases that could create resident dissatisfaction or move-out risk.
+
+Street-rate positioning is the key constraint.
+
+Where possible:
+
+In-House Rate < Street Rate
+
+The objective is generally to bring in-house residents closer to street pricing without unnecessarily exceeding street pricing.
+
+The report should make this balance visible.
+
+⸻
+
+EXECUTIVE PLAN SUMMARY
+
+At the bottom of the page create one highlighted sentence that summarizes the recommendation.
+
+Example structure:
+
+Recommended Plan
+
+“Increase in-house rates an average of X.X% effective [date], generating approximately $XXX,XXX of annualized incremental revenue while positioning average in-house rates approximately X.X% below projected street rates after implementation.”
+
+Generate this dynamically from the plan.
+
+⸻
+
+PLAN STATUS
+
+Show:
+
+Plan Status: Draft / Recommended / Approved
+
+If Modulo already has a rate-plan approval workflow, connect this report to the existing status.
+
+Do not build a separate duplicate approval workflow.
+
+⸻
+
+PDF REQUIREMENTS
+
+Export this entire report as a true one-page PDF.
+
+The PDF should look like an executive presentation document.
+
+Do not simply screenshot the browser page.
+
+Charts must render sharply at PDF resolution.
+
+Keep:
+
+* Fonts readable
+* Charts large enough to interpret
+* Tables compact
+* Margins professional
+* No unnecessary navigation
+* No browser UI
+* No second page
+
+If necessary, dynamically adjust chart heights or hide nonessential explanatory text to guarantee one-page output.
+
+Do not remove the core recommendation, rate charts, variance comparisons or revenue impact to make it fit.
+
+⸻
+
+RESPONSIVE PLATFORM VIEW
+
+The in-platform report should also work on desktop, tablet and mobile.
+
+On desktop, show the complete executive report.
+
+On mobile, allow sections to stack vertically for readability.
+
+The PDF remains the one-page executive layout regardless of device used to generate it.
+
+⸻
+
+DATA INTEGRITY
+
+This feature is a presentation layer for the Annual In-House Increase calculation.
+
+It should NOT create a second calculation engine.
+
+Create or use a shared structured data object representing the calculated plan.
+
+The Annual Increase results screen, report preview and PDF should consume the same data.
+
+Validate that:
+
+1. Recommended increases reconcile to the detailed resident/unit plan.
+2. Incremental revenue reconciles to the Annual In-House Increase calculation.
+3. Weighted-average increases are calculated correctly.
+4. Current-year impact accounts for the effective date.
+5. Annualized impact represents the full-year run rate.
+6. Street and in-house comparisons use matching time periods.
+7. T3, T6 and T12 use the existing Modulo forecast assumptions.
+8. SNF rates remain daily rates.
+9. Senior Housing rates remain monthly rates.
+10. NIC MAP benchmarks use the same data and methodology as Overview.
+11. Every number shown in multiple locations on the report reconciles exactly.
+
+⸻
+
+FINAL DESIGN PRIORITY
+
+Do not try to fill every inch of the PDF with information.
+
+Prioritize visual hierarchy.
+
+Within five seconds of opening the report, an executive should understand:
+
+We are recommending X% → it generates $X → rates move from X% below street to X% below street → here is how that relationship develops over the next 12 months.
+
+The existing Overview Street vs In-House charts should be the main visual evidence supporting that recommendation.
