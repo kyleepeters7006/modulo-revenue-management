@@ -1027,15 +1027,17 @@ function isStoredPlan(value: unknown): value is PlanWithSl {
 interface StoredCalculatedPlan {
   plans: PlanWithSl[];
   lastRunAt: string;
+  detailsOmitted?: boolean;
 }
 
 function readStoredCalculatedPlan(value: unknown): {
   plans: PlanWithSl[];
   lastRunAt: string | null;
+  detailsOmitted: boolean;
 } | null {
   // Backward compatibility for calculations saved before timestamps existed.
   if (Array.isArray(value) && value.every(isStoredPlan)) {
-    return { plans: value, lastRunAt: null };
+    return { plans: value, lastRunAt: null, detailsOmitted: false };
   }
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<StoredCalculatedPlan>;
@@ -1047,7 +1049,24 @@ function readStoredCalculatedPlan(value: unknown): {
   ) {
     return null;
   }
-  return { plans: candidate.plans, lastRunAt: candidate.lastRunAt };
+  return {
+    plans: candidate.plans,
+    lastRunAt: candidate.lastRunAt,
+    detailsOmitted: candidate.detailsOmitted === true,
+  };
+}
+
+function compactPlanForBrowserStorage(result: PlanWithSl): PlanWithSl {
+  return {
+    ...result,
+    plan: {
+      ...result.plan,
+      // The portfolio result can contain tens of thousands of resident rows.
+      // Keep the complete result in memory for the current session, but persist
+      // the calculated totals, projections, assumptions, and warnings only.
+      residents: [],
+    },
+  };
 }
 
 export default function InhouseIncreases() {
@@ -1105,6 +1124,7 @@ export default function InhouseIncreases() {
   const [, startAssumptionTransition] = useTransition();
   const [plans, setPlans] = useState<PlanWithSl[] | null>(null);
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
+  const [restoredPlanDetailsOmitted, setRestoredPlanDetailsOmitted] = useState(false);
   const [expandedQuarter, setExpandedQuarter] = useState<string | null>(null);
   const [expandedResident, setExpandedResident] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
@@ -1181,6 +1201,7 @@ export default function InhouseIncreases() {
     let cancelled = false;
     setPlans(null);
     setLastRunAt(null);
+    setRestoredPlanDetailsOmitted(false);
     setVisibleCount(50);
     setExpandedResident(null);
     setExpandedQuarter(null);
@@ -1193,6 +1214,7 @@ export default function InhouseIncreases() {
           ? stored.plans
           : null;
       let restoredLastRunAt = restored ? stored?.lastRunAt ?? null : null;
+      let detailsOmitted = restored ? stored?.detailsOmitted === true : false;
 
       // Older cache entries and individually calculated lines may not have a
       // combined entry for the current multi-select. Compose it from each
@@ -1209,6 +1231,7 @@ export default function InhouseIncreases() {
             return {
               plan: lineStored?.plans.find((candidate) => candidate.sl === sl) ?? null,
               lastRunAt: lineStored?.lastRunAt ?? null,
+              detailsOmitted: lineStored?.detailsOmitted === true,
             };
           }),
         );
@@ -1222,11 +1245,13 @@ export default function InhouseIncreases() {
         if (available.length === serviceLines.length && new Set(timestamps).size === 1) {
           restoredLastRunAt = timestamps[0] ?? restoredLastRunAt;
         }
+        detailsOmitted = perLine.some(({ plan, detailsOmitted }) => plan !== null && detailsOmitted);
       }
 
       if (cancelled) return;
       setPlans(restored);
       setLastRunAt(restoredLastRunAt);
+      setRestoredPlanDetailsOmitted(detailsOmitted);
       const first = restored?.find((r) => r.plan.feasible) ?? restored?.[0];
       setExpandedQuarter(first?.plan.bindingQuarterLabel
         ? `${first.sl}-${first.plan.bindingQuarterLabel}`
@@ -1625,14 +1650,19 @@ export default function InhouseIncreases() {
       const lastRunAt = new Date().toISOString();
       let saved = false;
       if (identityKey) {
-        const stored: StoredCalculatedPlan = { plans: results, lastRunAt };
+        const compactResults = results.map(compactPlanForBrowserStorage);
+        const stored: StoredCalculatedPlan = {
+          plans: compactResults,
+          lastRunAt,
+          detailsOmitted: true,
+        };
         const writes = await Promise.all([
           writeInhousePlan(identityKey, scopeKey, stored),
-          ...results.map((result) =>
+          ...compactResults.map((result) =>
             writeInhousePlan(
               identityKey,
               calculatedPlanScopeKey(result.plan.scope.locationId ?? null, [result.sl]),
-              { plans: [result], lastRunAt } satisfies StoredCalculatedPlan,
+              { plans: [result], lastRunAt, detailsOmitted: true } satisfies StoredCalculatedPlan,
             ),
           ),
         ]);
@@ -1647,6 +1677,7 @@ export default function InhouseIncreases() {
       ) return;
       setPlans(results);
       setLastRunAt(lastRunAt);
+      setRestoredPlanDetailsOmitted(false);
       setVisibleCount(50);
       setExpandedResident(null);
       // Expand the binding quarter of the first feasible plan.
@@ -1738,14 +1769,19 @@ export default function InhouseIncreases() {
       const lastRunAt = new Date().toISOString();
       let saved = false;
       if (result.identityKey) {
-        const stored: StoredCalculatedPlan = { plans: calculatedPlans, lastRunAt };
+        const compactPlans = calculatedPlans.map(compactPlanForBrowserStorage);
+        const stored: StoredCalculatedPlan = {
+          plans: compactPlans,
+          lastRunAt,
+          detailsOmitted: true,
+        };
         const writes = await Promise.all([
           writeInhousePlan(result.identityKey, result.planScopeKey, stored),
-          ...calculatedPlans.map((calculated) =>
+          ...compactPlans.map((calculated) =>
             writeInhousePlan(
               result.identityKey!,
               calculatedPlanScopeKey(calculated.plan.scope.locationId ?? null, [calculated.sl]),
-              { plans: [calculated], lastRunAt } satisfies StoredCalculatedPlan,
+              { plans: [calculated], lastRunAt, detailsOmitted: true } satisfies StoredCalculatedPlan,
             ),
           ),
         ]);
@@ -1757,6 +1793,7 @@ export default function InhouseIncreases() {
       ) {
         setPlans(calculatedPlans);
         setLastRunAt(lastRunAt);
+        setRestoredPlanDetailsOmitted(false);
         setVisibleCount(50);
         setExpandedResident(null);
         const first = calculatedPlans.find((entry) => entry.plan.feasible) ?? calculatedPlans[0];
@@ -3005,19 +3042,26 @@ export default function InhouseIncreases() {
       )}
 
       {plans && plans.length > 0 && (
-        <div
-          className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm"
-          data-testid="calculated-plan-last-run"
-        >
-          <span className="font-medium">Last run for these filters</span>
-          <span className="text-muted-foreground">
-            {lastRunAt
-              ? new Intl.DateTimeFormat(undefined, {
-                  dateStyle: "medium",
-                  timeStyle: "short",
-                }).format(new Date(lastRunAt))
-              : "Saved before timestamps were added"}
-          </span>
+        <div className="space-y-1 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+          <div
+            className="flex flex-wrap items-center justify-between gap-2"
+            data-testid="calculated-plan-last-run"
+          >
+            <span className="font-medium">Last run for these filters</span>
+            <span className="text-muted-foreground">
+              {lastRunAt
+                ? new Intl.DateTimeFormat(undefined, {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  }).format(new Date(lastRunAt))
+                : "Saved before timestamps were added"}
+            </span>
+          </div>
+          {restoredPlanDetailsOmitted && (
+            <p className="text-xs text-muted-foreground">
+              Saved totals and projections restored. Run Calculate Plan to reload resident details.
+            </p>
+          )}
         </div>
       )}
 
@@ -3103,11 +3147,13 @@ export default function InhouseIncreases() {
                     const priorRate = quarter.priorYear.realizedRateMonthly;
                     const measurable =
                       priorRate != null && priorRate > 0 && Number.isFinite(quarter.yoyGrowthPct);
-                    const partial = !measurable && quarter.priorYear.basis === "partial";
+                    // A two-month quarter can still produce a finite ratio, but
+                    // it is not a complete measured YoY comparison.
+                    const partial = quarter.priorYear.basis === "partial";
                     return {
                       key: `${quarter.year}-Q${quarter.quarter}`,
                       label: quarterCellLabel(quarter.quarter, quarter.year, singleQuarterYear),
-                      yoyPct: measurable ? quarter.yoyGrowthPct : null,
+                      yoyPct: measurable && !partial ? quarter.yoyGrowthPct : null,
                       passes: quarter.passes,
                       unavailableLabel: partial
                         ? `Partial (${quarter.priorYear.monthsAvailable}/3)`

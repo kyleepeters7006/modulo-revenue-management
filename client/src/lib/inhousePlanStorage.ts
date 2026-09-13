@@ -1,5 +1,8 @@
-const STORAGE_KEY = "inhouse-rate-planning:calculated-plans:v17";
+// v18 stores compact snapshots. v17 could contain portfolio-wide resident
+// details large enough to terminate mobile Safari during IndexedDB cloning.
+const STORAGE_KEY = "inhouse-rate-planning:calculated-plans:v18";
 const LEGACY_STORAGE_KEYS = [
+  "inhouse-rate-planning:calculated-plans:v17",
   "inhouse-rate-planning:calculated-plans:v16",
   "inhouse-rate-planning:calculated-plans:v15",
   "inhouse-rate-planning:calculated-plans:v14",
@@ -16,8 +19,9 @@ const LEGACY_STORAGE_KEYS = [
   "inhouse-rate-planning:calculated-plans:v2",
   "inhouse-rate-planning:calculated-plans:v1",
 ];
-const DB_NAME = "inhouse-rate-planning:v17";
+const DB_NAME = "inhouse-rate-planning:v18";
 const LEGACY_DB_NAMES = [
+  "inhouse-rate-planning:v17",
   "inhouse-rate-planning:v16",
   "inhouse-rate-planning:v15",
   "inhouse-rate-planning:v14",

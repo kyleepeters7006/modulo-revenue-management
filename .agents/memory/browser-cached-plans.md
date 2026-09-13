@@ -43,3 +43,15 @@ calculation fail the stale-result guard and disappear without an error.
 completed request against a scope key derived directly from the current campus
 and service-line selection. Never use “can this be persisted?” to decide “can
 this be displayed now?”
+
+Portfolio-wide plans can contain enough resident detail for IndexedDB's
+structured clone to terminate mobile Safari during restore. Browser persistence
+must store compact totals/projections, not resident rows; a storage-shape change
+must use a new database/key version so old oversized values are never opened.
+
+**Why:** an authenticated iPhone repeatedly reloaded and died before normal API
+loading because startup tried to clone a previously saved portfolio result.
+
+**How to apply:** keep full resident detail only in current-session memory or an
+authorized server store. Label compact restores and require recalculation before
+showing resident-level detail.
