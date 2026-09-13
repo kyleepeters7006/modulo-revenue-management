@@ -112,3 +112,4 @@
 - [Occupancy chart semantics](occupancy-chart-semantics.md) — occupancy rates compare on a common 0–100% scale; never present them as additive pie or donut shares.
 - [Startup migration readiness](startup-migration-readiness.md) — bind the listener before schema work, gate APIs until ready, and make destructive background jobs await the same barrier.
 - [Planning signal validation](planning-signal-validation.md) — trust only source-present vacancy snapshots; keep time-to-sell unavailable until transition history exists.
+- [Authenticated fixture cleanup](authenticated-fixture-cleanup.md) — MFA test users need dependent security records removed before teardown.

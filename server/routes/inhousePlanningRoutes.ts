@@ -302,7 +302,20 @@ function requireAuth(req: any, res: any, next: any) {
     .json({ error: "Login required. In-house rate plan actions are disabled in anonymous demo mode." });
 }
 
-export function registerInhousePlanningRoutes(app: Express) {
+export type InhousePlanningRouteDependencies = {
+  /**
+   * Test seam for the submission path. Production uses the real solver; tests
+   * can provide a deterministic plan without seeding the live solver inputs.
+   */
+  calculatePlan?: typeof calculatePlan;
+};
+
+export function registerInhousePlanningRoutes(
+  app: Express,
+  dependencies: InhousePlanningRouteDependencies = {},
+) {
+  const calculatePlanForRoute = dependencies.calculatePlan ?? calculatePlan;
+
   // ── Assumptions ──────────────────────────────────────────────────────────
 
   app.get("/api/inhouse-planning/assumptions", async (req: any, res) => {
@@ -517,7 +530,7 @@ export function registerInhousePlanningRoutes(app: Express) {
         baseAssumptions,
         body.data.tierPolicy ?? stored.tierPolicy,
       );
-      const plan = await calculatePlan({
+      const plan = await calculatePlanForRoute({
         clientId,
         locationId,
         location,
@@ -741,7 +754,7 @@ export function registerInhousePlanningRoutes(app: Express) {
 
       // Recalculate server-side rather than trusting a posted plan: the client
       // must not be able to apply numbers the solver never produced.
-      const plan = await calculatePlan({
+      const plan = await calculatePlanForRoute({
         clientId,
         locationId,
         location,
