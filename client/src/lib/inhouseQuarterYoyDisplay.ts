@@ -15,6 +15,11 @@ export interface QuarterYoyDisplay {
   unavailableExplanation?: string;
 }
 
+export interface QuarterYoySummary {
+  averagePct: number;
+  measuredQuarterCount: number;
+}
+
 export interface QuarterLabelInput {
   quarter: number;
   year: number;
@@ -64,4 +69,25 @@ export function formatQuarterYoyDisplay(display: QuarterYoyDisplay): string {
   return display.yoyPct == null
     ? display.unavailableLabel ?? "n/a"
     : formatPct(display.yoyPct, 1);
+}
+
+/**
+ * Summarize only the same quarter values that are shown as numeric in the
+ * breakdown. This keeps partial and unavailable prior-year baselines out of
+ * both the average and its measured-quarter count.
+ */
+export function summarizeQuarterYoy(
+  inputs: QuarterYoyDisplayInput[],
+): QuarterYoySummary {
+  const measuredValues = inputs
+    .map((input) => getQuarterYoyDisplay(input).yoyPct)
+    .filter((value): value is number => value != null);
+
+  return {
+    averagePct:
+      measuredValues.length > 0
+        ? measuredValues.reduce((sum, value) => sum + value, 0) / measuredValues.length
+        : 0,
+    measuredQuarterCount: measuredValues.length,
+  };
 }

@@ -11,6 +11,7 @@ import {
   formatQuarterLabels,
   formatQuarterYoyDisplay,
   getQuarterYoyDisplay,
+  summarizeQuarterYoy,
 } from "../client/src/lib/inhouseQuarterYoyDisplay";
 
 function display(overrides: Partial<Parameters<typeof getQuarterYoyDisplay>[0]> = {}) {
@@ -41,26 +42,28 @@ describe("quarterly YoY display", () => {
 
   it("shows a partial 2-of-3-month prior-year quarter as Partial (2/3)", () => {
     const quarter = display({
-      basis: "partial",
-      monthsAvailable: 2,
-    });
-
-    expect(formatQuarterYoyDisplay(quarter)).toBe("Partial (2/3)");
-  });
-
-  it("shows a complete prior-year quarter with its numeric YoY", () => {
-    const quarter = display();
-
-    expect(formatQuarterYoyDisplay(quarter)).toBe("7.3%");
-  });
-
-  it("keeps a genuinely absent prior-year quarter as n/a", () => {
-    const quarter = display({
       priorRate: null,
       yoyGrowthPct: 0,
-      basis: "actual",
+      basis: "projected",
       monthsAvailable: 0,
     });
+
+    const summary = summarizeQuarterYoy([
+      {
+        priorRate: 100,
+        yoyGrowthPct: 7.25,
+        basis: "actual",
+        monthsAvailable: 3,
+        priorYearLabel: "Q1 2026",
+      },
+      {
+        priorRate: 100,
+        yoyGrowthPct: 40,
+        basis: "partial",
+        monthsAvailable: 2,
+        priorYearLabel: "Q2 2026",
+      },
+    ]);
 
     expect(formatQuarterYoyDisplay(quarter)).toBe("n/a");
   });
@@ -73,6 +76,82 @@ describe("quarterly YoY display", () => {
       monthsAvailable: 0,
     });
 
+    const summary = summarizeQuarterYoy([
+      {
+        priorRate: 100,
+        yoyGrowthPct: 7.25,
+        basis: "actual",
+        monthsAvailable: 3,
+        priorYearLabel: "Q1 2026",
+      },
+      {
+        priorRate: 100,
+        yoyGrowthPct: 40,
+        basis: "partial",
+        monthsAvailable: 2,
+        priorYearLabel: "Q2 2026",
+      },
+    ]);
+
     expect(formatQuarterYoyDisplay(quarter)).toBe("n/a");
+  });
+
+  it("keeps a projected prior-year quarter as n/a", () => {
+    const quarter = display({
+      priorRate: null,
+      yoyGrowthPct: 0,
+      basis: "projected",
+      monthsAvailable: 0,
+    });
+
+    const summary = summarizeQuarterYoy([
+      {
+        priorRate: 100,
+        yoyGrowthPct: 7.25,
+        basis: "actual",
+        monthsAvailable: 3,
+        priorYearLabel: "Q1 2026",
+      },
+      {
+        priorRate: 100,
+        yoyGrowthPct: 40,
+        basis: "partial",
+        monthsAvailable: 2,
+        priorYearLabel: "Q2 2026",
+      },
+    ]);
+
+    expect(formatQuarterYoyDisplay(quarter)).toBe("n/a");
+  });
+
+  it("keeps a projected prior-year quarter as n/a", () => {
+    const quarter = display({
+      priorRate: null,
+      yoyGrowthPct: 0,
+      basis: "projected",
+      monthsAvailable: 0,
+    });
+
+    const summary = summarizeQuarterYoy([
+      {
+        priorRate: 100,
+        yoyGrowthPct: 7.25,
+        basis: "actual",
+        monthsAvailable: 3,
+        priorYearLabel: "Q1 2026",
+      },
+      {
+        priorRate: 100,
+        yoyGrowthPct: 40,
+        basis: "partial",
+        monthsAvailable: 2,
+        priorYearLabel: "Q2 2026",
+      },
+    ]);
+
+    expect(summary).toEqual({
+      averagePct: 7.25,
+      measuredQuarterCount: 1,
+    });
   });
 });

@@ -306,6 +306,20 @@ fields — a table cell, an average, a resident-weighted roll-up — must gate o
 whether the prior-year quarter has a realized rate, not on the growth number
 being finite, or it renders a fabricated passing 0% and weights it into totals.
 
+Partial prior-year quarters are a fourth state for summary reporting: they have
+a finite ratio and remain visible as context, but they are not complete
+quarter-over-quarter measurements. Exclude them from quarterly averages, goal
+deltas, and measured-quarter counts; use the same eligibility rule for combined
+service-line roll-ups.
+
+**Why:** two months of a quarter can produce a plausible ratio that is not
+comparable with a full three-month quarter. Including it makes the summary look
+more measured than the underlying baseline.
+
+**How to apply:** derive summary values from the same display eligibility used
+for the quarter breakdown, rather than filtering only on finite growth or a
+positive prior rate.
+
 ## Missing-quarter projections continue the latest observed trajectory
 
 When a future prior-year quarter is missing, anchor its projection on the latest

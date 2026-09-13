@@ -106,7 +106,9 @@ import {
   formatQuarterYoyDisplay,
   formatQuarterLabels,
   getQuarterYoyDisplay,
+  summarizeQuarterYoy,
   type QuarterYoyDisplay,
+  type QuarterYoyDisplayInput,
 } from "@/lib/inhouseQuarterYoyDisplay";
 
 /**
@@ -177,6 +179,18 @@ interface QuarterYoyCell extends QuarterYoyDisplay {
   key: string;
   label: string;
   passes: boolean;
+}
+
+function quarterYoyDisplayInput(
+  quarter: PlanResult["quarters"][number],
+): QuarterYoyDisplayInput {
+  return {
+    priorRate: quarter.priorYear.realizedRateMonthly,
+    yoyGrowthPct: quarter.yoyGrowthPct,
+    basis: quarter.priorYear.basis,
+    monthsAvailable: quarter.priorYear.monthsAvailable,
+    priorYearLabel: quarter.priorYear.label,
+  };
 }
 
 /**
@@ -2142,23 +2156,32 @@ export default function InhouseIncreases() {
     let projectedFullYearMonthly = 0;
     let quarterlyGoalWeighted = 0;
     let quarterlyYoyWeighted = 0;
+    let measuredResidents = 0;
     let quartersMeetingGoal = 0;
     let projectedQuarterCount = 0;
     // Resident-weighted YoY per calendar quarter, so the combined row can show
     // the same quarter-by-quarter detail as each service line.
     const quarterTotals = new Map<
       string,
-      { year: number; quarter: number; weighted: number; goalWeighted: number; residents: number }
+      {
+        year: number;
+        quarter: number;
+        weighted: number;
+        goalWeighted: number;
+        residents: number;
+        unavailableLabel?: string;
+        unavailableExplanation?: string;
+      }
     >();
     for (const { plan } of plans) {
       const count = plan.summary.residentCount;
       const fullYearYoy = fullYearYoyFromQuarters(plan.quarters, plan.rateBasis);
-      const quarterlyYoyValues = plan.quarters
-        .map((quarter) => quarter.yoyGrowthPct)
-        .filter(Number.isFinite);
-      const averageQuarterlyYoy = quarterlyYoyValues.length > 0
-        ? quarterlyYoyValues.reduce((sum, value) => sum + value, 0) / quarterlyYoyValues.length
-        : 0;
+      const quarterDisplays = plan.quarters.map((quarter) =>
+        getQuarterYoyDisplay(quarterYoyDisplayInput(quarter)),
+      );
+      const quarterlyYoySummary = summarizeQuarterYoy(
+        plan.quarters.map(quarterYoyDisplayInput),
+      );
       residents += count;
       streetCurrentMonthly += plan.currentStreetRateMonthly * count;
       streetRecommendedMonthly += plan.recommendedStreetRateMonthly * count;
@@ -2176,10 +2199,15 @@ export default function InhouseIncreases() {
       }
       priorFullYearMonthly += fullYearYoy.priorRateMonthly * count;
       projectedFullYearMonthly += fullYearYoy.projectedRateMonthly * count;
-      quarterlyGoalWeighted += plan.assumptions.rateGrowthTargetPct * count;
-      quarterlyYoyWeighted += averageQuarterlyYoy * count;
-      quartersMeetingGoal += plan.quarters.filter((quarter) => quarter.passes).length;
-      projectedQuarterCount += plan.quarters.length;
+      if (quarterlyYoySummary.measuredQuarterCount > 0) {
+        measuredResidents += count;
+        quarterlyGoalWeighted += plan.assumptions.rateGrowthTargetPct * count;
+        quarterlyYoyWeighted += quarterlyYoySummary.averagePct * count;
+      }
+      quartersMeetingGoal += plan.quarters.filter(
+        (quarter, index) => quarterDisplays[index].yoyPct != null && quarter.passes,
+      ).length;
+      projectedQuarterCount += quarterlyYoySummary.measuredQuarterCount;
       for (const quarter of plan.quarters) {
         const key = `${quarter.year}-Q${quarter.quarter}`;
         const bucket = quarterTotals.get(key) ?? {
@@ -2193,9 +2221,16 @@ export default function InhouseIncreases() {
         // A quarter with no prior-year realized rate is untestable: the solver
         // scores it 0% and passing, so weighting it in would drag the combined
         // number toward a number nobody measured.
-        const priorRate = quarter.priorYear.realizedRateMonthly;
-        if (priorRate == null || priorRate <= 0 || !Number.isFinite(quarter.yoyGrowthPct)) continue;
-        bucket.weighted += quarter.yoyGrowthPct * count;
+        const display = getQuarterYoyDisplay(quarterYoyDisplayInput(quarter));
+        const yoyPct = display.yoyPct;
+        if (yoyPct == null) {
+          if (display.unavailableLabel && !bucket.unavailableLabel) {
+            bucket.unavailableLabel = display.unavailableLabel;
+            bucket.unavailableExplanation = display.unavailableExplanation;
+          }
+          continue;
+        }
+        bucket.weighted += yoyPct * count;
         bucket.goalWeighted += plan.assumptions.rateGrowthTargetPct * count;
         bucket.residents += count;
       }
@@ -2232,8 +2267,8 @@ export default function InhouseIncreases() {
       fullYearYoyPct: priorFullYearMonthly > 0
         ? (projectedFullYearMonthly / priorFullYearMonthly - 1) * 100
         : 0,
-      quarterlyGoalPct: residents > 0 ? quarterlyGoalWeighted / residents : 0,
-      averageQuarterlyYoyPct: residents > 0 ? quarterlyYoyWeighted / residents : 0,
+      quarterlyGoalPct: measuredResidents > 0 ? quarterlyGoalWeighted / measuredResidents : 0,
+      averageQuarterlyYoyPct: measuredResidents > 0 ? quarterlyYoyWeighted / measuredResidents : 0,
       quartersMeetingGoal,
       projectedQuarterCount,
       quarterlyBreakdown: orderedQuarters.map(([key, bucket], index) => {
@@ -2244,6 +2279,8 @@ export default function InhouseIncreases() {
           key,
           label: quarterLabels[index],
           yoyPct,
+          unavailableLabel: bucket.unavailableLabel,
+          unavailableExplanation: bucket.unavailableExplanation,
           // Colour the weighted number against the weighted goal, so it always
           // describes the value shown rather than a per-line pass tally.
           passes: yoyPct != null && yoyPct >= goalPct - 1e-6,
@@ -3117,36 +3154,29 @@ export default function InhouseIncreases() {
                   />
                   <HeaderHelp
                     label="Quarterly YoY goal"
-                    explanation={`Minimum YoY growth required for: ${quarterlyComparisonPeriods}.`}
+                    explanation={`Minimum YoY growth required for measured quarters with complete prior-year baselines: ${quarterlyComparisonPeriods}. Partial and unavailable baselines are excluded.`}
                   />
                   <HeaderHelp
                     label="Average quarterly YoY"
-                    explanation={`Average of: ${quarterlyComparisonPeriods}. Each quarter's own result is listed beneath the average — green when it meets the goal, amber when it falls short.`}
+                    explanation={`Average of complete prior-year baseline quarters only. Partial and unavailable baselines are excluded from both this average and its goal comparison. Each measured quarter's result is listed beneath the average — green when it meets the goal, amber when it falls short.`}
                   />
                   <HeaderHelp
                     label="Quarters at goal"
-                    explanation={`Periods meeting the goal: ${quarterlyComparisonPeriods}.`}
+                    explanation={`Measured periods meeting the goal: ${quarterlyComparisonPeriods}. Partial and unavailable prior-year baselines are excluded.`}
                   />
                 </div>
                 {plans.map(({ sl, plan }) => {
                   const daily = plan.rateBasis === "daily";
                   const rate = (monthly: number) => formatMoney(daily ? monthly / DAYS_PER_MONTH : monthly);
-                  const quarterlyYoyValues = plan.quarters
-                    .map((quarter) => quarter.yoyGrowthPct)
-                    .filter(Number.isFinite);
-                  const averageQuarterlyYoy = quarterlyYoyValues.length > 0
-                    ? quarterlyYoyValues.reduce((sum, value) => sum + value, 0) / quarterlyYoyValues.length
-                    : 0;
+                  const quarterlyYoySummary = summarizeQuarterYoy(
+                    plan.quarters.map(quarterYoyDisplayInput),
+                  );
+                  const averageQuarterlyYoy = quarterlyYoySummary.averagePct;
                   const fullYearYoy = fullYearYoyFromQuarters(plan.quarters, plan.rateBasis);
+                  const planYear = plan.quarters[0]?.year;
                   const quarterLabels = formatQuarterLabels(plan.quarters);
                   const quarterCells: QuarterYoyCell[] = plan.quarters.map((quarter, index) => {
-                    const display = getQuarterYoyDisplay({
-                      priorRate: quarter.priorYear.realizedRateMonthly,
-                      yoyGrowthPct: quarter.yoyGrowthPct,
-                      basis: quarter.priorYear.basis,
-                      monthsAvailable: quarter.priorYear.monthsAvailable,
-                      priorYearLabel: quarter.priorYear.label,
-                    });
+                    const display = getQuarterYoyDisplay(quarterYoyDisplayInput(quarter));
                     return {
                       key: `${quarter.year}-Q${quarter.quarter}`,
                       label: quarterLabels[index],
@@ -3154,7 +3184,10 @@ export default function InhouseIncreases() {
                       passes: quarter.passes,
                     };
                   });
-                  const quartersMeetingGoal = plan.quarters.filter((quarter) => quarter.passes).length;
+                  const quartersMeetingGoal = quarterCells.filter(
+                    (quarter) => quarter.yoyPct != null && quarter.passes,
+                  ).length;
+                  const measuredQuarterCount = quarterlyYoySummary.measuredQuarterCount;
                   const adjustedTopComp = plan.adjustedTopCompetitorRateMonthly;
                   const projectedAdjustedTopComp =
                     adjustedTopComp != null
@@ -3216,7 +3249,7 @@ export default function InhouseIncreases() {
                       </div>
                       <div>
                         <p className="font-semibold">{formatPct(plan.assumptions.rateGrowthTargetPct, 1)}</p>
-                        <p className="text-xs text-muted-foreground">Each quarter</p>
+                        <p className="text-xs text-muted-foreground">Each measured quarter</p>
                       </div>
                       <div>
                         <p className="font-semibold">{formatPct(averageQuarterlyYoy, 1)}</p>
@@ -3226,10 +3259,10 @@ export default function InhouseIncreases() {
                         <QuarterYoyBreakdown quarters={quarterCells} />
                       </div>
                       <div>
-                        <p className={cn("font-semibold", quartersMeetingGoal === plan.quarters.length ? "text-emerald-600" : "text-amber-600")}>
-                          {quartersMeetingGoal} / {plan.quarters.length}
+                        <p className={cn("font-semibold", quartersMeetingGoal === measuredQuarterCount ? "text-emerald-600" : "text-amber-600")}>
+                          {quartersMeetingGoal} / {measuredQuarterCount}
                         </p>
-                        <p className="text-xs text-muted-foreground">Projected quarters</p>
+                        <p className="text-xs text-muted-foreground">Measured quarters</p>
                       </div>
                     </div>
                   );
@@ -3289,7 +3322,7 @@ export default function InhouseIncreases() {
                       <p className={cn("font-semibold", growthSnapshot.quartersMeetingGoal === growthSnapshot.projectedQuarterCount ? "text-emerald-600" : "text-amber-600")}>
                         {growthSnapshot.quartersMeetingGoal} / {growthSnapshot.projectedQuarterCount}
                       </p>
-                      <p className="text-xs text-muted-foreground">Service-line quarters</p>
+                      <p className="text-xs text-muted-foreground">Measured service-line quarters</p>
                     </div>
                   </div>
                 )}
