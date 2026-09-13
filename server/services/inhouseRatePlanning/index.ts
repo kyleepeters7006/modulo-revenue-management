@@ -40,7 +40,6 @@ import { DAYS_PER_MONTH } from "@shared/careRates";
 import { isDailyRateServiceLine } from "../rateNormalization";
 import {
   buildResidents,
-  fetchCurrentStreetRate,
   fetchMixStandardizedStreetComparison,
   fetchTopCompetitorRate,
   fetchQuarterRoomRates,
@@ -85,6 +84,7 @@ import {
   projectMonthlyRealizedRates,
   projectQuarterlyRealizedRates,
   residentDayWeightedAverageRate,
+  residentWeightedAverageStreetRate,
   solvePlan,
   type ResidentAllocation,
 } from "./solver";
@@ -263,10 +263,9 @@ export async function preparePlan(
   // preceding that plan year. Using the Street effective-date year minus one
   // incorrectly sent an October 2026 change back to January 2025.
   const priorJanuaryMonth = `${quarters[0].year - 1}-01`;
-  const [rawRows, currentStreetRateMonthly, priorJanuaryComparison, topCompetitorRateMonthly, productBaselines, formulas] =
+  const [rawRows, priorJanuaryComparison, topCompetitorRateMonthly, productBaselines, formulas] =
     await Promise.all([
       fetchResidentRows(scope, sourceMonth),
-      fetchCurrentStreetRate(scope, sourceMonth),
       fetchMixStandardizedStreetComparison(scope, priorJanuaryMonth, sourceMonth),
       fetchTopCompetitorRate(scope, sourceMonth),
       fetchProductStreetBaselines(scope, sourceMonth),
@@ -285,6 +284,18 @@ export async function preparePlan(
   if (residents.length === 0) {
     throw new PlanningDataError(
       `No private-pay ${input.serviceLine} residents with a usable in-house rate at ${input.location ?? "this portfolio"} in ${sourceMonth}.`,
+    );
+  }
+
+  // Compare Street and in-house rates over one identical private-pay room mix.
+  // Each resident already carries the asking rate for their own product (with a
+  // product-matched fallback when the row itself is missing or implausible), so
+  // this uses the same rooms and horizon weights as the in-house population.
+  const currentStreetRateMonthly =
+    residentWeightedAverageStreetRate(residents);
+  if (!(currentStreetRateMonthly > 0)) {
+    throw new PlanningDataError(
+      `No private-pay ${input.serviceLine} resident room has a usable product-matched Street Rate at ${input.location ?? "this portfolio"} in ${sourceMonth}.`,
     );
   }
 
@@ -310,9 +321,7 @@ export async function preparePlan(
   // across the whole window removed that churn but kept only a biased remnant
   // of the portfolio, and chain-linking adjacent months made every level
   // hostage to the worst month between it and today. Comparing two quarters
-  // directly has neither weakness — see twoPointIndex.ts. The balanced panel is
-  // still computed so the two series can be compared before the old one is
-  // retired.
+  // directly has neither weakness — see twoPointIndex.ts.
   const [monthly, recordedMonths] = await Promise.all([
     fetchMonthlyRealizedRates(scope, "2000-01", unitMix),
     fetchRecordedMonths(scope, priorYearQuarters.flatMap((q) => expectedMonths(q))),

@@ -22,6 +22,22 @@ street rate needs a product classification first, then a product-specific
 reference level. Aggregate surfaces can keep using the base-only baseline;
 that is what it is for.
 
+# Aggregate Street vs in-house comparisons use one cohort
+
+The planning Street Rate average and in-house average must use the exact same
+private-pay resident rooms, product mapping, and horizon weights. Never compare
+the resident in-house cohort with a separately aggregated room-level Street
+Rate.
+
+**Why:** even when both queries are independently private-pay scoped, different
+room deduplication and weighting can manufacture or hide the Street-to-in-house
+gap that drives turnover projections.
+
+**How to apply:** attach each resident's product-matched Street Rate first, then
+derive both aggregate sides from those resident rows and weights. If any room
+cannot form a pair, fail explicitly rather than dropping it from only the Street
+denominator.
+
 # Vacant companion rows carry the whole room's rate
 
 A product median must measure **occupied rows only** for every non-base

@@ -527,6 +527,25 @@ export function residentDayWeightedAverageRate(residents: PlanningResident[]): n
   return den > 0 ? num / den : 0;
 }
 
+/**
+ * Asking-rate average over the exact resident cohort and weights used by the
+ * in-house average. A zero result means at least one resident has no usable
+ * product-matched Street Rate; callers must not silently change the denominator
+ * by dropping that room from only the Street side.
+ */
+export function residentWeightedAverageStreetRate(
+  residents: PlanningResident[],
+): number {
+  let num = 0;
+  let den = 0;
+  for (const r of residents) {
+    if (!(r.streetRateMonthly > 0)) return 0;
+    num += r.weight * r.streetRateMonthly;
+    den += r.weight;
+  }
+  return den > 0 ? num / den : 0;
+}
+
 function allocationFor(ctx: EvalContext, streetIncrease: number, avgIncrease: number) {
   // The cap a resident faces is the street rate in force on the day their
   // in-house increase lands — which is why the street effective date matters

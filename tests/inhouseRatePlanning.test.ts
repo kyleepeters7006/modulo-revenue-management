@@ -33,6 +33,7 @@ import {
   projectMonthlyRealizedRates,
   projectQuarterlyRealizedRates,
   residentDayWeightedAverageRate,
+  residentWeightedAverageStreetRate,
   solvePlan,
 } from "../server/services/inhouseRatePlanning/solver";
 import {
@@ -190,6 +191,33 @@ function roomyPopulation(): PlanningResident[] {
 console.log("\n=== In-House Rate Planning Solver ===\n");
 
 console.log("-- Rate basis uses months for senior housing and days for health care --");
+{
+  const matched = [
+    { ...resident("A", 4_000, 5_000), weight: 1 },
+    { ...resident("B", 8_000, 9_000), weight: 3 },
+  ];
+  near(
+    "Street Rate uses the same resident-room weights as the in-house average",
+    residentWeightedAverageStreetRate(matched),
+    8_000,
+    1e-9,
+  );
+  near(
+    "the paired in-house side uses that identical mix",
+    residentDayWeightedAverageRate(matched),
+    7_000,
+    1e-9,
+  );
+  near(
+    "a missing Street Rate cannot silently change only one side's mix",
+    residentWeightedAverageStreetRate([
+      ...matched,
+      { ...resident("C", 6_000, 0), weight: 2 },
+    ]),
+    0,
+    1e-9,
+  );
+}
 ok("AL uses resident-month weighting", realizedRateWeightBasis("AL") === "resident_months");
 ok("AL/MC uses resident-month weighting", realizedRateWeightBasis("AL/MC") === "resident_months");
 ok("SL uses resident-month weighting", realizedRateWeightBasis("SL") === "resident_months");
