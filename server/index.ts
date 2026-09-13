@@ -399,6 +399,22 @@ app.use((req, res, next) => {
     logMigration(`[migration] source_room_type column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Keep blank Days Vacant values distinct from a reported zero. Planning
+  // signals only trust rows whose importer recorded this provenance bit.
+  try {
+    await db.execute(sql`
+      ALTER TABLE rent_roll_data
+        ADD COLUMN IF NOT EXISTS days_vacant_provided boolean NOT NULL DEFAULT false
+    `);
+    await db.execute(sql`
+      ALTER TABLE rent_roll_history
+        ADD COLUMN IF NOT EXISTS days_vacant_provided boolean NOT NULL DEFAULT false
+    `);
+    logMigration("[migration] rent_roll_data and rent_roll_history days_vacant_provided columns ensured");
+  } catch (migErr) {
+    logMigration(`[migration] days_vacant_provided column migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Preserve the raw move-in date whenever an administrator repairs the
   // normalized value used by turnover inference. The audit table records each
   // repair, while these columns keep the source value beside the row.

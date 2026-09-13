@@ -33,8 +33,16 @@ import {
 import type {
   BaselineQuarter,
   PlanningResident,
+  PlanningSignalAssessments,
+  PlanningSignalName,
+  PlanningSignalRow,
   QuarterRef,
   StreetRateSource,
+} from "@shared/inhousePlanning";
+import {
+  PLANNING_SIGNAL_LOOKBACK_MONTHS,
+  PLANNING_SIGNAL_MAX_DAYS,
+  validatePlanningSignal,
 } from "@shared/inhousePlanning";
 import {
   MS_PER_DAY,
@@ -74,6 +82,118 @@ export interface ScopeFilter {
   /** Campus name as stored in `rent_roll_data.location`. Null = whole portfolio. */
   location: string | null;
   serviceLine: string;
+}
+
+/**
+ * Import vocabularies accepted for planning signals. The planning scope stays
+ * canonical (VIL, HC/MC, ...), while the source may retain an older label.
+ */
+export function planningSignalServiceLineAliases(serviceLine: string): string[] {
+  const normalized = serviceLine.trim().toUpperCase().replace(/[-_ ]/g, "/");
+  if (normalized === "VIL" || normalized === "IL") return ["VIL", "IL"];
+  if (normalized === "AL/MC") return ["AL/MC", "AL-MC", "AL MC"];
+  if (normalized === "HC/MC" || normalized === "SMC") return ["HC/MC", "HC-MC", "HC MC", "SMC"];
+  if (normalized === "AL") return ["AL"];
+  if (normalized === "HC") return ["HC"];
+  return [serviceLine];
+}
+
+/**
+ * Validate the only currently available vacancy/sales-cycle source.
+ *
+ * `days_vacant` is a unit-month snapshot. Vacant snapshots describe days
+ * currently vacant. The current rent-roll feed does not contain a defensible
+ * vacancy-to-occupancy transition history, so time to sell is explicitly
+ * unavailable rather than inferred from occupied rows (which conventionally
+ * carry a zero Days Vacant value).
+ */
+export async function fetchPlanningSignalValidation(
+  scope: ScopeFilter,
+  sourceMonth: string,
+): Promise<PlanningSignalAssessments> {
+  const aliases = planningSignalServiceLineAliases(scope.serviceLine);
+  const params: any[] = [scope.clientId, sourceMonth, aliases];
+  let locSql = "";
+  if (scope.location) {
+    params.push(scope.location);
+    locSql = ` AND rr.location = $${params.length}`;
+  }
+
+  const result = await pool.query<{
+    signal: PlanningSignalName;
+    month: string;
+    total_rows: string;
+    valid_rows: string;
+    median_days: string | null;
+    min_days: string | null;
+    max_days: string | null;
+  }>(
+    `WITH source AS (
+       SELECT 'days_vacant'::text AS signal,
+              rr.upload_month AS month,
+              rr.days_vacant,
+              rr.days_vacant_provided
+         FROM rent_roll_data rr
+        WHERE rr.client_id = $1
+          AND rr.upload_month BETWEEN to_char(
+                to_date($2 || '-01', 'YYYY-MM-DD') - INTERVAL '${PLANNING_SIGNAL_LOOKBACK_MONTHS - 1} months',
+                'YYYY-MM'
+              ) AND $2
+          AND rr.service_line = ANY($3::text[])
+          AND rr.occupied_yn = false
+          ${locSql}
+     )
+     SELECT signal,
+            month,
+            COUNT(*)::int AS total_rows,
+            COUNT(*) FILTER (
+              WHERE days_vacant_provided = true
+                AND days_vacant IS NOT NULL
+                AND days_vacant BETWEEN 0 AND ${PLANNING_SIGNAL_MAX_DAYS}
+            )::int AS valid_rows,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY days_vacant)
+              FILTER (
+                WHERE days_vacant_provided = true
+                  AND days_vacant IS NOT NULL
+                  AND days_vacant BETWEEN 0 AND ${PLANNING_SIGNAL_MAX_DAYS}
+              ) AS median_days,
+            MIN(days_vacant)::int AS min_days,
+            MAX(days_vacant)::int AS max_days
+       FROM source
+      GROUP BY signal, month
+      ORDER BY signal, month`,
+    params,
+  );
+
+  const bySignal = new Map<PlanningSignalName, PlanningSignalRow[]>();
+  for (const signal of ["days_vacant", "time_to_sell"] as const) bySignal.set(signal, []);
+  for (const row of result.rows) {
+    bySignal.get(row.signal)?.push({
+      month: row.month,
+      totalRows: Number(row.total_rows) || 0,
+      validRows: Number(row.valid_rows) || 0,
+      medianDays: row.median_days == null ? null : Number(row.median_days),
+      minDays: row.min_days == null ? null : Number(row.min_days),
+      maxDays: row.max_days == null ? null : Number(row.max_days),
+    });
+  }
+
+  const make = (signal: PlanningSignalName) =>
+    validatePlanningSignal({
+      signal,
+      requestedServiceLine: scope.serviceLine,
+      mappedSourceServiceLines: aliases,
+      expectedMonths: PLANNING_SIGNAL_LOOKBACK_MONTHS,
+      rows: bySignal.get(signal) ?? [],
+      sourceGrain: signal === "days_vacant"
+        ? "unit_month_snapshot"
+        : "vacancy_to_occupancy_transition",
+      unavailableReason: signal === "time_to_sell"
+        ? "The rent-roll feed has no defensible vacancy-to-occupancy transition history for time to sell; occupied-row Days Vacant values are not used as a proxy."
+        : undefined,
+    });
+
+  return { daysVacant: make("days_vacant"), timeToSell: make("time_to_sell") };
 }
 
 /** Latest rent-roll month that actually has occupied rows for this scope. */

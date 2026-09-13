@@ -550,8 +550,10 @@ export class ImportMappingService {
       case 'daysVacant':
       case 'inquiryCount':
       case 'tourCount':
-        const intVal = parseInt(String(value), 10);
-        return isNaN(intVal) ? 0 : intVal;
+        const normalizedInt = String(value).trim().replace(/,/g, '');
+        if (!/^-?\d+$/.test(normalizedInt)) return null;
+        const intVal = Number(normalizedInt);
+        return Number.isSafeInteger(intVal) ? intVal : null;
 
       case 'streetRate':
       case 'inHouseRate':

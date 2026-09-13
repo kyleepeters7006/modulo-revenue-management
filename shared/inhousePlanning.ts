@@ -22,6 +22,12 @@ export type EqualizationStrength = "low" | "medium" | "high";
 
 export type MeasurementMode = "quarterly_yoy";
 
+/**
+ * Rate planning signals are validated before they can become solver inputs.
+ * These are deliberately separate from turnover: turnover is an operator
+ * assumption today, while these fields are observations from the rent roll.
+ */
+export type PlanningSignalName = "days_vacant" | "time_to_sell";
 /** Historical Street Rate evidence retained only for reading old plan snapshots. */
 export type StreetRecommendationAction = "push" | "measured_increase" | "hold";
 /** Basis on which a quarter's realized rate was established. */
@@ -660,6 +666,8 @@ export interface PlanResult {
 
   summary: PlanSummary;
   residents: ResidentRecommendation[];
+  /** Provenance and coverage checks for signals that are not yet price drivers. */
+  planningSignals: PlanningSignalAssessments;
 
   infeasibility: Infeasibility | null;
   /** Why the joint quarterly optimizer selected this combination or could not fully fit it. */
@@ -830,4 +838,149 @@ export interface StreetRateRecommendation {
   locked: boolean;
   growthContribution: number;
   validation: string[];
+}
+
+/** Minimum evidence required before a signal can be called validated. */
+export const PLANNING_SIGNAL_MIN_MONTHS = 3;
+
+export const PLANNING_SIGNAL_LOOKBACK_MONTHS = 12;
+
+/**
+ * Validate a signal without turning it into a recommendation.
+ *
+ * A low-coverage feed is neutral rather than partially trusted. This prevents
+ * a new import with a different grain, date window, or service-line vocabulary
+ * from changing a plan simply because a few rows happen to be present.
+ */
+export function validatePlanningSignal(
+  input: ValidatePlanningSignalInput,
+): PlanningSignalCoverage {
+  const totalRows = input.rows.reduce((sum, row) => sum + Math.max(0, row.totalRows), 0);
+  const validRows = input.rows.reduce((sum, row) => sum + Math.max(0, row.validRows), 0);
+  const observedMonths = input.rows.filter((row) => row.totalRows > 0).length;
+  const coveragePct = totalRows > 0 ? (validRows / totalRows) * 100 : 0;
+  const validValues = input.rows
+    .flatMap((row) => [row.medianDays, row.minDays, row.maxDays])
+    .filter((value): value is number => value != null && Number.isFinite(value));
+  const medianDays =
+    input.rows.length > 0
+      ? weightedMedianByRows(input.rows)
+      : null;
+  const minDays = validValues.length > 0 ? Math.min(...validValues) : null;
+  const maxDays = validValues.length > 0 ? Math.max(...validValues) : null;
+  const sourceLabel = input.signal === "days_vacant" ? "vacant-unit snapshots" : "occupied-unit snapshots";
+
+  let status: PlanningSignalStatus;
+  let reason: string;
+  if (totalRows === 0) {
+    status = "unavailable";
+    reason =
+      input.unavailableReason ??
+      `No ${sourceLabel} with this service-line mapping was found in the requested window.`;
+  } else if (validRows === 0) {
+    status = "unavailable";
+    reason = `The source rows exist, but none contain a non-negative days value in the accepted 0–${PLANNING_SIGNAL_MAX_DAYS}-day scale.`;
+  } else if (observedMonths < PLANNING_SIGNAL_MIN_MONTHS) {
+    status = "neutral";
+    reason = `Only ${observedMonths} month${observedMonths === 1 ? "" : "s"} are covered; at least ${PLANNING_SIGNAL_MIN_MONTHS} are required, so this signal is ignored.`;
+  } else if (coveragePct < PLANNING_SIGNAL_MIN_COVERAGE_PCT) {
+    status = "neutral";
+    reason = `Only ${coveragePct.toFixed(1)}% of source rows have a valid days value; at least ${PLANNING_SIGNAL_MIN_COVERAGE_PCT}% is required, so this signal is ignored.`;
+  } else if (
+    (maxDays != null && maxDays > PLANNING_SIGNAL_MAX_DAYS) ||
+    (minDays != null && minDays < 0)
+  ) {
+    status = "neutral";
+    reason = `The source exceeds the accepted 0–${PLANNING_SIGNAL_MAX_DAYS}-day scale, so this signal is ignored rather than changing the plan.`;
+  } else {
+    status = "validated";
+    reason = `${sourceLabel} cover ${observedMonths} month${observedMonths === 1 ? "" : "s"} and ${coveragePct.toFixed(1)}% of rows at the accepted days scale.`;
+  }
+
+  return {
+    signal: input.signal,
+    status,
+    source: "rent_roll_data.days_vacant",
+    sourceGrain: input.sourceGrain,
+    requestedServiceLine: input.requestedServiceLine,
+    mappedSourceServiceLines: input.mappedSourceServiceLines,
+    expectedMonths: input.expectedMonths,
+    observedMonths,
+    totalRows,
+    validRows,
+    coveragePct,
+    medianDays: status === "unavailable" ? null : medianDays,
+    minDays: status === "unavailable" ? null : minDays,
+    maxDays: status === "unavailable" ? null : maxDays,
+    reason,
+    solverEffect: "neutral",
+  };
+}
+
+export interface ValidatePlanningSignalInput {
+  signal: PlanningSignalName;
+  requestedServiceLine: string;
+  mappedSourceServiceLines: string[];
+  expectedMonths: number;
+  rows: PlanningSignalRow[];
+  sourceGrain: PlanningSignalCoverage["sourceGrain"];
+  unavailableReason?: string;
+}
+
+function weightedMedianByRows(rows: PlanningSignalRow[]): number | null {
+  const values = rows
+    .filter((row) => row.validRows > 0 && row.medianDays != null && Number.isFinite(row.medianDays))
+    .map((row) => ({ value: row.medianDays as number, weight: row.validRows }))
+    .sort((a, b) => a.value - b.value);
+  if (values.length === 0) return null;
+  const halfway = values.reduce((sum, row) => sum + row.weight, 0) / 2;
+  let running = 0;
+  for (const row of values) {
+    running += row.weight;
+    if (running >= halfway) return row.value;
+  }
+  return values[values.length - 1].value;
+}
+
+export interface PlanningSignalAssessments {
+  daysVacant: PlanningSignalCoverage;
+  timeToSell: PlanningSignalCoverage;
+}
+
+export type PlanningSignalStatus = "validated" | "neutral" | "unavailable";
+
+export const PLANNING_SIGNAL_MAX_DAYS = 3650;
+
+export const PLANNING_SIGNAL_MIN_COVERAGE_PCT = 60;
+
+export interface PlanningSignalRow {
+  month: string;
+  totalRows: number;
+  validRows: number;
+  medianDays: number | null;
+  minDays: number | null;
+  maxDays: number | null;
+}
+
+export interface PlanningSignalCoverage {
+  signal: PlanningSignalName;
+  status: PlanningSignalStatus;
+  /** The physical source and its grain, kept visible for auditability. */
+  source: "rent_roll_data.days_vacant";
+  sourceGrain: "unit_month_snapshot" | "vacancy_to_occupancy_transition";
+  /** Canonical service line used by planning and raw values accepted at import. */
+  requestedServiceLine: string;
+  mappedSourceServiceLines: string[];
+  expectedMonths: number;
+  observedMonths: number;
+  totalRows: number;
+  validRows: number;
+  coveragePct: number;
+  /** Values are always days; null means no valid observations. */
+  medianDays: number | null;
+  minDays: number | null;
+  maxDays: number | null;
+  reason: string;
+  /** Signals are informational until a documented pricing effect is approved. */
+  solverEffect: "neutral";
 }

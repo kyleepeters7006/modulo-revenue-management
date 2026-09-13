@@ -60,6 +60,7 @@ import {
   Info,
   Loader2,
   Save,
+  Trash2,
   TrendingUp,
 } from "lucide-react";
 import {
@@ -1170,6 +1171,18 @@ export default function InhouseIncreases() {
   const { toast } = useToast();
   const { user, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
+  const fromReferenceData =
+    new URLSearchParams(window.location.search).get("from") === "reference-data";
+
+  const referenceDataUrl = () => {
+    const params = new URLSearchParams({
+      scrollTo: "reference-data",
+      focusGroup: "ihCalculated",
+    });
+    if (serviceLines.length === 1) params.set("serviceLine", serviceLines[0]);
+    if (fromReferenceData) params.set("restorePosition", "reference-data");
+    return `/pricing-controls?${params.toString()}`;
+  };
 
   const [locationId, setLocationId] = useState<string>(() =>
     new URLSearchParams(window.location.search).get("locationId") || ALL_CAMPUSES,
@@ -2047,6 +2060,22 @@ export default function InhouseIncreases() {
     },
   });
 
+  const removePlan = useMutation({
+    mutationFn: async (planId: string) =>
+      apiRequest(`/api/inhouse-planning/plans/${encodeURIComponent(planId)}/remove`, "POST"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/plans"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/reference-data"], exact: false });
+      toast({
+        title: "Plan removed",
+        description: "The plan no longer appears as an active plan in Reference Data. Its history was retained.",
+      });
+    },
+    onError: (err: Error) =>
+      toast({ title: "Could not remove plan", description: cleanError(err.message), variant: "destructive" }),
+  });
+
   function update<K extends keyof PlanningAssumptions>(key: K, value: PlanningAssumptions[K]) {
     setAssumptionsTouched(true);
     setAssumptions((prev) => ({ ...prev, [key]: value }));
@@ -2391,11 +2420,11 @@ export default function InhouseIncreases() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setLocation("/overview")}
+            onClick={() => setLocation(fromReferenceData ? referenceDataUrl() : "/overview")}
             data-testid="button-back"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Back
+            {fromReferenceData ? "Back to Reference Data" : "Back"}
           </Button>
         </div>
         <h1 className="flex items-center justify-center gap-2 text-2xl font-semibold tracking-tight">
@@ -4079,12 +4108,7 @@ export default function InhouseIncreases() {
                   variant="outline"
                   disabled={(plansQuery.data?.plans?.length ?? 0) === 0}
                   onClick={() => {
-                    const params = new URLSearchParams({
-                      scrollTo: "reference-data",
-                      focusGroup: "ihCalculated",
-                    });
-                    if (serviceLines.length === 1) params.set("serviceLine", serviceLines[0]);
-                    setLocation(`/pricing-controls?${params.toString()}`);
+                    setLocation(referenceDataUrl());
                   }}
                   title={(plansQuery.data?.plans?.length ?? 0) === 0
                     ? "Submit the calculated proposal first so Reference Data can load it."
@@ -4141,6 +4165,31 @@ export default function InhouseIncreases() {
                       <Badge variant="outline" className="text-[11px] font-normal">
                         Superseded
                       </Badge>
+                    )}
+                    {p.status === "withdrawn" && (
+                      <Badge variant="outline" className="text-[11px] font-normal">
+                        Removed
+                      </Badge>
+                    )}
+                    {["proposed", "applied", "published"].includes(p.status) && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="ml-auto h-7 text-xs text-destructive hover:text-destructive"
+                        disabled={removePlan.isPending}
+                        onClick={() => {
+                          if (window.confirm(
+                            `Remove plan v${p.version} from Reference Data? The audit history will be retained.`,
+                          )) {
+                            removePlan.mutate(p.id);
+                          }
+                        }}
+                        data-testid={`remove-inhouse-plan-${p.id}`}
+                      >
+                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                        Remove from Reference Data
+                      </Button>
                     )}
                   </li>
                 );

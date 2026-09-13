@@ -73,3 +73,15 @@ complete selected scope last; quota recovery protects the final write, so a
 single-line write must never be allowed to replace the complete result.
 Optional single-line fallback failures must not mark the calculation unsaved
 when that protected complete-scope write succeeds.
+
+When both IndexedDB and localStorage are blocked, retain identity-scoped compact
+plans in module memory and treat the write as successful for the current SPA
+session.
+
+**Why:** embedded mobile Safari can deny every persistent storage backend even
+though calculation and client-side navigation still work. Reporting the plan as
+unsaved is misleading and blocks a usable current-session workflow.
+
+**How to apply:** write the in-memory copy before attempting persistent storage,
+read it first, and clear it on confirmed logout with the persistent caches. Do
+not claim that this fallback survives a browser reload.

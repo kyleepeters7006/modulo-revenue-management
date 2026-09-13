@@ -157,6 +157,9 @@ export const rentRollData = pgTable("rent_roll_data", {
   serviceLine: text("service_line").notNull(), // AL, AL/MC, HC, HC/MC, SL, VIL
   occupiedYN: boolean("occupied_yn").notNull(),
   daysVacant: integer("days_vacant").default(0),
+  // Explicit provenance prevents the legacy default of 0 from being treated
+  // as a reported vacancy duration by planning-signal validation.
+  daysVacantProvided: boolean("days_vacant_provided").notNull().default(false),
   preferredLocation: text("preferred_location"), // Premium location flag
   size: text("size").notNull(), // Studio, One Bedroom, Two Bedroom
   view: text("view"), // Garden View, Courtyard View, Street View
@@ -732,7 +735,7 @@ export const inhouseRatePlans = pgTable("inhouse_rate_plans", {
   location: text("location"),
   serviceLine: text("service_line").notNull(),
   version: integer("version").notNull(),
-  status: text("status").notNull().default("proposed"), // proposed | applied | superseded
+  status: text("status").notNull().default("proposed"), // proposed | applied | superseded | withdrawn
   assumptions: jsonb("assumptions").notNull(),
   summary: jsonb("summary").notNull(),
   quarters: jsonb("quarters").notNull(),
@@ -764,6 +767,7 @@ export const rentRollHistory = pgTable("rent_roll_history", {
   serviceLine: text("service_line").notNull(),
   occupiedYN: boolean("occupied_yn").notNull(),
   daysVacant: integer("days_vacant").default(0),
+  daysVacantProvided: boolean("days_vacant_provided").notNull().default(false),
   preferredLocation: text("preferred_location"),
   size: text("size").notNull(),
   view: text("view"),

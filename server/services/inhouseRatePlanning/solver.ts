@@ -29,6 +29,7 @@ import type {
   Infeasibility,
   PlanningAssumptions,
   PlanningResident,
+  PlanningSignalAssessments,
   QuarterRef,
   QuarterResult,
   ResidentConstraint,
@@ -479,6 +480,12 @@ export interface SolveInput {
   enforcePortfolioStreetPremium?: boolean;
   /** Monthly for AL/AL-MC/SL/VIL, daily for HC/HC-MC. */
   rateWeightBasis?: "resident_months" | "resident_days";
+  /**
+   * Validated provenance is carried through the solve so explanations can
+   * disclose it. Both signals are intentionally neutral until a documented
+   * pricing effect exists; raw feed values never alter recommendations.
+   */
+  planningSignals?: PlanningSignalAssessments;
 }
 
 export interface SolveOutput {

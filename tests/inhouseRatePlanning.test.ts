@@ -27,6 +27,7 @@ import {
   DEFAULT_ASSUMPTIONS,
   planAssumptionsMatch,
   selectSubmittablePlans,
+  validatePlanningSignal,
 } from "../shared/inhousePlanning";
 import {
   allocateIncreases,
@@ -52,6 +53,8 @@ import {
   type ProductStreetBaselines,
   type RawResidentRow,
 } from "../server/services/inhouseRatePlanning/dataAccess";
+import { planningSignalServiceLineAliases } from "../server/services/inhouseRatePlanning/dataAccess";
+import { validateData } from "../server/services/dataImportService";
 import {
   assignStrata,
   compareQuarters,
@@ -1735,6 +1738,171 @@ console.log("\n-- 15. Product-matched street comparison --");
     "and split into price bands when there is room to",
     new Set(banded.map((a) => a.key)).size === 4,
     Array.from(new Set(banded.map((a) => a.key))).join(","),
+  );
+}
+
+// ── Planning signal validation ─────────────────────────────────────────────
+console.log("\n-- Vacancy and sales-cycle signals are validated before planning --");
+{
+  const months = Array.from({ length: 12 }, (_, i) => ({
+    month: `2026-${String(i + 1).padStart(2, "0")}`,
+    totalRows: 10,
+    validRows: 10,
+    medianDays: 18,
+    minDays: 0,
+    maxDays: 65,
+  }));
+
+  for (const serviceLine of ["AL", "VIL", "HC", "HC/MC"]) {
+    const aliases = planningSignalServiceLineAliases(serviceLine);
+    const daysVacant = validatePlanningSignal({
+      signal: "days_vacant",
+      requestedServiceLine: serviceLine,
+      mappedSourceServiceLines: aliases,
+      expectedMonths: 12,
+      rows: months,
+      sourceGrain: "unit_month_snapshot",
+    });
+    const timeToSell = validatePlanningSignal({
+      signal: "time_to_sell",
+      requestedServiceLine: serviceLine,
+      mappedSourceServiceLines: aliases,
+      expectedMonths: 12,
+      rows: [],
+      sourceGrain: "vacancy_to_occupancy_transition",
+      unavailableReason: "No defensible vacancy-to-occupancy transition history is available.",
+    });
+    ok(`${serviceLine} days-vacant fixture is validated`, daysVacant.status === "validated");
+    ok(`${serviceLine} time-to-sell fixture is explicitly unavailable`, timeToSell.status === "unavailable");
+    ok(
+      `${serviceLine} validation records unit-month grain and day scale`,
+      daysVacant.sourceGrain === "unit_month_snapshot" &&
+        daysVacant.source === "rent_roll_data.days_vacant" &&
+        daysVacant.medianDays === 18,
+    );
+  }
+
+  const sparse = validatePlanningSignal({
+    signal: "days_vacant",
+    requestedServiceLine: "AL",
+    mappedSourceServiceLines: ["AL"],
+    expectedMonths: 12,
+    rows: [{ ...months[0], totalRows: 100, validRows: 10 }],
+    sourceGrain: "unit_month_snapshot",
+  });
+  ok("low coverage is explicitly neutral", sparse.status === "neutral");
+  ok("low coverage cannot silently influence the plan", sparse.solverEffect === "neutral");
+
+  const absent = validatePlanningSignal({
+    signal: "time_to_sell",
+    requestedServiceLine: "HC/MC",
+    mappedSourceServiceLines: ["HC/MC", "SMC"],
+    expectedMonths: 12,
+    rows: [],
+    sourceGrain: "vacancy_to_occupancy_transition",
+    unavailableReason: "No defensible vacancy-to-occupancy transition history is available.",
+  });
+  ok("missing sales-cycle data is explicitly unavailable", absent.status === "unavailable");
+  ok("missing sales-cycle data has an operator-readable reason", absent.reason.includes("transition history"));
+
+  const wrongScale = validatePlanningSignal({
+    signal: "days_vacant",
+    requestedServiceLine: "VIL",
+    mappedSourceServiceLines: ["VIL", "IL"],
+    expectedMonths: 12,
+    rows: months.map((row, i) => i === 11 ? { ...row, maxDays: 5000 } : row),
+    sourceGrain: "unit_month_snapshot",
+  });
+  ok("an implausible day scale is neutral instead of trusted", wrongScale.status === "neutral");
+
+  const signals = {
+    daysVacant: validatePlanningSignal({
+      signal: "days_vacant",
+      requestedServiceLine: "AL",
+      mappedSourceServiceLines: ["AL"],
+      expectedMonths: 12,
+      rows: months,
+      sourceGrain: "unit_month_snapshot",
+    }),
+    timeToSell: validatePlanningSignal({
+      signal: "time_to_sell",
+      requestedServiceLine: "AL",
+      mappedSourceServiceLines: ["AL"],
+      expectedMonths: 12,
+      rows: [],
+      sourceGrain: "vacancy_to_occupancy_transition",
+      unavailableReason: "No defensible vacancy-to-occupancy transition history is available.",
+    }),
+  };
+  const withSignals = solvePlan({
+    residents: roomyPopulation(),
+    assumptions: assumptions({ rateGrowthTargetPct: 4 }),
+    baselineByQuarter: flatBaseline(4200),
+    quarters: QUARTERS,
+    anchorMs: ANCHOR_MS,
+    currentStreetRateMonthly: 5200,
+    planningSignals: signals,
+  });
+  const withoutSignals = solvePlan({
+    residents: roomyPopulation(),
+    assumptions: assumptions({ rateGrowthTargetPct: 4 }),
+    baselineByQuarter: flatBaseline(4200),
+    quarters: QUARTERS,
+    anchorMs: ANCHOR_MS,
+    currentStreetRateMonthly: 5200,
+  });
+  near(
+    "validated signals are carried to the solver but remain neutral until their effect is defined",
+    withSignals.recommendedStreetMonthly,
+    withoutSignals.recommendedStreetMonthly,
+    1e-9,
+  );
+  near(
+    "validated signals do not change the required resident increase",
+    withSignals.requiredAvgIncrease,
+    withoutSignals.requiredAvgIncrease,
+    1e-12,
+  );
+
+  const canonicalImport = validateData(
+    "rent_roll",
+    [
+      "Upload Month", "Date", "Location", "Room Number", "Room Type",
+      "Service Line", "Occupied Y/N", "Size", "Street Rate", "In-House Rate",
+      "Days Vacant",
+    ],
+    [
+      {
+        "Upload Month": "2026-09", Date: "2026-09-01", Location: "Fixture",
+        "Room Number": "A1", "Room Type": "Studio", "Service Line": "AL",
+        "Occupied Y/N": "N", Size: "Studio", "Street Rate": "3000",
+        "In-House Rate": "3000", "Days Vacant": "30",
+      },
+      {
+        "Upload Month": "2026-09", Date: "2026-09-01", Location: "Fixture",
+        "Room Number": "A2", "Room Type": "Studio", "Service Line": "AL",
+        "Occupied Y/N": "N", Size: "Studio", "Street Rate": "3000",
+        "In-House Rate": "3000", "Days Vacant": "",
+      },
+      {
+        "Upload Month": "2026-09", Date: "2026-09-01", Location: "Fixture",
+        "Room Number": "A3", "Room Type": "Studio", "Service Line": "AL",
+        "Occupied Y/N": "N", Size: "Studio", "Street Rate": "3000",
+        "In-House Rate": "3000", "Days Vacant": "30x",
+      },
+    ],
+    "rent_roll_2026-09.csv",
+  );
+  ok(
+    "canonical import retains source presence for supplied, blank, and malformed vacancy values",
+    canonicalImport.records.length === 3 &&
+      canonicalImport.records[0].daysVacant === 30 &&
+      canonicalImport.records[0].daysVacantProvided === true &&
+      canonicalImport.records[1].daysVacant === null &&
+      canonicalImport.records[1].daysVacantProvided === false &&
+      canonicalImport.records[2].daysVacant === null &&
+      canonicalImport.records[2].daysVacantProvided === true &&
+      canonicalImport.rowErrors.some((error) => error.field === "Days Vacant"),
   );
 }
 

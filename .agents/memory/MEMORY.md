@@ -111,3 +111,4 @@
 - [Global portfolio assistant boundaries](global-portfolio-assistant.md) — Claude Opus can analyze tenant data only through bounded read-only tools; no arbitrary SQL, resident PII, or demo fallback.
 - [Occupancy chart semantics](occupancy-chart-semantics.md) — occupancy rates compare on a common 0–100% scale; never present them as additive pie or donut shares.
 - [Startup migration readiness](startup-migration-readiness.md) — bind the listener before schema work, gate APIs until ready, and make destructive background jobs await the same barrier.
+- [Planning signal validation](planning-signal-validation.md) — trust only source-present vacancy snapshots; keep time-to-sell unavailable until transition history exists.

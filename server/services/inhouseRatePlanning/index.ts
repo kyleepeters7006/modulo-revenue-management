@@ -14,6 +14,7 @@ import type {
   PlanSummary,
   PlanningAssumptions,
   PlanningResident,
+  PlanningSignalAssessments,
   QuarterRef,
   RateMixComparison,
   RateProduct,
@@ -46,6 +47,7 @@ import {
   fetchRecordedMonths,
   fetchMonthlyRealizedRates,
   fetchProductStreetBaselines,
+  fetchPlanningSignalValidation,
   fetchResidentRows,
   getLatestMonthsForScopes,
   expectedMonths,
@@ -263,12 +265,20 @@ export async function preparePlan(
   // preceding that plan year. Using the Street effective-date year minus one
   // incorrectly sent an October 2026 change back to January 2025.
   const priorJanuaryMonth = `${quarters[0].year - 1}-01`;
-  const [rawRows, priorJanuaryComparison, topCompetitorRateMonthly, productBaselines, formulas] =
+  const [
+    rawRows,
+    priorJanuaryComparison,
+    topCompetitorRateMonthly,
+    productBaselines,
+    planningSignals,
+    formulas,
+  ] =
     await Promise.all([
       fetchResidentRows(scope, sourceMonth),
       fetchMixStandardizedStreetComparison(scope, priorJanuaryMonth, sourceMonth),
       fetchTopCompetitorRate(scope, sourceMonth),
       fetchProductStreetBaselines(scope, sourceMonth),
+      fetchPlanningSignalValidation(scope, sourceMonth),
       shared?.formulas ??
         getDerivedRateFormulas((s, p) => pool.query(s, p), input.clientId),
     ]);
@@ -565,6 +575,7 @@ export async function preparePlan(
       quarters,
       anchorMs,
       currentStreetRateMonthly,
+      planningSignals,
       priorJanuaryStreetRateMonthly,
       topCompetitorRateMonthly,
       enforcePortfolioStreetPremium: input.location == null && input.locationId == null,
@@ -776,6 +787,13 @@ export async function preparePlan(
         `No prior-year quarter for this scope had enough matched rooms to measure price movement to the usual standard, so the baselines below are the best available rather than measurements that met it. A service line this small turns over a large share of its rooms in a year — treat the year-over-year figures as indicative.`,
       );
     }
+    for (const signal of [planningSignals.daysVacant, planningSignals.timeToSell]) {
+      if (signal.status !== "validated") {
+        warnings.push(
+          `${signal.signal === "days_vacant" ? "Days vacant" : "Time to sell"} is ${signal.status}: ${signal.reason} It is neutral and does not change this plan.`,
+        );
+      }
+    }
     if (
       input.location == null &&
       input.locationId == null &&
@@ -830,7 +848,9 @@ export async function preparePlan(
         solved,
         summary,
         currentStreetRateMonthly,
+        planningSignals,
       }),
+      planningSignals,
       warnings,
       standardization: {
         method: "two_point_matched_quarter",
@@ -1424,6 +1444,7 @@ function explainPlan(ctx: {
   solved: ReturnType<typeof solvePlan>;
   summary: PlanSummary;
   currentStreetRateMonthly: number;
+  planningSignals: PlanningSignalAssessments;
 }): CalcExplanation {
   const { assumptions: a, solved, summary } = ctx;
   const currentStreetPremiumPct =
@@ -1466,6 +1487,11 @@ function explainPlan(ctx: {
       note: `Roughly ${(a.annualTurnoverPct / 12).toFixed(1)}% of residents replaced each month, entering at the street rate in force that day.`,
     },
     {
+      label: "Vacancy and sales-cycle signals",
+      value: `${signalStatusLabel(ctx.planningSignals.daysVacant)} · ${signalStatusLabel(ctx.planningSignals.timeToSell)}`,
+      note: "Both signals are checked against rent-roll coverage first and remain neutral until a documented pricing effect is approved.",
+    },
+    {
       label: "Total monthly increase",
       value: formatMoney(summary.totalMonthlyIncreaseDollars),
       note: `${formatMoney(summary.totalAnnualIncreaseDollars)} annualized.`,
@@ -1480,6 +1506,9 @@ function explainPlan(ctx: {
     `Each quarter's projection is compared with the same quarter a year earlier. The quarter with the least cushion sets the answer${solved.bindingQuarterLabel ? ` — here that is ${solved.bindingQuarterLabel}` : ""}.`,
   );
   if (solved.optimizationNote) narrative.push(solved.optimizationNote);
+  narrative.push(
+    `Days vacant: ${ctx.planningSignals.daysVacant.reason} Time to sell: ${ctx.planningSignals.timeToSell.reason} Neither signal changes the recommendation yet.`,
+  );
   if (!solved.feasible && solved.infeasibility) {
     narrative.push(solved.infeasibility.message);
   }
@@ -1492,6 +1521,10 @@ function explainPlan(ctx: {
   };
 }
 
+function signalStatusLabel(signal: PlanningSignalAssessments["daysVacant"]): string {
+  const label = signal.signal === "days_vacant" ? "days vacant" : "time to sell";
+  return `${label} ${signal.status}`;
+}
 function describeComparison(c: QuarterComparison): RateMixComparison {
   return {
     baseQuarterLabel: c.baseQuarterLabel,

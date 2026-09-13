@@ -179,8 +179,13 @@ assert.deepEqual(
 };
 assert.equal(
   await writeInhousePlan(identity, scope, saved),
-  false,
-  "a genuine storage failure is reported",
+  true,
+  "blocked persistent storage falls back to the current app session",
+);
+assert.deepEqual(
+  await readInhousePlan(identity, scope),
+  saved,
+  "the current-session fallback remains readable when browser storage is denied",
 );
 
 console.log("In-house calculated-plan storage tests passed");

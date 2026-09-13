@@ -18,6 +18,14 @@ import { eq, and, sql, inArray } from 'drizzle-orm';
 import { normalizeRoomType } from '@shared/roomTypes';
 import { isMalformedMoveInDate } from './services/inhouseRatePlanning/historicalTurnover';
 
+function parseSourceDaysVacant(raw: unknown): { value: number | null; provided: boolean } {
+  const text = raw == null ? '' : String(raw).trim();
+  if (!text) return { value: null, provided: false };
+  if (!/^-?\d+$/.test(text)) return { value: null, provided: true };
+  const value = Number(text);
+  return { value: Number.isSafeInteger(value) ? value : null, provided: true };
+}
+
 export interface ImportStats {
   totalRecords: number;
   successfulImports: number;
@@ -573,6 +581,7 @@ export async function importRentRollCSV(
                 const moveInDate = moveInDateSource;
                 recordMoveInDateValidation(stats.moveInDateValidation!, moveInDate);
 
+                const sourceDaysVacant = parseSourceDaysVacant(row['Days Vacant'] ?? row['days_vacant']);
                 const record: InsertRentRollHistory = {
                   uploadMonth,
                   date: row['Date'] || row['date'] || uploadMonth,
@@ -582,7 +591,8 @@ export async function importRentRollCSV(
                   roomType: normalizeRoomType(row['Room Type'] || row['room_type'] || ''),
                   serviceLine: row['Service Line'] || row['service_line'] || '',
                   occupiedYN: parseBoolean(row['Occupied Y/N'] || row['occupied_yn']),
-                  daysVacant: parseInt(row['Days Vacant'] || row['days_vacant']) || 0,
+                  daysVacant: sourceDaysVacant.value,
+                  daysVacantProvided: sourceDaysVacant.provided,
                   preferredLocation: row['Preferred Location'] || row['preferred_location'] || null,
                   size: row['Size'] || row['size'] || '',
                   view: row['View'] || row['view'] || null,
@@ -607,7 +617,7 @@ export async function importRentRollCSV(
                   moveInDate,
                   moveInDateSource: moveInDateSource == null ? null : String(moveInDateSource),
                   moveOutDate: (() => {
-                    const dv = parseInt(row['Days Vacant'] || row['days_vacant']) || 0;
+                    const dv = sourceDaysVacant.value ?? 0;
                     const occupied = parseBoolean(row['Occupied Y/N'] || row['occupied_yn']);
                     if (!occupied && dv > 0) {
                       const refDate = new Date(row['Date'] || row['date'] || uploadMonth);
@@ -1718,7 +1728,8 @@ export async function importMatrixCareRentRollCSV(
                   roomType: normalizedRoomType,
                   serviceLine,
                   occupiedYN: isOccupied,
-                  daysVacant: isOccupied ? 0 : 30, // Default to 30 days if vacant
+                  daysVacant: null,
+                  daysVacantProvided: false,
                   preferredLocation: locationRating === 'A' ? 'Yes' : null,
                   size: normalizedRoomType,
                   view,
@@ -1832,6 +1843,7 @@ export async function syncHistoryToCurrentRentRoll(uploadMonth: string, clientId
         serviceLine: record.serviceLine,
         occupiedYN: record.occupiedYN,
         daysVacant: record.daysVacant,
+        daysVacantProvided: record.daysVacantProvided === true,
         preferredLocation: record.preferredLocation,
         size: record.size,
         view: record.view,

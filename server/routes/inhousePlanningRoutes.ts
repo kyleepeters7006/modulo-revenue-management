@@ -10,6 +10,7 @@ import type { Express } from "express";
 import { z } from "zod";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db, pool } from "../db";
+import { invalidateRefDataCache } from "../refDataCache";
 import { inhousePlanningAssumptions, inhouseRatePlans, locations } from "@shared/schema";
 import {
   applyOccupancyTier,
@@ -925,6 +926,70 @@ export function registerInhousePlanningRoutes(app: Express) {
   });
 
   // ── Plan history ─────────────────────────────────────────────────────────
+
+  app.post("/api/inhouse-planning/plans/:id/remove", requireAuth, async (req: any, res) => {
+    const clientId = req.clientId || "demo";
+    const planId = String(req.params.id || "");
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const existing = await client.query<{ id: string; status: string }>(
+        `SELECT id, status
+           FROM inhouse_rate_plans
+          WHERE id = $1 AND client_id = $2
+          FOR UPDATE`,
+        [planId, clientId],
+      );
+      if (!existing.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      if (!["proposed", "applied", "published"].includes(existing.rows[0].status)) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "This plan is no longer active in Reference Data" });
+      }
+
+      const activeRuleCheck = await client.query<{ had_active_rule: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1
+             FROM adjustment_rules
+            WHERE client_id = $1
+              AND action->>'annualPlanId' = $2
+              AND is_active = true
+              AND is_historical IS NOT TRUE
+         ) AS had_active_rule`,
+        [clientId, planId],
+      );
+      await client.query(
+        `UPDATE adjustment_rules
+            SET is_active = false,
+                lifecycle_status = 'disabled',
+                is_historical = true,
+                updated_at = now()
+          WHERE client_id = $1
+            AND action->>'annualPlanId' = $2
+            AND is_historical IS NOT TRUE`,
+        [clientId, planId],
+      );
+      await client.query(
+        `UPDATE inhouse_rate_plans SET status = 'withdrawn' WHERE id = $1 AND client_id = $2`,
+        [planId, clientId],
+      );
+      await client.query("COMMIT");
+
+      invalidateRefDataCache();
+      const { onRulesChanged, purgeRuleCaches } = await import("../routes");
+      if (activeRuleCheck.rows[0]?.had_active_rule) await onRulesChanged(clientId);
+      else await purgeRuleCaches(clientId);
+      res.json({ ok: true, planId, status: "withdrawn" });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[inhouse-planning] remove plan failed:", error);
+      res.status(500).json({ error: "Failed to remove the plan from Reference Data" });
+    } finally {
+      client.release();
+    }
+  });
 
   app.get("/api/inhouse-planning/plans", async (req: any, res) => {
     try {

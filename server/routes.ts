@@ -168,6 +168,13 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+function parseStrictOptionalInteger(raw: unknown): number | null {
+  const text = raw == null ? "" : String(raw).trim().replace(/,/g, "");
+  if (!text || !/^-?\d+$/.test(text)) return null;
+  const value = Number(text);
+  return Number.isSafeInteger(value) ? value : null;
+}
+
 type ReferenceDataAuditJob = {
   id: string;
   clientId: string;
@@ -6175,6 +6182,8 @@ export async function registerRoutes(
         // Process each row (contains rent roll + performance data combined)
         for (const row of portfolioData as any[]) {
           const locationName = row.Location || 'Unknown';
+          const rawDaysVacant = row['Days Vacant'];
+          const parsedDaysVacant = parseStrictOptionalInteger(rawDaysVacant);
           
           // Create or update location with region and division
           const location = await storage.createOrUpdateLocation({
@@ -6195,7 +6204,8 @@ export async function registerRoutes(
             sourceRoomType: row['Room Type'] || null,
             serviceLine: row['Service Line'] || 'AL',
             occupiedYN: row['Occupied Y/N'] === 'Y',
-            daysVacant: parseInt(row['Days Vacant']) || 0,
+            daysVacant: Number.isFinite(parsedDaysVacant) ? parsedDaysVacant : null,
+            daysVacantProvided: rawDaysVacant != null && String(rawDaysVacant).trim() !== '',
             preferredLocation: row['Preferred Location'],
             size: row.Size || 'Studio',
             view: row.View,
@@ -6292,6 +6302,8 @@ export async function registerRoutes(
       let processedRows = 0;
       for (const row of results.data as any[]) {
         try {
+          const rawDaysVacant = row.Days_Vacant ?? row.days_vacant;
+          const parsedDaysVacant = parseStrictOptionalInteger(rawDaysVacant);
           const validatedData = insertRentRollDataSchema.parse({
             unitId: row.Unit_ID || row.unit_id,
             occupiedYN: row.Occupied_YN === 'Y' || row.Occupied_YN === 'Yes' || row.occupied_yn === true,
@@ -6300,7 +6312,8 @@ export async function registerRoutes(
             roomType: row.Room_Type || row.room_type,
             competitorBenchmarkRate: row.Competitor_Benchmark_Rate ? parseFloat(row.Competitor_Benchmark_Rate) : null,
             competitorAvgCareRate: row.Competitor_Avg_Care_Rate ? parseFloat(row.Competitor_Avg_Care_Rate) : null,
-            daysVacant: row.Days_Vacant ? parseInt(row.Days_Vacant) : 0,
+            daysVacant: Number.isFinite(parsedDaysVacant) ? parsedDaysVacant : null,
+            daysVacantProvided: rawDaysVacant != null && String(rawDaysVacant).trim() !== '',
             attributes: row.Attributes ? JSON.parse(row.Attributes) : null
           });
           
@@ -6473,6 +6486,9 @@ export async function registerRoutes(
         const row = (results.data as any[])[i];
         try {
           const mappedRow = importMappingService.applyMappings(row, mappings);
+          const daysVacantMapping = mappings.find((mapping: any) => mapping.targetField === 'daysVacant');
+          const rawDaysVacant = daysVacantMapping ? row[daysVacantMapping.sourceColumn] : null;
+          mappedRow.daysVacantProvided = rawDaysVacant != null && String(rawDaysVacant).trim() !== '';
           
           if (!mappedRow.uploadMonth) {
             mappedRow.uploadMonth = new Date().toISOString().substring(0, 7);
@@ -8076,7 +8092,8 @@ export async function registerRoutes(
             roomType: row.Room_Type || row.Unit_Type || 'Studio',
             serviceLine: row.Service_Line || 'AL',
             occupiedYN: row.Occupied_YN === 'Y' || row.Occupied === 'Y',
-            daysVacant: parseInt(row.Days_Vacant) || 0,
+            daysVacant: parseStrictOptionalInteger(row.Days_Vacant),
+            daysVacantProvided: row.Days_Vacant != null && String(row.Days_Vacant).trim() !== '',
             preferredLocation: row.Preferred_Location,
             size: row.Size || 'Studio',
             view: row.View,

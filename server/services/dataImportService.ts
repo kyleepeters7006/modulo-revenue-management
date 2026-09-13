@@ -160,9 +160,13 @@ function coerceValue(field: RegistryField, raw: any): { value: any; error?: stri
       return { value: n };
     }
     case "integer": {
-      const n = parseFloat(s.replace(/[$,\s]/g, ""));
-      if (isNaN(n)) return { value: null, error: `${field.label} must be a whole number (got "${s}")` };
-      return { value: Math.round(n) };
+      const normalized = s.replace(/[$,\s]/g, "");
+      if (!/^-?\d+$/.test(normalized)) {
+        return { value: null, error: `${field.label} must be a whole number (got "${s}")` };
+      }
+      const n = Number(normalized);
+      if (!Number.isSafeInteger(n)) return { value: null, error: `${field.label} must be a whole number (got "${s}")` };
+      return { value: n };
     }
     case "boolean": {
       const l = s.toLowerCase();
@@ -231,12 +235,20 @@ export function validateData(
       const field = dataset.fields.find((f) => f.key === key)!;
       const { value, error } = coerceValue(field, raw[header]);
       if (error) {
-        rowHasError = true;
+        // A malformed optional Days Vacant value must remain an in-scope,
+        // invalid planning observation rather than disappearing from the
+        // coverage denominator with the whole row.
+        if (key !== "daysVacant") rowHasError = true;
         if (rowErrors.length < ROW_ERROR_CAP) {
           rowErrors.push({ row: i + 1, field: field.label, value: String(raw[header] ?? ""), message: error });
         }
       }
       rec[key] = value;
+    }
+    if (datasetId === "rent_roll") {
+      const daysVacantHeader = Object.entries(mapping).find(([, key]) => key === "daysVacant")?.[0];
+      const rawDaysVacant = daysVacantHeader == null ? null : raw[daysVacantHeader];
+      rec.daysVacantProvided = rawDaysVacant != null && String(rawDaysVacant).trim() !== "";
     }
     // required fields not present as columns already flagged at column level
     if (rowHasError) {
@@ -474,7 +486,8 @@ export async function executeImport(params: ImportParams): Promise<ImportRun> {
           roomType: normalizeRoomType(r.roomType),
           serviceLine: r.serviceLine,
           occupiedYN: r.occupiedYN === true,
-          daysVacant: r.daysVacant ?? 0,
+          daysVacant: r.daysVacant ?? null,
+          daysVacantProvided: r.daysVacantProvided === true,
           preferredLocation: r.preferredLocation,
           size: r.size,
           view: r.view,

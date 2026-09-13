@@ -40,6 +40,10 @@ const LEGACY_DB_NAMES = [
 ];
 const STORE_NAME = "calculated-plans";
 const MAX_LOCAL_PLAN_SCOPES = 12;
+// Safari can deny both IndexedDB and localStorage inside an embedded preview.
+// Keep the current SPA session functional even when nothing can survive a
+// browser reload; identity + scope keys preserve the same isolation rules.
+const sessionPlans = new Map<string, unknown>();
 
 function shouldAvoidIndexedDb(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -114,6 +118,7 @@ export async function readInhousePlan<T>(
 ): Promise<T | null> {
   if (typeof window === "undefined" || !identityKey || !scopeKey) return null;
   const key = storageKey(identityKey, scopeKey);
+  if (sessionPlans.has(key)) return sessionPlans.get(key) as T;
 
   try {
     if (!window.indexedDB || shouldAvoidIndexedDb()) throw new Error("IndexedDB unavailable");
@@ -152,6 +157,7 @@ export async function writeInhousePlan<T>(
 ): Promise<boolean> {
   if (typeof window === "undefined" || !identityKey || !scopeKey) return false;
   const key = storageKey(identityKey, scopeKey);
+  sessionPlans.set(key, value);
 
   try {
     if (!window.indexedDB || shouldAvoidIndexedDb()) throw new Error("IndexedDB unavailable");
@@ -174,8 +180,10 @@ export async function writeInhousePlan<T>(
     try {
       return writeLocalPlan(key, value);
     } catch {
-      // The browser has no writable storage.
-      return false;
+      // The browser has no writable persistent storage. The in-memory copy
+      // still keeps the calculated plan usable while this app session remains
+      // open, including client-side navigation away from and back to the page.
+      return true;
     }
   }
 }
@@ -210,6 +218,7 @@ export async function writeInhousePlanBundle<T>(
 
 export async function clearInhousePlanStorage(): Promise<void> {
   if (typeof window === "undefined") return;
+  sessionPlans.clear();
 
   try {
     window.localStorage.removeItem(STORAGE_KEY);

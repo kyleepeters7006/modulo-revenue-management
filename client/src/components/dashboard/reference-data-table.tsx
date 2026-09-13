@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect, useLayoutEffect } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +37,7 @@ import {
   Plus,
   Upload,
   StickyNote,
+  ArrowRightLeft,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -687,6 +689,9 @@ interface ReferenceDataTableProps {
   onRuleCreated?: () => void;
   /** Opens the section and horizontally scrolls to this column group. */
   focusGroup?: string | null;
+  selectedLocationId?: string | null;
+  /** Restores the exact vertical and horizontal position saved before opening Rate Planning. */
+  restorePosition?: boolean;
 }
 
 export default function ReferenceDataTable({
@@ -696,7 +701,10 @@ export default function ReferenceDataTable({
   selectedLocations,
   onRuleCreated,
   focusGroup,
+  selectedLocationId,
+  restorePosition,
 }: ReferenceDataTableProps) {
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [sectionOpen, setSectionOpen] = useState(Boolean(focusGroup));
@@ -714,6 +722,16 @@ export default function ReferenceDataTable({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [filters, setFilters] = useState<Record<string, ColFilter>>({});
   const [openFilter, setOpenFilter] = useState<string | null>(null);
+  const savedPositionRef = useRef<{ top: number; left: number } | null>((() => {
+    if (!restorePosition) return null;
+    try {
+      const raw = sessionStorage.getItem("referenceData:returnPosition");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })());
+  const restoredPositionRef = useRef(false);
 
   // groups that are currently expanded to show per-month columns
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -1046,6 +1064,16 @@ export default function ReferenceDataTable({
     if (!focusGroup) return;
     setSectionOpen(true);
     const timer = window.setTimeout(() => {
+      const saved = savedPositionRef.current;
+      if (restorePosition && saved && !restoredPositionRef.current) {
+        restoredPositionRef.current = true;
+        window.scrollTo({ top: saved.top, behavior: "auto" });
+        bottomScrollRef.current?.scrollTo({ left: saved.left, behavior: "auto" });
+        if (topScrollRef.current) topScrollRef.current.scrollLeft = saved.left;
+        sessionStorage.removeItem("referenceData:returnPosition");
+        return;
+      }
+      if (restorePosition && restoredPositionRef.current) return;
       document.querySelector('[data-testid="reference-data-card"]')?.scrollIntoView({
         behavior: "smooth",
         block: "start",
@@ -1060,7 +1088,20 @@ export default function ReferenceDataTable({
       if (topScrollRef.current) topScrollRef.current.scrollLeft = left;
     }, 450);
     return () => window.clearTimeout(timer);
-  }, [focusGroup, dynGroups]);
+  }, [focusGroup, dynGroups, restorePosition]);
+
+  const openRatePlanning = () => {
+    sessionStorage.setItem("referenceData:returnPosition", JSON.stringify({
+      top: window.scrollY,
+      left: bottomScrollRef.current?.scrollLeft ?? 0,
+    }));
+    const params = new URLSearchParams({ from: "reference-data" });
+    if (selectedLocationId) params.set("locationId", selectedLocationId);
+    if (selectedServiceLine && selectedServiceLine !== "All") {
+      params.set("serviceLine", selectedServiceLine);
+    }
+    setLocation(`/inhouse-increases?${params.toString()}`);
+  };
 
   // Unique formatted values for the currently-open filter column (for checkbox list).
   // Must be after both rawRows and dynAllCols.
@@ -2247,6 +2288,16 @@ export default function ReferenceDataTable({
         )}
       </div>
       <div className="flex items-center gap-2 flex-wrap">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={openRatePlanning}
+          data-testid="reference-data-open-rate-planning"
+        >
+          <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" />
+          Rate Planning
+        </Button>
         <ManualOverrideHistoryList />
         {/* Grouping level toggle */}
         <div className="flex items-center rounded-md border border-border p-0.5" data-testid="refdata-group-toggle">

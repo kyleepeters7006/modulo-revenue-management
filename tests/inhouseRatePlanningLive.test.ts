@@ -49,8 +49,10 @@ import {
 import {
   expectedMonths,
   fetchCohortMonthlyRealizedRates,
+  fetchPlanningSignalValidation,
   fetchMonthlyRealizedRates,
 } from "../server/services/inhouseRatePlanning/dataAccess";
+import { executeImport, validateData } from "../server/services/dataImportService";
 import {
   addMonths,
   addQuarters,
@@ -574,6 +576,168 @@ async function assertProductClassifierParity(clientId: string) {
   );
 }
 
+async function assertPlanningSignalDataAccess(clientId: string, sourceMonth: string) {
+  const sparseLocation = `__planning_signal_sparse_${Date.now()}`;
+  const validLocation = `__planning_signal_valid_${Date.now()}`;
+  const months = Array.from({ length: 12 }, (_, index) => addMonths(sourceMonth, -index));
+  const values: string[] = [];
+  const params: unknown[] = [];
+
+  const addRow = (
+    location: string,
+    month: string,
+    roomNumber: string,
+    daysVacant: number | null,
+    daysVacantProvided: boolean,
+  ) => {
+    const offset = params.length;
+    values.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13})`);
+    params.push(
+      month,
+      `${month}-01`,
+      location,
+      roomNumber,
+      "Studio",
+      "AL",
+      false,
+      "Studio",
+      daysVacant,
+      daysVacantProvided,
+      3000,
+      3000,
+      clientId,
+    );
+  };
+
+  for (const month of months) {
+    for (let index = 0; index < 10; index++) {
+      addRow(
+        sparseLocation,
+        month,
+        `sparse-${month}-${index}`,
+        index === 0 ? 30 : null,
+        index <= 1,
+      );
+      addRow(validLocation, month, `valid-${month}-${index}`, 30, true);
+    }
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO rent_roll_data
+        (upload_month, date, location, room_number, room_type, service_line,
+         occupied_yn, size, days_vacant, days_vacant_provided, street_rate,
+         in_house_rate, client_id)
+       VALUES ${values.join(", ")}`,
+      params,
+    );
+
+    const sparse = await fetchPlanningSignalValidation(
+      { clientId, location: sparseLocation, serviceLine: "AL" },
+      sourceMonth,
+    );
+    ok(
+      "sparse and malformed vacancy rows stay neutral through data access",
+      sparse.daysVacant.status === "neutral" &&
+        sparse.daysVacant.totalRows === 120 &&
+        sparse.daysVacant.validRows === 12 &&
+        sparse.daysVacant.coveragePct === 10,
+      `status=${sparse.daysVacant.status} rows=${sparse.daysVacant.totalRows} valid=${sparse.daysVacant.validRows} coverage=${sparse.daysVacant.coveragePct}`,
+    );
+
+    const valid = await fetchPlanningSignalValidation(
+      { clientId, location: validLocation, serviceLine: "AL" },
+      sourceMonth,
+    );
+    ok(
+      "sufficiently populated vacancy rows validate through data access",
+      valid.daysVacant.status === "validated" &&
+        valid.daysVacant.totalRows === 120 &&
+        valid.daysVacant.validRows === 120,
+    );
+  } finally {
+    await pool.query(
+      `DELETE FROM rent_roll_data
+        WHERE client_id = $1 AND location IN ($2, $3)`,
+      [clientId, sparseLocation, validLocation],
+    );
+  }
+}
+
+async function assertCanonicalImportProvenance(clientId: string) {
+  const locationResult = await pool.query<{ location: string }>(
+    `SELECT location FROM rent_roll_data WHERE client_id = $1 LIMIT 1`,
+    [clientId],
+  );
+  const location = locationResult.rows[0]?.location;
+  if (!location) {
+    ok("a location exists for canonical import provenance coverage", false);
+    return;
+  }
+
+  const period = "2099-01";
+  const roomNumbers = ["A1", "A2", "A3"].map((roomNumber) => `__signal_fixture_${Date.now()}_${roomNumber}`);
+  const rows = roomNumbers.map((roomNumber, index) => ({
+    "Upload Month": period,
+    Date: `${period}-01`,
+    Location: location,
+    "Room Number": roomNumber,
+    "Room Type": "Studio",
+    "Service Line": "AL",
+    "Occupied Y/N": "N",
+    Size: "Studio",
+    "Street Rate": "3000",
+    "In-House Rate": "3000",
+    "Days Vacant": index === 0 ? "30" : index === 1 ? "" : "30x",
+  }));
+  const validation = validateData("rent_roll", Object.keys(rows[0]), rows, "rent_roll_2099-01.csv");
+
+  try {
+    await executeImport({
+      clientId,
+      datasetId: "rent_roll",
+      fileName: "rent_roll_2099-01.csv",
+      fileHash: null,
+      source: "manual",
+      period,
+      periodSource: "column",
+      mode: "append",
+      validation,
+    });
+
+    const stored = await pool.query<{
+      room_number: string;
+      days_vacant: number | null;
+      days_vacant_provided: boolean;
+    }>(
+      `SELECT room_number, days_vacant, days_vacant_provided
+         FROM rent_roll_data
+        WHERE client_id = $1 AND upload_month = $2
+          AND room_number = ANY($3::text[])
+        ORDER BY room_number`,
+      [clientId, period, roomNumbers],
+    );
+    ok(
+      "canonical import persists supplied, blank, and malformed vacancy provenance",
+      stored.rows.length === 3 &&
+        stored.rows[0].days_vacant === 30 &&
+        stored.rows[0].days_vacant_provided === true &&
+        stored.rows[1].days_vacant === null &&
+        stored.rows[1].days_vacant_provided === false &&
+        stored.rows[2].days_vacant === null &&
+        stored.rows[2].days_vacant_provided === true,
+      `rows=${stored.rows.length}`,
+    );
+  } finally {
+    await pool.query(
+      `DELETE FROM rent_roll_data
+        WHERE client_id = $1 AND upload_month = $2
+          AND room_number = ANY($3::text[])`,
+      [clientId, period, roomNumbers],
+    );
+  }
+}
+
 /**
  * The Bedford HC failure was a room-mix failure, not a pricing failure. Keep a
  * real production-shaped fixture here: West Lafayette's April 2025 current
@@ -909,6 +1073,19 @@ async function main() {
   }
   console.log(`Client under test: ${clientId}\n`);
   assertSyntheticRoomMixArithmetic();
+  const latestSignalMonth = await pool.query<{ upload_month: string }>(
+    `SELECT MAX(upload_month) AS upload_month
+       FROM rent_roll_data
+      WHERE client_id = $1`,
+    [clientId],
+  );
+  const signalMonth = latestSignalMonth.rows[0]?.upload_month;
+  if (signalMonth) {
+    await assertPlanningSignalDataAccess(clientId, signalMonth);
+  } else {
+    ok("a source month exists for planning-signal validation", false);
+  }
+  await assertCanonicalImportProvenance(clientId);
 
   // Both billing bases are REQUIRED. Each is resolved by actually building a plan,
   // so "the data no longer supports this scope" fails the run instead of

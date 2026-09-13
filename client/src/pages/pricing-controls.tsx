@@ -49,6 +49,7 @@ export default function PricingControls() {
   const urlLocation = urlParams.get('location');
   const urlServiceLine = urlParams.get('serviceLine');
   const referenceFocusGroup = urlParams.get('focusGroup');
+  const restoreReferencePosition = urlParams.get('restorePosition') === 'reference-data';
   
   const savedFilters = loadFiltersFromStorage();
   const [selectedServiceLine, setSelectedServiceLine] = useState<string>(
@@ -529,6 +530,8 @@ export default function PricingControls() {
             selectedLocations={selectedLocations}
             onRuleCreated={() => designerHelpersRef.current?.refreshRules()}
             focusGroup={referenceFocusGroup}
+            selectedLocationId={selectedLocationId}
+            restorePosition={restoreReferencePosition}
           />
 
           <div id="rule-designer-section" className="scroll-mt-4">
