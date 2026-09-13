@@ -70,10 +70,11 @@ export async function readInhousePlan<T>(
   identityKey: string | null,
   scopeKey: string | null,
 ): Promise<T | null> {
-  if (typeof window === "undefined" || !identityKey || !scopeKey || !window.indexedDB) return null;
+  if (typeof window === "undefined" || !identityKey || !scopeKey) return null;
   const key = storageKey(identityKey, scopeKey);
 
   try {
+    if (!window.indexedDB) throw new Error("IndexedDB unavailable");
     const db = await openDb();
     return await new Promise((resolve, reject) => {
       const request = db
@@ -106,8 +107,8 @@ export async function writeInhousePlan<T>(
   identityKey: string | null,
   scopeKey: string | null,
   value: T,
-): Promise<void> {
-  if (typeof window === "undefined" || !identityKey || !scopeKey) return;
+): Promise<boolean> {
+  if (typeof window === "undefined" || !identityKey || !scopeKey) return false;
   const key = storageKey(identityKey, scopeKey);
 
   try {
@@ -125,6 +126,7 @@ export async function writeInhousePlan<T>(
         reject(transaction.error ?? new Error("Could not save plan"));
       };
     });
+    return true;
   } catch {
     // Persistence is best-effort; a storage failure must not fail Calculate.
     try {
@@ -132,8 +134,10 @@ export async function writeInhousePlan<T>(
       const stored = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
       stored[key] = value;
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+      return true;
     } catch {
       // The browser has no writable storage.
+      return false;
     }
   }
 }

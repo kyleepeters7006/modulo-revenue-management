@@ -1024,6 +1024,32 @@ function isStoredPlan(value: unknown): value is PlanWithSl {
   );
 }
 
+interface StoredCalculatedPlan {
+  plans: PlanWithSl[];
+  lastRunAt: string;
+}
+
+function readStoredCalculatedPlan(value: unknown): {
+  plans: PlanWithSl[];
+  lastRunAt: string | null;
+} | null {
+  // Backward compatibility for calculations saved before timestamps existed.
+  if (Array.isArray(value) && value.every(isStoredPlan)) {
+    return { plans: value, lastRunAt: null };
+  }
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<StoredCalculatedPlan>;
+  if (
+    !Array.isArray(candidate.plans) ||
+    !candidate.plans.every(isStoredPlan) ||
+    typeof candidate.lastRunAt !== "string" ||
+    !Number.isFinite(Date.parse(candidate.lastRunAt))
+  ) {
+    return null;
+  }
+  return { plans: candidate.plans, lastRunAt: candidate.lastRunAt };
+}
+
 export default function InhouseIncreases() {
   const { toast } = useToast();
   const { user, isAuthenticated } = useAuth();
@@ -1074,9 +1100,11 @@ export default function InhouseIncreases() {
     loaded: Record<string, true>;
   }>({ scopeKey: "", policies: {}, edited: {}, loaded: {} });
   const [tierGrid, setTierGrid] = useState<TierGridResult | null>(null);
+  const [mobileTier, setMobileTier] = useState<OccupancyTierId>("target");
   const [assumptionsTouched, setAssumptionsTouched] = useState(false);
   const [, startAssumptionTransition] = useTransition();
   const [plans, setPlans] = useState<PlanWithSl[] | null>(null);
+  const [lastRunAt, setLastRunAt] = useState<string | null>(null);
   const [expandedQuarter, setExpandedQuarter] = useState<string | null>(null);
   const [expandedResident, setExpandedResident] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
@@ -1136,7 +1164,11 @@ export default function InhouseIncreases() {
     const previous = previousStorageIdentity.current;
     previousStorageIdentity.current = storageIdentityKey;
     currentStorageIdentity.current = storageIdentityKey;
-    if (previous !== undefined && previous !== storageIdentityKey) {
+    // Auth hydrates asynchronously on every page load: null → signed-in user
+    // is not a logout and must never erase that user's saved calculations.
+    // Entries are identity-keyed, so only a transition from an authenticated
+    // identity to no identity requires privacy cleanup.
+    if (previous !== undefined && previous !== null && storageIdentityKey === null) {
       void clearInhousePlanStorage();
     }
   }, [storageIdentityKey]);
@@ -1148,17 +1180,19 @@ export default function InhouseIncreases() {
   useEffect(() => {
     let cancelled = false;
     setPlans(null);
+    setLastRunAt(null);
     setVisibleCount(50);
     setExpandedResident(null);
     setExpandedQuarter(null);
     void (async () => {
-      const stored = await readInhousePlan<PlanWithSl[]>(storageIdentityKey, calculatedPlanKey);
+      const storedValue = await readInhousePlan<unknown>(storageIdentityKey, calculatedPlanKey);
+      const stored = readStoredCalculatedPlan(storedValue);
       let restored =
-        Array.isArray(stored) &&
-        stored.every(isStoredPlan) &&
-        stored.every(({ sl }) => serviceLines.includes(sl))
-          ? stored
+        stored &&
+        stored.plans.every(({ sl }) => serviceLines.includes(sl))
+          ? stored.plans
           : null;
+      let restoredLastRunAt = restored ? stored?.lastRunAt ?? null : null;
 
       // Older cache entries and individually calculated lines may not have a
       // combined entry for the current multi-select. Compose it from each
@@ -1167,21 +1201,32 @@ export default function InhouseIncreases() {
         const perLine = await Promise.all(
           serviceLines.map(async (sl) => {
             const lineKey = calculatedPlanScopeKey(scopeLocationId, [sl]);
-            const lineStored = await readInhousePlan<PlanWithSl[]>(
+            const lineStoredValue = await readInhousePlan<unknown>(
               storageIdentityKey,
               lineKey,
             );
-            return Array.isArray(lineStored)
-              ? lineStored.find((candidate) => isStoredPlan(candidate) && candidate.sl === sl) ?? null
-              : null;
+            const lineStored = readStoredCalculatedPlan(lineStoredValue);
+            return {
+              plan: lineStored?.plans.find((candidate) => candidate.sl === sl) ?? null,
+              lastRunAt: lineStored?.lastRunAt ?? null,
+            };
           }),
         );
-        const available = perLine.filter((plan): plan is PlanWithSl => plan !== null);
+        const available = perLine
+          .map(({ plan }) => plan)
+          .filter((plan): plan is PlanWithSl => plan !== null);
         restored = available.length > 0 ? available : restored;
+        const timestamps = perLine
+          .filter(({ plan, lastRunAt }) => plan !== null && lastRunAt !== null)
+          .map(({ lastRunAt }) => lastRunAt!);
+        if (available.length === serviceLines.length && new Set(timestamps).size === 1) {
+          restoredLastRunAt = timestamps[0] ?? restoredLastRunAt;
+        }
       }
 
       if (cancelled) return;
       setPlans(restored);
+      setLastRunAt(restoredLastRunAt);
       const first = restored?.find((r) => r.plan.feasible) ?? restored?.[0];
       setExpandedQuarter(first?.plan.bindingQuarterLabel
         ? `${first.sl}-${first.plan.bindingQuarterLabel}`
@@ -1573,21 +1618,25 @@ export default function InhouseIncreases() {
       }
       return { identityKey: request.identityKey, scopeKey: requestedScopeKey, results, skipped };
     },
-    onSuccess: ({ identityKey, scopeKey, results, skipped }) => {
+    onSuccess: async ({ identityKey, scopeKey, results, skipped }) => {
       // Persist the completed request even if the operator switched filters
       // while it was running. Save both the exact selection and each line so
       // any later filter combination can restore the last available plans.
+      const lastRunAt = new Date().toISOString();
+      let saved = false;
       if (identityKey) {
-        void Promise.all([
-          writeInhousePlan(identityKey, scopeKey, results),
+        const stored: StoredCalculatedPlan = { plans: results, lastRunAt };
+        const writes = await Promise.all([
+          writeInhousePlan(identityKey, scopeKey, stored),
           ...results.map((result) =>
             writeInhousePlan(
               identityKey,
               calculatedPlanScopeKey(result.plan.scope.locationId ?? null, [result.sl]),
-              [result],
+              { plans: [result], lastRunAt } satisfies StoredCalculatedPlan,
             ),
           ),
         ]);
+        saved = writes.every(Boolean);
       }
       // If the operator changed scope while the request was running, retain
       // the result under its original scope but never render it under the new
@@ -1597,6 +1646,7 @@ export default function InhouseIncreases() {
         scopeKey !== calculatedPlanScopeKey(scopeLocationId, serviceLines)
       ) return;
       setPlans(results);
+      setLastRunAt(lastRunAt);
       setVisibleCount(50);
       setExpandedResident(null);
       // Expand the binding quarter of the first feasible plan.
@@ -1606,6 +1656,13 @@ export default function InhouseIncreases() {
         toast({
           title: `${skipped.length} service line${skipped.length === 1 ? "" : "s"} skipped`,
           description: skipped.map(({ sl, message }) => `${sl}: ${message}`).join(" "),
+        });
+      }
+      if (identityKey && !saved) {
+        toast({
+          title: "Plan calculated but not saved",
+          description: "Browser storage is unavailable. Keep this page open or enable site storage before leaving.",
+          variant: "destructive",
         });
       }
     },
@@ -1662,7 +1719,7 @@ export default function InhouseIncreases() {
       }
       return { lines, skipped, scopeKey, inputsKey, identityKey, planScopeKey };
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       // The scope moved while this was in flight. Showing it would label one
       // campus's numbers with another campus's name, so drop it and say so.
       if (result.scopeKey !== tierScopeKeyRef.current) {
@@ -1678,27 +1735,39 @@ export default function InhouseIncreases() {
         sl: line.serviceLine,
         plan: line.currentPlan,
       }));
+      const lastRunAt = new Date().toISOString();
+      let saved = false;
       if (result.identityKey) {
-        void Promise.all([
-          writeInhousePlan(result.identityKey, result.planScopeKey, calculatedPlans),
+        const stored: StoredCalculatedPlan = { plans: calculatedPlans, lastRunAt };
+        const writes = await Promise.all([
+          writeInhousePlan(result.identityKey, result.planScopeKey, stored),
           ...calculatedPlans.map((calculated) =>
             writeInhousePlan(
               result.identityKey!,
               calculatedPlanScopeKey(calculated.plan.scope.locationId ?? null, [calculated.sl]),
-              [calculated],
+              { plans: [calculated], lastRunAt } satisfies StoredCalculatedPlan,
             ),
           ),
         ]);
+        saved = writes.every(Boolean);
       }
       if (
         result.identityKey === currentStorageIdentity.current &&
         result.planScopeKey === calculatedPlanScopeKey(scopeLocationId, serviceLines)
       ) {
         setPlans(calculatedPlans);
+        setLastRunAt(lastRunAt);
         setVisibleCount(50);
         setExpandedResident(null);
         const first = calculatedPlans.find((entry) => entry.plan.feasible) ?? calculatedPlans[0];
         setExpandedQuarter(first?.plan.bindingQuarterLabel ?? null);
+      }
+      if (result.identityKey && !saved) {
+        toast({
+          title: "Plan calculated but not saved",
+          description: "Browser storage is unavailable. Keep this page open or enable site storage before leaving.",
+          variant: "destructive",
+        });
       }
       if (result.skipped.length > 0) {
         toast({
@@ -2457,7 +2526,79 @@ export default function InhouseIncreases() {
               </p>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="space-y-2 sm:hidden">
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="mobile-occupancy-tier" className="text-xs">
+                  Occupancy scenario
+                </Label>
+                <Select
+                  value={mobileTier}
+                  onValueChange={(value) => setMobileTier(value as OccupancyTierId)}
+                >
+                  <SelectTrigger
+                    id="mobile-occupancy-tier"
+                    className="h-8 w-36"
+                    data-testid="select-mobile-occupancy-tier"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {OCCUPANCY_TIER_IDS.map((tier) => (
+                      <SelectItem key={tier} value={tier}>
+                        {OCCUPANCY_TIER_LABELS[tier]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-[4rem_4.75rem_1fr] items-end border-b pb-1 text-[11px] font-medium text-muted-foreground">
+                <span>Line</span>
+                <HeaderHelp
+                  label="Occupancy"
+                  explanation="Measured occupancy for this service line. This selects the scenario currently in force."
+                />
+                <span className="text-right">In-house / street</span>
+              </div>
+              {tierGrid.lines.map((line) => {
+                const cell = line.cells.find((candidate) => candidate.tier === mobileTier);
+                const current = line.currentTier === mobileTier;
+                return (
+                  <div
+                    key={`mobile-${line.serviceLine}`}
+                    className="grid grid-cols-[4rem_4.75rem_1fr] items-center border-b py-1.5 last:border-b-0"
+                    data-testid={`mobile-tier-summary-${line.serviceLine}`}
+                  >
+                    <span className="text-xs font-medium">{line.serviceLine}</span>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {line.occupancyPct == null ? "—" : `${line.occupancyPct.toFixed(1)}%`}
+                    </span>
+                    <div
+                      className={cn(
+                        "justify-self-end rounded px-2 py-1 text-xs tabular-nums",
+                        current && "bg-primary/10 font-medium ring-1 ring-primary/30",
+                      )}
+                      title={cell?.error ?? cell?.rangeLabel}
+                    >
+                      {!cell || cell.error ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <>
+                          <span>{formatTierPct(cell.inhouseIncreasePct)}</span>
+                          <span className="text-muted-foreground"> / </span>
+                          <span>{formatTierPct(cell.streetIncreasePct)}</span>
+                          {cell.feasible === false && <span className="ml-1 text-amber-500">!</span>}
+                          {current && (
+                            <span className="ml-1.5 text-[10px] font-normal text-primary">Current</span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="hidden overflow-x-auto sm:block">
               <div className="min-w-[46rem]">
                 <div
                   className={cn(
@@ -2897,6 +3038,23 @@ export default function InhouseIncreases() {
             </p>
           </CardContent>}
         </Card>
+      )}
+
+      {plans && plans.length > 0 && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm"
+          data-testid="calculated-plan-last-run"
+        >
+          <span className="font-medium">Last run for these filters</span>
+          <span className="text-muted-foreground">
+            {lastRunAt
+              ? new Intl.DateTimeFormat(undefined, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                }).format(new Date(lastRunAt))
+              : "Saved before timestamps were added"}
+          </span>
+        </div>
       )}
 
       {plans && plans.length > 0 && (
