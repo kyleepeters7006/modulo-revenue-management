@@ -102,6 +102,11 @@ import {
   explainTurnoverOutOfBand,
   formatLos,
 } from "@shared/turnoverBounds";
+import {
+  formatQuarterYoyDisplay,
+  getQuarterYoyDisplay,
+  type QuarterYoyDisplay,
+} from "@/lib/inhouseQuarterYoyDisplay";
 
 /**
  * Where a resident's comparison rate came from, said plainly. A ceiling set by
@@ -167,14 +172,10 @@ function HeaderHelp({ label, explanation }: { label: string; explanation: string
 const GROWTH_GRID_COLS =
   "grid min-w-[1420px] grid-cols-[minmax(110px,1.2fr)_repeat(5,minmax(135px,1fr))_minmax(200px,1.5fr)_minmax(135px,1fr)]";
 
-interface QuarterYoyCell {
+interface QuarterYoyCell extends QuarterYoyDisplay {
   key: string;
   label: string;
-  /** Null when the prior-year quarter has no realized rate to measure against. */
-  yoyPct: number | null;
   passes: boolean;
-  unavailableLabel?: string;
-  unavailableExplanation?: string;
 }
 
 /**
@@ -199,7 +200,7 @@ function QuarterYoyBreakdown({ quarters }: { quarters: QuarterYoyCell[] }) {
               className="font-medium text-muted-foreground"
               title={quarter.unavailableExplanation}
             >
-              {quarter.unavailableLabel ?? "n/a"}
+              {formatQuarterYoyDisplay(quarter)}
             </span>
           ) : (
             <span
@@ -3144,23 +3145,18 @@ export default function InhouseIncreases() {
                   const planYear = plan.quarters[0]?.year;
                   const singleQuarterYear = new Set(plan.quarters.map((quarter) => quarter.year)).size <= 1;
                   const quarterCells: QuarterYoyCell[] = plan.quarters.map((quarter) => {
-                    const priorRate = quarter.priorYear.realizedRateMonthly;
-                    const measurable =
-                      priorRate != null && priorRate > 0 && Number.isFinite(quarter.yoyGrowthPct);
-                    // A two-month quarter can still produce a finite ratio, but
-                    // it is not a complete measured YoY comparison.
-                    const partial = quarter.priorYear.basis === "partial";
+                    const display = getQuarterYoyDisplay({
+                      priorRate: quarter.priorYear.realizedRateMonthly,
+                      yoyGrowthPct: quarter.yoyGrowthPct,
+                      basis: quarter.priorYear.basis,
+                      monthsAvailable: quarter.priorYear.monthsAvailable,
+                      priorYearLabel: quarter.priorYear.label,
+                    });
                     return {
                       key: `${quarter.year}-Q${quarter.quarter}`,
                       label: quarterCellLabel(quarter.quarter, quarter.year, singleQuarterYear),
-                      yoyPct: measurable && !partial ? quarter.yoyGrowthPct : null,
+                      ...display,
                       passes: quarter.passes,
-                      unavailableLabel: partial
-                        ? `Partial (${quarter.priorYear.monthsAvailable}/3)`
-                        : undefined,
-                      unavailableExplanation: partial
-                        ? `${quarter.priorYear.label} has ${quarter.priorYear.monthsAvailable} of 3 months available, so it is excluded from measured quarterly YoY.`
-                        : "No usable prior-year comparison is available.",
                     };
                   });
                   const quartersMeetingGoal = plan.quarters.filter((quarter) => quarter.passes).length;

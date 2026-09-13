@@ -20,3 +20,6 @@ zero tests.
 - Keep the aliases in `vitest.config.ts` mirroring `vite.config.ts`.
 - A suite reporting "0 tests" is a load failure, not an empty file. Investigate
   before trusting a green-looking run.
+- Keep small client display decisions in importable `.ts` helpers when they
+  need Vitest coverage; importing a full `.tsx` page currently bypasses the
+  repository's React transform and fails before tests load.
