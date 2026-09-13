@@ -531,6 +531,63 @@ export interface Infeasibility {
   };
 }
 
+export type TargetDeviationDriverId =
+  | "resident_guardrails"
+  | "street_bounds"
+  | "effective_date_timing"
+  | "competition"
+  | "turnover_replacement_street";
+
+export type TargetDeviationDriverStatus =
+  | "contributing"
+  | "mitigating"
+  | "binding"
+  | "not_binding"
+  | "not_applicable";
+
+export interface TargetDeviationDriver {
+  id: TargetDeviationDriverId;
+  label: string;
+  status: TargetDeviationDriverStatus;
+  /**
+   * Counterfactual change in the maximum-quarter deviation, in percentage
+   * points. Positive means this driver pushes the realized rate above target;
+   * negative means it pulls the result below target.
+   */
+  maximumQuarterContributionPct: number | null;
+  /**
+   * Counterfactual change in the sum of positive quarterly deviations, in
+   * percentage points. This is intentionally not a sum of the individual
+   * driver values because the counterfactuals can interact.
+   */
+  cumulativeContributionPct: number | null;
+  note: string;
+}
+
+export interface TargetDeviationQuarter {
+  label: string;
+  priorYearRateMonthly: number | null;
+  requiredRateMonthly: number;
+  projectedRateMonthly: number;
+  /** Signed projected growth minus target, in percentage points. */
+  deviationPct: number | null;
+  /** Positive part of deviationPct, in percentage points. */
+  overshootPct: number;
+  /** Negative part of deviationPct, in percentage points. */
+  shortfallPct: number;
+  testable: boolean;
+}
+
+export interface TargetDeviationDiagnostic {
+  /** Largest positive quarterly deviation from the target, in percentage points. */
+  maximumQuarterDeviationPct: number;
+  maximumQuarterLabel: string | null;
+  /** Sum of positive quarterly deviations, in percentage points. */
+  cumulativeDeviationPct: number;
+  quarters: TargetDeviationQuarter[];
+  drivers: TargetDeviationDriver[];
+}
+
 export interface PlanScope {
   clientId: string;
   locationId: string | null;
@@ -607,6 +664,8 @@ export interface PlanResult {
   infeasibility: Infeasibility | null;
   /** Why the joint quarterly optimizer selected this combination or could not fully fit it. */
   optimizationNote?: string | null;
+  /** Structured counterfactual explanation of any deviation from the target. */
+  targetDeviationDiagnostic?: TargetDeviationDiagnostic;
   explanation: CalcExplanation;
   /** Data-quality caveats an operator needs to see, in plain language. */
   warnings: string[];

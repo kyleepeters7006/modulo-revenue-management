@@ -791,6 +791,7 @@ export async function preparePlan(
       quarters: quartersWithRoomDetail,
       monthlyRateProjection,
       bindingQuarterLabel: solved.bindingQuarterLabel,
+      targetDeviationDiagnostic: solved.targetDeviationDiagnostic,
 
       summary,
       residents: recommendations,

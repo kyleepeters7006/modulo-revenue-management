@@ -655,6 +655,8 @@ function buildSummarySheet(
   ws.getColumn(1).width = 38;
   ws.getColumn(2).width = 18;
   ws.getColumn(3).width = 76;
+  ws.getColumn(4).width = 18;
+  ws.getColumn(5).width = 76;
 
   const L = SUMMARY_LABELS;
   const C = SUMMARY_CELLS;
@@ -802,6 +804,54 @@ function buildSummarySheet(
     ws.getRow(r).getCell(3).value = plan.optimizationNote;
     ws.getRow(r).getCell(3).alignment = { wrapText: true, vertical: "top" };
     r++;
+  }
+  const diagnostic = plan.targetDeviationDiagnostic;
+  if (diagnostic) {
+    r++;
+    sectionTitle(ws, r++, "TARGET DEVIATION DIAGNOSTIC — recorded from the solver", 5);
+    snapshotRow(
+      ws,
+      r++,
+      "Maximum-quarter deviation",
+      diagnostic.maximumQuarterDeviationPct / 100,
+      FMT_PCT2,
+      diagnostic.maximumQuarterLabel
+        ? `Largest positive deviation in ${diagnostic.maximumQuarterLabel}.`
+        : "No testable quarter.",
+    );
+    snapshotRow(
+      ws,
+      r++,
+      "Cumulative deviation",
+      diagnostic.cumulativeDeviationPct / 100,
+      FMT_PCT2,
+      "Sum of positive quarterly deviations; counterfactual driver rows below are not additive.",
+    );
+    const driverHeader = ws.getRow(r++);
+    ["Driver", "Status", "Max-quarter contribution", "Cumulative contribution", "Why"].forEach(
+      (header, index) => (driverHeader.getCell(index + 1).value = header),
+    );
+    styleHeaderRow(driverHeader);
+    for (const driver of diagnostic.drivers) {
+      const row = ws.getRow(r++);
+      row.getCell(1).value = driver.label;
+      row.getCell(2).value = driver.status.replaceAll("_", " ");
+      row.getCell(3).value =
+        driver.maximumQuarterContributionPct == null
+          ? "—"
+          : driver.maximumQuarterContributionPct / 100;
+      row.getCell(3).numFmt = FMT_PCT2;
+      row.getCell(4).value =
+        driver.cumulativeContributionPct == null
+          ? "—"
+          : driver.cumulativeContributionPct / 100;
+      row.getCell(4).numFmt = FMT_PCT2;
+      row.getCell(5).value = driver.note;
+      row.getCell(5).alignment = { wrapText: true, vertical: "top" };
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SNAPSHOT_FILL } };
+      });
+    }
   }
   if (plan.infeasibility) {
     ws.getRow(r).getCell(1).value = "Why not";

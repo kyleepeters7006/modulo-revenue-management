@@ -32,6 +32,9 @@ import type {
   QuarterRef,
   QuarterResult,
   ResidentConstraint,
+  TargetDeviationDiagnostic,
+  TargetDeviationDriver,
+  TargetDeviationQuarter,
 } from "@shared/inhousePlanning";
 import { formatMoney, formatPct } from "@shared/inhousePlanning";
 import {
@@ -491,6 +494,7 @@ export interface SolveOutput {
   postIncreaseAvgRateMonthly: number;
   /** Plain-language reason when guardrails or market preferences affect the fit. */
   optimizationNote: string | null;
+  targetDeviationDiagnostic: TargetDeviationDiagnostic;
   /** Performance diagnostics for the bounded joint search. */
   jointCandidateCount: number;
   projectionModelCount: number;
@@ -505,6 +509,13 @@ interface EvalContext {
   streetMs: number;
   turnover: number;
   baseAvg: number;
+}
+
+interface DeviationSummary {
+  quarters: TargetDeviationQuarter[];
+  maximumQuarterDeviationPct: number;
+  maximumQuarterLabel: string | null;
+  cumulativeDeviationPct: number;
 }
 
 function buildContext(input: SolveInput): EvalContext {
@@ -787,6 +798,263 @@ function evaluateJointCandidate(
   };
 }
 
+function summarizeDeviations(
+  ctx: EvalContext,
+  projected: Map<string, number>,
+): DeviationSummary {
+  let maximumQuarterDeviationPct = 0;
+  let maximumQuarterLabel: string | null = null;
+  let cumulativeDeviationPct = 0;
+  const quarters = ctx.input.quarters.map((q): TargetDeviationQuarter => {
+    const base = ctx.input.baselineByQuarter.get(q.label);
+    const prior = base?.realizedRateMonthly ?? null;
+    const projectedRate = projected.get(q.label) ?? 0;
+    const requiredRate = prior != null ? prior * (1 + ctx.target) : 0;
+    const testable = prior != null && prior > 0 && projected.has(q.label);
+    const deviationPct = testable
+      ? (projectedRate / prior! - 1 - ctx.target) * 100
+      : null;
+    const overshootPct = deviationPct != null ? Math.max(0, deviationPct) : 0;
+    const shortfallPct = deviationPct != null ? Math.min(0, deviationPct) : 0;
+    if (overshootPct > maximumQuarterDeviationPct) {
+      maximumQuarterDeviationPct = overshootPct;
+      maximumQuarterLabel = q.label;
+    }
+    cumulativeDeviationPct += overshootPct;
+    return {
+      label: q.label,
+      priorYearRateMonthly: prior,
+      requiredRateMonthly: requiredRate,
+      projectedRateMonthly: projectedRate,
+      deviationPct,
+      overshootPct,
+      shortfallPct,
+      testable,
+    };
+  });
+  return {
+    quarters,
+    maximumQuarterDeviationPct,
+    maximumQuarterLabel,
+    cumulativeDeviationPct,
+  };
+}
+
+function differenceBetween(
+  actual: DeviationSummary,
+  counterfactual: DeviationSummary,
+): Pick<TargetDeviationDriver, "maximumQuarterContributionPct" | "cumulativeContributionPct"> {
+  return {
+    maximumQuarterContributionPct:
+      (actual.maximumQuarterDeviationPct - counterfactual.maximumQuarterDeviationPct),
+    cumulativeContributionPct:
+      (actual.cumulativeDeviationPct - counterfactual.cumulativeDeviationPct),
+  };
+}
+
+function counterfactualDriver(
+  id: TargetDeviationDriver["id"],
+  label: string,
+  actual: DeviationSummary,
+  counterfactual: DeviationSummary | null,
+  status: TargetDeviationDriver["status"],
+  note: string,
+): TargetDeviationDriver {
+  const contribution = counterfactual ? differenceBetween(actual, counterfactual) : null;
+  return {
+    id,
+    label,
+    status,
+    maximumQuarterContributionPct: contribution?.maximumQuarterContributionPct ?? null,
+    cumulativeContributionPct: contribution?.cumulativeContributionPct ?? null,
+    note,
+  };
+}
+
+function directionalEffectStatus(
+  actual: DeviationSummary,
+  counterfactual: DeviationSummary | null,
+  applicable: boolean,
+): TargetDeviationDriver["status"] {
+  if (!applicable) return "not_applicable";
+  if (!counterfactual) return "not_binding";
+  const cumulativeContribution =
+    actual.cumulativeDeviationPct - counterfactual.cumulativeDeviationPct;
+  if (cumulativeContribution > 1e-6) return "contributing";
+  if (cumulativeContribution < -1e-6) return "mitigating";
+  return "not_binding";
+}
+
+function buildTargetDeviationDiagnostic(
+  ctx: EvalContext,
+  streetIncrease: number,
+  allocation: AllocationResult,
+  projected: Map<string, number>,
+  configuredMinimum: number,
+  ordinaryCeiling: number,
+  ceilStreet: number,
+  competitivePreference: number,
+): TargetDeviationDiagnostic {
+  const actual = summarizeDeviations(ctx, projected);
+  const model = buildProjectionModel(ctx, streetIncrease);
+  const maxAvgAt = allocationFor(ctx, streetIncrease, Number.POSITIVE_INFINITY).maxAvgIncrease;
+  const requiredWithoutResidentGuardrails = requiredAvgIncreaseAt(
+    ctx,
+    streetIncrease,
+    Math.max(maxAvgAt, ctx.max),
+    model,
+  );
+  const withoutResidentGuardrails = summarizeDeviations(
+    ctx,
+    projectFromModel(ctx, streetIncrease, requiredWithoutResidentGuardrails, model),
+  );
+  const guardrailsBinding =
+    allocation.clipped ||
+    maxAvgAt < ctx.max - 1e-6 ||
+    allocation.allocations.some((a) => a.constraint !== "none");
+
+  const streetBoundsBinding =
+    (configuredMinimum > 0 && Math.abs(streetIncrease - configuredMinimum) < 1e-6) ||
+    (Math.abs(streetIncrease - ceilStreet) < 1e-6 &&
+      (ceilStreet < ordinaryCeiling - 1e-6 || ordinaryCeiling <= ceilStreet + 1e-6));
+  const withoutStreetMinimum =
+    configuredMinimum > 0 && Math.abs(streetIncrease - configuredMinimum) < 1e-6
+      ? summarizeDeviations(
+          ctx,
+          projectFromModel(
+            ctx,
+            0,
+            allocation.achievedAvgIncrease,
+            buildProjectionModel(ctx, 0),
+          ),
+        )
+      : null;
+
+  const timingCounterfactual = summarizeDeviations(
+    ctx,
+    new Map(
+      projectQuarterlyRealizedRates({
+        anchorMs: ctx.input.anchorMs,
+        quarters: ctx.input.quarters,
+        existingAvgRateMonthly: ctx.baseAvg,
+        postIncreaseAvgRateMonthly: ctx.baseAvg * (1 + allocation.achievedAvgIncrease),
+        // "No timing effect" means both changes happen as soon as the
+        // projection starts, not at an arbitrary quarter boundary. This
+        // preserves the plan's pre-horizon history while removing only the
+        // delay represented by the two effective dates.
+        inhouseEffectiveMs: ctx.input.anchorMs,
+        currentStreetMonthly: ctx.input.currentStreetRateMonthly,
+        newStreetMonthly: ctx.input.currentStreetRateMonthly * (1 + streetIncrease),
+        streetEffectiveMs: ctx.input.anchorMs,
+        annualTurnover: ctx.turnover,
+        weightBasis: ctx.input.rateWeightBasis,
+      }),
+    ),
+  );
+
+  const turnoverCounterfactual = summarizeDeviations(
+    ctx,
+    new Map(
+      projectQuarterlyRealizedRates({
+        anchorMs: ctx.input.anchorMs,
+        quarters: ctx.input.quarters,
+        existingAvgRateMonthly: ctx.baseAvg,
+        postIncreaseAvgRateMonthly: ctx.baseAvg * (1 + allocation.achievedAvgIncrease),
+        inhouseEffectiveMs: ctx.inhouseMs,
+        currentStreetMonthly: ctx.input.currentStreetRateMonthly,
+        newStreetMonthly: ctx.input.currentStreetRateMonthly * (1 + streetIncrease),
+        streetEffectiveMs: ctx.streetMs,
+        annualTurnover: 0,
+        weightBasis: ctx.input.rateWeightBasis,
+      }),
+    ),
+  );
+
+  const competitionApplies =
+    ctx.input.topCompetitorRateMonthly != null &&
+    ctx.input.topCompetitorRateMonthly > 0 &&
+    competitivePreference > configuredMinimum + 1e-6 &&
+    Math.abs(streetIncrease - competitivePreference) < 1e-6;
+  const withoutCompetition = competitionApplies
+    ? summarizeDeviations(
+        ctx,
+        projectFromModel(
+          ctx,
+          configuredMinimum,
+          allocation.achievedAvgIncrease,
+          buildProjectionModel(ctx, configuredMinimum),
+        ),
+      )
+    : null;
+
+  const drivers: TargetDeviationDriver[] = [
+    counterfactualDriver(
+      "resident_guardrails",
+      "Resident increase guardrails",
+      actual,
+      withoutResidentGuardrails,
+      guardrailsBinding ? "binding" : "not_binding",
+      guardrailsBinding
+        ? "At least one resident floor or ceiling changes the aggregate increase available to the quarterly projection."
+        : "The selected average increase is reachable without clipping against a resident floor or ceiling.",
+    ),
+    counterfactualDriver(
+      "street_bounds",
+      "Street minimum / ceiling",
+      actual,
+      withoutStreetMinimum,
+      streetBoundsBinding ? "binding" : "not_binding",
+      streetBoundsBinding
+        ? streetIncrease <= configuredMinimum + 1e-6
+          ? `The configured Street minimum of ${formatPct(configuredMinimum * 100, 2)} sets the selected Street path.`
+          : `The Street ceiling of ${formatPct(ceilStreet * 100, 2)} sets the selected Street path.`
+        : "Neither the configured Street minimum nor the effective Street ceiling sets the selected candidate.",
+    ),
+    counterfactualDriver(
+      "effective_date_timing",
+      "Effective-date timing",
+      actual,
+      timingCounterfactual,
+      directionalEffectStatus(actual, timingCounterfactual, true),
+      `The in-house change starts ${ctx.input.assumptions.inhouseEffectiveDate}; the Street change starts ${ctx.input.assumptions.streetRateEffectiveDate}. The comparison removes only their delay from the modeled start date.`,
+    ),
+    counterfactualDriver(
+      "competition",
+      "Competitive-position preference",
+      actual,
+      withoutCompetition,
+      directionalEffectStatus(
+        actual,
+        withoutCompetition,
+        ctx.input.topCompetitorRateMonthly != null,
+      ),
+      competitionApplies
+        ? `The selected Street increase follows the matched Top Competitor preference of ${formatPct(competitivePreference * 100, 2)}.`
+        : ctx.input.topCompetitorRateMonthly == null
+          ? "No matched Top Competitor benchmark applies to this scope."
+          : "The competitive preference did not set the selected Street candidate.",
+    ),
+    counterfactualDriver(
+      "turnover_replacement_street",
+      "Turnover / replacement Street Rates",
+      actual,
+      turnoverCounterfactual,
+      directionalEffectStatus(actual, turnoverCounterfactual, ctx.turnover > 0),
+      ctx.turnover > 0
+        ? `Replacements enter at the Street Rate in force on each modeled move-in date under ${formatPct(ctx.input.assumptions.annualTurnoverPct, 2)} annual turnover.`
+        : "No turnover is modeled, so replacements do not contribute to the projection.",
+    ),
+  ];
+
+  return {
+    maximumQuarterDeviationPct: actual.maximumQuarterDeviationPct,
+    maximumQuarterLabel: actual.maximumQuarterLabel,
+    cumulativeDeviationPct: actual.cumulativeDeviationPct,
+    quarters: actual.quarters,
+    drivers,
+  };
+}
+
 /**
  * Compare candidate outcomes lexicographically:
  *   1. achieve every testable quarter when possible;
@@ -909,6 +1177,16 @@ export function solvePlan(input: SolveInput): SolveOutput {
   const worst = best.worst;
 
   const quarterResults = buildQuarterResults(ctx, projected, worst.label, streetIncrease, appliedAvg);
+  const targetDeviationDiagnostic = buildTargetDeviationDiagnostic(
+    ctx,
+    streetIncrease,
+    finalAllocation,
+    projected,
+    configuredMinimum,
+    ordinaryCeiling,
+    ceilStreet,
+    competitivePreference,
+  );
 
   const infeasibility = feasible
     ? null
@@ -952,11 +1230,12 @@ export function solvePlan(input: SolveInput): SolveOutput {
     infeasibility,
     existingAvgRateMonthly: ctx.baseAvg,
     postIncreaseAvgRateMonthly: ctx.baseAvg * (1 + appliedAvg),
+    targetDeviationDiagnostic,
     jointCandidateCount: candidates.size,
     projectionModelCount: candidates.size,
     optimizationNote:
-      feasible && best.overshoot > PASS_EPSILON
-        ? `The target is met with ${formatPct(best.maxOvershoot * 100, 2)} maximum-quarter and ${formatPct(best.overshoot * 100, 2)} cumulative modeled overshoot because the selected joint path rises across later quarters.${driverText}`
+      feasible && targetDeviationDiagnostic.cumulativeDeviationPct > PASS_EPSILON
+        ? `The target is met with ${formatPct(targetDeviationDiagnostic.maximumQuarterDeviationPct, 2)} maximum-quarter and ${formatPct(targetDeviationDiagnostic.cumulativeDeviationPct, 2)} cumulative modeled overshoot because the selected joint path rises across later quarters.${driverText}`
         : !feasible
           ? `The best available joint combination still misses at least one quarter because the configured resident and Street guardrails are binding.${driverText}`
           : null,

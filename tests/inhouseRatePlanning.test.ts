@@ -760,6 +760,91 @@ console.log("\n-- 6e. Joint optimization minimizes avoidable later-quarter exces
     "the explanation identifies modeled excess instead of claiming exact quarterly fit",
     joint.optimizationNote?.includes("cumulative modeled overshoot") === true,
   );
+  ok(
+    "the solver exposes the structured target-deviation diagnostic",
+    joint.targetDeviationDiagnostic.maximumQuarterDeviationPct >= 0 &&
+      joint.targetDeviationDiagnostic.cumulativeDeviationPct >= 0 &&
+      joint.targetDeviationDiagnostic.quarters.length === QUARTERS.length,
+  );
+  ok(
+    "the diagnostic labels every requested driver",
+    joint.targetDeviationDiagnostic.drivers.map((driver) => driver.id).join(",") ===
+      "resident_guardrails,street_bounds,effective_date_timing,competition,turnover_replacement_street",
+  );
+  ok(
+    "the diagnostic identifies the same maximum quarter as the projection",
+    joint.targetDeviationDiagnostic.maximumQuarterLabel ===
+      joint.quarterResults.reduce((best, q) =>
+        q.shortfallPct < best.shortfallPct ? q : best,
+      ).label,
+  );
+  const turnoverDriver = joint.targetDeviationDiagnostic.drivers.find(
+    (driver) => driver.id === "turnover_replacement_street",
+  )!;
+  ok(
+    "a positive turnover effect is labelled as contributing",
+    (turnoverDriver.cumulativeContributionPct ?? 0) > 0 &&
+      turnoverDriver.status === "contributing",
+  );
+
+  const risingBaseline = new Map(
+    QUARTERS.map((q, index) => {
+      const prior = addQuarters(q, -4);
+      return [
+        q.label,
+        {
+          ...prior,
+          realizedRateMonthly: 4200 * (1 + index * 0.03),
+          basis: "actual" as const,
+          monthsAvailable: 3,
+          monthsExpected: 3,
+          residentDays: 9000,
+        },
+      ] satisfies [string, BaselineQuarter];
+    }),
+  );
+  const mitigatingTimingPlan = solvePlan({
+    residents: roomyPopulation(),
+    assumptions: assumptions({
+      rateGrowthTargetPct: 1,
+      annualTurnoverPct: 0,
+      inhouseEffectiveDate: "2027-02-15",
+      streetRateEffectiveDate: "2027-01-01",
+    }),
+    baselineByQuarter: risingBaseline,
+    quarters: QUARTERS,
+    anchorMs: ANCHOR_MS,
+    currentStreetRateMonthly: 5000,
+  });
+  const mitigatingTiming = mitigatingTimingPlan.targetDeviationDiagnostic.drivers.find(
+    (driver) => driver.id === "effective_date_timing",
+  )!;
+  ok(
+    "a negative timing effect is labelled as mitigating",
+    (mitigatingTiming.cumulativeContributionPct ?? 0) < 0 &&
+      mitigatingTiming.status === "mitigating",
+  );
+  const equalMidpointTimingPlan = solvePlan({
+    residents: roomyPopulation(),
+    assumptions: assumptions({
+      rateGrowthTargetPct: 1,
+      annualTurnoverPct: 0,
+      inhouseEffectiveDate: "2027-02-15",
+      streetRateEffectiveDate: "2027-02-15",
+    }),
+    baselineByQuarter: risingBaseline,
+    quarters: QUARTERS,
+    anchorMs: ANCHOR_MS,
+    currentStreetRateMonthly: 5000,
+  });
+  const equalMidpointTiming = equalMidpointTimingPlan.targetDeviationDiagnostic.drivers.find(
+    (driver) => driver.id === "effective_date_timing",
+  )!;
+  ok(
+    "equal mid-quarter effective dates still use the timing counterfactual",
+    (equalMidpointTiming.cumulativeContributionPct ?? 0) < 0 &&
+      equalMidpointTiming.status === "mitigating",
+  );
 }
 
 // ── 7. Impossible because the maximum increase is too low ──────────────────

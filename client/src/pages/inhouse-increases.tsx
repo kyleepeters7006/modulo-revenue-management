@@ -240,6 +240,85 @@ function QuarterYoyBreakdown({ quarters }: { quarters: QuarterYoyCell[] }) {
   );
 }
 
+const DEVIATION_DRIVER_STATUS: Record<string, { label: string; className: string }> = {
+  contributing: { label: "Contributing", className: "text-amber-600 dark:text-amber-400" },
+  mitigating: { label: "Mitigating", className: "text-emerald-600 dark:text-emerald-400" },
+  binding: { label: "Binding", className: "text-amber-600 dark:text-amber-400" },
+  not_binding: { label: "Not binding", className: "text-muted-foreground" },
+  not_applicable: { label: "Not applicable", className: "text-muted-foreground" },
+};
+
+function TargetDeviationDiagnosticView({ plan }: { plan: PlanResult }) {
+  const diagnostic = plan.targetDeviationDiagnostic;
+  if (!diagnostic) return null;
+  const unit = plan.rateBasis === "daily" ? "/day" : "/mo";
+  const maxQuarter = diagnostic.maximumQuarterLabel
+    ? plan.quarters.find((q) => q.label === diagnostic.maximumQuarterLabel)
+    : null;
+  return (
+    <div className="rounded-md border bg-background p-3" data-testid="target-deviation-diagnostic">
+      <div className="mb-3">
+        <p className="text-sm font-medium">Why the quarterly result differs from target</p>
+        <p className="text-xs text-muted-foreground">
+          Positive deviations are modeled overshoot above the YoY target. Driver contributions are
+          solver counterfactuals, so interacting drivers are not added together.
+        </p>
+      </div>
+      <div className="mb-3 grid gap-2 sm:grid-cols-3">
+        <div className="rounded border px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Maximum-quarter deviation</p>
+          <p className="font-mono text-lg font-semibold">{formatPct(diagnostic.maximumQuarterDeviationPct, 2)}</p>
+          <p className="text-xs text-muted-foreground">
+            {diagnostic.maximumQuarterLabel ?? "No testable quarter"}
+            {maxQuarter ? ` · ${formatPct(maxQuarter.yoyGrowthPct, 2)} realized` : ""}
+          </p>
+        </div>
+        <div className="rounded border px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Cumulative deviation</p>
+          <p className="font-mono text-lg font-semibold">{formatPct(diagnostic.cumulativeDeviationPct, 2)}</p>
+          <p className="text-xs text-muted-foreground">Sum of positive quarterly deviations</p>
+        </div>
+        <div className="rounded border px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Target basis</p>
+          <p className="font-mono text-lg font-semibold">{formatPct(plan.assumptions.rateGrowthTargetPct, 2)}</p>
+          <p className="text-xs text-muted-foreground">Each testable quarter · rates {unit}</p>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-xs">
+          <thead>
+            <tr className="border-b text-left uppercase tracking-wide text-muted-foreground">
+              <th className="py-2 pr-3 font-medium">Driver</th>
+              <th className="py-2 pr-3 font-medium">Status</th>
+              <th className="py-2 pr-3 text-right font-medium">Max-quarter contribution</th>
+              <th className="py-2 pr-3 text-right font-medium">Cumulative contribution</th>
+              <th className="py-2 font-medium">Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            {diagnostic.drivers.map((driver) => {
+              const status = DEVIATION_DRIVER_STATUS[driver.status] ?? DEVIATION_DRIVER_STATUS.not_binding;
+              return (
+                <tr key={driver.id} className="border-b last:border-0">
+                  <td className="py-2 pr-3 font-medium">{driver.label}</td>
+                  <td className={cn("py-2 pr-3 font-medium", status.className)}>{status.label}</td>
+                  <td className="py-2 pr-3 text-right font-mono">
+                    {driver.maximumQuarterContributionPct == null ? "—" : formatPct(driver.maximumQuarterContributionPct, 2)}
+                  </td>
+                  <td className="py-2 pr-3 text-right font-mono">
+                    {driver.cumulativeContributionPct == null ? "—" : formatPct(driver.cumulativeContributionPct, 2)}
+                  </td>
+                  <td className="py-2 text-muted-foreground">{driver.note}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 const SERVICE_LINES = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
 const PLAN_SCATTER_COLORS: Record<string, string> = {
   AL: "#0d9488",
@@ -3590,6 +3669,7 @@ export default function InhouseIncreases() {
                 </CardHeader>
                 <CardContent><Explanation explanation={plan.explanation} /></CardContent>
               </Card>
+              <TargetDeviationDiagnosticView plan={plan} />
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">Quarterly realized rate vs prior year{plans.length > 1 ? ` · ${sl}` : ""}</CardTitle>

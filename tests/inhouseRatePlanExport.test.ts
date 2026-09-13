@@ -487,6 +487,30 @@ async function checkScope(scope: { clientId: string; serviceLine: string; label:
     ),
     names.join(", "),
   );
+  const summary = wb.getWorksheet("Plan summary")!;
+  ok(
+    "summary carries the solver target-deviation diagnostic",
+    summary.getRows(1, summary.rowCount).some((row) =>
+      String(row.getCell(1).value ?? "").includes("TARGET DEVIATION DIAGNOSTIC"),
+    ),
+  );
+  ok(
+    "summary carries every diagnostic driver",
+    plan.targetDeviationDiagnostic.drivers.every((driver) =>
+      summary.getRows(1, summary.rowCount).some((row) =>
+        String(row.getCell(1).value ?? "") === driver.label,
+      ),
+    ),
+  );
+  ok(
+    "summary preserves each diagnostic driver status",
+    plan.targetDeviationDiagnostic.drivers.every((driver) =>
+      summary.getRows(1, summary.rowCount).some((row) =>
+        String(row.getCell(1).value ?? "") === driver.label &&
+        String(row.getCell(2).value ?? "") === driver.status.replaceAll("_", " "),
+      ),
+    ),
+  );
 
   const detail = wb.getWorksheet("Resident detail")!;
 
