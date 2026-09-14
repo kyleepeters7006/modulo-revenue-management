@@ -4454,6 +4454,10 @@ export default function InhouseIncreases() {
                 {plans.map(({ sl, plan }) => {
                   const daily = plan.rateBasis === "daily";
                   const display = (monthly: number) => daily ? monthly / DAYS_PER_MONTH : monthly;
+                  const chartFullYearYoy = fullYearYoyFromQuarters(
+                    plan.quarters,
+                    plan.rateBasis,
+                  );
                   const chartData = (plan.monthlyRateProjection ?? []).map((point) => ({
                     ...point,
                     label: new Date(`${point.month}-01T00:00:00Z`).toLocaleDateString("en-US", {
@@ -4470,13 +4474,12 @@ export default function InhouseIncreases() {
                         <div>
                           <p className="text-sm font-medium">{sl}</p>
                           <p className="text-xs text-muted-foreground">
-                            {daily ? "Daily rate" : "Monthly rate"} · growth from today shown on hover
+                            {daily ? "Daily rate" : "Monthly rate"} · full-year YoY in badge · growth from today on hover
                           </p>
                         </div>
                         <Badge variant="outline">
-                          {chartData.length > 0
-                            ? `${chartData[chartData.length - 1].growthFromCurrentPct >= 0 ? "+" : ""}${chartData[chartData.length - 1].growthFromCurrentPct.toFixed(1)}%`
-                            : "No monthly data"}
+                          {chartFullYearYoy.growthPct >= 0 ? "+" : ""}
+                          {chartFullYearYoy.growthPct.toFixed(1)}%
                         </Badge>
                       </div>
                       <div className="h-44">
