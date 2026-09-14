@@ -1250,6 +1250,7 @@ export default function InhouseIncreases() {
   const [restoredPlanDetailsOmitted, setRestoredPlanDetailsOmitted] = useState(false);
   const [expandedQuarter, setExpandedQuarter] = useState<string | null>(null);
   const [expandedResident, setExpandedResident] = useState<string | null>(null);
+  const [expandedPlanDetails, setExpandedPlanDetails] = useState<Record<string, boolean>>({});
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     scope: false,
     assumptions: false,
@@ -1258,6 +1259,13 @@ export default function InhouseIncreases() {
 
   function toggleSection(section: "scope" | "assumptions" | "occupancyTiers") {
     setExpandedSections((current) => ({ ...current, [section]: !current[section] }));
+  }
+
+  function togglePlanDetails(serviceLine: string) {
+    setExpandedPlanDetails((current) => ({
+      ...current,
+      [serviceLine]: !current[serviceLine],
+    }));
   }
   const [sortKey, setSortKey] = useState<SortKey>("increasePct");
   const [sortDesc, setSortDesc] = useState(true);
@@ -3844,29 +3852,55 @@ export default function InhouseIncreases() {
           {/* ── How each plan was derived + quarterly (per line) ─────── */}
           {plans.map(({ sl, plan }) => (
             <div key={sl} className="space-y-4">
-              {plans.length > 1 && (
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{sl}</h2>
-              )}
               <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">How this plan was derived{plans.length > 1 ? ` · ${sl}` : ""}</CardTitle>
+                <CardHeader className={cn("pb-3", expandedPlanDetails[sl] && "border-b")}>
+                  <button
+                    type="button"
+                    className="flex w-full items-start justify-between gap-3 text-left"
+                    aria-expanded={!!expandedPlanDetails[sl]}
+                    aria-controls={`plan-detail-${sl}`}
+                    onClick={() => togglePlanDetails(sl)}
+                    data-testid={`button-toggle-plan-details-${sl}`}
+                  >
+                    <span>
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        {expandedPlanDetails[sl] ? (
+                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                        Calculation detail{plans.length > 1 ? ` · ${sl}` : ""}
+                      </CardTitle>
+                      <CardDescription className="mt-1">
+                        {expandedPlanDetails[sl]
+                          ? "Derivation, target diagnostics, and quarter-level support."
+                          : "Expand for the arithmetic behind the summary above."}
+                      </CardDescription>
+                    </span>
+                    <Badge variant="outline" className="shrink-0 text-[11px] font-normal">
+                      {expandedPlanDetails[sl] ? "Hide detail" : "Show detail"}
+                    </Badge>
+                  </button>
                 </CardHeader>
-                <CardContent><Explanation explanation={plan.explanation} /></CardContent>
-              </Card>
-              <TargetDeviationDiagnosticView
-                diagnostic={plan.targetDeviationDiagnostic}
-                targetPct={plan.assumptions.rateGrowthTargetPct}
-                rateBasis={plan.rateBasis}
-              />
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Quarterly realized rate vs prior year{plans.length > 1 ? ` · ${sl}` : ""}</CardTitle>
-                  <CardDescription>
-                    Each quarter compared against the same quarter one year earlier. Binding quarter sets the plan.
-                    {plan.rateBasis === "daily" ? " Rates are shown per day." : " Rates are shown per month."}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-0 sm:p-6 sm:pt-0">
+                {expandedPlanDetails[sl] && <CardContent id={`plan-detail-${sl}`} className="space-y-4 pt-4">
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">How this plan was derived</p>
+                    <Explanation explanation={plan.explanation} />
+                  </div>
+                  <TargetDeviationDiagnosticView
+                    diagnostic={plan.targetDeviationDiagnostic}
+                    targetPct={plan.assumptions.rateGrowthTargetPct}
+                    rateBasis={plan.rateBasis}
+                  />
+                  <div>
+                    <div className="mb-3">
+                      <h3 className="text-sm font-semibold">Quarterly realized rate vs prior year</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Each quarter compared against the same quarter one year earlier. Binding quarter sets the plan.
+                        {plan.rateBasis === "daily" ? " Rates are shown per day." : " Rates are shown per month."}
+                      </p>
+                    </div>
+                <div className="p-0 sm:p-6 sm:pt-0">
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[720px] text-sm">
                       <thead>
@@ -4069,7 +4103,9 @@ export default function InhouseIncreases() {
                       </tbody>
                     </table>
                   </div>
-                </CardContent>
+                </div>
+                  </div>
+                </CardContent>}
               </Card>
             </div>
           ))}
