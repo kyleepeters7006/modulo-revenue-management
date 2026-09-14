@@ -30,3 +30,11 @@ description: Both endpoints had N-query anti-patterns that made them slow; this 
 ## Cache already in place
 - `refDataCache` (10-min TTL, keyed by `{clientId, serviceLine, regions, divisions, locations}`) covers reference-data — cached on first compute per filter combo.
 - Startup warm pre-fetches the default (unfiltered) view 8s after boot.
+
+## Cache-miss coalescing
+
+**Rule:** Concurrent misses for the same tenant and filters must share one in-flight Reference Data computation.
+
+**Why:** A user request, cache warmer, and duplicate browser request can arrive together after startup or invalidation. Without coalescing, each repeats the same heavy SQL and JS work, increasing both response time and database contention.
+
+**How to apply:** Claim an exact cache key before computing, let matching requests await it, resolve all waiters when the payload is cached, and release them without caching if invalidation occurred mid-flight.

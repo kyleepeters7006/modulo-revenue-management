@@ -81,7 +81,14 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
 import { ReplitConnectors } from "@replit/connectors-sdk";
-import { getRefDataCache, setRefDataCache, invalidateRefDataCache } from "./refDataCache";
+import {
+  clearRefDataInFlight,
+  getRefDataCache,
+  getRefDataInFlight,
+  invalidateRefDataCache,
+  setRefDataCache,
+  startRefDataCompute,
+} from "./refDataCache";
 import { rentRollData, locations, enquireData, adjustmentRanges, guardrails, adjustmentRules, competitiveSurveyData, clients, users, competitors as competitorsTable, roomTypeOccupancyHistory, careLevelRates, ihStreetVariance, campusMetrics, uploadHistory, inquiryMetrics, competitorRateJobs, serviceLineEnum, mfaRecoveryCodes, securityAuditEvents, authSessions } from "@shared/schema";
 import { sql, and, eq, gt, gte, lt, or, desc, inArray, isNull, SQL } from "drizzle-orm";
 import { pricingAlgorithm, PricingAlgorithm } from "./pricingAlgorithm";
@@ -27854,6 +27861,7 @@ Return ONLY valid JSON, no markdown fences:
   // metrics computed across the latest 12 upload_months of rent_roll_data.
   // --------------------------------------------
   app.get("/api/reference-data", async (req, res) => {
+    let activeCacheKey: string | null = null;
     try {
       // Allow server-side warm-up requests to specify a client without a session.
       // Accepts either the optional SEED_SECRET or the always-available INTERNAL_WARMUP_TOKEN
@@ -27877,12 +27885,23 @@ Return ONLY valid JSON, no markdown fences:
       // Key is prefixed with "grouped:" so it cannot collide with the "units:" key
       // used by /api/reference-data/units for an identical filter combination.
       const cacheKey = `grouped:${JSON.stringify({ clientId, serviceLine, regions, divisions, locations })}`;
+      activeCacheKey = cacheKey;
       const cachedPayload = getRefDataCache(cacheKey);
       if (cachedPayload) {
         res.setHeader('X-Cache', 'HIT');
         res.set('Cache-Control', 'no-store');
         return res.json(cachedPayload);
       }
+      const pendingPayload = getRefDataInFlight(cacheKey);
+      if (pendingPayload) {
+        const payload = await pendingPayload;
+        if (payload) {
+          res.setHeader('X-Cache', 'COALESCED');
+          res.set('Cache-Control', 'no-store');
+          return res.json(payload);
+        }
+      }
+      startRefDataCompute(cacheKey);
       const computeStart = Date.now();
 
       // 1) Latest 24 upload months for this client (12 for summary windows + 12 more for history drill-down)
@@ -27891,7 +27910,11 @@ Return ONLY valid JSON, no markdown fences:
         [clientId]
       );
       const months = monthsRes.rows.map(r => r.m);
-      if (months.length === 0) return res.json({ rows: [], months: [], calculatedAt: null });
+      if (months.length === 0) {
+        const payload = { rows: [], months: [], calculatedAt: null };
+        setRefDataCache(cacheKey, payload, computeStart);
+        return res.json(payload);
+      }
       const spotMonth = months[0];
       const t3Months  = months.slice(0, 3);
       const t6Months  = months.slice(0, 6);
@@ -28987,6 +29010,7 @@ Return ONLY valid JSON, no markdown fences:
       res.set('Cache-Control', 'no-store');
       res.json(payload);
     } catch (error) {
+      if (activeCacheKey) clearRefDataInFlight(activeCacheKey);
       console.error("Error building reference data:", error);
       res.status(500).json({ error: "Failed to build reference data" });
     }
@@ -28995,6 +29019,7 @@ Return ONLY valid JSON, no markdown fences:
   // GET /api/reference-data/units — Room Detail grouping level for the
   // Reference Data table: one row per unit at the spot (latest) month.
   app.get("/api/reference-data/units", async (req, res) => {
+    let activeCacheKey: string | null = null;
     try {
       // Allow server-side warm-up requests to specify a client without a session.
       // Accepts either the optional SEED_SECRET or the always-available INTERNAL_WARMUP_TOKEN.
@@ -29015,12 +29040,23 @@ Return ONLY valid JSON, no markdown fences:
 
       // ── Cache check ──
       const cacheKey = `units:${JSON.stringify({ clientId, serviceLine, regions, divisions, locations })}`;
+      activeCacheKey = cacheKey;
       const cachedPayload = getRefDataCache(cacheKey);
       if (cachedPayload) {
         res.setHeader('X-Cache', 'HIT');
         res.set('Cache-Control', 'no-store');
         return res.json(cachedPayload);
       }
+      const pendingPayload = getRefDataInFlight(cacheKey);
+      if (pendingPayload) {
+        const payload = await pendingPayload;
+        if (payload) {
+          res.setHeader('X-Cache', 'COALESCED');
+          res.set('Cache-Control', 'no-store');
+          return res.json(payload);
+        }
+      }
+      startRefDataCompute(cacheKey);
       const computeStart = Date.now();
 
       const spotRes = await pool.query<{ m: string }>(
@@ -29028,7 +29064,11 @@ Return ONLY valid JSON, no markdown fences:
         [clientId]
       );
       const spotMonth = spotRes.rows[0]?.m ?? null;
-      if (!spotMonth) return res.json({ rows: [], spotMonth: null });
+      if (!spotMonth) {
+        const payload = { rows: [], spotMonth: null };
+        setRefDataCache(cacheKey, payload, computeStart);
+        return res.json(payload);
+      }
 
       const params: any[] = [clientId, spotMonth];
       let where = `rr.client_id = $1 AND rr.upload_month = $2`;
@@ -29480,6 +29520,7 @@ Return ONLY valid JSON, no markdown fences:
       res.set('Cache-Control', 'no-store');
       res.json(payload);
     } catch (error) {
+      if (activeCacheKey) clearRefDataInFlight(activeCacheKey);
       console.error("Error building unit detail reference data:", error);
       res.status(500).json({ error: "Failed to build unit detail data" });
     }
