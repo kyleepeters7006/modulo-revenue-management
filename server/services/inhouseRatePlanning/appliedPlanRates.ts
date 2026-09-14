@@ -38,15 +38,26 @@ export interface AppliedPlanUnitRate {
 }
 
 export interface AppliedPlanIndex {
-  /** Keyed `${location}||${serviceLine}||${roomNumber}`. */
+  /** Exact identity, including the raw room type. */
   byUnit: Map<string, AppliedPlanUnitRate>;
+  /**
+   * Safe fallback when a room type was renamed or re-normalized after the plan
+   * was saved. Move-in date remains part of the identity so an old resident's
+   * increase can never be assigned to a replacement resident.
+   */
+  byResidentRoom: Map<string, AppliedPlanUnitRate>;
   /** True when the client has no applied plans at all — callers can skip their work. */
   isEmpty: boolean;
   /** Scopes covered, so callers can narrow their own queries instead of scanning. */
   scopes: Array<{ location: string | null; serviceLine: string }>;
 }
 
-const EMPTY: AppliedPlanIndex = { byUnit: new Map(), isEmpty: true, scopes: [] };
+const EMPTY: AppliedPlanIndex = {
+  byUnit: new Map(),
+  byResidentRoom: new Map(),
+  isEmpty: true,
+  scopes: [],
+};
 
 /**
  * Identity for one resident's room.
@@ -70,6 +81,28 @@ export function unitKey(
   moveInDate: string | null,
 ): string {
   return `${location}||${serviceLine}||${roomNumber}||${roomType ?? ""}||${moveInDate ?? ""}`;
+}
+
+export function residentRoomKey(
+  location: string,
+  serviceLine: string,
+  roomNumber: string,
+  moveInDate: string | null,
+): string {
+  return `${location}||${serviceLine}||${roomNumber}||${moveInDate ?? ""}`;
+}
+
+export function findPlanUnit(
+  index: AppliedPlanIndex,
+  location: string,
+  serviceLine: string,
+  roomNumber: string,
+  roomType: string | null,
+  moveInDate: string | null,
+): AppliedPlanUnitRate | null {
+  return index.byUnit.get(unitKey(location, serviceLine, roomNumber, roomType, moveInDate))
+    ?? index.byResidentRoom.get(residentRoomKey(location, serviceLine, roomNumber, moveInDate))
+    ?? null;
 }
 
 /**
@@ -105,6 +138,7 @@ async function loadPlanRates(
   if (res.rows.length === 0) return EMPTY;
 
   const byUnit = new Map<string, AppliedPlanUnitRate>();
+  const byResidentRoom = new Map<string, AppliedPlanUnitRate>();
   const scopes: Array<{ location: string | null; serviceLine: string }> = [];
   let skipped = 0;
 
@@ -113,6 +147,8 @@ async function loadPlanRates(
     scopes.push({ location: plan.location ?? null, serviceLine });
 
     const residents = Array.isArray(plan.residents) ? plan.residents : [];
+    const planRoomFallbacks = new Map<string, AppliedPlanUnitRate>();
+    const ambiguousPlanRooms = new Set<string>();
     for (const r of residents) {
       const location = r?.location;
       const roomNumber = r?.roomNumber;
@@ -141,7 +177,7 @@ async function loadPlanRates(
         continue;
       }
 
-      byUnit.set(unitKey(location, serviceLine, String(roomNumber), r?.roomType ?? null, r?.moveInDate ?? null), {
+      const rate: AppliedPlanUnitRate = {
         planId: plan.id,
         version: Number(plan.version),
         newRate,
@@ -155,15 +191,30 @@ async function loadPlanRates(
           : null,
         streetEffectiveDate: plan.street_rate_effective_date ?? null,
         isCompanionBed: Boolean(r.isCompanionBed),
-      });
+      };
+      byUnit.set(unitKey(location, serviceLine, String(roomNumber), r?.roomType ?? null, r?.moveInDate ?? null), rate);
+
+      const fallbackKey = residentRoomKey(
+        location,
+        serviceLine,
+        String(roomNumber),
+        r?.moveInDate ?? null,
+      );
+      if (planRoomFallbacks.has(fallbackKey)) {
+        planRoomFallbacks.delete(fallbackKey);
+        ambiguousPlanRooms.add(fallbackKey);
+      } else if (!ambiguousPlanRooms.has(fallbackKey)) {
+        planRoomFallbacks.set(fallbackKey, rate);
+      }
     }
+    for (const [key, rate] of planRoomFallbacks) byResidentRoom.set(key, rate);
   }
 
   if (skipped > 0) {
     console.warn(`[${status}-plan-rates] skipped ${skipped} resident(s) with incomplete rate figures`);
   }
 
-  return { byUnit, isEmpty: byUnit.size === 0, scopes };
+  return { byUnit, byResidentRoom, isEmpty: byUnit.size === 0, scopes };
 }
 
 export async function loadAppliedPlanRates(clientId: string): Promise<AppliedPlanIndex> {

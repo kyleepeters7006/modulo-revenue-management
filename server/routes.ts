@@ -29110,7 +29110,7 @@ Return ONLY valid JSON, no markdown fences:
       const {
         loadAppliedPlanRates: loadPlansForUnits,
         loadRecommendedPlanRates: loadRecommendationsForUnits,
-        unitKey: planUnitKeyForUnits,
+        findPlanUnit: findPlanUnitForUnits,
       } =
         await import('./services/inhouseRatePlanning/appliedPlanRates');
       const { parseFlexibleDate: parsePlanMoveIn } = await import('./services/inhouseRatePlanning/dates');
@@ -29358,16 +29358,18 @@ Return ONLY valid JSON, no markdown fences:
         // `source_room_type` is the alias for the RAW rr.room_type here (the
         // branded group name occupies `room_type`), which is what the plan stored.
         const unitPlan = r.room_number
-          ? unitPlanIndex.byUnit.get(planUnitKeyForUnits(
+          ? findPlanUnitForUnits(
+              unitPlanIndex,
               r.campus, r.service_line, String(r.room_number),
               r.source_room_type ?? null, parsePlanMoveIn(r.move_in_date),
-            )) ?? null
+            )
           : null;
         const unitRecommendation = r.room_number
-          ? unitRecommendationIndex.byUnit.get(planUnitKeyForUnits(
+          ? findPlanUnitForUnits(
+              unitRecommendationIndex,
               r.campus, r.service_line, String(r.room_number),
               r.source_room_type ?? null, parsePlanMoveIn(r.move_in_date),
-            )) ?? null
+            )
           : null;
         const proposed = manualOverride ?? unitPlan?.newRate ?? num(r.proposed_rate) ?? rulePreviewMap.get(unitGroupKey) ?? null;
         return {
