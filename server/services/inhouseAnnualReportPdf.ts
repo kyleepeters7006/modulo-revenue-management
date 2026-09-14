@@ -122,7 +122,7 @@ function line(doc: PDFKit.PDFDocument, x: number, y: number, width: number, valu
   size?: number; color?: string; bold?: boolean; align?: "left" | "right" | "center";
 } = {}): void {
   doc
-    .font(options.bold ? "Helvetica-Bold" : "Helvetica")
+    .font(options.bold ? "Times-Bold" : "Times-Roman")
     .fontSize(options.size ?? 7)
     .fillColor(options.color ?? NAVY)
     .text(value, x, y, { width, height: options.size ?? 7, lineBreak: false, align: options.align });
@@ -340,17 +340,204 @@ function drawNarrative(doc: PDFKit.PDFDocument, report: AnnualReportPdfReport, p
   drawDistribution(doc, plans, x + chartWidth + gap, y + 52, width - chartWidth - gap);
 }
 
+type WorkbookRow = {
+  line: string;
+  residents: number | null;
+  currentInhouse: number | null;
+  proposedInhouse: number | null;
+  inhouseIncrease: number | null;
+  currentStreet: number | null;
+  proposedStreet: number | null;
+  streetIncrease: number | null;
+  variance: number | null;
+  portfolioShare: number | null;
+};
+
+function workbookRows(plans: JsonObject[], grid: unknown, tier?: string): WorkbookRow[] {
+  const normalized = reportPlans(plans);
+  const totalResidents = normalized.reduce(
+    (sum, plan) => sum + (number(first(plan, ["summary.residentCount"])) ?? 0),
+    0,
+  );
+  const cells = tierCells(grid);
+  return normalized.slice(0, 8).map((plan) => {
+    const lineName = serviceLine(plan);
+    const summary = (first(plan, ["summary"]) as JsonObject | undefined) ?? {};
+    const residents = number(first(summary, ["residentCount"]));
+    const currentInhouse = number(first(summary, ["currentAvgInhouseRateMonthly"]));
+    const measuredInhouse = number(first(summary, ["newAvgInhouseRateMonthly"]));
+    const currentStreet = number(first(plan, ["currentStreetRateMonthly"]));
+    const measuredStreet = number(first(plan, ["recommendedStreetRateMonthly"]));
+    const scenario = tier
+      ? cells.find((cell) =>
+          serviceLine(cell) === lineName &&
+          String(first(cell, ["tier", "tierLabel"]) ?? "").toLowerCase() === tier.toLowerCase())
+      : undefined;
+    const inhouseIncrease = scenario
+      ? number(first(scenario, ["inhouseIncreasePct"]))
+      : number(first(summary, ["weightedAvgIncreasePct"]));
+    const streetIncrease = scenario
+      ? number(first(scenario, ["streetIncreasePct"]))
+      : number(first(plan, ["streetIncreasePct"]));
+    const proposedInhouse = scenario && currentInhouse != null && inhouseIncrease != null
+      ? currentInhouse * (1 + inhouseIncrease / 100)
+      : measuredInhouse;
+    const proposedStreet = scenario && currentStreet != null && streetIncrease != null
+      ? currentStreet * (1 + streetIncrease / 100)
+      : measuredStreet;
+    return {
+      line: lineName,
+      residents,
+      currentInhouse,
+      proposedInhouse,
+      inhouseIncrease,
+      currentStreet,
+      proposedStreet,
+      streetIncrease,
+      variance: proposedStreet ? ((proposedInhouse ?? 0) - proposedStreet) / proposedStreet * 100 : null,
+      portfolioShare: residents != null && totalResidents > 0 ? residents / totalResidents * 100 : null,
+    };
+  });
+}
+
+function drawWorkbookBlock(
+  doc: PDFKit.PDFDocument,
+  rows: WorkbookRow[],
+  x: number,
+  y: number,
+  width: number,
+  title: string,
+  accent: string,
+): void {
+  const columns = [
+    { label: "Service line", weight: 1.35, align: "left" as const },
+    { label: "Count", weight: 0.62, align: "right" as const },
+    { label: "Current IH", weight: 0.82, align: "right" as const },
+    { label: "New IH", weight: 0.82, align: "right" as const },
+    { label: "IH avg inc.", weight: 0.72, align: "right" as const },
+    { label: "Current street", weight: 0.9, align: "right" as const },
+    { label: "New street", weight: 0.85, align: "right" as const },
+    { label: "Street inc.", weight: 0.72, align: "right" as const },
+    { label: "Street to IH", weight: 0.78, align: "right" as const },
+    { label: "Residents", weight: 0.72, align: "right" as const },
+    { label: "Portfolio %", weight: 0.72, align: "right" as const },
+  ];
+  const totalWeight = columns.reduce((sum, column) => sum + column.weight, 0);
+  const widths = columns.map((column) => width * column.weight / totalWeight);
+  const positions: number[] = [];
+  widths.reduce((position, columnWidth) => {
+    positions.push(position);
+    return position + columnWidth;
+  }, x);
+
+  doc.rect(x, y, width, 24).fill(accent);
+  const darkBand = ["#44546A", "#101010", "#388194"].includes(accent.toUpperCase());
+  line(doc, x + 8, y + 7, width - 16, title, {
+    size: 9,
+    bold: true,
+    color: darkBand ? "#FFFFFF" : NAVY,
+  });
+  const headerY = y + 24;
+  doc.rect(x, headerY, width, 28).fill("#D6DCE4");
+  columns.forEach((column, index) => {
+    line(doc, positions[index] + 3, headerY + 8, widths[index] - 6, column.label, {
+      size: 5.3,
+      bold: true,
+      color: "#404040",
+      align: column.align,
+    });
+  });
+
+  const rowHeight = 15;
+  rows.forEach((row, index) => {
+    const rowY = headerY + 28 + index * rowHeight;
+    if (index % 2) doc.rect(x, rowY, width, rowHeight).fill("#F6F8FA");
+    const values = [
+      row.line,
+      row.residents == null ? "—" : row.residents.toLocaleString("en-US"),
+      valueOrDash(row.currentInhouse, money),
+      valueOrDash(row.proposedInhouse, money),
+      valueOrDash(row.inhouseIncrease, pct),
+      valueOrDash(row.currentStreet, money),
+      valueOrDash(row.proposedStreet, money),
+      valueOrDash(row.streetIncrease, pct),
+      valueOrDash(row.variance, pct),
+      row.residents == null ? "—" : row.residents.toLocaleString("en-US"),
+      valueOrDash(row.portfolioShare, pct),
+    ];
+    values.forEach((value, columnIndex) => {
+      line(doc, positions[columnIndex] + 3, rowY + 4, widths[columnIndex] - 6, value, {
+        size: 5.4,
+        bold: columnIndex === 0,
+        color: "#202020",
+        align: columns[columnIndex].align,
+      });
+    });
+    doc.moveTo(x, rowY + rowHeight).lineTo(x + width, rowY + rowHeight)
+      .lineWidth(0.25).strokeColor("#D9DEE5").stroke();
+  });
+
+  const totalY = headerY + 28 + rows.length * rowHeight;
+  const residentTotal = rows.reduce((sum, row) => sum + (row.residents ?? 0), 0);
+  const weighted = (field: "inhouseIncrease" | "streetIncrease" | "variance") => {
+    const denominator = rows.reduce(
+      (sum, row) => sum + (row[field] == null ? 0 : row.residents ?? 0),
+      0,
+    );
+    return denominator
+      ? rows.reduce((sum, row) => sum + (row[field] ?? 0) * (row.residents ?? 0), 0) / denominator
+      : null;
+  };
+  doc.rect(x, totalY, width, 17).fill("#E9EDF2");
+  const totals = [
+    "Total",
+    residentTotal.toLocaleString("en-US"),
+    "—",
+    "—",
+    valueOrDash(weighted("inhouseIncrease"), pct),
+    "—",
+    "—",
+    valueOrDash(weighted("streetIncrease"), pct),
+    valueOrDash(weighted("variance"), pct),
+    residentTotal.toLocaleString("en-US"),
+    residentTotal ? "100.0%" : "—",
+  ];
+  totals.forEach((value, columnIndex) => {
+    line(doc, positions[columnIndex] + 3, totalY + 5, widths[columnIndex] - 6, value, {
+      size: 5.6,
+      bold: true,
+      align: columns[columnIndex].align,
+    });
+  });
+}
+
+function drawWorkbookPageHeader(
+  doc: PDFKit.PDFDocument,
+  report: AnnualReportPdfReport,
+  status: string,
+  stamp: string,
+  pageNumber: number,
+): void {
+  const width = doc.page.width - 36;
+  line(doc, 18, 14, width * 0.65, "ANNUAL IN-HOUSE RATE PLAN", { size: 12, bold: true });
+  line(doc, 18, 30, width * 0.65, `Scope: ${report.scopeKey}`, { size: 6.3, color: MUTED });
+  line(doc, 18 + width * 0.65, 15, width * 0.35, `${status}  •  Page ${pageNumber} of 2`, {
+    size: 6.5, bold: true, color: BLUE, align: "right",
+  });
+  line(doc, 18 + width * 0.65, 30, width * 0.35, stamp, { size: 5.8, color: MUTED, align: "right" });
+}
+
 /**
- * Render the saved report snapshot without recalculating it.  The layout is
- * deliberately fixed and never calls addPage: a generated annual report is
- * always one landscape page, even when optional sections have no data.
+ * Render the saved report snapshot without recalculating it. The reference
+ * workbook is a fixed two-page landscape report: Combined + Tier 1 on page 1,
+ * then Tier 2 + Tier 3 on page 2.
  */
 export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "LETTER",
       layout: "landscape",
-      margins: { top: 26, right: 30, bottom: 24, left: 30 },
+      margins: { top: 54, right: 18, bottom: 54, left: 18 },
       bufferPages: true,
       info: { Title: "Annual In-House Increase Report", Subject: report.scopeKey },
     });
@@ -362,26 +549,22 @@ export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): P
     const plans = reportPlans(report.plans);
     const status = report.status ?? planStatus(plans);
     const stamp = report.generatedAt ? new Date(report.generatedAt).toLocaleString("en-US") : "—";
-    const pageWidth = doc.page.width - 60;
-    line(doc, 30, 26, pageWidth - 100, "ANNUAL IN-HOUSE INCREASE REPORT", { size: 16, color: NAVY, bold: true });
-    line(doc, 30, 45, pageWidth - 100, `Scope: ${report.scopeKey}`, { size: 7, color: MUTED });
-    line(doc, 30 + pageWidth - 100, 27, 100, status, { size: 8, color: BLUE, bold: true, align: "right" });
-    line(doc, 30 + pageWidth - 100, 45, 100, stamp, { size: 6.5, color: MUTED, align: "right" });
+    const pageX = 18;
+    const pageWidth = doc.page.width - 36;
+    const combinedRows = workbookRows(plans, report.tierGrid);
+    drawWorkbookPageHeader(doc, report, status, stamp, 1);
+    drawWorkbookBlock(doc, combinedRows, pageX, 54, pageWidth, "Combined", "#44546A");
+    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "high"), pageX, 300, pageWidth, "Occupancy Tier 1  •  High occupancy", "#F5F4ED");
 
-    const gap = 8;
-    const planWidth = pageWidth * 0.30;
-    const tierWidth = pageWidth * 0.37;
-    const kpiWidth = pageWidth - planWidth - tierWidth - gap * 2;
-    drawPlanTable(doc, plans, 30, 66, planWidth);
-    drawTierTable(doc, report.tierGrid, 30 + planWidth + gap, 66, tierWidth);
-    drawKpis(doc, plans, 30 + planWidth + gap + tierWidth + gap, 66, kpiWidth);
-    drawNarrative(doc, report, plans, 30, 225, pageWidth);
+    doc.addPage();
+    drawWorkbookPageHeader(doc, report, status, stamp, 2);
+    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "target"), pageX, 54, pageWidth, "Occupancy Tier 2  •  Target occupancy", "#101010");
+    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "low"), pageX, 300, pageWidth, "Occupancy Tier 3  •  Low occupancy", "#388194");
 
-    line(doc, 30, doc.page.height - 25, pageWidth, `Status: ${status}  •  Generated: ${stamp}`, { size: 6.5, color: MUTED });
     const pages = doc.bufferedPageRange();
-    if (pages.count !== 1) {
+    if (pages.count !== 2) {
       doc.end();
-      reject(new Error(`Annual in-house report exceeded one page (${pages.count} pages)`));
+      reject(new Error(`Annual in-house report must be exactly two pages (${pages.count} pages)`));
       return;
     }
     doc.end();

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -371,15 +371,43 @@ input[type="range"]::-moz-range-thumb {
 }
 
 @media print {
-  @page { size: landscape; margin: 0.35in; }
-  body { background: #f4f7f7 !important; }
+  @page { size: landscape; margin: 0.75in 0.25in; }
+  body { background: #eef2f5 !important; }
   .report-toolbar { display: none !important; }
-  .annual-report-sheet { max-width: none !important; }
+  .annual-report-sheet { max-width: none !important; width: 100% !important; }
+  .report-page { box-sizing: border-box; width: 100%; min-height: 6.95in; margin: 0 !important; break-after: page; page-break-after: always; }
+  .report-page:last-child { break-after: auto; page-break-after: auto; }
   .report-panel { break-inside: avoid; box-shadow: none !important; }
-  .annual-report-sheet h1 { font-size: 30px !important; }
-  .annual-report-sheet { gap: 12px !important; }
-  .annual-report-sheet table th, .annual-report-sheet table td { padding: 6px 8px !important; }
+  .annual-report-sheet h1 { font-size: 25px !important; }
+  .annual-report-sheet { gap: 8px !important; }
+  .annual-report-sheet table th, .annual-report-sheet table td { padding: 4px 5px !important; font-size: 8.5px !important; line-height: 1.15 !important; }
+  .report-section-band { padding: 4px 7px !important; }
+  .report-page-header { margin-bottom: 7px !important; padding-bottom: 5px !important; }
 }
+
+.annual-report-sheet { font-family: 'EB Garamond', Georgia, serif; color: var(--foreground); }
+.annual-report-sheet .font-serif { font-family: 'EB Garamond', Georgia, serif; }
+.annual-report-sheet .font-mono { font-family: 'EB Garamond', Georgia, serif; font-variant-numeric: tabular-nums; }
+.annual-report-sheet h1, .annual-report-sheet h2, .annual-report-sheet h3 { font-family: 'EB Garamond', Georgia, serif; }
+.report-page { background: hsl(42 38% 98% / .96); border: 1px solid hsl(213 22% 73% / .8); padding: 14px 16px; }
+.report-page + .report-page { margin-top: 16px; }
+.report-section-band { background: hsl(213 31% 38%); color: hsl(42 38% 98%); padding: 6px 9px; font-family: 'EB Garamond', Georgia, serif; font-size: 16px; font-weight: 600; letter-spacing: .02em; }
+.annual-report-sheet .report-panel { border-radius: 0; border-color: hsl(213 22% 73%); box-shadow: none; background: hsl(42 38% 98%); }
+.annual-report-sheet .report-panel h2 { font-size: 17px; font-weight: 600; }
+.annual-report-sheet .report-panel table { border-collapse: collapse; }
+.annual-report-sheet .report-panel thead { background: hsl(204 47% 84%); }
+.annual-report-sheet .report-panel th { border-bottom: 1px solid hsl(213 22% 63%); }
+.report-data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.report-data-table th { background: hsl(204 47% 84%); color: hsl(214 29% 22%); border: 1px solid hsl(213 22% 63%); padding: 5px 6px; font-weight: 700; text-align: right; }
+.report-data-table th:first-child, .report-data-table td:first-child { text-align: left; }
+.report-data-table td { border: 1px solid hsl(213 22% 73%); padding: 5px 6px; text-align: right; vertical-align: top; }
+.report-data-table tbody tr:nth-child(even) { background: hsl(204 35% 95%); }
+.report-data-table .mono { font-family: 'EB Garamond', Georgia, serif; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tier-block { border: 1px solid hsl(213 22% 63%); }
+.tier-block--tier1 .report-section-band { background: #f5f4ed; color: #202020; border-bottom: 1px solid #a8afb8; }
+.tier-block--tier2 .report-section-band { background: #101010; color: #ffffff; }
+.tier-block--tier3 .report-section-band { background: #388194; color: #ffffff; }
+.report-kicker { font-family: 'Source Sans 3', sans-serif; font-size: 9px; text-transform: uppercase; letter-spacing: .12em; color: hsl(214 16% 43%); }
 
 /* Leaflet stacks controls (z-index 800) above popups (z-index 700), so an open
    popup can be partly hidden behind the zoom buttons. A popup is transient and

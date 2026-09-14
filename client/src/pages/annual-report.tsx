@@ -42,7 +42,6 @@ type AnnualReport = {
   status?: string;
 };
 type ApiResponse = { report: AnnualReport | null };
-type RateGrowthResponse = { series: RateGrowthSeries[] };
 
 const DAYS_PER_MONTH = 365 / 12;
 
@@ -154,6 +153,7 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
       { label: "SNF", series: combined.filter((item) => item.rateBasis === "daily") },
     ].filter((group) => group.series.length);
   }, [history, measuredPlans, report.serviceLines]);
+  void chartGroups;
   const legacyAffectedResidents = measuredPlans.flatMap((plan) =>
     (plan.residents ?? []).filter((resident) => resident.increasePct > 0),
   );
@@ -330,6 +330,175 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
   );
 }
 
+function workbookRate(value: number | null | undefined, basis: PlanResult["rateBasis"]) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const display = basis === "daily" ? value / DAYS_PER_MONTH : value;
+  return formatMoney(display);
+}
+
+function WorkbookReportBlock({
+  title,
+  accent,
+  report,
+  tier,
+}: {
+  title: string;
+  accent: "combined" | "tier1" | "tier2" | "tier3";
+  report: AnnualReport;
+  tier?: OccupancyTierId;
+}) {
+  const totalResidents = report.plans.reduce(
+    (sum, entry) => sum + (entry.plan.summary.residentCount || 0),
+    0,
+  );
+  const rows = report.plans.map(({ sl, plan }) => {
+    const line = report.tierGrid.lines.find((entry) => entry.serviceLine === sl);
+    const scenario = tier ? line?.cells.find((cell) => cell.tier === tier) : undefined;
+    const inhouseIncrease = scenario?.inhouseIncreasePct ?? plan.summary.weightedAvgIncreasePct;
+    const streetIncrease = scenario?.streetIncreasePct ?? plan.streetIncreasePct;
+    const currentInhouse = plan.summary.currentAvgInhouseRateMonthly;
+    const proposedInhouse = scenario
+      ? currentInhouse * (1 + (inhouseIncrease ?? 0) / 100)
+      : plan.summary.newAvgInhouseRateMonthly;
+    const currentStreet = plan.currentStreetRateMonthly;
+    const proposedStreet = scenario
+      ? currentStreet * (1 + (streetIncrease ?? 0) / 100)
+      : plan.recommendedStreetRateMonthly;
+    const position = proposedStreet
+      ? ((proposedInhouse - proposedStreet) / proposedStreet) * 100
+      : null;
+    return {
+      sl,
+      plan,
+      residents: plan.summary.residentCount,
+      currentInhouse,
+      proposedInhouse,
+      inhouseIncrease,
+      currentStreet,
+      proposedStreet,
+      streetIncrease,
+      position,
+      portfolioShare: totalResidents ? plan.summary.residentCount / totalResidents * 100 : null,
+    };
+  });
+  const weighted = (field: "inhouseIncrease" | "streetIncrease" | "position") => {
+    const eligible = rows.filter((row) => row[field] != null && Number.isFinite(row[field]));
+    const denominator = eligible.reduce((sum, row) => sum + row.residents, 0);
+    return denominator
+      ? eligible.reduce((sum, row) => sum + Number(row[field]) * row.residents, 0) / denominator
+      : null;
+  };
+  const annualImpact = rows.reduce(
+    (sum, row) => sum + (row.plan.summary.totalAnnualIncreaseDollars || 0),
+    0,
+  );
+
+  return (
+    <section className={`tier-block tier-block--${accent}`}>
+      <div className="report-section-band flex items-center justify-between gap-3">
+        <span>{title}</span>
+        <span className="font-sans text-[10px] font-medium tracking-normal">
+          {tier ? "Scenario rates use this tier’s calculated increases" : `${signedMoney(annualImpact)} annualized impact`}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="report-data-table min-w-[1060px]">
+          <thead>
+            <tr>
+              <th>Service line</th>
+              <th>Count</th>
+              <th>Current IH rate</th>
+              <th>New IH rate</th>
+              <th>IH avg increase</th>
+              <th>Current Street Rate</th>
+              <th>New Street Rate</th>
+              <th>Street avg increase</th>
+              <th>Street to in-house</th>
+              <th>Resident count</th>
+              <th>Portfolio %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.sl}>
+                <td className="font-semibold">{row.sl}</td>
+                <td className="mono">{row.residents.toLocaleString()}</td>
+                <td className="mono">{workbookRate(row.currentInhouse, row.plan.rateBasis)}</td>
+                <td className="mono">{workbookRate(row.proposedInhouse, row.plan.rateBasis)}</td>
+                <td className="mono">{pct(row.inhouseIncrease)}</td>
+                <td className="mono">{workbookRate(row.currentStreet, row.plan.rateBasis)}</td>
+                <td className="mono">{workbookRate(row.proposedStreet, row.plan.rateBasis)}</td>
+                <td className="mono">{pct(row.streetIncrease)}</td>
+                <td className="mono">{pct(row.position)}</td>
+                <td className="mono">{row.residents.toLocaleString()}</td>
+                <td className="mono">{pct(row.portfolioShare)}</td>
+              </tr>
+            ))}
+            <tr className="font-semibold">
+              <td>Total</td>
+              <td className="mono">{totalResidents.toLocaleString()}</td>
+              <td>—</td>
+              <td>—</td>
+              <td className="mono">{pct(weighted("inhouseIncrease"))}</td>
+              <td>—</td>
+              <td>—</td>
+              <td className="mono">{pct(weighted("streetIncrease"))}</td>
+              <td className="mono">{pct(weighted("position"))}</td>
+              <td className="mono">{totalResidents.toLocaleString()}</td>
+              <td className="mono">{totalResidents ? "100.0%" : "—"}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function WorkbookPageHeader({
+  report,
+  page,
+}: {
+  report: AnnualReport;
+  page: number;
+}) {
+  const location = report.plans[0]?.plan.scope.location || (report.locationId ? `Campus ${report.locationId}` : "Portfolio");
+  return (
+    <header className="report-page-header flex items-end justify-between gap-6 border-b border-[#44546A] pb-2">
+      <div>
+        <p className="report-kicker">Modulo annual rate planning</p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Annual In-House Rate Plan</h1>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {location} · {report.serviceLines.join(" · ")}
+        </p>
+      </div>
+      <div className="text-right text-xs">
+        <p className="font-semibold text-[#44546A]">{report.status ?? "Calculated"} · Page {page} of 2</p>
+        <p className="mt-1 text-muted-foreground">Last run {dateTime(report.generatedAt)}</p>
+      </div>
+    </header>
+  );
+}
+
+function WorkbookReportBody({ report }: { report: AnnualReport }) {
+  return (
+    <div id="annual-report-sheet" className="annual-report-sheet mx-auto max-w-[1480px]">
+      <article className="report-page space-y-4">
+        <WorkbookPageHeader report={report} page={1} />
+        <WorkbookReportBlock title="Combined" accent="combined" report={report} />
+        <WorkbookReportBlock title="Occupancy Tier 1 · High occupancy" accent="tier1" report={report} tier="high" />
+      </article>
+      <article className="report-page space-y-4">
+        <WorkbookPageHeader report={report} page={2} />
+        <WorkbookReportBlock title="Occupancy Tier 2 · Target occupancy" accent="tier2" report={report} tier="target" />
+        <WorkbookReportBlock title="Occupancy Tier 3 · Low occupancy" accent="tier3" report={report} tier="low" />
+        <p className="text-[10px] text-muted-foreground">
+          Generated from the saved Modulo calculation. Scenario rates apply each occupancy tier’s calculated percentage to the same current-rate and resident-count basis.
+        </p>
+      </article>
+    </div>
+  );
+}
+
 export default function AnnualReportPage() {
   const [, setLocation] = useLocation();
   const scopeKey = new URLSearchParams(window.location.search).get("scopeKey") || "";
@@ -343,25 +512,6 @@ export default function AnnualReportPage() {
     enabled: !!scopeKey,
   });
   const report = query.data?.report;
-  const historyQuery = useQuery<RateGrowthSeries[]>({
-    queryKey: ["/api/overview/rate-growth", "annual-report", report?.serviceLines],
-    queryFn: async () => {
-      const groups = [
-        report?.serviceLines.some((line) => ["AL", "AL/MC", "SL", "VIL"].includes(line)) ? "Senior Housing" : null,
-        report?.serviceLines.some((line) => ["HC", "HC/MC"].includes(line)) ? "SNF" : null,
-      ].filter(Boolean) as string[];
-      const responses = await Promise.all(groups.map(async (group) => {
-        const res = await fetch(`/api/overview/rate-growth?group=${encodeURIComponent(group)}`, {
-          credentials: "include",
-          cache: "no-store",
-        });
-        if (!res.ok) return { series: [] } as RateGrowthResponse;
-        return res.json() as Promise<RateGrowthResponse>;
-      }));
-      return responses.flatMap((response) => response.series);
-    },
-    enabled: !!report,
-  });
   const exportPdf = async () => {
     if (!report) return;
     const res = await fetch(`/api/inhouse-planning/annual-report-runs/${encodeURIComponent(report.id)}/pdf`, { credentials: "include" });
@@ -376,6 +526,6 @@ export default function AnnualReportPage() {
     {query.isLoading && <div className="mx-auto max-w-[1480px] space-y-4"><div className="h-24 animate-pulse rounded-xl bg-muted" /><div className="h-72 animate-pulse rounded-xl bg-muted" /></div>}
     {query.isError && <Alert variant="destructive" className="mx-auto max-w-xl"><AlertTitle>Report unavailable</AlertTitle><AlertDescription>{query.error.message}</AlertDescription></Alert>}
     {!query.isLoading && !query.isError && !report && <Alert className="mx-auto max-w-xl"><AlertTitle>No annual report yet</AlertTitle><AlertDescription>Calculate a plan, then choose Annual Report to save the current run.</AlertDescription></Alert>}
-    {report && <ReportBody report={report} history={historyQuery.data ?? []} />}
+    {report && <WorkbookReportBody report={report} />}
   </div>;
 }
