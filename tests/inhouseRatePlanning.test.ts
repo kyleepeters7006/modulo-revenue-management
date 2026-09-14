@@ -24,8 +24,12 @@ import type {
   PlanningResident,
 } from "../shared/inhousePlanning";
 import {
+  applyOccupancyTier,
+  combinePlanningInputSnapshots,
   DEFAULT_ASSUMPTIONS,
+  defaultOccupancyTierPolicy,
   planAssumptionsMatch,
+  planningInputSnapshotKey,
   selectPlansForSubmission,
   validatePlanningSignal,
 } from "../shared/inhousePlanning";
@@ -986,6 +990,90 @@ console.log("\n-- 7c. Below-target plans remain submittable as proposals --");
   ok(
     "submission includes every recalculated proposal regardless of target attainment",
     selectPlansForSubmission([recalculated, calculated[1]]).length === 2,
+  );
+}
+
+// ── 7d. Normalized tier plans remain submittable until raw inputs change ────
+console.log("\n-- 7d. Normalized tier plans keep their raw input snapshot --");
+{
+  const rawAssumptions = assumptions({
+    streetRateEffectiveDate: "",
+    inhouseEffectiveDate: "",
+  });
+  const tierPolicy = defaultOccupancyTierPolicy();
+  const normalizedAssumptions = applyOccupancyTier(
+    {
+      ...rawAssumptions,
+      streetRateEffectiveDate: "2027-04-01",
+      inhouseEffectiveDate: "2027-04-01",
+    },
+    {
+      ...tierPolicy.tiers.low,
+      maxInhouseIncreasePct: 4,
+    },
+  );
+  const plan = {
+    ...solvePlan({
+      residents: roomyPopulation(),
+      assumptions: normalizedAssumptions,
+      baselineByQuarter: flatBaseline(4200),
+      quarters: QUARTERS,
+      anchorMs: ANCHOR_MS,
+      currentStreetRateMonthly: 5000,
+    }),
+    assumptions: normalizedAssumptions,
+  };
+  const snapshot = planningInputSnapshotKey([{
+    serviceLine: "AL",
+    assumptions: rawAssumptions,
+    tierPolicy,
+  }]);
+
+  ok("the tiered fixture calculates a plan", Number.isFinite(plan.recommendedStreetMonthly));
+  ok(
+    "server-normalized dates and tier guardrails differ from raw editor inputs",
+    !planAssumptionsMatch(plan.assumptions, rawAssumptions),
+  );
+  ok(
+    "the unchanged raw snapshot remains submittable",
+    planningInputSnapshotKey([{
+      serviceLine: "AL",
+      assumptions: rawAssumptions,
+      tierPolicy,
+    }]) === snapshot,
+  );
+  ok(
+    "a real editor input change makes the result stale",
+    planningInputSnapshotKey([{
+      serviceLine: "AL",
+      assumptions: { ...rawAssumptions, annualTurnoverPct: rawAssumptions.annualTurnoverPct + 1 },
+      tierPolicy,
+    }]) !== snapshot,
+  );
+
+  const secondLineEntry = {
+    serviceLine: "HC",
+    assumptions: { ...rawAssumptions, annualTurnoverPct: rawAssumptions.annualTurnoverPct + 2 },
+    tierPolicy: defaultOccupancyTierPolicy(),
+  };
+  const firstLineEntry = {
+    serviceLine: "AL",
+    assumptions: rawAssumptions,
+    tierPolicy,
+  };
+  const combinedSnapshot = combinePlanningInputSnapshots(
+    ["AL", "HC"],
+    [secondLineEntry, firstLineEntry],
+  );
+  ok(
+    "separate cached lines rebuild the unchanged multi-line snapshot",
+    combinedSnapshot !== null &&
+      planningInputSnapshotKey(combinedSnapshot) ===
+        planningInputSnapshotKey([firstLineEntry, secondLineEntry]),
+  );
+  ok(
+    "the same cached result can restore a single-line snapshot",
+    combinePlanningInputSnapshots(["AL"], [secondLineEntry, firstLineEntry])?.[0]?.serviceLine === "AL",
   );
 }
 

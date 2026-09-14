@@ -73,11 +73,11 @@ import { compactPlanForAnnualReport } from "@/lib/inhouseAnnualReportSnapshot";
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
 import { DAYS_PER_MONTH } from "@shared/careRates";
 import {
-  applyOccupancyTier,
   DEFAULT_ASSUMPTIONS,
+  combinePlanningInputSnapshots,
   formatMoney,
   formatPct,
-  planAssumptionsMatch,
+  planningInputSnapshotKey,
   selectPlansForSubmission,
   type CalcExplanation,
   type EqualizationStrength,
@@ -93,6 +93,7 @@ import {
   type OccupancyTierId,
   type OccupancyTierPlanCell,
   type OccupancyTierPolicy,
+  type PlanningInputSnapshotEntry,
 } from "@shared/inhousePlanning";
 import type {
   InhousePlanHistoryEntry,
@@ -995,6 +996,7 @@ interface TierGridResult {
    */
   scopeKey: string;
   inputsKey: string;
+  inputSnapshot: PlanningInputSnapshotEntry[];
 }
 
 /**
@@ -1140,16 +1142,27 @@ interface StoredCalculatedPlan {
   plans: PlanWithSl[];
   lastRunAt: string;
   detailsOmitted?: boolean;
+  /** Exact raw assumptions and tier policies posted for this calculation. */
+  inputsKey?: string;
+  inputSnapshot?: PlanningInputSnapshotEntry[];
 }
 
 function readStoredCalculatedPlan(value: unknown): {
   plans: PlanWithSl[];
   lastRunAt: string | null;
   detailsOmitted: boolean;
+  inputsKey: string | null;
+  inputSnapshot: PlanningInputSnapshotEntry[] | null;
 } | null {
   // Backward compatibility for calculations saved before timestamps existed.
   if (Array.isArray(value) && value.every(isStoredPlan)) {
-    return { plans: value, lastRunAt: null, detailsOmitted: false };
+    return {
+      plans: value,
+      lastRunAt: null,
+      detailsOmitted: false,
+      inputsKey: null,
+      inputSnapshot: null,
+    };
   }
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<StoredCalculatedPlan>;
@@ -1165,6 +1178,10 @@ function readStoredCalculatedPlan(value: unknown): {
     plans: candidate.plans,
     lastRunAt: candidate.lastRunAt,
     detailsOmitted: candidate.detailsOmitted === true,
+    inputsKey: typeof candidate.inputsKey === "string" ? candidate.inputsKey : null,
+    inputSnapshot: Array.isArray(candidate.inputSnapshot)
+      ? candidate.inputSnapshot as PlanningInputSnapshotEntry[]
+      : null,
   };
 }
 
@@ -1247,6 +1264,9 @@ export default function InhouseIncreases() {
   const [assumptionsTouched, setAssumptionsTouched] = useState(false);
   const [, startAssumptionTransition] = useTransition();
   const [plans, setPlans] = useState<PlanWithSl[] | null>(null);
+  // Persisted separately from PlanResult because the server normalizes empty
+  // dates and applies the measured tier's guardrails before returning a plan.
+  const [calculatedInputsKey, setCalculatedInputsKey] = useState<string | null>(null);
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
   const [restoredPlanDetailsOmitted, setRestoredPlanDetailsOmitted] = useState(false);
   const [expandedQuarter, setExpandedQuarter] = useState<string | null>(null);
@@ -1296,8 +1316,12 @@ export default function InhouseIncreases() {
   // turnover and the effective dates all change the answer, so a grid built
   // before one of them was edited is just as stale as one built under an old
   // cutoff — and must not be readable as current.
-  const tierInputsKey = JSON.stringify(
-    serviceLines.map((sl) => [sl, tierPolicies[sl] ?? null, assumptionsForLine(sl)]),
+  const tierInputsKey = planningInputSnapshotKey(
+    serviceLines.map((sl) => ({
+      serviceLine: sl,
+      assumptions: assumptionsForLine(sl),
+      tierPolicy: tierPolicies[sl] ?? defaultOccupancyTierPolicy(),
+    })),
   );
   const tierScopeKeyRef = useRef(tierScopeKey);
   tierScopeKeyRef.current = tierScopeKey;
@@ -1334,6 +1358,7 @@ export default function InhouseIncreases() {
   useEffect(() => {
     let cancelled = false;
     setPlans(null);
+    setCalculatedInputsKey(null);
     setLastRunAt(null);
     setRestoredPlanDetailsOmitted(false);
     setVisibleCount(50);
@@ -1349,6 +1374,11 @@ export default function InhouseIncreases() {
           : null;
       let restoredLastRunAt = restored ? stored?.lastRunAt ?? null : null;
       let detailsOmitted = restored ? stored?.detailsOmitted === true : false;
+      let restoredInputsKey =
+        restored
+          ? stored?.inputsKey
+            ?? (stored?.inputSnapshot ? planningInputSnapshotKey(stored.inputSnapshot) : null)
+          : null;
 
       // Older cache entries and individually calculated lines may not have a
       // combined entry for the current multi-select. Compose it from each
@@ -1363,9 +1393,11 @@ export default function InhouseIncreases() {
             );
             const lineStored = readStoredCalculatedPlan(lineStoredValue);
             return {
+              sl,
               plan: lineStored?.plans.find((candidate) => candidate.sl === sl) ?? null,
               lastRunAt: lineStored?.lastRunAt ?? null,
               detailsOmitted: lineStored?.detailsOmitted === true,
+              inputSnapshot: lineStored?.inputSnapshot ?? null,
             };
           }),
         );
@@ -1380,10 +1412,21 @@ export default function InhouseIncreases() {
           restoredLastRunAt = timestamps[0] ?? restoredLastRunAt;
         }
         detailsOmitted = perLine.some(({ plan, detailsOmitted }) => plan !== null && detailsOmitted);
+        const perLineSnapshots = perLine
+          .filter(({ plan, inputSnapshot }) => plan !== null && inputSnapshot?.length === 1)
+          .map(({ inputSnapshot }) => inputSnapshot![0]);
+        const combinedSnapshot =
+          available.length === serviceLines.length
+            ? combinePlanningInputSnapshots(serviceLines, perLineSnapshots)
+            : null;
+        restoredInputsKey = combinedSnapshot
+          ? planningInputSnapshotKey(combinedSnapshot)
+          : null;
       }
 
       if (cancelled) return;
       setPlans(restored);
+      setCalculatedInputsKey(restoredInputsKey);
       setLastRunAt(restoredLastRunAt);
       setRestoredPlanDetailsOmitted(detailsOmitted);
       const first = restored?.find((r) => r.plan.feasible) ?? restored?.[0];
@@ -1404,6 +1447,7 @@ export default function InhouseIncreases() {
     });
     setAssumptionsTouched(false);
     setPlans(null);
+    setCalculatedInputsKey(null);
   }
 
   const { data: locationsData } = useQuery<{ locations: LocationRow[] }>({
@@ -1900,16 +1944,21 @@ export default function InhouseIncreases() {
       const requested = [...serviceLines];
       // Snapshot what this run describes before any awaiting starts.
       const scopeKey = tierScopeKey;
-      const inputsKey = tierInputsKey;
+      const inputEntries = requested.map((sl) => ({
+        serviceLine: sl,
+        assumptions: { ...assumptionsForLine(sl) },
+        tierPolicy: tierPolicyFor(sl),
+      }));
+      const inputsKey = planningInputSnapshotKey(inputEntries);
       const locationIdAtStart = scopeLocationId;
       const identityKey = storageIdentityKey;
       const planScopeKey = calculatedPlanScopeKey(locationIdAtStart, requested);
       const res = await apiRequest("/api/inhouse-planning/calculate-tiers-batch", "POST", {
         locationId: locationIdAtStart,
-        lines: requested.map((sl) => ({
-          serviceLine: sl,
-          assumptions: assumptionsForLine(sl),
-          tierPolicy: tierPolicyFor(sl),
+        lines: inputEntries.map((entry) => ({
+          serviceLine: entry.serviceLine,
+          assumptions: entry.assumptions,
+          tierPolicy: entry.tierPolicy,
         })),
       });
       const contentType = res.headers.get("content-type") || "";
@@ -1934,7 +1983,7 @@ export default function InhouseIncreases() {
             : "No service lines were selected.",
         );
       }
-      return { lines, skipped, scopeKey, inputsKey, identityKey, planScopeKey };
+      return { lines, skipped, scopeKey, inputsKey, inputSnapshot: inputEntries, identityKey, planScopeKey };
     },
     onSuccess: async (result) => {
       // The scope moved while this was in flight. Showing it would label one
@@ -1960,6 +2009,8 @@ export default function InhouseIncreases() {
           plans: compactPlans,
           lastRunAt,
           detailsOmitted: true,
+          inputsKey: result.inputsKey,
+          inputSnapshot: result.inputSnapshot,
         };
         saved = await writeInhousePlanBundle(
           result.identityKey,
@@ -1970,6 +2021,17 @@ export default function InhouseIncreases() {
               plans: [calculated],
               lastRunAt,
               detailsOmitted: true,
+              inputsKey: (() => {
+                const lineSnapshot = result.inputSnapshot.filter(
+                  (entry) => entry.serviceLine === calculated.sl,
+                );
+                return lineSnapshot.length === 1
+                  ? planningInputSnapshotKey(lineSnapshot)
+                  : result.inputsKey;
+              })(),
+              inputSnapshot: result.inputSnapshot.filter(
+                (entry) => entry.serviceLine === calculated.sl,
+              ),
             } satisfies StoredCalculatedPlan,
           })),
         );
@@ -1979,6 +2041,7 @@ export default function InhouseIncreases() {
         result.planScopeKey === calculatedPlanScopeKey(scopeLocationId, serviceLines)
       ) {
         setPlans(calculatedPlans);
+        setCalculatedInputsKey(result.inputsKey);
         setLastRunAt(lastRunAt);
         setRestoredPlanDetailsOmitted(false);
         setVisibleCount(50);
@@ -2255,24 +2318,14 @@ export default function InhouseIncreases() {
     }));
   }
 
-  function effectiveAssumptionsForPlan(sl: string): PlanningAssumptions {
-    const currentTier =
-      tierGrid?.lines.find((candidate) => candidate.serviceLine === sl)?.currentTier ?? null;
-    return currentTier
-      ? applyOccupancyTier(assumptionsForLine(sl), tierPolicyFor(sl).tiers[currentTier])
-      : assumptionsForLine(sl);
-  }
-
   // The tier run snapshots the exact raw policies and assumptions before the
   // request starts. Compare against that snapshot rather than the normalized
   // assumptions returned by the solver, which can contain resolved dates and
   // tier guardrails and therefore look changed even when the operator touched
   // nothing.
-  const hasChangedPlanAssumptions = tierGrid
-    ? tierGridStale
-    : !!plans?.some(
-        ({ sl, plan }) => !planAssumptionsMatch(plan.assumptions, effectiveAssumptionsForPlan(sl)),
-      );
+  const hasChangedPlanAssumptions =
+    !!plans?.length &&
+    (calculatedInputsKey === null || calculatedInputsKey !== tierInputsKey);
 
   const rangeError =
     assumptions.minInhouseIncreasePct > assumptions.maxInhouseIncreasePct

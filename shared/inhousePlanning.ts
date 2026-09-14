@@ -185,6 +185,43 @@ export interface OccupancyTierPolicy {
   tiers: Record<OccupancyTierId, OccupancyTierGuardrails>;
 }
 
+export interface PlanningInputSnapshotEntry {
+  serviceLine: string;
+  assumptions: PlanningAssumptions;
+  tierPolicy: OccupancyTierPolicy;
+}
+
+/**
+ * Stable identity for the exact inputs sent to a tiered calculation.
+ *
+ * The plan returned by the server may contain resolved dates and the selected
+ * tier's guardrails. Neither is the editor snapshot: submission freshness must
+ * be checked against what the operator actually posted.
+ */
+export function planningInputSnapshotKey(
+  entries: ReadonlyArray<PlanningInputSnapshotEntry>,
+): string {
+  return JSON.stringify(
+    entries.map(({ serviceLine, assumptions, tierPolicy }) => [
+      serviceLine,
+      tierPolicy,
+      assumptions,
+    ]),
+  );
+}
+
+/** Rebuild a combined snapshot when individually cached lines are restored. */
+export function combinePlanningInputSnapshots(
+  serviceLines: readonly string[],
+  entries: ReadonlyArray<PlanningInputSnapshotEntry>,
+): PlanningInputSnapshotEntry[] | null {
+  const byServiceLine = new Map(entries.map((entry) => [entry.serviceLine, entry]));
+  const combined = serviceLines.map((serviceLine) => byServiceLine.get(serviceLine) ?? null);
+  return combined.every((entry): entry is PlanningInputSnapshotEntry => entry !== null)
+    ? combined
+    : null;
+}
+
 /**
  * Softer as occupancy falls: a community that cannot fill its rooms has no
  * pricing power, so both its resident ceiling and its street ceiling tighten,
