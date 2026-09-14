@@ -19,6 +19,17 @@ function, before the first `await`, and return them alongside the result:
 Use the snapshot for the requests too, not the live value — otherwise the
 identity you recorded and the request you sent can disagree.
 
+Advisory defaults loaded by a separate slow query must stop auto-applying once a
+calculated or restored result is visible.
+
+**Why:** measured turnover arrived after a tier calculation and silently changed
+the editor input. The operator touched nothing, but the result was immediately
+labelled stale.
+
+**How to apply:** auto-adopt measured or inferred defaults only while the editor
+has no displayed result. Once a result exists, show the late evidence without
+mutating the inputs underneath it.
+
 **Why:** the observed failure was a ~30s grid: changing campus mid-run
 repopulated under the new campus, and editing an input left a stale grid on
 screen with no indication.

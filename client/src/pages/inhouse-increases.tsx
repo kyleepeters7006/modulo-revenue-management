@@ -1473,9 +1473,6 @@ export default function InhouseIncreases() {
   );
   const tierScopeKeyRef = useRef(tierScopeKey);
   tierScopeKeyRef.current = tierScopeKey;
-  const tierGridStale =
-    tierGrid != null &&
-    (tierGrid.scopeKey !== tierScopeKey || tierGrid.inputsKey !== tierInputsKey);
   const singleLine = serviceLines.length === 1 ? serviceLines[0] : null;
   const calculatedPlanKey = useMemo(
     () => storageIdentityKey
@@ -1891,7 +1888,10 @@ export default function InhouseIncreases() {
    * the page instead of burying it in the solver.
    */
   useEffect(() => {
-    if (assumptionsTouched || !turnoverQuery.data) return;
+    // Automatic measured turnover is an initial editor default only. A late
+    // history response must never mutate the inputs underneath a calculated or
+    // restored result and falsely claim the operator changed its settings.
+    if (assumptionsTouched || !turnoverQuery.data || plans !== null) return;
     setPerLineTargets((prev) => {
       let changed = false;
       const next = { ...prev };
@@ -1908,7 +1908,22 @@ export default function InhouseIncreases() {
       }
       return changed ? next : prev;
     });
-  }, [turnoverQuery.data, turnoverBySl, serviceLines, assumptionsTouched, assumptions]);
+  }, [turnoverQuery.data, turnoverBySl, serviceLines, assumptionsTouched, assumptions, plans]);
+
+  const tierInputsReady =
+    assumptionsQuery.isSuccess &&
+    tierState.scopeKey === policyScopeKey &&
+    serviceLines.every((sl) => tierState.loaded[sl] === true);
+  const calculatedTierInputsKey =
+    tierGrid?.inputSnapshot?.length
+      ? planningInputSnapshotKey(tierGrid.inputSnapshot)
+      : tierGrid?.inputsKey;
+  const tierGridStale =
+    tierGrid != null &&
+    (
+      tierGrid.scopeKey !== tierScopeKey ||
+      (tierInputsReady && calculatedTierInputsKey !== tierInputsKey)
+    );
 
   /**
    * The workbook is built server-side: it needs the solver's per-resident
