@@ -1078,11 +1078,13 @@ interface CampusOccupancyReading {
 function PlanScatterReview({
   plans,
   selectedLocationId,
+  selectedServiceLines,
   tierGrid,
   campusOccupancy,
 }: {
   plans: PlanWithSl[];
   selectedLocationId: string | null;
+  selectedServiceLines: string[];
   tierGrid: TierGridResult | null;
   campusOccupancy: CampusOccupancyReading[];
 }) {
@@ -1112,6 +1114,11 @@ function PlanScatterReview({
 
   const points = useMemo(() => {
     return plans.flatMap(({ sl, plan }) => {
+      // Async browser/report restores can briefly leave the previous result in
+      // memory while Scope changes. Never let those stale plans contribute a
+      // point under the newly selected filter labels.
+      if (!selectedServiceLines.includes(sl)) return [];
+      if ((plan.scope.locationId ?? null) !== selectedLocationId) return [];
       const tierLine = tierGrid?.lines.find((line) => line.serviceLine === sl);
       // Portfolio plans are valid service-line aggregates, but not valid
       // campus slices. Plot one portfolio point per line from the plan summary
@@ -1168,7 +1175,7 @@ function PlanScatterReview({
         };
       });
     }).filter((point) => point.occupancy != null && Number.isFinite(point.occupancy));
-  }, [occupancyByLine, plans, selectedLocationId, tierGrid]);
+  }, [occupancyByLine, plans, selectedLocationId, selectedServiceLines, tierGrid]);
 
   const unknownCount = useMemo(() => {
     const combos = new Set(plans.flatMap(({ sl, plan }) => plan.residents.map((r) => `${r.location}::${sl}`)));
@@ -3283,77 +3290,6 @@ export default function InhouseIncreases() {
         </p>
       </header>
 
-      <Card className="border-primary/20 bg-gradient-to-br from-card to-primary/[0.03]">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Save className="h-4 w-4 text-primary" />
-            Saved work
-          </CardTitle>
-          <CardDescription>
-            Reopen the latest calculation, submitted plan, or annual report for this scope.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-lg border bg-background/80 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Latest calculation</p>
-            {plans && lastRunAt ? (
-              <>
-                <p className="mt-1 text-sm font-medium">{plans.length} service line{plans.length === 1 ? "" : "s"} calculated</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">{new Date(lastRunAt).toLocaleString()}</p>
-                <Button variant="link" size="sm" className="mt-1 h-auto p-0 text-xs" onClick={() => document.getElementById("calculated-plan-results")?.scrollIntoView({ behavior: "smooth" })}>
-                  View calculated result
-                </Button>
-              </>
-            ) : (
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">No calculation is saved for the selected campus and service lines.</p>
-            )}
-          </div>
-
-          <div className="rounded-lg border bg-background/80 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Submitted plan</p>
-            {plansQuery.data?.plans?.[0] ? (
-              <>
-                <p className="mt-1 text-sm font-medium">v{plansQuery.data.plans[0].version} · {plansQuery.data.plans[0].serviceLine}</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {formatPct(plansQuery.data.plans[0].summary?.weightedAvgIncreasePct ?? 0, 2)} average · {plansQuery.data.plans[0].status}
-                </p>
-                <Button variant="link" size="sm" className="mt-1 h-auto p-0 text-xs" onClick={() => document.getElementById("plan-history")?.scrollIntoView({ behavior: "smooth" })}>
-                  View plan history
-                </Button>
-              </>
-            ) : (
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">No plan has been submitted for this scope yet.</p>
-            )}
-          </div>
-
-          <div className="rounded-lg border bg-background/80 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Annual report and PDF</p>
-            {latestAnnualReportQuery.data?.report ? (
-              <>
-                <p className="mt-1 text-sm font-medium">Executive report available</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Saved {new Date(latestAnnualReportQuery.data.report.generatedAt).toLocaleString()}
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Button size="sm" className="h-8 text-xs" onClick={() => setLocation(`/inhouse-increases/annual-report?scopeKey=${encodeURIComponent(latestAnnualReportQuery.data!.report!.scopeKey)}`)}>
-                    <FileText className="mr-1.5 h-3.5 w-3.5" />
-                    Open report
-                  </Button>
-                  <Button asChild variant="outline" size="sm" className="h-8 text-xs">
-                    <a href={`/api/inhouse-planning/annual-report-runs/${latestAnnualReportQuery.data.report.id}/pdf`} download>
-                      <Download className="mr-1.5 h-3.5 w-3.5" />
-                      PDF
-                    </a>
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">No annual report has been saved for this scope. Calculate the plan, then choose Annual Report.</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
       {/* ── Scope ─────────────────────────────────────────────────────── */}
       <Card>
         <CardHeader className={cn("pb-3", expandedSections.scope && "border-b")}>
@@ -3931,6 +3867,104 @@ export default function InhouseIncreases() {
         </CardContent>}
       </Card>
 
+      <Card className="border-primary/20 bg-gradient-to-br from-card to-primary/[0.03]">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Save className="h-4 w-4 text-primary" />
+            Saved work and last run
+          </CardTitle>
+          <CardDescription>
+            Reopen or refresh the latest calculation, submitted plan, or annual report for this scope.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border bg-background/80 p-3" data-testid="calculated-plan-last-run">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Latest calculation</p>
+            {plans && lastRunAt ? (
+              <>
+                <p className="mt-1 text-sm font-medium">{plans.length} service line{plans.length === 1 ? "" : "s"} calculated</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{new Date(lastRunAt).toLocaleString()}</p>
+                {restoredPlanDetailsOmitted && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Saved totals and projections restored. Recalculate to reload resident details.
+                  </p>
+                )}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button variant="link" size="sm" className="h-8 p-0 text-xs" onClick={() => document.getElementById("calculated-plan-results")?.scrollIntoView({ behavior: "smooth" })}>
+                    View calculated result
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={calculatePlanAndTiers}
+                    disabled={
+                      !!rangeError ||
+                      calculate.isPending ||
+                      calculateTiers.isPending ||
+                      !tierPoliciesReady
+                    }
+                    className="h-8 text-xs"
+                    data-testid="button-recalculate-top"
+                  >
+                    {calculate.isPending || calculateTiers.isPending ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Calculator className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    Recalculate
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">No calculation is saved for the selected campus and service lines.</p>
+            )}
+          </div>
+
+          <div className="rounded-lg border bg-background/80 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Submitted plan</p>
+            {plansQuery.data?.plans?.[0] ? (
+              <>
+                <p className="mt-1 text-sm font-medium">v{plansQuery.data.plans[0].version} · {plansQuery.data.plans[0].serviceLine}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {formatPct(plansQuery.data.plans[0].summary?.weightedAvgIncreasePct ?? 0, 2)} average · {plansQuery.data.plans[0].status}
+                </p>
+                <Button variant="link" size="sm" className="mt-1 h-auto p-0 text-xs" onClick={() => document.getElementById("plan-history")?.scrollIntoView({ behavior: "smooth" })}>
+                  View plan history
+                </Button>
+              </>
+            ) : (
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">No plan has been submitted for this scope yet.</p>
+            )}
+          </div>
+
+          <div className="rounded-lg border bg-background/80 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Annual report and PDF</p>
+            {latestAnnualReportQuery.data?.report ? (
+              <>
+                <p className="mt-1 text-sm font-medium">Executive report available</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Saved {new Date(latestAnnualReportQuery.data.report.generatedAt).toLocaleString()}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button size="sm" className="h-8 text-xs" onClick={() => setLocation(`/inhouse-increases/annual-report?scopeKey=${encodeURIComponent(latestAnnualReportQuery.data!.report!.scopeKey)}`)}>
+                    <FileText className="mr-1.5 h-3.5 w-3.5" />
+                    Open report
+                  </Button>
+                  <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                    <a href={`/api/inhouse-planning/annual-report-runs/${latestAnnualReportQuery.data.report.id}/pdf`} download>
+                      <Download className="mr-1.5 h-3.5 w-3.5" />
+                      PDF
+                    </a>
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">No annual report has been saved for this scope. Calculate the plan, then choose Annual Report.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* ── Occupancy tier summary ────────────────────────────────────── */}
       {(calculate.isPending || calculateTiers.isPending) && (!plans?.length || !tierGrid) && (
         <div className="flex items-center gap-3 rounded-md border p-6 text-sm text-muted-foreground">
@@ -4146,54 +4180,14 @@ export default function InhouseIncreases() {
         </Card>
       )}
 
-      {plans && plans.length > 0 && (
-        <div id="calculated-plan-results" className="space-y-1 rounded-md border bg-muted/30 px-3 py-2 text-sm">
-          <div
-            className="flex flex-wrap items-center justify-between gap-2"
-            data-testid="calculated-plan-last-run"
-          >
-            <span className="font-medium">Last run for these filters</span>
-            <span className="text-muted-foreground">
-              {lastRunAt
-                ? new Intl.DateTimeFormat(undefined, {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  }).format(new Date(lastRunAt))
-                : "Saved before timestamps were added"}
-            </span>
-          </div>
-          {restoredPlanDetailsOmitted && (
-            <p className="text-xs text-muted-foreground">
-              Saved totals and projections restored. Run Calculate Plan to reload resident details.
-            </p>
-          )}
-          <Button
-            type="button"
-            size="sm"
-            onClick={calculatePlanAndTiers}
-            disabled={
-              !!rangeError ||
-              calculate.isPending ||
-              calculateTiers.isPending ||
-              !tierPoliciesReady
-            }
-            className="mt-2 w-full sm:w-auto"
-            data-testid="button-recalculate-top"
-          >
-            {calculate.isPending || calculateTiers.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Calculator className="mr-2 h-4 w-4" />
-            )}
-            Recalculate plan
-          </Button>
-        </div>
-      )}
+      {plans && plans.length > 0 && <div id="calculated-plan-results" />}
 
       {plans && plans.length > 0 && (
         <PlanScatterReview
+          key={tierScopeKey}
           plans={plans}
           selectedLocationId={scopeLocationId}
+          selectedServiceLines={serviceLines}
           tierGrid={tierGrid}
           campusOccupancy={campusOccupancyData?.readings ?? []}
         />
