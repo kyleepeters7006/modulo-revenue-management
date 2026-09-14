@@ -1130,6 +1130,17 @@ function formatTierPct(value: number | null | undefined): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
+function tierRangeHeader(grid: TierGridResult, tier: OccupancyTierId): string {
+  const ranges = Array.from(new Set(
+    grid.lines
+      .map((line) => line.cells.find((cell) => cell.tier === tier)?.rangeLabel)
+      .filter((value): value is string => !!value),
+  ));
+  if (ranges.length === 1) return `${ranges[0]} occupancy`;
+  if (ranges.length > 1) return "Range varies by service line";
+  return OCCUPANCY_TIER_LABELS[tier];
+}
+
 /** Compact numeric cell for the tier table; full-size fields are too tall here. */
 function TierInput({
   value,
@@ -3750,7 +3761,7 @@ export default function InhouseIncreases() {
                   aria-pressed={mobileTier === tier}
                   data-testid={`button-mobile-tier-${tier}`}
                 >
-                  {OCCUPANCY_TIER_LABELS[tier]}
+                  {tierRangeHeader(tierGrid, tier)}
                 </button>
               ))}
             </div>
@@ -3772,7 +3783,7 @@ export default function InhouseIncreases() {
                       key={tier}
                       className={cn("text-center", tier !== mobileTier && "hidden sm:block")}
                     >
-                      {OCCUPANCY_TIER_LABELS[tier]}
+                      {tierRangeHeader(tierGrid, tier)}
                     </span>
                   ))}
                 </div>
@@ -3819,11 +3830,6 @@ export default function InhouseIncreases() {
                             )}
                             title={cell?.error ?? cell?.rangeLabel}
                           >
-                            {cell?.rangeLabel && (
-                              <span className="mb-0.5 block text-[10px] font-normal leading-none text-muted-foreground">
-                                {cell.rangeLabel} occupancy
-                              </span>
-                            )}
                             {!cell || cell.error ? (
                               <span className="text-muted-foreground">—</span>
                             ) : (
