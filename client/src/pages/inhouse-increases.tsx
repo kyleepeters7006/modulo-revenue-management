@@ -1112,11 +1112,36 @@ function PlanScatterReview({
 
   const points = useMemo(() => {
     return plans.flatMap(({ sl, plan }) => {
-      // A portfolio plan is not a set of campus plans. Do not group its
-      // resident rows client-side and present those slices as measured campus
-      // recommendations; campus-specific calculations are persisted and
-      // restored when the campus filter is selected.
-      if (selectedLocationId === null && plan.scope.locationId === null) return [];
+      const tierLine = tierGrid?.lines.find((line) => line.serviceLine === sl);
+      // Portfolio plans are valid service-line aggregates, but not valid
+      // campus slices. Plot one portfolio point per line from the plan summary
+      // and portfolio occupancy rather than grouping resident rows by campus.
+      if (selectedLocationId === null && plan.scope.locationId === null) {
+        return [{
+          location: "All campuses",
+          serviceLine: sl,
+          occupancy: tierLine?.occupancyPct ?? null,
+          inhouseIncrease: plan.summary.weightedAvgIncreasePct,
+          streetIncrease: plan.streetIncreasePct,
+          streetSource: "calculated portfolio service-line recommendation",
+          occupancyMonth: tierLine?.occupancyMonth ?? null,
+          residents: plan.summary.residentCount,
+        }];
+      }
+      // Compact campus reports omit resident rows. Their calculated summary is
+      // still sufficient for the scatter point while details reload.
+      if (plan.residents.length === 0 && selectedLocationId !== null) {
+        return [{
+          location: plan.scope.location ?? "Selected campus",
+          serviceLine: sl,
+          occupancy: tierLine?.occupancyPct ?? null,
+          inhouseIncrease: plan.summary.weightedAvgIncreasePct,
+          streetIncrease: plan.streetIncreasePct,
+          streetSource: "calculated campus service-line recommendation",
+          occupancyMonth: tierLine?.occupancyMonth ?? null,
+          residents: plan.summary.residentCount,
+        }];
+      }
       const grouped = new Map<string, { revenue: number; increase: number; weight: number; residents: number }>();
       plan.residents.forEach((resident) => {
         const key = resident.location;
@@ -1143,7 +1168,7 @@ function PlanScatterReview({
         };
       });
     }).filter((point) => point.occupancy != null && Number.isFinite(point.occupancy));
-  }, [occupancyByLine, plans]);
+  }, [occupancyByLine, plans, selectedLocationId, tierGrid]);
 
   const unknownCount = useMemo(() => {
     const combos = new Set(plans.flatMap(({ sl, plan }) => plan.residents.map((r) => `${r.location}::${sl}`)));
@@ -1198,7 +1223,7 @@ function PlanScatterReview({
           data-testid="button-toggle-inhouse-scatterplots"
         >
           <div className="space-y-1.5">
-            <CardTitle className="text-base">Campus pricing position</CardTitle>
+            <CardTitle className="text-base">Pricing position by service line</CardTitle>
             <CardDescription>
               Scatterplots of occupancy against in-house and Street Rate increases.
             </CardDescription>
@@ -1213,7 +1238,9 @@ function PlanScatterReview({
       {expanded && (
         <CardContent id="inhouse-scatterplot-content" className="pt-4">
           <p className="mb-3 text-xs text-muted-foreground">
-            Each dot is a campus and service-line combination. Occupancy is measured; unknown readings are not plotted.
+            {selectedLocationId === null
+              ? "Each dot is a portfolio service-line calculation. Occupancy is measured; unknown readings are not plotted."
+              : "Each dot is a selected-campus service-line calculation. Occupancy is measured; unknown readings are not plotted."}
           </p>
           <div className="mb-4 flex flex-wrap gap-x-4 gap-y-2 border-y py-3">
             {Array.from(new Set(points.map((p) => p.serviceLine))).map((sl) => (
