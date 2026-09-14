@@ -1857,6 +1857,9 @@ export default function InhouseIncreases() {
       return (await response.json()) as { report: { id: string; scopeKey: string } };
     },
     onSuccess: ({ report }) => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/inhouse-planning/annual-report-runs/latest", report.scopeKey],
+      });
       setLocation(`/inhouse-increases/annual-report?scopeKey=${encodeURIComponent(report.scopeKey)}`);
     },
     onError: (error: Error) => toast({ title: "Annual report could not be created", description: error.message, variant: "destructive" }),
@@ -2105,6 +2108,22 @@ export default function InhouseIncreases() {
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
+  });
+
+  const latestAnnualReportQuery = useQuery<{
+    report: { id: string; generatedAt: string; scopeKey: string } | null;
+  }>({
+    queryKey: ["/api/inhouse-planning/annual-report-runs/latest", "any-scope"],
+    queryFn: async () => {
+      const res = await fetch(
+        "/api/inhouse-planning/annual-report-runs/latest",
+        { credentials: "include", cache: "no-store" },
+      );
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    enabled: isAuthenticated,
+    retry: false,
   });
 
   const removePlan = useMutation({
@@ -2482,6 +2501,77 @@ export default function InhouseIncreases() {
           Set a growth goal and see the rates required to reach it.
         </p>
       </header>
+
+      <Card className="border-primary/20 bg-gradient-to-br from-card to-primary/[0.03]">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Save className="h-4 w-4 text-primary" />
+            Saved work
+          </CardTitle>
+          <CardDescription>
+            Reopen the latest calculation, submitted plan, or annual report for this scope.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border bg-background/80 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Latest calculation</p>
+            {plans && lastRunAt ? (
+              <>
+                <p className="mt-1 text-sm font-medium">{plans.length} service line{plans.length === 1 ? "" : "s"} calculated</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{new Date(lastRunAt).toLocaleString()}</p>
+                <Button variant="link" size="sm" className="mt-1 h-auto p-0 text-xs" onClick={() => document.getElementById("calculated-plan-results")?.scrollIntoView({ behavior: "smooth" })}>
+                  View calculated result
+                </Button>
+              </>
+            ) : (
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">No calculation is saved for the selected campus and service lines.</p>
+            )}
+          </div>
+
+          <div className="rounded-lg border bg-background/80 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Submitted plan</p>
+            {plansQuery.data?.plans?.[0] ? (
+              <>
+                <p className="mt-1 text-sm font-medium">v{plansQuery.data.plans[0].version} · {plansQuery.data.plans[0].serviceLine}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {formatPct(plansQuery.data.plans[0].summary?.weightedAvgIncreasePct ?? 0, 2)} average · {plansQuery.data.plans[0].status}
+                </p>
+                <Button variant="link" size="sm" className="mt-1 h-auto p-0 text-xs" onClick={() => document.getElementById("plan-history")?.scrollIntoView({ behavior: "smooth" })}>
+                  View plan history
+                </Button>
+              </>
+            ) : (
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">No plan has been submitted for this scope yet.</p>
+            )}
+          </div>
+
+          <div className="rounded-lg border bg-background/80 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Annual report and PDF</p>
+            {latestAnnualReportQuery.data?.report ? (
+              <>
+                <p className="mt-1 text-sm font-medium">Executive report available</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Saved {new Date(latestAnnualReportQuery.data.report.generatedAt).toLocaleString()}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button size="sm" className="h-8 text-xs" onClick={() => setLocation(`/inhouse-increases/annual-report?scopeKey=${encodeURIComponent(latestAnnualReportQuery.data!.report!.scopeKey)}`)}>
+                    <FileText className="mr-1.5 h-3.5 w-3.5" />
+                    Open report
+                  </Button>
+                  <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                    <a href={`/api/inhouse-planning/annual-report-runs/${latestAnnualReportQuery.data.report.id}/pdf`} download>
+                      <Download className="mr-1.5 h-3.5 w-3.5" />
+                      PDF
+                    </a>
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">No annual report has been saved for this scope. Calculate the plan, then choose Annual Report.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* ── Scope ─────────────────────────────────────────────────────── */}
       <Card>
@@ -3253,7 +3343,7 @@ export default function InhouseIncreases() {
       )}
 
       {plans && plans.length > 0 && (
-        <div className="space-y-1 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+        <div id="calculated-plan-results" className="space-y-1 rounded-md border bg-muted/30 px-3 py-2 text-sm">
           <div
             className="flex flex-wrap items-center justify-between gap-2"
             data-testid="calculated-plan-last-run"
@@ -4195,7 +4285,7 @@ export default function InhouseIncreases() {
       )}
 
       {(plansQuery.data?.plans?.length ?? 0) > 0 && (
-        <Card>
+        <Card id="plan-history">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Plan history</CardTitle>
             <CardDescription>

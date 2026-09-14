@@ -758,15 +758,13 @@ export function registerInhousePlanningRoutes(
   app.get("/api/inhouse-planning/annual-report-runs/latest", requireAuth, async (req: any, res) => {
     try {
       const scopeKey = String(req.query.scopeKey || "").trim();
-      if (!scopeKey) return res.status(400).json({ error: "scopeKey is required" });
       const clientId = req.clientId || "demo";
+      const conditions = [eq(inhouseAnnualReportRuns.clientId, clientId)];
+      if (scopeKey) conditions.push(eq(inhouseAnnualReportRuns.scopeKey, scopeKey));
       const [row] = await db
         .select()
         .from(inhouseAnnualReportRuns)
-        .where(and(
-          eq(inhouseAnnualReportRuns.clientId, clientId),
-          eq(inhouseAnnualReportRuns.scopeKey, scopeKey),
-        ))
+        .where(and(...conditions))
         .orderBy(desc(inhouseAnnualReportRuns.generatedAt))
         .limit(1);
       res.setHeader("Cache-Control", "no-store");
