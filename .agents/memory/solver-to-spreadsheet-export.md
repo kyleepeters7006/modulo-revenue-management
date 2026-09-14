@@ -98,3 +98,19 @@ Traps that make Excel declare the file corrupt and offer to "repair" it:
 A zero-row detail block inverts every range built over it (last data row lands
 above the first), which Excel reads as corrupt rather than empty. Reject an empty
 result at the top of the builder instead of emitting a broken file.
+
+## Verification downloads must use the calculation's own cohort
+
+A value shown inside a solved plan must link to the plan workbook, whose resident
+detail uses the same paired resident-room cohort and resident-time weights. Do
+not link it to the Overview Rate Growth rent-roll export merely because both
+contain Street and In-House rates.
+
+**Why:** the Overview chart is a month-by-month row-average series, while the
+planning solver compares product-matched Street and In-House rates over one
+private-pay cohort and weights residents by their time in the planning horizon.
+Mixing those exports produces plausible but non-reconciling totals.
+
+**How to apply:** verification dialogs for plan rates should display the plan's
+source month and cohort count, explain the paired/weighted basis, and download
+the solver workbook with its room-level formulas and reconciliation totals.

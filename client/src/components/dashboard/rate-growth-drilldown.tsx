@@ -10,10 +10,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowLeft, ChevronRight, TrendingUp } from "lucide-react";
+import { ArrowLeft, ChevronRight, Download, Loader2, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/formatters";
+import { useToast } from "@/hooks/use-toast";
 
 type DrillLevel = "group" | "serviceLine" | "campus" | "room";
 type Selection = { group?: string; serviceLine?: string; campus?: string; room?: string };
@@ -265,9 +266,11 @@ export function RateChart({
 }
 
 export default function RateGrowthDrilldown() {
+  const { toast } = useToast();
   const [selection, setSelection] = useState<Selection>({});
   const [history, setHistory] = useState<Selection[]>([]);
   const [showNicMap, setShowNicMap] = useState(false);
+  const [exportingRentRoll, setExportingRentRoll] = useState(false);
 
   const query = useQuery<RateGrowthResponse, RateGrowthError>({
     queryKey: ["/api/overview/rate-growth", selection],
@@ -317,6 +320,43 @@ export default function RateGrowthDrilldown() {
     });
   };
 
+  const exportRentRoll = async () => {
+    setExportingRentRoll(true);
+    try {
+      const params = new URLSearchParams();
+      Object.entries(selection).forEach(([key, value]) => value && params.set(key, value));
+      const response = await fetch(
+        `/api/overview/rate-growth/rent-roll.xlsx${params.toString() ? `?${params}` : ""}`,
+        { credentials: "include", cache: "no-store" },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "Unable to export the rent roll");
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const filename =
+        disposition.match(/filename="([^"]+)"/i)?.[1] ??
+        "rate-growth-rent-roll.xlsx";
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: error instanceof Error ? error.message : "Unable to export the rent roll",
+        variant: "destructive",
+      });
+    } finally {
+      setExportingRentRoll(false);
+    }
+  };
+
   return (
     <Card className="dashboard-card overflow-hidden" data-testid="rate-growth-chart">
       <CardHeader className="border-b border-[var(--dashboard-border)] px-4 py-3 sm:px-5">
@@ -332,17 +372,34 @@ export default function RateGrowthDrilldown() {
               Street and in-house rates, by month · select a row to continue down to the room
             </p>
           </div>
-          {history.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={goBack}
-              data-testid="rate-growth-back"
-              className="h-8 self-start text-xs"
-            >
-              <ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Back
-            </Button>
-          )}
+          <div className="flex items-center gap-2 self-start">
+            {data && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportRentRoll}
+                disabled={exportingRentRoll}
+                data-testid="rate-growth-export-rent-roll"
+                className="h-8 text-xs"
+              >
+                {exportingRentRoll
+                  ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  : <Download className="mr-1.5 h-3.5 w-3.5" />}
+                Rent roll
+              </Button>
+            )}
+            {history.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goBack}
+                data-testid="rate-growth-back"
+                className="h-8 text-xs"
+              >
+                <ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Back
+              </Button>
+            )}
+          </div>
         </div>
         {data && (
           <div className="mt-3 flex flex-wrap items-center gap-1 text-xs" data-testid="rate-growth-breadcrumbs">

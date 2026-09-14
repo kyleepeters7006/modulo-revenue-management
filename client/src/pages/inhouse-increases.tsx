@@ -37,6 +37,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -453,33 +461,123 @@ function keepArrowsTogether(value: string): string {
   return value.replace(/\s+→\s+/g, "\u00a0→\u00a0");
 }
 
-function Explanation({ explanation }: { explanation: CalcExplanation }) {
+function Explanation({
+  explanation,
+  plan,
+  serviceLine,
+  exportPending,
+  onExport,
+}: {
+  explanation: CalcExplanation;
+  plan: PlanResult;
+  serviceLine: string;
+  exportPending: boolean;
+  onExport: () => void;
+}) {
+  const [verificationRate, setVerificationRate] = useState<"inhouse" | "street" | null>(null);
+  const verification =
+    verificationRate === "inhouse"
+      ? {
+          title: "Current In-House rate",
+          value: plan.summary.currentAvgInhouseRateMonthly,
+          description:
+            "The weighted average current rate for the private-pay resident-room cohort used by this plan.",
+        }
+      : {
+          title: "Current Street Rate",
+          value: plan.currentStreetRateMonthly,
+          description:
+            "The weighted average product-matched Street Rate for the same private-pay resident-room cohort.",
+        };
   return (
-    <div className="space-y-3 text-sm">
-      <div className="font-medium">{explanation.headline}</div>
-      <div className="space-y-1.5">
-        {explanation.steps.map((step, i) => (
-          <div key={i} className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-3">
-            <span className="min-w-[13rem] text-muted-foreground">
-              {keepArrowsTogether(step.label)}
-            </span>
-            <span className="shrink-0 whitespace-nowrap font-mono font-medium">
-              {keepArrowsTogether(step.value)}
-            </span>
-            {step.note && (
-              <span className="text-xs text-muted-foreground sm:ml-2">{step.note}</span>
-            )}
-          </div>
-        ))}
-      </div>
-      {explanation.narrative.length > 0 && (
-        <div className="space-y-1 border-l-2 border-muted pl-3 text-muted-foreground">
-          {explanation.narrative.map((line, i) => (
-            <p key={i}>{line}</p>
-          ))}
+    <>
+      <div className="space-y-3 text-sm">
+        <div className="font-medium">{explanation.headline}</div>
+        <div className="space-y-1.5">
+          {explanation.steps.map((step, i) => {
+            const rateKind =
+              step.label.startsWith("In-house rate · current")
+                ? "inhouse"
+                : step.label.startsWith("Street Rate · current")
+                  ? "street"
+                  : null;
+            const [currentValue, recommendedValue] = rateKind
+              ? step.value.split(/\s+→\s+/, 2)
+              : [step.value, undefined];
+            return (
+              <div key={i} className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-3">
+                <span className="min-w-[13rem] text-muted-foreground">
+                  {keepArrowsTogether(step.label)}
+                </span>
+                <span className="shrink-0 whitespace-nowrap font-mono font-medium">
+                  {rateKind ? (
+                    <>
+                      <button
+                        type="button"
+                        className="rounded-sm bg-amber-200 px-0.5 text-slate-950 underline decoration-dotted underline-offset-2 hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() => setVerificationRate(rateKind)}
+                        aria-label={`Verify ${rateKind === "inhouse" ? "current In-House" : "current Street"} rate`}
+                      >
+                        {currentValue}
+                      </button>
+                      {recommendedValue ? `\u00a0→\u00a0${recommendedValue}` : null}
+                    </>
+                  ) : keepArrowsTogether(step.value)}
+                </span>
+                {step.note && (
+                  <span className="text-xs text-muted-foreground sm:ml-2">{step.note}</span>
+                )}
+              </div>
+            );
+          })}
         </div>
-      )}
-    </div>
+        {explanation.narrative.length > 0 && (
+          <div className="space-y-1 border-l-2 border-muted pl-3 text-muted-foreground">
+            {explanation.narrative.map((line, i) => (
+              <p key={i}>{line}</p>
+            ))}
+          </div>
+        )}
+      </div>
+      <Dialog open={verificationRate !== null} onOpenChange={(open) => !open && setVerificationRate(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{verification.title} · {serviceLine}</DialogTitle>
+            <DialogDescription>{verification.description}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Plan value
+              </div>
+              <div className="mt-1 text-2xl font-semibold">{formatMoney(verification.value)}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {plan.summary.residentCount.toLocaleString()} residents · rent roll month {formatMonth(plan.scope.sourceMonth)}
+              </div>
+            </div>
+            <div className="space-y-1 text-sm text-muted-foreground">
+              <p>
+                In-House and Street use the same resident-room population. Each room’s current
+                rate is paired with its product-matched Street Rate and weighted by the resident’s
+                time in the planning horizon.
+              </p>
+              <p>
+                The Excel workbook includes the room-level source values, effective Street Rate,
+                resident weight, formulas, and reconciliation totals used by the plan.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={onExport} disabled={exportPending}>
+              {exportPending
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : <Download className="mr-2 h-4 w-4" />}
+              Download rent roll verification
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -1155,6 +1253,7 @@ interface StoredCalculatedPlan {
   plans: PlanWithSl[];
   lastRunAt: string;
   detailsOmitted?: boolean;
+  tierGrid?: TierGridResult;
   /** Exact raw assumptions and tier policies posted for this calculation. */
   inputsKey?: string;
   inputSnapshot?: PlanningInputSnapshotEntry[];
@@ -1166,6 +1265,7 @@ function readStoredCalculatedPlan(value: unknown): {
   detailsOmitted: boolean;
   inputsKey: string | null;
   inputSnapshot: PlanningInputSnapshotEntry[] | null;
+  tierGrid: TierGridResult | null;
 } | null {
   // Backward compatibility for calculations saved before timestamps existed.
   if (Array.isArray(value) && value.every(isStoredPlan)) {
@@ -1175,6 +1275,7 @@ function readStoredCalculatedPlan(value: unknown): {
       detailsOmitted: false,
       inputsKey: null,
       inputSnapshot: null,
+      tierGrid: null,
     };
   }
   if (!value || typeof value !== "object") return null;
@@ -1195,6 +1296,16 @@ function readStoredCalculatedPlan(value: unknown): {
     inputSnapshot: Array.isArray(candidate.inputSnapshot)
       ? candidate.inputSnapshot as PlanningInputSnapshotEntry[]
       : null,
+    tierGrid:
+      candidate.tierGrid &&
+      Array.isArray(candidate.tierGrid.lines) &&
+      candidate.tierGrid.lines.every((line) =>
+        !!line &&
+        typeof line.serviceLine === "string" &&
+        isStoredPlan({ sl: line.serviceLine, plan: line.currentPlan }),
+      )
+        ? candidate.tierGrid
+        : null,
   };
 }
 
@@ -1208,6 +1319,19 @@ function compactPlanForBrowserStorage(result: PlanWithSl): PlanWithSl {
       // the calculated totals, projections, assumptions, and warnings only.
       residents: [],
     },
+  };
+}
+
+function compactTierGridForBrowserStorage(result: TierGridResult): TierGridResult {
+  return {
+    ...result,
+    lines: result.lines.map((line) => ({
+      ...line,
+      currentPlan: compactPlanForBrowserStorage({
+        sl: line.serviceLine,
+        plan: line.currentPlan,
+      }).plan,
+    })),
   };
 }
 
@@ -1395,6 +1519,7 @@ export default function InhouseIncreases() {
             ? planningInputSnapshotKey(stored.inputSnapshot)
             : stored?.inputsKey ?? null
           : null;
+      let restoredTierGrid = restored ? stored?.tierGrid ?? null : null;
 
       // Older cache entries and individually calculated lines may not have a
       // combined entry for the current multi-select. Compose it from each
@@ -1414,6 +1539,7 @@ export default function InhouseIncreases() {
               lastRunAt: lineStored?.lastRunAt ?? null,
               detailsOmitted: lineStored?.detailsOmitted === true,
               inputSnapshot: lineStored?.inputSnapshot ?? null,
+              tierGrid: lineStored?.tierGrid ?? null,
             };
           }),
         );
@@ -1438,6 +1564,20 @@ export default function InhouseIncreases() {
         restoredInputsKey = combinedSnapshot
           ? planningInputSnapshotKey(combinedSnapshot)
           : null;
+        const gridLines = perLine.flatMap(({ sl, tierGrid }) =>
+          tierGrid?.lines.filter((line) => line.serviceLine === sl) ?? [],
+        );
+        if (gridLines.length === serviceLines.length && combinedSnapshot) {
+          restoredTierGrid = {
+            lines: gridLines,
+            skipped: [],
+            identityKey: storageIdentityKey,
+            planScopeKey: calculatedPlanKey ?? "",
+            scopeKey: tierScopeKey,
+            inputsKey: planningInputSnapshotKey(combinedSnapshot),
+            inputSnapshot: combinedSnapshot,
+          };
+        }
       }
 
       if (cancelled || restoredAnnualReport.current) return;
@@ -1445,6 +1585,7 @@ export default function InhouseIncreases() {
       setCalculatedInputsKey(restoredInputsKey);
       setLastRunAt(restoredLastRunAt);
       setRestoredPlanDetailsOmitted(detailsOmitted);
+      setTierGrid(restoredTierGrid);
       const first = restored?.find((r) => r.plan.feasible) ?? restored?.[0];
       setExpandedQuarter(first?.plan.bindingQuarterLabel
         ? `${first.sl}-${first.plan.bindingQuarterLabel}`
@@ -1935,6 +2076,8 @@ export default function InhouseIncreases() {
         })),
         skipped: reportTierGrid.skipped,
         scopeKey: reportTierGrid.scopeKey,
+        inputsKey: reportTierGrid.inputsKey,
+        inputSnapshot: reportTierGrid.inputSnapshot,
       };
       const payload = {
         scopeKey: reportTierGrid.scopeKey,
@@ -2072,12 +2215,14 @@ export default function InhouseIncreases() {
       // browsers even after the server result is ready.
       if (result.identityKey) {
         const compactPlans = calculatedPlans.map(compactPlanForBrowserStorage);
+        const compactTierGrid = compactTierGridForBrowserStorage(result);
         const stored: StoredCalculatedPlan = {
           plans: compactPlans,
           lastRunAt,
           detailsOmitted: true,
           inputsKey: result.inputsKey,
           inputSnapshot: result.inputSnapshot,
+          tierGrid: compactTierGrid,
         };
         void writeInhousePlanBundle(
           result.identityKey,
@@ -2096,6 +2241,17 @@ export default function InhouseIncreases() {
                   ? planningInputSnapshotKey(inputSnapshot)
                   : result.inputsKey,
                 inputSnapshot,
+                tierGrid: {
+                  ...compactTierGrid,
+                  lines: compactTierGrid.lines.filter(
+                    (line) => line.serviceLine === calculated.sl,
+                  ),
+                  scopeKey: `${calculated.plan.scope.locationId ?? "all"}|${calculated.sl}`,
+                  inputsKey: inputSnapshot.length === 1
+                    ? planningInputSnapshotKey(inputSnapshot)
+                    : result.inputsKey,
+                  inputSnapshot,
+                },
               } satisfies StoredCalculatedPlan,
             };
           }),
@@ -2286,6 +2442,48 @@ export default function InhouseIncreases() {
     refetchInterval: scopeLocationId === null ? false : 10_000,
   });
 
+  // Calculations saved before tier grids were added to browser storage can
+  // still recover the exact table from their saved Annual Report snapshot.
+  // This applies to portfolio scopes as well as individual campuses.
+  useEffect(() => {
+    if (tierGrid) return;
+    const report = latestAnnualReportQuery.data?.report;
+    if (!report || report.locationId !== scopeLocationId) return;
+    if (!report.tierGrid || typeof report.tierGrid !== "object") return;
+    const saved = report.tierGrid as Partial<TierGridResult> & {
+      skipped?: Array<{ sl?: string; serviceLine?: string; message: string }>;
+    };
+    if (
+      !Array.isArray(saved.lines) ||
+      !saved.lines.every((line) =>
+        isStoredPlan({ sl: line.serviceLine, plan: line.currentPlan }),
+      )
+    ) return;
+    const inputSnapshot = Array.isArray(saved.inputSnapshot)
+      ? saved.inputSnapshot
+      : [];
+    setTierGrid({
+      lines: saved.lines,
+      skipped: (saved.skipped ?? []).map((entry) => ({
+        sl: entry.sl ?? entry.serviceLine ?? "Service line",
+        message: entry.message,
+      })),
+      identityKey: storageIdentityKey,
+      planScopeKey: calculatedPlanKey ?? "",
+      scopeKey: report.scopeKey,
+      inputsKey: saved.inputsKey ??
+        (inputSnapshot.length ? planningInputSnapshotKey(inputSnapshot) : tierInputsKey),
+      inputSnapshot,
+    });
+  }, [
+    calculatedPlanKey,
+    latestAnnualReportQuery.data,
+    scopeLocationId,
+    storageIdentityKey,
+    tierGrid,
+    tierInputsKey,
+  ]);
+
   /**
    * Portfolio campus reports are generated server-side after the portfolio
    * request returns. When the operator later filters to a campus, restore that
@@ -2326,6 +2524,32 @@ export default function InhouseIncreases() {
       Array.isArray((report.tierGrid as { inputSnapshot?: unknown }).inputSnapshot)
         ? (report.tierGrid as { inputSnapshot: PlanningInputSnapshotEntry[] }).inputSnapshot
         : null;
+    const savedTierGrid =
+      report.tierGrid && typeof report.tierGrid === "object"
+        ? report.tierGrid as Partial<TierGridResult> & {
+            skipped?: Array<{ sl?: string; serviceLine?: string; message: string }>;
+          }
+        : null;
+    if (
+      savedTierGrid &&
+      Array.isArray(savedTierGrid.lines) &&
+      savedTierGrid.lines.every((line) =>
+        isStoredPlan({ sl: line.serviceLine, plan: line.currentPlan }),
+      )
+    ) {
+      setTierGrid({
+        lines: savedTierGrid.lines,
+        skipped: (savedTierGrid.skipped ?? []).map((entry) => ({
+          sl: entry.sl ?? entry.serviceLine ?? "Service line",
+          message: entry.message,
+        })),
+        identityKey: storageIdentityKey,
+        planScopeKey: calculatedPlanKey ?? "",
+        scopeKey: report.scopeKey,
+        inputsKey: inputSnapshot ? planningInputSnapshotKey(inputSnapshot) : "",
+        inputSnapshot: inputSnapshot ?? [],
+      });
+    }
     if (inputSnapshot?.length) {
       const firstInput = inputSnapshot.find(({ serviceLine }) =>
         serviceLines.includes(serviceLine),
@@ -2364,6 +2588,8 @@ export default function InhouseIncreases() {
     lastRunAt,
     plans,
     policyScopeKey,
+    calculatedPlanKey,
+    storageIdentityKey,
     scopeLocationId,
     serviceLines,
   ]);
@@ -4153,7 +4379,13 @@ export default function InhouseIncreases() {
                   )}
                   <div className="rounded-md border bg-muted/20 p-3">
                     <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">How this plan was derived</p>
-                    <Explanation explanation={plan.explanation} />
+                    <Explanation
+                      explanation={plan.explanation}
+                      plan={plan}
+                      serviceLine={sl}
+                      exportPending={exportPlan.isPending}
+                      onExport={() => exportPlan.mutate(sl)}
+                    />
                   </div>
                   <TargetDeviationDiagnosticView
                     diagnostic={plan.targetDeviationDiagnostic}

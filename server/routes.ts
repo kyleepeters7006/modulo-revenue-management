@@ -12766,6 +12766,322 @@ ${campusOccLines.join('\n')}
   });
 
   /**
+   * GET /api/overview/rate-growth/rent-roll.xlsx
+   *
+   * Auditable row-level support for the Rate Growth chart. The detail sheet
+   * includes every rent-roll row in the selected 18-month scope, including
+   * rows excluded from one or both averages, and explains each exclusion.
+   */
+  app.get("/api/overview/rate-growth/rent-roll.xlsx", async (req: any, res) => {
+    let outputPath: string | null = null;
+    try {
+      if (!isAuthenticatedSession(req)) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const query = z.object({
+        group: z.enum(["Senior Housing", "SNF"]).optional(),
+        serviceLine: z.enum(["AL", "AL/MC", "SL", "VIL", "HC", "HC/MC"]).optional(),
+        campus: z.string().trim().min(1).max(200).optional(),
+        room: z.string().trim().min(1).max(100).optional(),
+      }).parse(req.query);
+      const clientId = req.clientId || "demo";
+      const seniorLines = ["AL", "AL/MC", "SL", "VIL"];
+      const snfLines = ["HC", "HC/MC"];
+      const groupLines = query.group === "SNF" ? snfLines : seniorLines;
+      if (query.serviceLine && !groupLines.includes(query.serviceLine)) {
+        return res.status(400).json({ error: "Service line does not belong to the selected group." });
+      }
+
+      const params: any[] = [clientId];
+      const predicates: string[] = [];
+      if (query.group) {
+        params.push(groupLines);
+        predicates.push(`rr.service_line = ANY($${params.length}::text[])`);
+      }
+      if (query.serviceLine) {
+        params.push(query.serviceLine);
+        predicates.push(`rr.service_line = $${params.length}`);
+      }
+      if (query.campus) {
+        params.push(query.campus);
+        predicates.push(`rr.location = $${params.length}`);
+      }
+      if (query.room) {
+        params.push(query.room);
+        predicates.push(`rr.room_number = $${params.length}`);
+      }
+      const scopeSql = predicates.length ? `AND ${predicates.join(" AND ")}` : "";
+      const level =
+        !query.group ? "group" :
+        !query.serviceLine ? "serviceLine" :
+        !query.campus ? "campus" :
+        "room";
+      const keySql =
+        level === "group"
+          ? `CASE WHEN rr.service_line IN ('HC', 'HC/MC') THEN 'SNF' ELSE 'Senior Housing' END`
+          : level === "serviceLine"
+            ? "rr.service_line"
+            : level === "campus"
+              ? "rr.location"
+              : "rr.room_number";
+      const privatePay = privatePaySql("rr.payor_type");
+      const baseEligible = baseRateExclusionSql("rr.");
+      const baselineJoin = buildRateBaselineJoin({
+        rr: "rr.",
+        clientSql: "$1",
+        monthSql: "((SELECT month_list FROM scoped_months)::text[])",
+        monthIsArray: true,
+        alias: "export_rb",
+      });
+      const summary = await pool.query(
+        `WITH latest AS (
+           SELECT MAX(upload_month) AS month
+             FROM rent_roll_data
+            WHERE client_id = $1
+         ),
+         scoped_months AS (
+           SELECT ARRAY_AGG(to_char(month_start, 'YYYY-MM')) AS month_list
+             FROM latest
+             CROSS JOIN LATERAL generate_series(
+               to_date(latest.month, 'YYYY-MM') - interval '17 months',
+               to_date(latest.month, 'YYYY-MM'),
+               interval '1 month'
+             ) AS month_start
+         )
+         SELECT rr.upload_month AS month,
+                ${keySql} AS series_key,
+                AVG(rr.street_rate) FILTER (
+                  WHERE rr.street_rate > 0
+                    AND ${privatePay}
+                    AND ${streetRateGate("rr.", "export_rb")}
+                ) AS street_rate,
+                COUNT(*) FILTER (
+                  WHERE rr.street_rate > 0
+                    AND ${privatePay}
+                    AND ${streetRateGate("rr.", "export_rb")}
+                )::int AS street_rows,
+                AVG(rr.in_house_rate) FILTER (
+                  WHERE rr.occupied_yn = true
+                    AND rr.in_house_rate > 0
+                    AND ${privatePay}
+                    AND ${inHouseRateGate("rr.", "export_rb")}
+                ) AS in_house_rate,
+                COUNT(*) FILTER (
+                  WHERE rr.occupied_yn = true
+                    AND rr.in_house_rate > 0
+                    AND ${privatePay}
+                    AND ${inHouseRateGate("rr.", "export_rb")}
+                )::int AS in_house_rows
+           FROM rent_roll_data rr
+           ${baselineJoin}
+          WHERE rr.client_id = $1
+            AND rr.upload_month = ANY((SELECT month_list FROM scoped_months)::text[])
+            AND ${baseEligible}
+            AND ${keySql} IS NOT NULL
+            ${scopeSql}
+          GROUP BY rr.upload_month, ${keySql}
+          ORDER BY rr.upload_month, ${keySql}`,
+        params,
+      );
+      // Detail must include months even when every row in one month was
+      // excluded from both averages, so derive the window independently of
+      // the aggregate result.
+      const monthResult = await pool.query(
+        `WITH latest AS (
+           SELECT MAX(upload_month) AS month
+             FROM rent_roll_data
+            WHERE client_id = $1
+         )
+         SELECT to_char(month_start, 'YYYY-MM') AS month
+           FROM latest
+           CROSS JOIN LATERAL generate_series(
+             to_date(latest.month, 'YYYY-MM') - interval '17 months',
+             to_date(latest.month, 'YYYY-MM'),
+             interval '1 month'
+           ) AS month_start
+          ORDER BY month_start`,
+        [clientId],
+      );
+      const months = monthResult.rows.map((row) => String(row.month));
+
+      outputPath = path.join(
+        os.tmpdir(),
+        `rate-growth-rent-roll-${crypto.randomUUID()}.xlsx`,
+      );
+      const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+        filename: outputPath,
+        useStyles: true,
+        useSharedStrings: false,
+      });
+      const summarySheet = workbook.addWorksheet("Monthly reconciliation", {
+        views: [{ state: "frozen", ySplit: 1 }],
+      });
+      summarySheet.columns = [
+        { header: "Month", key: "month", width: 12 },
+        { header: "Series", key: "series", width: 24 },
+        { header: "Street average", key: "street", width: 17 },
+        { header: "Street rows used", key: "streetRows", width: 17 },
+        { header: "In-house average", key: "inHouse", width: 18 },
+        { header: "In-house rows used", key: "inHouseRows", width: 19 },
+      ];
+      summarySheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+      summarySheet.getRow(1).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF17324D" },
+      };
+      for (const row of summary.rows) {
+        const added = summarySheet.addRow({
+          month: row.month,
+          series: row.series_key,
+          street: row.street_rate == null ? null : Number(row.street_rate),
+          streetRows: Number(row.street_rows) || 0,
+          inHouse: row.in_house_rate == null ? null : Number(row.in_house_rate),
+          inHouseRows: Number(row.in_house_rows) || 0,
+        });
+        added.getCell("street").numFmt = "$#,##0.00";
+        added.getCell("inHouse").numFmt = "$#,##0.00";
+        added.commit();
+      }
+      summarySheet.autoFilter = "A1:F1";
+      summarySheet.commit();
+
+      const detailSheet = workbook.addWorksheet("Rent roll detail", {
+        views: [{ state: "frozen", ySplit: 1 }],
+      });
+      const detailColumns = [
+        ["upload_month", "Upload month", 13],
+        ["date", "Date", 13],
+        ["location", "Location", 28],
+        ["location_id", "Location ID", 18],
+        ["room_number", "Room number", 15],
+        ["room_type", "Room type", 22],
+        ["source_room_type", "Source room type", 24],
+        ["service_line", "Service line", 13],
+        ["occupied_yn", "Occupied", 11],
+        ["resident_id", "Resident ID", 18],
+        ["resident_name", "Resident name", 24],
+        ["payor_type", "Payor type", 18],
+        ["move_in_date", "Move-in date", 14],
+        ["street_rate", "Street rate", 15],
+        ["in_house_rate", "In-house rate", 15],
+        ["base_rate_eligible", "Base-rate product?", 18],
+        ["private_pay_eligible", "Private-pay eligible?", 19],
+        ["street_outlier_eligible", "Street passes floor?", 18],
+        ["in_house_outlier_eligible", "In-house passes floor?", 20],
+        ["included_in_street_average", "Used in Street avg?", 19],
+        ["street_exclusion_reason", "Street exclusion reason", 30],
+        ["included_in_in_house_average", "Used in In-House avg?", 21],
+        ["in_house_exclusion_reason", "In-House exclusion reason", 34],
+        ["baseline_street", "Street baseline", 16],
+        ["baseline_ih", "In-house baseline", 17],
+        ["id", "Rent roll row ID", 38],
+      ] as const;
+      detailSheet.columns = detailColumns.map(([key, header, width]) => ({ key, header, width }));
+      detailSheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+      detailSheet.getRow(1).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF17324D" },
+      };
+      detailSheet.autoFilter = `A1:${detailSheet.getColumn(detailColumns.length).letter}1`;
+
+      for (const month of months) {
+        let cursor = "";
+        while (true) {
+          const pageParams = [...params, month, cursor];
+          const monthParam = `$${params.length + 1}`;
+          const cursorParam = `$${params.length + 2}`;
+          const pageBaselineJoin = buildRateBaselineJoin({
+            rr: "rr.",
+            clientSql: "$1",
+            monthSql: monthParam,
+            alias: "export_rb",
+          });
+          const page = await pool.query(
+            `SELECT rr.id, rr.upload_month, rr.date, rr.location, rr.location_id,
+                    rr.room_number, rr.room_type, rr.source_room_type, rr.service_line,
+                    rr.occupied_yn, rr.resident_id, rr.resident_name, rr.payor_type,
+                    rr.move_in_date, rr.street_rate, rr.in_house_rate,
+                    (${baseEligible}) AS base_rate_eligible,
+                    (${privatePay}) AS private_pay_eligible,
+                    ${streetRateGate("rr.", "export_rb")} AS street_outlier_eligible,
+                    ${inHouseRateGate("rr.", "export_rb")} AS in_house_outlier_eligible,
+                    ((${baseEligible}) AND rr.street_rate > 0 AND ${privatePay}
+                      AND ${streetRateGate("rr.", "export_rb")}) AS included_in_street_average,
+                    CONCAT_WS('; ',
+                      CASE WHEN NOT (${baseEligible}) THEN 'Non-base bed or product' END,
+                      CASE WHEN NOT (${privatePay}) THEN 'Excluded payer' END,
+                      CASE WHEN rr.street_rate IS NULL OR rr.street_rate <= 0 THEN 'Missing or non-positive Street rate' END,
+                      CASE WHEN NOT ${streetRateGate("rr.", "export_rb")} THEN 'Below relative Street-rate floor' END
+                    ) AS street_exclusion_reason,
+                    ((${baseEligible}) AND rr.occupied_yn = true AND rr.in_house_rate > 0
+                      AND ${privatePay} AND ${inHouseRateGate("rr.", "export_rb")})
+                      AS included_in_in_house_average,
+                    CONCAT_WS('; ',
+                      CASE WHEN NOT (${baseEligible}) THEN 'Non-base bed or product' END,
+                      CASE WHEN rr.occupied_yn IS NOT TRUE THEN 'Not occupied' END,
+                      CASE WHEN NOT (${privatePay}) THEN 'Excluded payer' END,
+                      CASE WHEN rr.in_house_rate IS NULL OR rr.in_house_rate <= 0 THEN 'Missing or non-positive In-House rate' END,
+                      CASE WHEN NOT ${inHouseRateGate("rr.", "export_rb")} THEN 'Below relative In-House-rate floor' END
+                    ) AS in_house_exclusion_reason,
+                    export_rb.baseline_street, export_rb.baseline_ih
+               FROM rent_roll_data rr
+               ${pageBaselineJoin}
+              WHERE rr.client_id = $1
+                AND rr.upload_month = ${monthParam}
+                AND rr.id > ${cursorParam}
+                ${scopeSql}
+              ORDER BY rr.id
+              LIMIT 5000`,
+            pageParams,
+          );
+          if (!page.rows.length) break;
+          for (const row of page.rows) {
+            const added = detailSheet.addRow(row);
+            added.getCell("street_rate").numFmt = "$#,##0.00";
+            added.getCell("in_house_rate").numFmt = "$#,##0.00";
+            added.getCell("baseline_street").numFmt = "$#,##0.00";
+            added.getCell("baseline_ih").numFmt = "$#,##0.00";
+            added.commit();
+          }
+          cursor = String(page.rows[page.rows.length - 1].id);
+          if (page.rows.length < 5000) break;
+        }
+      }
+      detailSheet.commit();
+      await workbook.commit();
+
+      const scopeName = [query.group, query.serviceLine, query.campus, query.room]
+        .filter(Boolean)
+        .join("-")
+        .replace(/[^a-zA-Z0-9_-]+/g, "-")
+        .replace(/^-|-$/g, "") || "portfolio";
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="rate-growth-rent-roll-${scopeName}.xlsx"`,
+      );
+      await new Promise<void>((resolve, reject) => {
+        res.sendFile(outputPath!, (error) => error ? reject(error) : resolve());
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid rate-growth export filters." });
+      }
+      console.error("Rate-growth rent-roll export error:", error);
+      if (!res.headersSent) {
+        return res.status(500).json({ error: "Failed to export rate-growth rent roll." });
+      }
+    } finally {
+      if (outputPath) fs.promises.unlink(outputPath).catch(() => {});
+    }
+  });
+
+  /**
    * GET /api/overview
    * 
    * Returns dashboard summary data including:
