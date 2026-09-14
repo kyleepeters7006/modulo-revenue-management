@@ -3299,10 +3299,15 @@ export default function InhouseIncreases() {
                             )}
                             title={cell?.error ?? cell?.rangeLabel}
                           >
+                            {cell?.rangeLabel && (
+                              <span className="mb-0.5 block text-[10px] font-normal leading-none text-muted-foreground">
+                                {cell.rangeLabel} occupancy
+                              </span>
+                            )}
                             {!cell || cell.error ? (
                               <span className="text-muted-foreground">—</span>
                             ) : (
-                              <>
+                              <span className="block">
                                 <span>{formatTierPct(cell.inhouseIncreasePct)}</span>
                                 <span className="text-muted-foreground"> / </span>
                                 <span>{formatTierPct(cell.streetIncreasePct)}</span>
@@ -3319,7 +3324,7 @@ export default function InhouseIncreases() {
                                     Current
                                   </span>
                                 )}
-                              </>
+                              </span>
                             )}
                           </div>
                         );
