@@ -4494,8 +4494,10 @@ export default function InhouseIncreases() {
                         {plan.quarters.flatMap((q) => {
                           const qKey = `${sl}-${q.label}`;
                           const open = expandedQuarter === qKey;
-                          const displayRate = (monthly: number) =>
-                            formatMoney(plan.rateBasis === "daily" ? monthly / DAYS_PER_MONTH : monthly);
+                          const displayRate = (monthly: number | null | undefined) =>
+                            monthly == null || !Number.isFinite(monthly)
+                              ? "—"
+                              : formatMoney(plan.rateBasis === "daily" ? monthly / DAYS_PER_MONTH : monthly);
                           return [
                             <tr key={qKey} data-testid={`row-quarter-${q.label.replace(/\s/g, "-")}`}
                               className={cn("cursor-pointer border-b transition-colors hover:bg-muted/50", q.isBinding && "bg-amber-500/[0.07]")}
