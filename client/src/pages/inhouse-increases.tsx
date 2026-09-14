@@ -10,7 +10,7 @@
  * unreachable target is shown as unreachable with the smallest change that
  * would fix it — never quietly rounded down to something achievable.
  */
-import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import React, { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
@@ -102,6 +102,7 @@ import {
   type OccupancyTierPolicy,
   type PlanningInputSnapshotEntry,
 } from "@shared/inhousePlanning";
+import type { AnnualReportQuarterSnapshot } from "@shared/inhouseAnnualReportSnapshot";
 import type {
   InhousePlanHistoryEntry,
   StreetRateSource,
@@ -249,6 +250,171 @@ function QuarterYoyBreakdown({ quarters }: { quarters: QuarterYoyCell[] }) {
         </div>
       ))}
     </div>
+  );
+}
+
+export function formatQuarterlyRate(
+  monthly: number | null | undefined,
+  rateBasis: PlanResult["rateBasis"],
+): string {
+  if (monthly == null || !Number.isFinite(monthly)) return "—";
+  return formatMoney(rateBasis === "daily" ? monthly / DAYS_PER_MONTH : monthly);
+}
+
+export function QuarterlySummaryRow({
+  plan,
+  quarter,
+  open,
+  onToggle,
+}: {
+  plan: Pick<PlanResult, "rateBasis">;
+  quarter: PlanResult["quarters"][number] | AnnualReportQuarterSnapshot;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const displayRate = (monthly: number | null | undefined) =>
+    formatQuarterlyRate(monthly, plan.rateBasis);
+
+  return (
+    <tr
+      data-testid={`row-quarter-${quarter.label.replace(/\s/g, "-")}`}
+      className={cn(
+        "cursor-pointer border-b transition-colors hover:bg-muted/50",
+        quarter.isBinding && "bg-amber-500/[0.07]",
+      )}
+      onClick={onToggle}
+    >
+      <td className="px-4 py-2.5 font-medium">
+        <span className="flex items-center gap-1.5">
+          {open ? (
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+          )}
+          {quarter.label}
+        </span>
+      </td>
+      <td className="px-4 py-2.5">
+        <span className="flex flex-wrap items-center gap-1.5">
+          {quarter.priorYear.label}
+          {quarter.priorYear.basis !== "actual" && (
+            <Badge
+              variant="outline"
+              className="border-amber-500/40 bg-amber-500/10 text-[11px] font-normal text-amber-600 dark:text-amber-400"
+            >
+              {quarter.priorYear.basis === "projected"
+                ? "Projected"
+                : quarter.priorYear.basis === "ungated_fallback"
+                  ? "Limited match"
+                  : `${quarter.priorYear.monthsAvailable} of ${quarter.priorYear.monthsExpected} months`}
+            </Badge>
+          )}
+        </span>
+      </td>
+      <td className="px-4 py-2.5 text-right font-mono">
+        {displayRate(quarter.priorYear.realizedRateMonthly)}
+      </td>
+      <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">
+        {displayRate(quarter.requiredRateMonthly)}
+      </td>
+      <td className="px-4 py-2.5 text-right font-mono font-medium">
+        {displayRate(quarter.projectedRateMonthly)}
+      </td>
+      <td
+        className={cn(
+          "px-4 py-2.5 text-right font-mono font-medium",
+          quarter.passes ? "text-emerald-600 dark:text-emerald-400" : "text-destructive",
+        )}
+      >
+        {formatPct(quarter.yoyGrowthPct, 2)}
+      </td>
+      <td className="px-4 py-2.5">
+        <span className="flex flex-wrap gap-1.5">
+          {quarter.isBinding && (
+            <Badge
+              variant="outline"
+              className="border-amber-500/40 bg-amber-500/10 text-[11px] font-normal text-amber-600 dark:text-amber-400"
+            >
+              Binding
+            </Badge>
+          )}
+          {!quarter.passes && (
+            <Badge variant="destructive" className="text-[11px] font-normal">
+              {quarter.shortfallPct == null ? "—" : `${formatPct(quarter.shortfallPct, 2)} short`}
+            </Badge>
+          )}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+export function CalculationDetailToggle({
+  serviceLine,
+  multiplePlans,
+  feasible,
+  expanded,
+  detailsAvailable,
+  onToggle,
+}: {
+  serviceLine: string;
+  multiplePlans: boolean;
+  feasible: boolean;
+  expanded: boolean;
+  detailsAvailable: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="flex w-full items-start justify-between gap-3 text-left"
+      aria-expanded={detailsAvailable ? expanded : false}
+      aria-controls={detailsAvailable ? `plan-detail-${serviceLine}` : undefined}
+      onClick={onToggle}
+      disabled={!detailsAvailable}
+      data-testid={`button-toggle-plan-details-${serviceLine}`}
+    >
+      <span>
+        <CardTitle className="flex items-center gap-2 text-base">
+          {detailsAvailable && expanded ? (
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+          )}
+          Calculation detail{multiplePlans ? ` · ${serviceLine}` : ""}
+        </CardTitle>
+        <CardDescription className="mt-1">
+          {!detailsAvailable
+            ? "Detailed calculation support is unavailable in this saved report. Recalculate the plan to view it."
+            : expanded
+              ? "Derivation, target diagnostics, and quarter-level support."
+              : "Expand for the arithmetic behind the summary above."}
+        </CardDescription>
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        <Badge
+          variant="outline"
+          className={cn(
+            "gap-1 text-[11px] font-normal",
+            feasible
+              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+              : "border-destructive/40 bg-destructive/10 text-destructive",
+          )}
+        >
+          {feasible
+            ? <CheckCircle2 className="h-3 w-3" />
+            : <AlertTriangle className="h-3 w-3" />}
+          {feasible ? "Reachable" : "Not reachable"}
+        </Badge>
+        <Badge variant="outline" className="text-[11px] font-normal">
+          {!detailsAvailable
+            ? "Detail unavailable"
+            : expanded
+              ? "Hide detail"
+              : "Show detail"}
+        </Badge>
+      </span>
+    </button>
   );
 }
 
@@ -4383,52 +4549,19 @@ export default function InhouseIncreases() {
           {plans.map(({ sl, plan }) => (
             <div key={sl} className="space-y-4">
               <Card>
-                <CardHeader className={cn("pb-3", expandedPlanDetails[sl] && "border-b")}>
-                  <button
-                    type="button"
-                    className="flex w-full items-start justify-between gap-3 text-left"
-                    aria-expanded={!!expandedPlanDetails[sl]}
-                    aria-controls={`plan-detail-${sl}`}
-                    onClick={() => togglePlanDetails(sl)}
-                    data-testid={`button-toggle-plan-details-${sl}`}
-                  >
-                    <span>
-                      <CardTitle className="flex items-center gap-2 text-base">
-                        {expandedPlanDetails[sl] ? (
-                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        )}
-                        Calculation detail{plans.length > 1 ? ` · ${sl}` : ""}
-                      </CardTitle>
-                      <CardDescription className="mt-1">
-                        {expandedPlanDetails[sl]
-                          ? "Derivation, target diagnostics, and quarter-level support."
-                          : "Expand for the arithmetic behind the summary above."}
-                      </CardDescription>
-                    </span>
-                    <span className="flex shrink-0 items-center gap-2">
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "gap-1 text-[11px] font-normal",
-                          plan.feasible
-                            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                            : "border-destructive/40 bg-destructive/10 text-destructive",
-                        )}
-                      >
-                        {plan.feasible
-                          ? <CheckCircle2 className="h-3 w-3" />
-                          : <AlertTriangle className="h-3 w-3" />}
-                        {plan.feasible ? "Reachable" : "Not reachable"}
-                      </Badge>
-                      <Badge variant="outline" className="text-[11px] font-normal">
-                        {expandedPlanDetails[sl] ? "Hide detail" : "Show detail"}
-                      </Badge>
-                    </span>
-                  </button>
+                <CardHeader className={cn("pb-3", !restoredPlanDetailsOmitted && expandedPlanDetails[sl] && "border-b")}>
+                  <CalculationDetailToggle
+                    serviceLine={sl}
+                    multiplePlans={plans.length > 1}
+                    feasible={plan.feasible}
+                    expanded={!!expandedPlanDetails[sl]}
+                    detailsAvailable={!restoredPlanDetailsOmitted}
+                    onToggle={() => {
+                      if (!restoredPlanDetailsOmitted) togglePlanDetails(sl);
+                    }}
+                  />
                 </CardHeader>
-                {expandedPlanDetails[sl] && <CardContent id={`plan-detail-${sl}`} className="space-y-4 pt-4">
+                {!restoredPlanDetailsOmitted && expandedPlanDetails[sl] && <CardContent id={`plan-detail-${sl}`} className="space-y-4 pt-4">
                   {plan.feasible ? (
                     <Alert className="border-emerald-500/40 bg-emerald-500/10">
                       <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
@@ -4502,45 +4635,15 @@ export default function InhouseIncreases() {
                           const qKey = `${sl}-${q.label}`;
                           const open = expandedQuarter === qKey;
                           const displayRate = (monthly: number | null | undefined) =>
-                            monthly == null || !Number.isFinite(monthly)
-                              ? "—"
-                              : formatMoney(plan.rateBasis === "daily" ? monthly / DAYS_PER_MONTH : monthly);
+                            formatQuarterlyRate(monthly, plan.rateBasis);
                           return [
-                            <tr key={qKey} data-testid={`row-quarter-${q.label.replace(/\s/g, "-")}`}
-                              className={cn("cursor-pointer border-b transition-colors hover:bg-muted/50", q.isBinding && "bg-amber-500/[0.07]")}
-                              onClick={() => setExpandedQuarter(open ? null : qKey)}
-                            >
-                              <td className="px-4 py-2.5 font-medium">
-                                <span className="flex items-center gap-1.5">
-                                  {open ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
-                                  {q.label}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <span className="flex flex-wrap items-center gap-1.5">
-                                  {q.priorYear.label}
-                                  {q.priorYear.basis !== "actual" && (
-                                    <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-[11px] font-normal text-amber-600 dark:text-amber-400">
-                                      {q.priorYear.basis === "projected"
-                                        ? "Projected"
-                                        : q.priorYear.basis === "ungated_fallback"
-                                          ? "Limited match"
-                                          : `${q.priorYear.monthsAvailable} of ${q.priorYear.monthsExpected} months`}
-                                    </Badge>
-                                  )}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2.5 text-right font-mono">{q.priorYear.realizedRateMonthly === null ? "—" : displayRate(q.priorYear.realizedRateMonthly)}</td>
-                              <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">{displayRate(q.requiredRateMonthly)}</td>
-                              <td className="px-4 py-2.5 text-right font-mono font-medium">{displayRate(q.projectedRateMonthly)}</td>
-                              <td className={cn("px-4 py-2.5 text-right font-mono font-medium", q.passes ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>{formatPct(q.yoyGrowthPct, 2)}</td>
-                              <td className="px-4 py-2.5">
-                                <span className="flex flex-wrap gap-1.5">
-                                  {q.isBinding && <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-[11px] font-normal text-amber-600 dark:text-amber-400">Binding</Badge>}
-                                  {!q.passes && <Badge variant="destructive" className="text-[11px] font-normal">{formatPct(q.shortfallPct, 2)} short</Badge>}
-                                </span>
-                              </td>
-                            </tr>,
+                            <QuarterlySummaryRow
+                              key={qKey}
+                              plan={plan}
+                              quarter={q}
+                              open={open}
+                              onToggle={() => setExpandedQuarter(open ? null : qKey)}
+                            />,
                             open ? (
                               <tr key={`${qKey}-detail`} className="border-b bg-muted/30">
                                 <td colSpan={7} className="space-y-4 px-4 py-4">

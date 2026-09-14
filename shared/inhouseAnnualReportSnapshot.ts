@@ -1,13 +1,46 @@
-import type { PlanResult } from "./inhousePlanning";
+import type { PlanResult, QuarterResult } from "./inhousePlanning";
 
 export interface IncreaseDistributionBand {
   label: string;
   count: number;
 }
 
-export type AnnualReportPlanSnapshot = PlanResult & {
-  increaseDistribution: IncreaseDistributionBand[];
+/**
+ * The quarterly summary can be restored without solver-only values. Keep the
+ * fields used by the report required, while making the omitted detail values
+ * explicitly optional so consumers cannot assume the full solver result.
+ */
+export type AnnualReportQuarterSnapshot = Pick<
+  QuarterResult,
+  "year" | "quarter" | "label" | "passes" | "projectedRateMonthly" | "yoyGrowthPct" | "priorYear"
+> & {
+  requiredRateMonthly?: number;
+  shortfallPct?: number;
+  isBinding?: boolean;
 };
+
+export interface AnnualReportPlanSnapshot {
+  scope: PlanResult["scope"];
+  assumptions: PlanResult["assumptions"];
+  feasible: PlanResult["feasible"];
+  rateBasis: PlanResult["rateBasis"];
+  currentStreetRateMonthly: PlanResult["currentStreetRateMonthly"];
+  recommendedStreetRateMonthly: PlanResult["recommendedStreetRateMonthly"];
+  streetIncreasePct: PlanResult["streetIncreasePct"];
+  streetIncreaseDollarsMonthly: PlanResult["streetIncreaseDollarsMonthly"];
+  currentStreetRateDisplay: PlanResult["currentStreetRateDisplay"];
+  recommendedStreetRateDisplay: PlanResult["recommendedStreetRateDisplay"];
+  requiredWeightedAvgIncreasePct: PlanResult["requiredWeightedAvgIncreasePct"];
+  quarters: AnnualReportQuarterSnapshot[];
+  monthlyRateProjection: PlanResult["monthlyRateProjection"];
+  bindingQuarterLabel: PlanResult["bindingQuarterLabel"];
+  adjustedTopCompetitorRateMonthly: PlanResult["adjustedTopCompetitorRateMonthly"];
+  summary: PlanResult["summary"];
+  residents: [];
+  targetDeviationDiagnostic: PlanResult["targetDeviationDiagnostic"];
+  warnings: PlanResult["warnings"];
+  increaseDistribution: IncreaseDistributionBand[];
+}
 
 const DISTRIBUTION_BANDS = [
   { label: "<3%", min: -Infinity, max: 3 },
@@ -70,5 +103,5 @@ export function compactPlanForAnnualReport(plan: PlanResult): AnnualReportPlanSn
     targetDeviationDiagnostic: plan.targetDeviationDiagnostic,
     warnings: plan.warnings,
     increaseDistribution,
-  } as unknown as AnnualReportPlanSnapshot;
+  };
 }
