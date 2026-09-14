@@ -468,7 +468,7 @@ function Explanation({
   exportPending,
   onExport,
 }: {
-  explanation: CalcExplanation;
+  explanation?: CalcExplanation | null;
   plan: PlanResult;
   serviceLine: string;
   exportPending: boolean;
@@ -476,6 +476,13 @@ function Explanation({
 }) {
   const [verificationRate, setVerificationRate] = useState<"inhouse" | "street" | null>(null);
   const verificationTitle = "Resident rate averages";
+  if (!explanation) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="calculation-explanation-unavailable">
+        Calculation detail is not retained in this saved report.
+      </p>
+    );
+  }
   return (
     <>
       <div className="space-y-3 text-sm">
