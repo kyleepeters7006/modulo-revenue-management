@@ -69,6 +69,7 @@ import {
   readInhousePlan,
   writeInhousePlanBundle,
 } from "@/lib/inhousePlanStorage";
+import { compactPlanForAnnualReport } from "@/lib/inhouseAnnualReportSnapshot";
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
 import { DAYS_PER_MONTH } from "@shared/careRates";
 import {
@@ -1840,19 +1841,20 @@ export default function InhouseIncreases() {
     mutationFn: async () => {
       if (!plans || !tierGrid) throw new Error("Calculate a plan before creating an annual report.");
       // A report is a presentation snapshot, not a second resident data store.
-      // Keep only the anonymous increase values needed for distribution bands.
+      // Persist aggregate distribution bands rather than one object per
+      // resident. Portfolio plans can contain thousands of residents, and the
+      // repeated anonymous objects add no report information while exceeding
+      // normal HTTP request limits.
       const compactPlans = plans.map(({ sl, plan }) => ({
         sl,
-        plan: {
-          ...plan,
-          residents: plan.residents.map(({ increasePct }) => ({ increasePct })),
-        },
+        plan: compactPlanForAnnualReport(plan),
       }));
       const compactTierGrid = {
         ...tierGrid,
         lines: tierGrid.lines.map((line) => ({
           ...line,
-          currentPlan: compactPlans.find(({ sl }) => sl === line.serviceLine)?.plan,
+          currentPlan: compactPlans.find(({ sl }) => sl === line.serviceLine)?.plan
+            ?? compactPlanForAnnualReport(line.currentPlan),
         })),
       };
       const response = await apiRequest("/api/inhouse-planning/annual-report-runs", "POST", {

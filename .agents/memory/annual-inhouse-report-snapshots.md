@@ -7,4 +7,4 @@ Annual reports are presentation snapshots of an already calculated in-house plan
 
 **Why:** Executive totals, occupancy-tier scenarios, charts, and PDF output must reconcile exactly to the decision the operator reviewed. Saving full resident records would also duplicate sensitive operational data unnecessarily.
 
-**How to apply:** Upsert one latest report per tenant and calculation scope with a server timestamp. Preserve all tier cells, but use each line's measured tier for totals. Persist only anonymous increase percentages for distribution bands, authenticate every read/write/export, and keep daily health-care rates distinct from monthly senior-housing rates.
+**How to apply:** Upsert one latest report per tenant and calculation scope with a server timestamp. Preserve all tier cells, but use each line's measured tier for totals. Persist six aggregate distribution counts—not resident rows or quarter-room arrays—authenticate every read/write/export, and keep daily health-care rates distinct from monthly senior-housing rates.

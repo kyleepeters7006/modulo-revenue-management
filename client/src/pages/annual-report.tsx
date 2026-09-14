@@ -18,13 +18,15 @@ import {
   type PlanResult,
 } from "@shared/inhousePlanning";
 
-type PlanWithSl = { sl: string; plan: PlanResult };
+type IncreaseDistribution = { label: string; count: number };
+type ReportPlan = PlanResult & { increaseDistribution?: IncreaseDistribution[] };
+type PlanWithSl = { sl: string; plan: ReportPlan };
 type TierLine = {
   serviceLine: string;
   occupancyPct: number | null;
   occupancyMonth: string | null;
   currentTier: OccupancyTierId | null;
-  currentPlan: PlanResult;
+  currentPlan: ReportPlan;
   cells: OccupancyTierPlanCell[];
   warnings: string[];
 };
@@ -152,26 +154,40 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
       { label: "SNF", series: combined.filter((item) => item.rateBasis === "daily") },
     ].filter((group) => group.series.length);
   }, [history, measuredPlans, report.serviceLines]);
-  const affectedResidents = measuredPlans.flatMap((plan) =>
+  const legacyAffectedResidents = measuredPlans.flatMap((plan) =>
     (plan.residents ?? []).filter((resident) => resident.increasePct > 0),
   );
-  const distributionBands = [
+  const emptyDistribution = [
     { label: "<3%", min: -Infinity, max: 3 },
     { label: "3–4.9%", min: 3, max: 5 },
     { label: "5–5.9%", min: 5, max: 6 },
     { label: "6–6.9%", min: 6, max: 7 },
     { label: "7–7.9%", min: 7, max: 8 },
     { label: "8%+", min: 8, max: Infinity },
-  ].map((band) => ({
+  ];
+  const savedDistribution = measuredPlans.flatMap((plan) => plan.increaseDistribution ?? []);
+  const distributionBands = emptyDistribution.map((band) => ({
     ...band,
-    count: affectedResidents.filter(
-      (resident) => resident.increasePct >= band.min && resident.increasePct < band.max,
-    ).length,
+    count: savedDistribution.length
+      ? savedDistribution
+          .filter((entry) => entry.label === band.label)
+          .reduce((sum, entry) => sum + Number(entry.count || 0), 0)
+      : legacyAffectedResidents.filter(
+          (resident) => resident.increasePct >= band.min && resident.increasePct < band.max,
+        ).length,
   }));
-  const singleIncrease = affectedResidents.length > 0 &&
-    affectedResidents.every(
-      (resident) => Math.abs(resident.increasePct - affectedResidents[0].increasePct) < 0.001,
-    );
+  const affectedResidentCount = distributionBands.reduce((sum, band) => sum + band.count, 0);
+  const positiveBands = distributionBands.filter((band) => band.count > 0);
+  const singleIncrease = legacyAffectedResidents.length > 0
+    ? legacyAffectedResidents.every(
+        (resident) => Math.abs(resident.increasePct - legacyAffectedResidents[0].increasePct) < 0.001,
+      )
+    : positiveBands.length === 1 &&
+      measuredPlans.every((plan) =>
+        Math.abs(plan.summary.maxIncreasePct - plan.summary.minIncreasePct) < 0.001,
+      );
+  const singleIncreasePct = legacyAffectedResidents[0]?.increasePct
+    ?? measuredPlans.find((plan) => plan.summary.residentsReceivingIncrease > 0)?.summary.minIncreasePct;
 
   return (
     <div id="annual-report-sheet" className="annual-report-sheet mx-auto max-w-[1480px] space-y-5">
@@ -277,7 +293,7 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
           <p className="mt-1 text-xs text-muted-foreground">Resident-level spread from the same measured-tier plans.</p>
           {singleIncrease ? (
             <div className="mt-3 rounded-md bg-muted/30 p-3 text-sm">
-              All {affectedResidents.length.toLocaleString()} affected residents receive {pct(affectedResidents[0].increasePct)}.
+              All {affectedResidentCount.toLocaleString()} affected residents receive {pct(singleIncreasePct)}.
             </div>
           ) : (
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -286,7 +302,7 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{band.label}</div>
                   <div className="mt-1 font-mono text-sm">{band.count.toLocaleString()}</div>
                   <div className="text-[10px] text-muted-foreground">
-                    {affectedResidents.length ? ((band.count / affectedResidents.length) * 100).toFixed(1) : "0.0"}% of affected
+                    {affectedResidentCount ? ((band.count / affectedResidentCount) * 100).toFixed(1) : "0.0"}% of affected
                   </div>
                 </div>
               ))}
