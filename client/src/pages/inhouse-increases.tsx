@@ -1908,7 +1908,7 @@ export default function InhouseIncreases() {
   // per-line). When multiple lines are selected we download each sequentially.
   const exportPlan = useMutation({
     mutationFn: async (sl: string) => {
-      const res = await fetch("/api/inhouse-planning/export", {
+      const start = await fetch("/api/inhouse-planning/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -1919,6 +1919,31 @@ export default function InhouseIncreases() {
           tierPolicy: tierPolicyFor(sl),
         }),
       });
+      if (!start.ok) {
+        let message = "Failed to build the export";
+        try { message = (await start.json()).error || message; } catch { /* non-JSON */ }
+        throw new Error(message);
+      }
+      const { exportId } = await start.json() as { exportId?: string };
+      if (!exportId) throw new Error("The export did not start correctly");
+
+      let res: Response | null = null;
+      const deadline = Date.now() + 15 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+        try {
+          const status = await fetch(
+            `/api/inhouse-planning/export/${encodeURIComponent(exportId)}`,
+            { credentials: "include", cache: "no-store" },
+          );
+          if (status.status === 202) continue;
+          res = status;
+          break;
+        } catch {
+          // A brief proxy reconnect must not lose a long-running export.
+        }
+      }
+      if (!res) throw new Error("The export took longer than 15 minutes");
       if (!res.ok) {
         let message = "Failed to build the export";
         try { message = (await res.json()).error || message; } catch { /* non-JSON */ }

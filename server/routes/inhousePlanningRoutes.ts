@@ -7,6 +7,7 @@
  * applies it to Reference Data.
  */
 import type { Express } from "express";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db, pool } from "../db";
@@ -50,6 +51,21 @@ import {
 } from "../services/inhouseRatePlanning/dataAccess";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+type RatePlanExportJob =
+  | { clientId: string; status: "pending"; createdAt: number }
+  | { clientId: string; status: "ready"; createdAt: number; buffer: Buffer; filename: string }
+  | { clientId: string; status: "failed"; createdAt: number; error: string };
+
+const ratePlanExportJobs = new Map<string, RatePlanExportJob>();
+const RATE_PLAN_EXPORT_TTL_MS = 15 * 60 * 1000;
+
+function purgeExpiredRatePlanExports(): void {
+  const cutoff = Date.now() - RATE_PLAN_EXPORT_TTL_MS;
+  for (const [id, job] of ratePlanExportJobs) {
+    if (job.createdAt < cutoff) ratePlanExportJobs.delete(id);
+  }
+}
 
 /**
  * A regex only proves the shape. "2027-02-31" passes it and then JavaScript
@@ -939,68 +955,99 @@ export function registerInhousePlanningRoutes(
    * unsaved edits rather than the stored defaults.
    */
   app.post("/api/inhouse-planning/export", requireAuth, async (req: any, res) => {
-    try {
-      const clientId = req.clientId || "demo";
-      const body = scopeSchema
-        .extend({
-          assumptions: assumptionsSchema.optional(),
-          tierPolicy: tierPolicySchema.optional(),
-        })
-        .safeParse(req.body);
-      if (!body.success) {
-        return res
-          .status(400)
-          .json({ error: body.error.errors[0]?.message || "Invalid export request" });
-      }
-      const locationId = body.data.locationId || null;
-      const location = await resolveLocationName(clientId, locationId);
-      const stored = await resolveAssumptions(clientId, locationId, body.data.serviceLine);
-      const baseAssumptions = enforceCurrentPlanningPolicy(
-        body.data.assumptions ?? stored.assumptions,
-      );
-      const assumptions = await assumptionsForMeasuredTier(
-        clientId,
-        location,
-        body.data.serviceLine,
-        baseAssumptions,
-        body.data.tierPolicy ?? stored.tierPolicy,
-      );
-
-      const { plan, audit } = await calculatePlanDetailed({
-        clientId,
-        locationId,
-        location,
-        serviceLine: body.data.serviceLine,
-        assumptions,
-      });
-
-      const buffer = await buildRatePlanWorkbook({
-        plan,
-        audit,
-        generatedBy: req.user?.username || req.user?.email || undefined,
-      });
-
-      const slug = (value: string) =>
-        value.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "all";
-      const filename = `in-house-rate-plan_${slug(location ?? "all-campuses")}_${slug(
-        body.data.serviceLine,
-      )}_${plan.scope.sourceMonth}.xlsx`;
-
-      res.setHeader(
-        "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      );
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-      res.setHeader("Content-Length", String(buffer.length));
-      res.setHeader("Cache-Control", "no-store");
-      res.end(buffer);
-    } catch (error) {
-      if (error instanceof PlanningDataError) {
-        return res.status(422).json({ error: error.message });
-      }
-      console.error("[inhouse-planning] export failed:", error);
-      res.status(500).json({ error: "Failed to build the rate plan export" });
+    const clientId = req.clientId || "demo";
+    const body = scopeSchema
+      .extend({
+        assumptions: assumptionsSchema.optional(),
+        tierPolicy: tierPolicySchema.optional(),
+      })
+      .safeParse(req.body);
+    if (!body.success) {
+      return res
+        .status(400)
+        .json({ error: body.error.errors[0]?.message || "Invalid export request" });
     }
+    purgeExpiredRatePlanExports();
+    const exportId = randomUUID();
+    const createdAt = Date.now();
+    const generatedBy = req.user?.username || req.user?.email || undefined;
+    ratePlanExportJobs.set(exportId, { clientId, status: "pending", createdAt });
+    res.status(202).json({ exportId, status: "pending" });
+
+    void (async () => {
+      try {
+        const locationId = body.data.locationId || null;
+        const location = await resolveLocationName(clientId, locationId);
+        const stored = await resolveAssumptions(clientId, locationId, body.data.serviceLine);
+        const baseAssumptions = enforceCurrentPlanningPolicy(
+          body.data.assumptions ?? stored.assumptions,
+        );
+        const assumptions = await assumptionsForMeasuredTier(
+          clientId,
+          location,
+          body.data.serviceLine,
+          baseAssumptions,
+          body.data.tierPolicy ?? stored.tierPolicy,
+        );
+        const { plan, audit } = await calculatePlanDetailed({
+          clientId,
+          locationId,
+          location,
+          serviceLine: body.data.serviceLine,
+          assumptions,
+        });
+        const buffer = await buildRatePlanWorkbook({ plan, audit, generatedBy });
+        const slug = (value: string) =>
+          value.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "all";
+        const filename = `in-house-rate-plan_${slug(location ?? "all-campuses")}_${slug(
+          body.data.serviceLine,
+        )}_${plan.scope.sourceMonth}.xlsx`;
+        ratePlanExportJobs.set(exportId, {
+          clientId,
+          status: "ready",
+          createdAt,
+          buffer,
+          filename,
+        });
+      } catch (error) {
+        const message =
+          error instanceof PlanningDataError
+            ? error.message
+            : "Failed to build the rate plan export";
+        console.error("[inhouse-planning] background export failed:", error);
+        ratePlanExportJobs.set(exportId, {
+          clientId,
+          status: "failed",
+          createdAt,
+          error: message,
+        });
+      }
+    })();
+  });
+
+  app.get("/api/inhouse-planning/export/:exportId", requireAuth, (req: any, res) => {
+    purgeExpiredRatePlanExports();
+    const clientId = req.clientId || "demo";
+    const job = ratePlanExportJobs.get(req.params.exportId);
+    if (!job || job.clientId !== clientId) {
+      return res.status(404).json({ error: "Export not found or expired" });
+    }
+    res.setHeader("Cache-Control", "no-store");
+    if (job.status === "pending") {
+      return res.status(202).json({ status: "pending" });
+    }
+    if (job.status === "failed") {
+      ratePlanExportJobs.delete(req.params.exportId);
+      return res.status(422).json({ error: job.error });
+    }
+    ratePlanExportJobs.delete(req.params.exportId);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${job.filename}"`);
+    res.setHeader("Content-Length", String(job.buffer.length));
+    return res.end(job.buffer);
   });
 
   // ── Submit (records an auditable proposed version and linked rules) ──────

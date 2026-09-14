@@ -99,7 +99,7 @@ function OccupancySparkline({ values = [], delta }: { values?: number[]; delta?:
 
   return (
     <div
-      className="flex items-center gap-1"
+      className="flex shrink-0 items-center gap-1"
       title={`${tone.label}: ${deltaLabel} percentage points`}
       aria-label={`${tone.label} occupancy trend, ${deltaLabel} percentage points`}
     >
@@ -380,7 +380,7 @@ export default function OverviewTiles() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
             {(() => {
               // Sort service lines in preferred order: HC, HC/MC, AL, AL/MC, SL, VIL
               const SERVICE_LINE_ORDER = ['HC', 'HC/MC', 'AL', 'AL/MC', 'SL', 'VIL'];
@@ -403,13 +403,13 @@ export default function OverviewTiles() {
                 return (
                   <div 
                     key={serviceLine.serviceLine} 
-                    className="bg-[var(--dashboard-bg)] p-3 rounded-lg border border-[var(--dashboard-border)]"
+                    className="min-w-0 overflow-hidden rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] p-3"
                   >
-                    <div className="flex items-center gap-2 mb-1">
-                      <h4 className="font-bold" style={{ color: '#1a1a1a' }}>
+                    <div className="mb-1 flex min-w-0 items-center gap-1.5">
+                      <h4 className="min-w-0 shrink font-bold" style={{ color: '#1a1a1a' }}>
                         {serviceLine.serviceLine}
                       </h4>
-                      <div className="ml-auto flex items-center gap-2">
+                      <div className="ml-auto flex shrink-0 items-center gap-1.5">
                         <OccupancySparkline
                           values={serviceLine.occupancyTrend}
                           delta={serviceLine.occupancyTrendDelta}
@@ -431,13 +431,13 @@ export default function OverviewTiles() {
                     
                     {/* Rate Information */}
                     <div className="space-y-0.5 text-xs">
-                      <div className="flex justify-between">
-                        <span className="font-semibold" style={{ color: '#4a4a4a' }}>Avg Rate:</span>
-                        <span className="font-bold" style={{ color: '#1a1a1a' }}>{formatCurrency(Math.round(serviceLine.avgRate || 0))}{rateLabel}</span>
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2">
+                        <span className="min-w-0 font-semibold leading-tight" style={{ color: '#4a4a4a' }}>Avg Rate:</span>
+                        <span className="shrink-0 whitespace-nowrap text-right font-bold" style={{ color: '#1a1a1a' }}>{formatCurrency(Math.round(serviceLine.avgRate || 0))}{rateLabel}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="font-semibold" style={{ color: '#4a4a4a' }}>Competitor Rate:</span>
-                        <span className="font-bold" style={{ color: '#1a1a1a' }}>{formatCurrency(Math.round(displayCompetitorRate))}{rateLabel}</span>
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2">
+                        <span className="min-w-0 font-semibold leading-tight" style={{ color: '#4a4a4a' }}>Competitor Rate:</span>
+                        <span className="shrink-0 whitespace-nowrap text-right font-bold" style={{ color: '#1a1a1a' }}>{formatCurrency(Math.round(displayCompetitorRate))}{rateLabel}</span>
                       </div>
                       {renderRemainderWithDialog(serviceLine, serviceLine.serviceLine)}
                     </div>
