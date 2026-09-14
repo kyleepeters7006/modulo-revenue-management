@@ -115,3 +115,4 @@
 - [Authenticated fixture cleanup](authenticated-fixture-cleanup.md) — MFA test users need dependent security records removed before teardown.
 - [Annual in-house report snapshots](annual-inhouse-report-snapshots.md) — reports persist one compact calculated snapshot per tenant/scope; they never recalculate or retain resident identity.
 - [Annual increase room identity](annual-increase-room-identity.md) — room-level plan lookup may ignore renamed room type only when campus, SL, room, and move-in date still match.
+- [Annual increase E2E fixture](annual-increase-e2e-fixture.md) — MFA/CSRF auth, proposal-field reconciliation, and prior-January fixture horizons are required for the endpoint regression.

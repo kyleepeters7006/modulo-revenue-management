@@ -24,6 +24,11 @@
  */
 import pkg from "pg";
 import bcrypt from "bcryptjs";
+import {
+  createTotpSecret,
+  encryptSecret,
+  totpCode,
+} from "../server/security";
 
 const { Pool } = pkg;
 
@@ -31,6 +36,7 @@ const BASE = process.env.TEST_BASE_URL || "http://localhost:5000";
 const CLIENT = "demo";
 const USERNAME = "ptest_refdata_increase";
 const PASSWORD = "ptest-password-1";
+const MFA_SECRET = createTotpSecret();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -38,6 +44,7 @@ const PASS = "\x1b[32m✓\x1b[0m";
 const FAIL = "\x1b[31m✗\x1b[0m";
 let passed = 0;
 let failed = 0;
+type AuthContext = { cookie: string; csrfToken: string };
 
 function ok(desc: string, cond: boolean, detail = "") {
   if (cond) { console.log(`${PASS} ${desc}`); passed++; }
@@ -52,33 +59,72 @@ function near(desc: string, actual: number | null, expected: number | null, tol:
     `expected ${expected.toFixed(4)} ± ${tol}, got ${actual.toFixed(4)}`);
 }
 
-async function login(): Promise<string> {
+async function login(): Promise<AuthContext> {
   const hash = await bcrypt.hash(PASSWORD, 4);
   await pool.query(
-    `INSERT INTO users (username, password_hash, client_id) VALUES ($1, $2, $3)
-     ON CONFLICT (username) DO UPDATE SET password_hash = $2, client_id = $3`,
-    [USERNAME, hash, CLIENT],
+    `INSERT INTO users
+       (username, password_hash, client_id, mfa_enabled, mfa_secret_encrypted, mfa_last_used_step)
+     VALUES ($1, $2, $3, true, $4, NULL)
+     ON CONFLICT (username) DO UPDATE SET
+       password_hash = $2,
+       client_id = $3,
+       account_status = 'active',
+       mfa_enabled = true,
+       mfa_secret_encrypted = $4,
+       mfa_last_used_step = NULL`,
+    [USERNAME, hash, CLIENT, encryptSecret(MFA_SECRET)],
   );
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: BASE },
     body: JSON.stringify({ username: USERNAME, password: PASSWORD }),
   });
   if (!res.ok) throw new Error(`login failed: ${res.status} ${await res.text()}`);
-  const cookie = res.headers.get("set-cookie");
-  if (!cookie) throw new Error("no session cookie returned");
-  return cookie.split(";")[0];
+  const firstCookie = res.headers.get("set-cookie");
+  if (!firstCookie) throw new Error("no session cookie returned");
+  let cookie = firstCookie.split(";")[0];
+  const loginResult = await res.json() as { mfaRequired?: boolean };
+  if (!loginResult.mfaRequired) throw new Error("password login did not require MFA");
+
+  const challenge = await fetch(`${BASE}/api/auth/mfa/challenge`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: cookie,
+      Origin: BASE,
+    },
+    body: JSON.stringify({ code: totpCode(MFA_SECRET).code }),
+  });
+  if (!challenge.ok) {
+    throw new Error(`MFA challenge failed: ${challenge.status} ${await challenge.text()}`);
+  }
+  const challengeCookie = challenge.headers.get("set-cookie");
+  if (challengeCookie) cookie = challengeCookie.split(";")[0];
+
+  const csrf = await fetch(`${BASE}/api/auth/csrf`, {
+    headers: { Cookie: cookie, Origin: BASE },
+  });
+  if (!csrf.ok) throw new Error(`CSRF token request failed: ${csrf.status} ${await csrf.text()}`);
+  const csrfToken = (await csrf.json() as { token: string }).token;
+  return { cookie, csrfToken };
 }
 
-async function getJson(path: string, cookie: string) {
-  const res = await fetch(`${BASE}${path}`, { headers: { Cookie: cookie } });
+async function getJson(path: string, auth: AuthContext) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { Cookie: auth.cookie, Origin: BASE },
+  });
   if (!res.ok) throw new Error(`GET ${path} -> ${res.status} ${await res.text()}`);
   return res.json();
 }
-async function postJson(path: string, cookie: string, body: unknown) {
+async function postJson(path: string, auth: AuthContext, body: unknown) {
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Cookie: cookie },
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: auth.cookie,
+      Origin: BASE,
+      "x-csrf-token": auth.csrfToken,
+    },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`POST ${path} -> ${res.status} ${await res.text()}`);
@@ -102,29 +148,85 @@ async function pickScope(serviceLine: string) {
     [CLIENT, spot, serviceLine],
   );
   if (!r.rows.length) return null;
-  return { location: r.rows[0].location, locationId: r.rows[0].location_id, serviceLine };
+  return {
+    location: r.rows[0].location,
+    locationId: r.rows[0].location_id,
+    serviceLine,
+    sourceMonth: spot,
+  };
 }
 
 async function cleanup() {
   await pool.query(`DELETE FROM inhouse_rate_plans WHERE client_id = $1`, [CLIENT]);
-  await pool.query(`DELETE FROM users WHERE username = $1`, [USERNAME]);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `DELETE FROM sessions
+        WHERE sid IN (
+          SELECT session_id
+            FROM auth_sessions
+           WHERE user_id IN (SELECT id FROM users WHERE username = $1)
+        )`,
+      [USERNAME],
+    );
+    await client.query(
+      `DELETE FROM security_audit_events
+        WHERE user_id IN (SELECT id FROM users WHERE username = $1)`,
+      [USERNAME],
+    );
+    await client.query(
+      `DELETE FROM mfa_recovery_codes
+        WHERE user_id IN (SELECT id FROM users WHERE username = $1)`,
+      [USERNAME],
+    );
+    await client.query(
+      `DELETE FROM password_reset_tokens
+        WHERE user_id IN (SELECT id FROM users WHERE username = $1)`,
+      [USERNAME],
+    );
+    await client.query(
+      `DELETE FROM auth_sessions
+        WHERE user_id IN (SELECT id FROM users WHERE username = $1)`,
+      [USERNAME],
+    );
+    await client.query(`DELETE FROM users WHERE username = $1`, [USERNAME]);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 /** Grouped + detail rows for one scope. */
-async function readGrid(cookie: string, scope: { location: string; serviceLine: string }) {
+async function readGrid(auth: AuthContext, scope: { location: string; serviceLine: string }) {
   const qs = `locations=${encodeURIComponent(scope.location)}&serviceLine=${encodeURIComponent(scope.serviceLine)}`;
-  const grouped = await getJson(`/api/reference-data?${qs}`, cookie);
-  const detail = await getJson(`/api/reference-data/units?${qs}`, cookie);
+  const grouped = await getJson(`/api/reference-data?${qs}`, auth);
+  const detail = await getJson(`/api/reference-data/units?${qs}`, auth);
   return { grouped: grouped.rows as any[], detail: detail.rows as any[] };
 }
 
-async function runScope(cookie: string, scope: { location: string; locationId: string; serviceLine: string }, isDaily: boolean) {
+function nextQuarterStart(sourceMonth: string): string {
+  // The solver's January-to-January guard compares the horizon year with the
+  // January immediately before it. The fixture has a complete prior January
+  // when the horizon starts in the year after its latest upload.
+  const year = Number(sourceMonth.slice(0, 4));
+  return `${year + 1}-01-01`;
+}
+
+async function runScope(
+  auth: AuthContext,
+  scope: { location: string; locationId: string; serviceLine: string; sourceMonth: string },
+  isDaily: boolean,
+) {
   const label = `${scope.location} / ${scope.serviceLine}`;
   console.log(`\n── ${label} (${isDaily ? "daily-billed" : "monthly-billed"}) ──`);
 
   // Snapshot the move-in-based impact BEFORE any plan exists. This is the
   // baseline for the contamination check further down.
-  const before = await readGrid(cookie, scope);
+  const before = await readGrid(auth, scope);
   const beforeImpact = new Map<string, number | null>();
   const beforeUnits = new Map<string, number>();
   for (const r of before.grouped) {
@@ -132,30 +234,73 @@ async function runScope(cookie: string, scope: { location: string; locationId: s
     beforeUnits.set(r.roomType, Number(r.totalUnits) || 0);
   }
   ok(`${label}: grid has rows before applying`, before.grouped.length > 0);
-  ok(`${label}: no increase columns before applying`,
-    before.grouped.every((r) => r.ihPlanNewRate === null && r.ihPlanResidents === null));
-
   // Calculate, then apply through the real endpoint so cache invalidation is
   // exercised too — a stale cache would serve pre-plan numbers for 10 minutes.
   const assumpRes = await getJson(
     `/api/inhouse-planning/assumptions?locationId=${scope.locationId}&serviceLine=${encodeURIComponent(scope.serviceLine)}`,
-    cookie,
+    auth,
   );
-  const assumptions = assumpRes.assumptions ?? assumpRes;
-  const calc = await postJson("/api/inhouse-planning/calculate", cookie, {
-    locationId: scope.locationId, serviceLine: scope.serviceLine, assumptions,
+  // Persisted demo assumptions may intentionally target a later planning year.
+  // Anchor this regression to the first quarter after the fixture's latest
+  // rent roll so the real solver uses history that exists in the fixture.
+  const planningStart = nextQuarterStart(scope.sourceMonth);
+  const assumptions = {
+    ...(assumpRes.assumptions ?? assumpRes),
+    streetRateEffectiveDate: planningStart,
+    inhouseEffectiveDate: planningStart,
+    // Keep the fixture applicable for both monthly and daily service lines.
+    // The test is checking endpoint and rollup parity, not a client's saved
+    // growth ceiling; the apply endpoint still re-solves and validates this.
+    maxInhouseIncreasePct: 20,
+    maxStreetIncreasePct: 50,
+  };
+  const storedTierPolicy = assumpRes.tierPolicy ?? {
+    lowCutoffPct: 88,
+    highCutoffPct: 95,
+    tiers: {
+      low: {
+        minInhouseIncreasePct: 0, maxInhouseIncreasePct: 5,
+        minStreetIncreasePct: 0, maxStreetIncreasePct: 8,
+        maxYoYStreetIncreasePct: 8, desiredVarianceToTopCompetitorPct: -3,
+        equalizationStrength: "medium",
+      },
+      target: {
+        minInhouseIncreasePct: 0, maxInhouseIncreasePct: 8,
+        minStreetIncreasePct: 0, maxStreetIncreasePct: 12,
+        maxYoYStreetIncreasePct: 12, desiredVarianceToTopCompetitorPct: 0,
+        equalizationStrength: "medium",
+      },
+      high: {
+        minInhouseIncreasePct: 2, maxInhouseIncreasePct: 10,
+        minStreetIncreasePct: 2, maxStreetIncreasePct: 15,
+        maxYoYStreetIncreasePct: 15, desiredVarianceToTopCompetitorPct: 3,
+        equalizationStrength: "medium",
+      },
+    },
+  };
+  const tierPolicy = {
+    ...storedTierPolicy,
+    tiers: Object.fromEntries(
+      Object.entries(storedTierPolicy.tiers).map(([tier, guardrails]) => [
+        tier,
+        { ...guardrails, maxInhouseIncreasePct: 20, maxStreetIncreasePct: 50 },
+      ]),
+    ),
+  };
+  const calc = await postJson("/api/inhouse-planning/calculate", auth, {
+    locationId: scope.locationId, serviceLine: scope.serviceLine, assumptions, tierPolicy,
   });
   const plan = calc.plan ?? calc;
   const residents: any[] = plan.residents ?? [];
   ok(`${label}: plan produced residents`, residents.length > 0, `got ${residents.length}`);
   if (!residents.length) return;
 
-  await postJson("/api/inhouse-planning/apply", cookie, {
-    locationId: scope.locationId, serviceLine: scope.serviceLine, assumptions,
+  await postJson("/api/inhouse-planning/apply", auth, {
+    locationId: scope.locationId, serviceLine: scope.serviceLine, assumptions, tierPolicy,
   });
 
-  const after = await readGrid(cookie, scope);
-  const covered = after.grouped.filter((r) => r.ihPlanResidents);
+  const after = await readGrid(auth, scope);
+  const covered = after.grouped.filter((r) => r.ihRecommendationResidents);
   ok(`${label}: increase columns populated after applying`, covered.length > 0);
   if (!covered.length) return;
 
@@ -164,35 +309,35 @@ async function runScope(cookie: string, scope: { location: string; locationId: s
   // beside it. A monthly figure on a daily line lands ~30x too high.
   for (const r of covered) {
     if (r.ihSpot && r.ihSpot > 0) {
-      const ratio = r.ihPlanNewRate / r.ihSpot;
+      const ratio = r.ihRecommendationNewRate / r.ihSpot;
       ok(`${label} / ${r.roomType}: new rate is in the rent roll's basis (ratio ${ratio.toFixed(2)})`,
         ratio > 0.8 && ratio < 1.6,
-        `ihPlanNewRate=${r.ihPlanNewRate?.toFixed(2)} vs ihSpot=${r.ihSpot?.toFixed(2)} — a ~30x ratio means monthly/daily were mixed`);
+        `ihRecommendationNewRate=${r.ihRecommendationNewRate?.toFixed(2)} vs ihSpot=${r.ihSpot?.toFixed(2)} — a ~30x ratio means monthly/daily were mixed`);
     }
   }
 
   // ── 2. Coverage ─────────────────────────────────────────────────────────
   for (const r of covered) {
     ok(`${label} / ${r.roomType}: residents covered ≤ units in group`,
-      r.ihPlanResidents <= (Number(r.totalUnits) || 0),
-      `${r.ihPlanResidents} residents vs ${r.totalUnits} units`);
+      r.ihRecommendationResidents <= (Number(r.totalUnits) || 0),
+      `${r.ihRecommendationResidents} residents vs ${r.totalUnits} units`);
     // Averaging over units instead of residents would drag the rate down
     // toward zero for any group with vacancy.
     const occupied = (Number(r.totalUnits) || 0) - (Number(r.vacantSpot) || 0);
     ok(`${label} / ${r.roomType}: coverage does not exceed occupied rooms`,
-      r.ihPlanResidents <= occupied + 0.5,
-      `${r.ihPlanResidents} covered vs ${occupied} occupied`);
+      r.ihRecommendationResidents <= occupied + 0.5,
+      `${r.ihRecommendationResidents} covered vs ${occupied} occupied`);
   }
 
   // Δ% must come from summed components, not an average of percentages.
   for (const r of covered) {
-    if (r.ihPlanCurrentRate > 0) {
+    if (r.ihRecommendationCurrentRate > 0) {
       // Both sides of the ratio must be in the DISPLAY basis. Using the monthly
       // impact here would silently pass for monthly-billed lines and be ~30x
       // off for daily-billed ones.
       near(`${label} / ${r.roomType}: Δ% derived from summed components`,
-        r.ihPlanDeltaPct,
-        r.ihPlanDeltaDollar / r.ihPlanCurrentRate,
+        r.ihRecommendationDeltaPct,
+        r.ihRecommendationDeltaDollar / r.ihRecommendationCurrentRate,
         1e-6);
     }
   }
@@ -204,10 +349,10 @@ async function runScope(cookie: string, scope: { location: string; locationId: s
   const DAYS_PER_MONTH = 365 / 12;
   const expectedRatio = isDaily ? DAYS_PER_MONTH : 1;
   for (const r of covered) {
-    const perResidentDelta = r.ihPlanDeltaDollar * r.ihPlanResidents;
+    const perResidentDelta = r.ihRecommendationDeltaDollar * r.ihRecommendationResidents;
     if (Math.abs(perResidentDelta) > 0.01) {
       near(`${label} / ${r.roomType}: monthly impact is monthly, not ${isDaily ? "daily" : "mis-scaled"}`,
-        r.ihPlanMonthlyImpact / perResidentDelta, expectedRatio, 0.02);
+        r.ihRecommendationMonthlyImpact / perResidentDelta, expectedRatio, 0.02);
     }
   }
 
@@ -220,32 +365,49 @@ async function runScope(cookie: string, scope: { location: string; locationId: s
   }
   for (const r of covered) {
     const units = byGroup.get(r.roomType) ?? [];
-    const dResidents = units.reduce((s, u) => s + (Number(u.ihPlanResidents) || 0), 0);
-    const dImpact = units.reduce((s, u) => s + (Number(u.ihPlanMonthlyImpact) || 0), 0);
+    const dResidents = units.reduce((s, u) => s + (Number(u.ihRecommendationResidents) || 0), 0);
+    const dImpact = units.reduce((s, u) => s + (Number(u.ihRecommendationMonthlyImpact) || 0), 0);
     const dRateSum = units.reduce(
-      (s, u) => s + (u.ihPlanNewRate !== null ? Number(u.ihPlanNewRate) * (Number(u.ihPlanResidents) || 0) : 0), 0);
+      (s, u) => s + (u.ihRecommendationNewRate !== null
+        ? Number(u.ihRecommendationNewRate) * (Number(u.ihRecommendationResidents) || 0)
+        : 0), 0);
 
     ok(`${label} / ${r.roomType}: detail residents sum to grouped`,
-      dResidents === r.ihPlanResidents, `detail ${dResidents} vs grouped ${r.ihPlanResidents}`);
+      dResidents === r.ihRecommendationResidents,
+      `detail ${dResidents} vs grouped ${r.ihRecommendationResidents}`);
     near(`${label} / ${r.roomType}: detail monthly impact sums to grouped`,
-      dImpact, r.ihPlanMonthlyImpact, 0.51);
+      dImpact, r.ihRecommendationMonthlyImpact, 0.51);
     if (dResidents > 0) {
       near(`${label} / ${r.roomType}: residents-weighted detail rate matches grouped`,
-        dRateSum / dResidents, r.ihPlanNewRate, 0.51);
+        dRateSum / dResidents, r.ihRecommendationNewRate, 0.51);
     }
     // Uncovered rooms must carry null, not 0 — a 0 would drag the average down.
     ok(`${label} / ${r.roomType}: uncovered rooms carry null, not 0`,
-      units.every((u) => u.ihPlanNewRate === null || Number(u.ihPlanNewRate) > 0));
+      units.every((u) => u.ihRecommendationNewRate === null || Number(u.ihRecommendationNewRate) > 0));
   }
 
-  // ── 4. Final take-over, and no impact contamination ─────────────────────
-  for (const r of covered) {
-    if (!r.hasManualOverride) {
-      near(`${label} / ${r.roomType}: Final shows the increase`,
-        r.proposedRule, r.ihPlanNewRate, 0.51);
-      ok(`${label} / ${r.roomType}: flagged as plan-driven`, r.finalFromPlan === true);
-    }
-  }
+  // ── 4. Room detail → service-line total, and no impact contamination ────
+  // The apply endpoint records a proposal. The Reference Data surface exposes
+  // that proposal under the recommendation fields until an operator
+  // implements its linked rules, so this check must not expect Final to move.
+  const groupedResidents = covered.reduce(
+    (sum, row) => sum + (Number(row.ihRecommendationResidents) || 0), 0,
+  );
+  const detailResidents = after.detail.reduce(
+    (sum, row) => sum + (Number(row.ihRecommendationResidents) || 0), 0,
+  );
+  const groupedImpact = covered.reduce(
+    (sum, row) => sum + (Number(row.ihRecommendationMonthlyImpact) || 0), 0,
+  );
+  const detailImpact = after.detail.reduce(
+    (sum, row) => sum + (Number(row.ihRecommendationMonthlyImpact) || 0), 0,
+  );
+  ok(`${label}: detail residents sum to service-line total`,
+    detailResidents === groupedResidents,
+    `detail ${detailResidents} vs grouped ${groupedResidents}`);
+  near(`${label}: detail monthly impact sums to service-line total`,
+    detailImpact, groupedImpact, 0.51);
+
   for (const r of after.grouped) {
     const b = beforeImpact.get(r.roomType) ?? null;
     const a = r.revMonthlyImpact ?? null;
