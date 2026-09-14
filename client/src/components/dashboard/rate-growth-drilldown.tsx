@@ -112,11 +112,19 @@ export function RateChart({
   benchmarks = [],
   colorOffset = 0,
   markerMonth,
+  serviceLineSelector,
+  headingLabel,
 }: {
   series: RateGrowthSeries[];
   benchmarks?: Benchmark[];
   colorOffset?: number;
   markerMonth?: string | null;
+  headingLabel?: string;
+  serviceLineSelector?: {
+    value: string;
+    options: Array<{ value: string; label: string }>;
+    onChange: (value: string) => void;
+  };
 }) {
   const chartData = buildChartData(series, benchmarks);
   const daily = series[0]?.rateBasis === "daily";
@@ -191,7 +199,24 @@ export function RateChart({
     <div>
       {series.length === 1 && (
         <div className="mb-1 flex items-center justify-between px-1">
-          <p className="text-xs font-semibold text-[var(--dashboard-text)]">{series[0].label}</p>
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="shrink-0 text-xs font-semibold text-[var(--dashboard-text)]">
+              {headingLabel ?? series[0].label}
+            </p>
+            {serviceLineSelector && (
+              <select
+                value={serviceLineSelector.value}
+                onChange={(event) => serviceLineSelector.onChange(event.target.value)}
+                className="h-7 min-w-0 max-w-[12rem] rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-2 text-[11px] font-medium text-[var(--dashboard-text)] outline-none focus:border-[var(--trilogy-teal)]"
+                aria-label={`Select service line within ${headingLabel ?? series[0].label}`}
+                data-testid={`rate-growth-service-line-${headingLabel ?? series[0].key}`}
+              >
+                {serviceLineSelector.options.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            )}
+          </div>
           <p className="text-[11px] text-[var(--dashboard-muted)]">
             {daily ? "Daily rates" : "Monthly rates"}
           </p>
@@ -271,6 +296,10 @@ export default function RateGrowthDrilldown() {
   const [history, setHistory] = useState<Selection[]>([]);
   const [showNicMap, setShowNicMap] = useState(false);
   const [exportingRentRoll, setExportingRentRoll] = useState(false);
+  const [groupServiceLines, setGroupServiceLines] = useState<Record<string, string>>({
+    SNF: "all",
+    "Senior Housing": "all",
+  });
 
   const query = useQuery<RateGrowthResponse, RateGrowthError>({
     queryKey: ["/api/overview/rate-growth", selection],
@@ -292,6 +321,38 @@ export default function RateGrowthDrilldown() {
     },
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
   });
+  const snfServiceLines = useQuery<RateGrowthResponse, RateGrowthError>({
+    queryKey: ["/api/overview/rate-growth", "service-line-selector", "SNF"],
+    queryFn: async () => {
+      const response = await fetch("/api/overview/rate-growth?group=SNF", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new RateGrowthError(payload?.error || "Unable to load SNF service lines", response.status);
+      }
+      return response.json();
+    },
+    enabled: query.data?.level === "group",
+    retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
+  });
+  const seniorHousingServiceLines = useQuery<RateGrowthResponse, RateGrowthError>({
+    queryKey: ["/api/overview/rate-growth", "service-line-selector", "Senior Housing"],
+    queryFn: async () => {
+      const response = await fetch("/api/overview/rate-growth?group=Senior%20Housing", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new RateGrowthError(payload?.error || "Unable to load Senior Housing service lines", response.status);
+      }
+      return response.json();
+    },
+    enabled: query.data?.level === "group",
+    retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
+  });
 
   const data = query.data;
   const nicMapAvailable = Boolean(
@@ -304,6 +365,10 @@ export default function RateGrowthDrilldown() {
     () => (data?.series ?? []).slice(0, data?.level === "group" || data?.level === "serviceLine" ? 8 : 6),
     [data],
   );
+  const serviceLineSeriesByGroup: Record<string, RateGrowthSeries[]> = {
+    SNF: snfServiceLines.data?.series ?? [],
+    "Senior Housing": seniorHousingServiceLines.data?.series ?? [],
+  };
   const drillInto = (next: Selection) => {
     if (next.serviceLine !== selection.serviceLine) setShowNicMap(false);
     setHistory((current) => [...current, selection]);
@@ -461,16 +526,34 @@ export default function RateGrowthDrilldown() {
               data-testid="rate-growth-plot"
             >
               {data.level === "group"
-                ? visibleSeries.map((series, index) => (
-                    <RateChart
-                      key={series.key}
-                      series={[series]}
-                      benchmarks={visibleBenchmarks.filter(
-                        (benchmark) => !benchmark.appliesToKey || benchmark.appliesToKey === series.key,
-                      )}
-                      colorOffset={index}
-                    />
-                  ))
+                ? visibleSeries.map((series, index) => {
+                    const selectedServiceLine = groupServiceLines[series.key] ?? "all";
+                    const serviceLineSeries = serviceLineSeriesByGroup[series.key] ?? [];
+                    const selectedSeries =
+                      selectedServiceLine === "all"
+                        ? series
+                        : serviceLineSeries.find((item) => item.key === selectedServiceLine) ?? series;
+                    return (
+                      <RateChart
+                        key={series.key}
+                        series={[selectedSeries]}
+                        benchmarks={visibleBenchmarks.filter(
+                          (benchmark) => !benchmark.appliesToKey || benchmark.appliesToKey === series.key,
+                        )}
+                        colorOffset={index}
+                        headingLabel={series.label}
+                        serviceLineSelector={{
+                          value: selectedServiceLine,
+                          options: [
+                            { value: "all", label: `All ${series.label}` },
+                            ...serviceLineSeries.map((item) => ({ value: item.key, label: item.label })),
+                          ],
+                          onChange: (value) =>
+                            setGroupServiceLines((current) => ({ ...current, [series.key]: value })),
+                        }}
+                      />
+                    );
+                  })
                 : <RateChart series={visibleSeries} benchmarks={visibleBenchmarks} />}
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" data-testid="rate-growth-drill-controls">
