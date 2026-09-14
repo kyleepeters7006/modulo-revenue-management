@@ -289,6 +289,10 @@ async function resolveAssumptions(
       .select()
       .from(inhousePlanningAssumptions)
       .where(tier.where)
+      .orderBy(
+        desc(inhousePlanningAssumptions.updatedAt),
+        desc(inhousePlanningAssumptions.createdAt),
+      )
       .limit(1);
     if (row) {
       return {
@@ -434,7 +438,7 @@ export function registerInhousePlanningRoutes(
       // Upsert on the scope key. NULLS NOT DISTINCT on the index means the
       // campus-wide and client-wide rows collide with themselves instead of
       // silently accumulating duplicates.
-      await db
+      const [savedRow] = await db
         .insert(inhousePlanningAssumptions)
         .values(values)
         .onConflictDoUpdate({
@@ -444,11 +448,19 @@ export function registerInhousePlanningRoutes(
             inhousePlanningAssumptions.serviceLine,
           ],
           set: values,
-        });
+        })
+        .returning();
 
       const resolved = await resolveAssumptions(clientId, locationId || null, serviceLine || null);
       res.setHeader("Cache-Control", "no-store");
-      res.json({ ok: true, ...resolved });
+      // Return the row acknowledged by the write rather than relying only on
+      // scope resolution. This keeps the editor aligned with exactly what the
+      // database accepted, including both effective dates.
+      res.json({
+        ok: true,
+        ...resolved,
+        assumptions: savedRow ? rowToAssumptions(savedRow) : resolved.assumptions,
+      });
     } catch (error) {
       console.error("[inhouse-planning] assumptions save failed:", error);
       res.status(500).json({ error: "Failed to save planning assumptions" });

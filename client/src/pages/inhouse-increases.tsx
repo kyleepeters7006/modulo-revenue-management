@@ -2132,7 +2132,23 @@ export default function InhouseIncreases() {
     },
     onSuccess: ({ scopeKey, submitted, savedAssumptions }) => {
       setAssumptionsTouched(false);
-      if (savedAssumptions) setAssumptions(savedAssumptions);
+      if (savedAssumptions) {
+        // Apply the server acknowledgement immediately. The response is the
+        // persisted row, not just the values that were submitted, so dates
+        // cannot disappear while the invalidated query is refetching.
+        setAssumptions(savedAssumptions);
+        queryClient.setQueryData<{
+          assumptions: PlanningAssumptions;
+          scopeLevel: string;
+        }>(
+          [
+            "/api/inhouse-planning/assumptions",
+            scopeLocationId ?? "all",
+            firstLine,
+          ],
+          (old) => (old ? { ...old, assumptions: savedAssumptions } : old),
+        );
+      }
       /**
        * Write the acknowledged policies into the cache before invalidating.
        *
