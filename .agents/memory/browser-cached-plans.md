@@ -53,8 +53,10 @@ must use a new database/key version so old oversized values are never opened.
 loading because startup tried to clone a previously saved portfolio result.
 
 **How to apply:** keep full resident detail only in current-session memory or an
-authorized server store. Label compact restores and require recalculation before
-showing resident-level detail.
+authorized server store. Label compact restores. Any summary click-through that
+needs resident rows must automatically recalculate the same scope, then apply
+the requested filter and navigate only after detail is loaded; never show an
+empty table as though the summary count were zero.
 
 iOS WebKit must use compact localStorage plan snapshots directly, even when
 IndexedDB exists. Do not probe or open the calculated-plan IndexedDB on iPhone or

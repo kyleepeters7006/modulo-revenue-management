@@ -7,4 +7,4 @@ A calculated in-house plan may be submitted as a proposal even when one or more 
 
 **Why:** The proposal workflow exists for review and does not change live rates until implementation and publishing. The user explicitly confirmed that below-target outcomes must remain reviewable and submittable.
 
-**How to apply:** Keep below-target warnings informational and preserve infeasibility details in the saved plan. Submit every calculated service line. Continue blocking submission when actual calculation inputs changed; compare tier-adjusted plan assumptions with the current tier-adjusted assumptions to avoid false stale warnings.
+**How to apply:** Keep below-target warnings informational and preserve infeasibility details in the saved plan. Submit every calculated service line. Block only when the exact raw input snapshot captured at calculation differs from current inputs; returned solver assumptions are normalized and can create false stale warnings.

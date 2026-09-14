@@ -2079,10 +2079,7 @@ export default function InhouseIncreases() {
       if (submittablePlans.length === 0) {
         throw new Error("Calculate a plan before submitting proposals.");
       }
-      const hasChangedAssumptions = submittablePlans.some(
-        ({ sl, plan }) => !planAssumptionsMatch(plan.assumptions, effectiveAssumptionsForPlan(sl)),
-      );
-      if (hasChangedAssumptions) {
+      if (hasChangedPlanAssumptions) {
         throw new Error("These results were calculated with different assumptions. Recalculate the plan before submitting it.");
       }
       const results = await Promise.all(
@@ -2266,9 +2263,16 @@ export default function InhouseIncreases() {
       : assumptionsForLine(sl);
   }
 
-  const hasChangedPlanAssumptions = !!plans?.some(
-    ({ sl, plan }) => !planAssumptionsMatch(plan.assumptions, effectiveAssumptionsForPlan(sl)),
-  );
+  // The tier run snapshots the exact raw policies and assumptions before the
+  // request starts. Compare against that snapshot rather than the normalized
+  // assumptions returned by the solver, which can contain resolved dates and
+  // tier guardrails and therefore look changed even when the operator touched
+  // nothing.
+  const hasChangedPlanAssumptions = tierGrid
+    ? tierGridStale
+    : !!plans?.some(
+        ({ sl, plan }) => !planAssumptionsMatch(plan.assumptions, effectiveAssumptionsForPlan(sl)),
+      );
 
   const rangeError =
     assumptions.minInhouseIncreasePct > assumptions.maxInhouseIncreasePct
@@ -2313,10 +2317,28 @@ export default function InhouseIncreases() {
     });
   }, [allTaggedResidents, sortKey, sortDesc, constrainedOnly, heldBackOnly]);
 
+  useEffect(() => {
+    if (!heldBackOnly || allTaggedResidents.length === 0) return;
+    requestAnimationFrame(() => {
+      document.getElementById("resident-recommendations")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }, [heldBackOnly, allTaggedResidents.length]);
+
   function showHeldBackResidents() {
     setHeldBackOnly(true);
     setConstrainedOnly(false);
     setVisibleCount(50);
+    if (restoredPlanDetailsOmitted || allTaggedResidents.length === 0) {
+      toast({
+        title: "Loading resident details",
+        description: "Refreshing this calculation so the held-back residents and their reasons can be shown.",
+      });
+      calculatePlanAndTiers();
+      return;
+    }
     requestAnimationFrame(() => {
       document.getElementById("resident-recommendations")?.scrollIntoView({
         behavior: "smooth",
@@ -4180,10 +4202,14 @@ export default function InhouseIncreases() {
                 <div>
                   <CardTitle className="text-base">Resident recommendations</CardTitle>
                   <CardDescription>
-                    {sortedResidents.length.toLocaleString()} of{" "}
-                     {allTaggedResidents.length.toLocaleString()} residents
-                     {heldBackOnly ? " held back by the Street Rate or maximum increase" : ""}.
-                     {" "}Tap a row to see why and how the increase was calculated.
+                     {heldBackOnly && (calculate.isPending || calculateTiers.isPending) && allTaggedResidents.length === 0
+                       ? "Loading held-back residents and their calculation details…"
+                       : <>
+                           {sortedResidents.length.toLocaleString()} of{" "}
+                           {allTaggedResidents.length.toLocaleString()} residents
+                           {heldBackOnly ? " held back by the Street Rate or maximum increase" : ""}.
+                           {" "}Tap a row to see why and how the increase was calculated.
+                         </>}
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
