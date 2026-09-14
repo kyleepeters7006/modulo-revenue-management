@@ -32,13 +32,28 @@ export function compactPlanForAnnualReport(plan: PlanResult): AnnualReportPlanSn
     ).length,
   }));
 
+  const {
+    streetRateRecommendations: _legacyRecommendations,
+    streetRateRecommendationSnapshot: _recommendationSnapshot,
+    ...summary
+  } = plan.summary;
+
   return {
-    ...plan,
+    scope: plan.scope,
+    assumptions: plan.assumptions,
+    feasible: plan.feasible,
+    rateBasis: plan.rateBasis,
+    currentStreetRateMonthly: plan.currentStreetRateMonthly,
+    recommendedStreetRateMonthly: plan.recommendedStreetRateMonthly,
+    streetIncreasePct: plan.streetIncreasePct,
+    streetIncreaseDollarsMonthly: plan.streetIncreaseDollarsMonthly,
+    currentStreetRateDisplay: plan.currentStreetRateDisplay,
+    recommendedStreetRateDisplay: plan.recommendedStreetRateDisplay,
+    requiredWeightedAvgIncreasePct: plan.requiredWeightedAvgIncreasePct,
+    monthlyRateProjection: plan.monthlyRateProjection,
+    bindingQuarterLabel: plan.bindingQuarterLabel,
+    summary,
     residents: [],
-    quarters: plan.quarters.map((quarter) => ({
-      ...quarter,
-      roomDetails: undefined,
-    })),
     increaseDistribution,
-  };
+  } as AnnualReportPlanSnapshot;
 }

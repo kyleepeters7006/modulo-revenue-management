@@ -1850,20 +1850,33 @@ export default function InhouseIncreases() {
         plan: compactPlanForAnnualReport(plan),
       }));
       const compactTierGrid = {
-        ...tierGrid,
         lines: tierGrid.lines.map((line) => ({
-          ...line,
+          serviceLine: line.serviceLine,
+          occupancyPct: line.occupancyPct,
+          occupancyMonth: line.occupancyMonth,
+          currentTier: line.currentTier,
+          cells: line.cells,
+          warnings: line.warnings,
           currentPlan: compactPlans.find(({ sl }) => sl === line.serviceLine)?.plan
             ?? compactPlanForAnnualReport(line.currentPlan),
         })),
+        skipped: tierGrid.skipped,
+        scopeKey: tierGrid.scopeKey,
       };
-      const response = await apiRequest("/api/inhouse-planning/annual-report-runs", "POST", {
+      const payload = {
         scopeKey: tierGrid.scopeKey,
         locationId: scopeLocationId,
         serviceLines,
         plans: compactPlans,
         tierGrid: compactTierGrid,
-      });
+      };
+      const payloadBytes = new TextEncoder().encode(JSON.stringify(payload)).byteLength;
+      if (payloadBytes >= 90_000) {
+        throw new Error(
+          `The report snapshot is unexpectedly large (${Math.ceil(payloadBytes / 1024)} KB). Recalculate the plan and try again.`,
+        );
+      }
+      const response = await apiRequest("/api/inhouse-planning/annual-report-runs", "POST", payload);
       return (await response.json()) as { report: { id: string; scopeKey: string } };
     },
     onSuccess: ({ report }) => {

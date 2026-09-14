@@ -27,8 +27,9 @@ const bytes = Buffer.byteLength(JSON.stringify(compact));
 const count = compact.increaseDistribution.reduce((sum, band) => sum + band.count, 0);
 
 if (compact.residents.length !== 0) throw new Error("resident rows were retained");
-if (compact.quarters.some((quarter) => quarter.roomDetails !== undefined)) {
-  throw new Error("quarter room rows were retained");
+if ("quarters" in compact) throw new Error("quarter details were retained");
+if ("streetRateRecommendations" in compact.summary) {
+  throw new Error("legacy recommendation rows were retained");
 }
 if (count !== residents.length) throw new Error(`distribution lost residents: ${count}`);
 if (bytes >= 100_000) throw new Error(`snapshot is still too large: ${bytes} bytes`);
