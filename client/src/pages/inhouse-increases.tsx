@@ -2016,7 +2016,7 @@ export default function InhouseIncreases() {
       }
       return { lines, skipped, scopeKey, inputsKey, inputSnapshot: inputEntries, identityKey, planScopeKey };
     },
-    onSuccess: async (result) => {
+    onSuccess: (result) => {
       // The scope moved while this was in flight. Showing it would label one
       // campus's numbers with another campus's name, so drop it and say so.
       if (result.scopeKey !== tierScopeKeyRef.current) {
@@ -2033,40 +2033,6 @@ export default function InhouseIncreases() {
         plan: line.currentPlan,
       }));
       const lastRunAt = new Date().toISOString();
-      let saved = false;
-      if (result.identityKey) {
-        const compactPlans = calculatedPlans.map(compactPlanForBrowserStorage);
-        const stored: StoredCalculatedPlan = {
-          plans: compactPlans,
-          lastRunAt,
-          detailsOmitted: true,
-          inputsKey: result.inputsKey,
-          inputSnapshot: result.inputSnapshot,
-        };
-        saved = await writeInhousePlanBundle(
-          result.identityKey,
-          { scopeKey: result.planScopeKey, value: stored },
-          compactPlans.map((calculated) => ({
-            scopeKey: calculatedPlanScopeKey(calculated.plan.scope.locationId ?? null, [calculated.sl]),
-            value: {
-              plans: [calculated],
-              lastRunAt,
-              detailsOmitted: true,
-              inputsKey: (() => {
-                const lineSnapshot = result.inputSnapshot.filter(
-                  (entry) => entry.serviceLine === calculated.sl,
-                );
-                return lineSnapshot.length === 1
-                  ? planningInputSnapshotKey(lineSnapshot)
-                  : result.inputsKey;
-              })(),
-              inputSnapshot: result.inputSnapshot.filter(
-                (entry) => entry.serviceLine === calculated.sl,
-              ),
-            } satisfies StoredCalculatedPlan,
-          })),
-        );
-      }
       if (
         result.identityKey === currentStorageIdentity.current &&
         result.planScopeKey === calculatedPlanScopeKey(scopeLocationId, serviceLines)
@@ -2080,17 +2046,57 @@ export default function InhouseIncreases() {
         const first = calculatedPlans.find((entry) => entry.plan.feasible) ?? calculatedPlans[0];
         setExpandedQuarter(first?.plan.bindingQuarterLabel ?? null);
       }
-      if (result.identityKey && !saved) {
-        toast({
-          title: "Plan calculated but not saved",
-          description: "Browser storage is unavailable. Keep this page open or enable site storage before leaving.",
-          variant: "destructive",
-        });
-      }
       if (result.skipped.length > 0) {
         toast({
           title: `${result.skipped.length} service line${result.skipped.length === 1 ? "" : "s"} skipped`,
           description: result.skipped.map(({ sl, message }) => `${sl}: ${message}`).join(" "),
+        });
+      }
+      // Browser persistence is best-effort and must never hold the calculation
+      // mutation open. IndexedDB can be slow or blocked in embedded/mobile
+      // browsers even after the server result is ready.
+      if (result.identityKey) {
+        const compactPlans = calculatedPlans.map(compactPlanForBrowserStorage);
+        const stored: StoredCalculatedPlan = {
+          plans: compactPlans,
+          lastRunAt,
+          detailsOmitted: true,
+          inputsKey: result.inputsKey,
+          inputSnapshot: result.inputSnapshot,
+        };
+        void writeInhousePlanBundle(
+          result.identityKey,
+          { scopeKey: result.planScopeKey, value: stored },
+          compactPlans.map((calculated) => {
+            const inputSnapshot = result.inputSnapshot.filter(
+              (entry) => entry.serviceLine === calculated.sl,
+            );
+            return {
+              scopeKey: calculatedPlanScopeKey(calculated.plan.scope.locationId ?? null, [calculated.sl]),
+              value: {
+                plans: [calculated],
+                lastRunAt,
+                detailsOmitted: true,
+                inputsKey: inputSnapshot.length === 1
+                  ? planningInputSnapshotKey(inputSnapshot)
+                  : result.inputsKey,
+                inputSnapshot,
+              } satisfies StoredCalculatedPlan,
+            };
+          }),
+        ).then((saved) => {
+          if (saved) return;
+          toast({
+            title: "Plan calculated but not saved",
+            description: "Browser storage is unavailable. Keep this page open or enable site storage before leaving.",
+            variant: "destructive",
+          });
+        }).catch(() => {
+          toast({
+            title: "Plan calculated but not saved",
+            description: "Browser storage is unavailable. Keep this page open or enable site storage before leaving.",
+            variant: "destructive",
+          });
         });
       }
     },

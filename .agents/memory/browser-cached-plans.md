@@ -58,6 +58,16 @@ needs resident rows must automatically recalculate the same scope, then apply
 the requested filter and navigate only after detail is loaded; never show an
 empty table as though the summary count were zero.
 
+Browser persistence is best-effort post-processing and must never keep the
+calculation mutation pending after the server result arrives.
+
+**Why:** IndexedDB can be slow or blocked in embedded/mobile browsers, leaving
+Calculate spinning forever even though fresh results are already available.
+
+**How to apply:** commit returned results and finish the mutation first, then
+write compact browser storage in a detached promise and report failures
+separately.
+
 iOS WebKit must use compact localStorage plan snapshots directly, even when
 IndexedDB exists. Do not probe or open the calculated-plan IndexedDB on iPhone or
 iPad; its structured-clone path can terminate the page before an error is raised.

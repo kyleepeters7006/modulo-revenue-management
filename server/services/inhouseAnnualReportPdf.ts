@@ -186,20 +186,21 @@ function drawPlanTable(doc: PDFKit.PDFDocument, plans: JsonObject[], x: number, 
   heading(doc, x, y, width, "Plans by service line");
   const top = y + 17;
   doc.rect(x, top - 2, width, 13).fill(PALE);
-  const cols = [0, 105, 157, 209, 261];
+  const cols = [0, width * 0.34, width * 0.52, width * 0.72, width * 0.86];
+  const widths = [width * 0.33, width * 0.17, width * 0.19, width * 0.13, width * 0.14];
   ["Service line", "Current", "Recommended", "Increase", "Target"].forEach((label, i) => {
-    line(doc, x + cols[i], top, i === 0 ? 100 : 48, label, { size: 6.5, bold: true, color: MUTED });
+    line(doc, x + cols[i], top, widths[i], label, { size: 5.6, bold: true, color: MUTED });
   });
   plans.slice(0, 7).forEach((plan, i) => {
     const yy = top + 15 + i * 14;
     const name = serviceLine(plan);
-    line(doc, x, yy, 101, `${name} (${rateUnit(name)})`, { size: 6.5 });
-    line(doc, x + 105, yy, 50, valueOrDash(rate(plan, "current")), { size: 6.5 });
-    line(doc, x + 157, yy, 50, valueOrDash(rate(plan, "recommended")), { size: 6.5 });
-    line(doc, x + 209, yy, 50, valueOrDash(first(plan, ["streetIncreasePct", "summary.weightedAvgIncreasePct"]), pct), { size: 6.5 });
+    line(doc, x + cols[0], yy, widths[0], `${name} (${rateUnit(name)})`, { size: 5.8 });
+    line(doc, x + cols[1], yy, widths[1], valueOrDash(rate(plan, "current")), { size: 5.8 });
+    line(doc, x + cols[2], yy, widths[2], valueOrDash(rate(plan, "recommended")), { size: 5.8 });
+    line(doc, x + cols[3], yy, widths[3], valueOrDash(first(plan, ["streetIncreasePct", "summary.weightedAvgIncreasePct"]), pct), { size: 5.8 });
     const feasible = first(plan, ["feasible", "targetStatus"]);
     const target = typeof feasible === "boolean" ? (feasible ? "On target" : "Below target") : text(feasible);
-    line(doc, x + 261, yy, 50, target ?? "—", { size: 6.5, color: target === "Below target" ? "#9B2C2C" : NAVY });
+    line(doc, x + cols[4], yy, widths[4], target ?? "—", { size: 5.5, color: target === "Below target" ? "#9B2C2C" : NAVY });
   });
 }
 
@@ -208,22 +209,26 @@ function drawTierTable(doc: PDFKit.PDFDocument, grid: unknown, x: number, y: num
   const cells = tierCells(grid);
   const top = y + 17;
   doc.rect(x, top - 2, width, 13).fill(PALE);
+  const cols = [0, width * 0.40, width * 0.57, width * 0.72, width * 0.86];
+  const widths = [width * 0.39, width * 0.16, width * 0.14, width * 0.13, width * 0.13];
   ["Service line / tier", "Range", "In-house", "Street", "Feasible"].forEach((label, i) => {
-    line(doc, x + [0, 105, 157, 209, 261][i], top, i === 0 ? 100 : 48, label, { size: 6.5, bold: true, color: MUTED });
+    line(doc, x + cols[i], top, widths[i], label, { size: 5.4, bold: true, color: MUTED });
   });
   cells.slice(0, 18).forEach((cell, i) => {
     const yy = top + 13 + i * 7;
     const name = `${serviceLine(cell)} / ${text(first(cell, ["tier", "tierLabel"])) ?? "tier"}${first(cell, ["isCurrent", "measured"]) === true ? " (MEASURED)" : ""}`;
-    line(doc, x, yy, 103, name, { size: 5.5, bold: first(cell, ["isCurrent", "measured"]) === true });
-    line(doc, x + 105, yy, 50, valueOrDash(first(cell, ["rangeLabel", "range", "occupancyRange"])), { size: 5.5 });
-    line(doc, x + 157, yy, 50, valueOrDash(first(cell, ["inhouseIncreasePct"]), pct), { size: 5.5 });
-    line(doc, x + 209, yy, 50, valueOrDash(first(cell, ["streetIncreasePct"]), pct), { size: 5.5 });
-    line(doc, x + 261, yy, 50, valueOrDash(first(cell, ["feasible", "targetStatus"])), { size: 5.5 });
+    line(doc, x + cols[0], yy, widths[0], name, { size: 5.2, bold: first(cell, ["isCurrent", "measured"]) === true });
+    line(doc, x + cols[1], yy, widths[1], valueOrDash(first(cell, ["rangeLabel", "range", "occupancyRange"])), { size: 5.2 });
+    line(doc, x + cols[2], yy, widths[2], valueOrDash(first(cell, ["inhouseIncreasePct"]), pct), { size: 5.2 });
+    line(doc, x + cols[3], yy, widths[3], valueOrDash(first(cell, ["streetIncreasePct"]), pct), { size: 5.2 });
+    line(doc, x + cols[4], yy, widths[4], valueOrDash(first(cell, ["feasible", "targetStatus"])), { size: 5.2 });
   });
 }
 
 function drawKpis(doc: PDFKit.PDFDocument, plans: JsonObject[], x: number, y: number, width: number): void {
   heading(doc, x, y, width, "Revenue / variance KPIs");
+  const cols = [0, width * 0.15, width * 0.45, width * 0.74];
+  const widths = [width * 0.14, width * 0.29, width * 0.28, width * 0.25];
   plans.slice(0, 7).forEach((plan, i) => {
     const yy = y + 17 + i * 18;
     const summary = (first(plan, ["summary"]) as JsonObject | undefined) ?? {};
@@ -239,10 +244,10 @@ function drawKpis(doc: PDFKit.PDFDocument, plans: JsonObject[], x: number, y: nu
       explicitVariance ??
       (currentInhouse != null && futureStreet ? ((currentInhouse - futureStreet) / futureStreet) * 100 : undefined);
     const variance = calculatedVariance;
-    line(doc, x, yy, 103, serviceLine(plan), { size: 6.5, bold: true });
-    line(doc, x + 105, yy, 73, `Annual ${valueOrDash(annual, money)}`, { size: 6.2 });
-    line(doc, x + 181, yy, 73, `Monthly ${valueOrDash(monthly, money)}`, { size: 6.2 });
-    line(doc, x + 257, yy, 54, `Var ${valueOrDash(variance, pct)}`, { size: 6.2 });
+    line(doc, x + cols[0], yy, widths[0], serviceLine(plan), { size: 5.8, bold: true });
+    line(doc, x + cols[1], yy, widths[1], `Annual ${valueOrDash(annual, money)}`, { size: 5.4 });
+    line(doc, x + cols[2], yy, widths[2], `Monthly ${valueOrDash(monthly, money)}`, { size: 5.4 });
+    line(doc, x + cols[3], yy, widths[3], `Var ${valueOrDash(variance, pct)}`, { size: 5.4 });
   });
 }
 
@@ -290,7 +295,7 @@ function drawNarrative(doc: PDFKit.PDFDocument, report: AnnualReportPdfReport, p
   if (!distributions.length) {
     line(doc, x, y + 125, width, "No increase distribution was saved.", { size: 6.5, color: MUTED });
   } else {
-    distributions.slice(0, 3).forEach((entry, i) => {
+    distributions.slice(0, 6).forEach((entry, i) => {
       const label = text(first(entry, ["label", "bucket", "range"])) ?? "Range";
       const count = first(entry, ["count", "residents", "residentCount"]);
       const range = first(entry, ["range"]);
@@ -324,13 +329,16 @@ export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): P
     const pageWidth = doc.page.width - 60;
     line(doc, 30, 26, pageWidth - 100, "ANNUAL IN-HOUSE INCREASE REPORT", { size: 16, color: NAVY, bold: true });
     line(doc, 30, 45, pageWidth - 100, `Scope: ${report.scopeKey}`, { size: 7, color: MUTED });
-    line(doc, pageWidth - 40, 27, 40, status, { size: 8, color: BLUE, bold: true, align: "right" });
-    line(doc, pageWidth - 40, 45, 40, stamp, { size: 6.5, color: MUTED, align: "right" });
+    line(doc, 30 + pageWidth - 100, 27, 100, status, { size: 8, color: BLUE, bold: true, align: "right" });
+    line(doc, 30 + pageWidth - 100, 45, 100, stamp, { size: 6.5, color: MUTED, align: "right" });
 
-    const col = (pageWidth - 24) / 3;
-    drawPlanTable(doc, plans, 30, 66, col);
-    drawTierTable(doc, report.tierGrid, 38 + col, 66, col);
-    drawKpis(doc, plans, 46 + col * 2, 66, col);
+    const gap = 8;
+    const planWidth = pageWidth * 0.30;
+    const tierWidth = pageWidth * 0.37;
+    const kpiWidth = pageWidth - planWidth - tierWidth - gap * 2;
+    drawPlanTable(doc, plans, 30, 66, planWidth);
+    drawTierTable(doc, report.tierGrid, 30 + planWidth + gap, 66, tierWidth);
+    drawKpis(doc, plans, 30 + planWidth + gap + tierWidth + gap, 66, kpiWidth);
     drawNarrative(doc, report, plans, 30, 230, pageWidth);
 
     line(doc, 30, doc.page.height - 25, pageWidth, `Status: ${status}  •  Generated: ${stamp}`, { size: 6.5, color: MUTED });
