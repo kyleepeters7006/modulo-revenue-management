@@ -4474,7 +4474,7 @@ export default function InhouseIncreases() {
                         <div>
                           <p className="text-sm font-medium">{sl}</p>
                           <p className="text-xs text-muted-foreground">
-                            {daily ? "Daily rate" : "Monthly rate"} · full-year YoY in badge · growth from today on hover
+                            {daily ? "Daily rate" : "Monthly rate"} · full-year YoY in badge and hover
                           </p>
                         </div>
                         <Badge variant="outline">
@@ -4517,7 +4517,7 @@ export default function InhouseIncreases() {
                               formatter={(value: number, name: string, item: any) => [
                                 `${formatMoney(Number(value))}${daily ? "/day" : "/mo"}${
                                   name === "Projected realized"
-                                    ? ` (${item.payload.growthFromCurrentPct >= 0 ? "+" : ""}${item.payload.growthFromCurrentPct.toFixed(1)}% from today)`
+                                     ? ` (${chartFullYearYoy.growthPct >= 0 ? "+" : ""}${chartFullYearYoy.growthPct.toFixed(1)}% full-year YoY)`
                                     : ""
                                 }`,
                                 name,
