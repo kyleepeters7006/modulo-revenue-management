@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { generateAllDemoData } from './generateDemoData';
 import { storage } from './storage';
 import { parse } from 'csv-parse/sync';

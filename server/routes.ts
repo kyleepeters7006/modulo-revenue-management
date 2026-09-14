@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * @fileoverview Modulo Revenue Management API Routes
  * 

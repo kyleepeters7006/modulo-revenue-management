@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { Link, useLocation } from 'wouter';

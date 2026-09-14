@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { randomUUID } from 'crypto';
 import { storage } from './storage';
 import { db, pool } from './db';

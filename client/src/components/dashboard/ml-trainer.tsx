@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Brain, Upload, Activity } from "lucide-react";

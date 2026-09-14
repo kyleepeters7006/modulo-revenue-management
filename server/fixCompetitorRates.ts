@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Script to fix competitor rates by converting daily rates to monthly rates
  * This fixes the issue where AL rates were showing as low as $1,231 

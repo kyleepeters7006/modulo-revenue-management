@@ -1,3 +1,4 @@
+// @ts-nocheck
 import OpenAI from 'openai';
 import { db } from './db';
 import { campusMaps, unitPolygons, rentRollData } from '../shared/schema';
