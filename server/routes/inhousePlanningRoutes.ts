@@ -343,6 +343,13 @@ export type InhousePlanningRouteDependencies = {
    * can provide a deterministic plan without seeding the live solver inputs.
    */
   calculatePlan?: typeof calculatePlan;
+  /**
+   * Test seams for the portfolio fan-out. The route still owns location
+   * discovery and report persistence; tests can make the database-heavy
+   * calculation and background scheduling deterministic.
+   */
+  calculatePlanTiersBatch?: typeof calculatePlanTiersBatch;
+  generateCampusAnnualReports?: typeof generateCampusAnnualReports;
 };
 
 export function registerInhousePlanningRoutes(
@@ -350,6 +357,10 @@ export function registerInhousePlanningRoutes(
   dependencies: InhousePlanningRouteDependencies = {},
 ) {
   const calculatePlanForRoute = dependencies.calculatePlan ?? calculatePlan;
+  const calculatePlanTiersBatchForRoute =
+    dependencies.calculatePlanTiersBatch ?? calculatePlanTiersBatch;
+  const generateCampusAnnualReportsForRoute =
+    dependencies.generateCampusAnnualReports ?? generateCampusAnnualReports;
 
   // ── Assumptions ──────────────────────────────────────────────────────────
 
@@ -609,7 +620,7 @@ export function registerInhousePlanningRoutes(
           resolveAssumptions(clientId, locationId, line.serviceLine),
         ),
       );
-      const result = await calculatePlanTiersBatch({
+      const result = await calculatePlanTiersBatchForRoute({
         clientId,
         locationId,
         location,
@@ -641,12 +652,12 @@ export function registerInhousePlanningRoutes(
             .select({ id: locations.id, name: locations.name })
             .from(locations)
             .where(eq(locations.clientId, clientId));
-          const generated = await generateCampusAnnualReports({
+          const generated = await generateCampusAnnualReportsForRoute({
             locations: campusRows,
             lines: reportLines,
             concurrency: 2,
             calculate: (campus, lines) =>
-              calculatePlanTiersBatch({
+              calculatePlanTiersBatchForRoute({
                 clientId,
                 locationId: campus.id,
                 location: campus.name,
