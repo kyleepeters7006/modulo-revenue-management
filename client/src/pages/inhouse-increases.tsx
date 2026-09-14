@@ -2744,9 +2744,10 @@ export default function InhouseIncreases() {
   useEffect(() => {
     const report = latestAnnualReportQuery.data?.report;
     if (scopeLocationId === null || !report) return;
-    // The report snapshot is only the seed for a campus that has never saved
-    // its own assumptions. Wait for scope resolution before restoring it so an
-    // older portfolio-generated snapshot cannot overwrite newer campus dates.
+    // Wait for live scope resolution before restoring historical results. The
+    // report may describe the calculation, but it must never write its captured
+    // inputs into the editor: current campus assumptions win when present, and
+    // current portfolio assumptions are the fallback when they are not.
     if (!assumptionsQuery.isSuccess) return;
     if (report.locationId !== scopeLocationId || !Array.isArray(report.plans)) return;
     // Saving the current calculation creates a report with a newer timestamp
@@ -2820,51 +2821,15 @@ export default function InhouseIncreases() {
         inputSnapshot: inputSnapshot ?? [],
       });
     }
-    if (inputSnapshot?.length) {
-      const hasCampusAssumptionOverride =
-        assumptionsQuery.data.scopeLevel === "location+serviceLine" ||
-        assumptionsQuery.data.scopeLevel === "location";
-      const firstInput = inputSnapshot.find(({ serviceLine }) =>
-        serviceLines.includes(serviceLine),
-      );
-      if (!hasCampusAssumptionOverride) {
-        if (firstInput) setAssumptions(firstInput.assumptions);
-        setPerLineTargets(Object.fromEntries(
-          inputSnapshot.map(({ serviceLine, assumptions }) => [
-            serviceLine,
-            {
-              rateGrowthTargetPct: assumptions.rateGrowthTargetPct,
-              annualTurnoverPct: assumptions.annualTurnoverPct,
-            },
-          ]),
-        ));
-      }
-      setTierState({
-        scopeKey: policyScopeKey,
-        policies: Object.fromEntries(
-          inputSnapshot.map(({ serviceLine, tierPolicy }) => [serviceLine, tierPolicy]),
-        ),
-        edited: {},
-        loaded: Object.fromEntries(
-          inputSnapshot.map(({ serviceLine }) => [serviceLine, true as const]),
-        ),
-      });
-      // Only an unsaved campus is governed by the portfolio inputs that created
-      // its report. Once a campus-specific row exists, its acknowledged dates
-      // and assumptions remain authoritative across filter changes.
-      setAssumptionsTouched(!hasCampusAssumptionOverride);
-    }
     const first = selected.find((entry) => entry.plan.feasible) ?? selected[0];
     setExpandedQuarter(first?.plan.bindingQuarterLabel
       ? `${first.sl}-${first.plan.bindingQuarterLabel}`
       : null);
   }, [
     latestAnnualReportQuery.data,
-    assumptionsQuery.data,
     assumptionsQuery.isSuccess,
     lastRunAt,
     plans,
-    policyScopeKey,
     calculatedPlanKey,
     storageIdentityKey,
     scopeLocationId,
