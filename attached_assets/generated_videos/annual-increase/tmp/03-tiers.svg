@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720"><rect width="1280" height="720" fill="#071722"/>
+  <g transform="translate(128 72) scale(.8)">
   <rect width="1280" height="720" fill="#071722"/>
   <rect x="80" y="58" width="1120" height="2" fill="#43d0c0" opacity=".7"/>
   <text x="80" y="34" font-family="DejaVu Sans,Arial" font-size="14" font-weight="700" fill="#43d0c0" text-anchor="start">02  /  SCENARIOS</text>
@@ -30,4 +31,5 @@
         <text x="1040" y="462" font-family="DejaVu Sans,Arial" font-size="13" font-weight="700" fill="#0b8a68" text-anchor="middle">✓  On target</text>
         
       <text x="112" y="625" font-family="DejaVu Sans,Arial" font-size="12" font-weight="400" fill="#667b85" text-anchor="start">The full grid remains visible so leaders can see how occupancy changes pricing power.</text>
-    <rect x="80" y="70" width="1120" height="610" rx="4" fill="none" stroke="#ffffff" opacity=".7"/></svg>
+    </g>
+  <rect x="128" y="72" width="1024" height="576" rx="4" fill="none" stroke="#ffffff" opacity=".7"/></svg>

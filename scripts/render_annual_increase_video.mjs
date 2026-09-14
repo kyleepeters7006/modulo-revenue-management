@@ -21,7 +21,9 @@ const header = (chapter, title, body) => `
   ${text(80, 34, chapter, 14, teal, 700)}
   ${text(270, 38, title, 25, ink, 500)}
   ${text(1198, 35, body, 12, muted, 500, "end")}`;
-const frame = (body) => `${body}<rect x="80" y="70" width="1120" height="610" rx="4" fill="none" stroke="#ffffff" opacity=".7"/>`;
+const frame = (body) => `<rect width="${W}" height="${H}" fill="${bg}"/>
+  <g transform="translate(128 72) scale(.8)">${body}</g>
+  <rect x="128" y="72" width="1024" height="576" rx="4" fill="none" stroke="#ffffff" opacity=".7"/>`;
 const svg = (body) => `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${body}</svg>`;
 
 const scenes = [

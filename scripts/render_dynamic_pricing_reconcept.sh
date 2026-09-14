@@ -62,19 +62,19 @@ render_ui_scene() {
   local cursor_end_x="${14}"
   local cursor_end_y="${15}"
 
-  # Show the complete 16:9 capture inside the film frame. Lanczos downscaling
-  # plus light sharpening keeps the zoomed-out interface legible.
+  # Show the complete 16:9 capture with generous space around it. Keeping the
+  # scaled screen centered prevents the interface from feeling cropped.
   ffmpeg -hide_banner -loglevel error -y \
     -loop 1 -i "$image" \
     -f lavfi -i "color=c=$BG:s=${W}x${H}:r=$FPS:d=$duration" \
     -filter_complex "\
-[0:v]scale=1120:630:flags=lanczos,unsharp=5:5:0.45:5:5:0,format=rgba,drawbox=x=0:y=0:w=1120:h=630:color=white@0.85:t=2[screen];\
+[0:v]scale=1000:562:flags=lanczos,unsharp=5:5:0.45:5:5:0,format=rgba,drawbox=x=0:y=0:w=1000:h=562:color=white@0.85:t=2[screen];\
 [1:v]format=rgba[bg];\
 [bg]drawbox=x=80:y=58:w=1120:h=2:color=${TEAL}@0.7:t=fill,\
 drawtext=fontfile=${SANS}:text='${chapter}':fontcolor=${TEAL}:fontsize=14:x=80:y=15,\
 drawtext=fontfile=${SERIF}:text='${title}':fontcolor=${INK}:fontsize=25:x=270:y=9,\
 drawtext=fontfile=${SANS}:text='${body}':fontcolor=${MUTED}:fontsize=12:x=700:y=21[header];\
-[header][screen]overlay=x=80:y=70,\
+[header][screen]overlay=x=140:y=104,\
 fade=t=in:st=0:d=0.35:alpha=1,fade=t=out:st=$(awk "BEGIN{print $duration-0.45}"):d=0.45:alpha=1,\
 format=yuv420p[v]" \
     -map "[v]" -an -t "$duration" -r "$FPS" -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p "$out"
