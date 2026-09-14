@@ -7172,20 +7172,30 @@ export async function registerRoutes(
         return d.getFullYear() === targetDate.getFullYear() && d.getMonth() === targetDate.getMonth();
       }
 
-      const spyData = await fetchMonthlySeriesFromAlphaVantage('SPY');
+      const INDUSTRY_BASKET = ['WELL', 'VTR', 'LTC', 'SBRA', 'OHI'];
+      const symbolsToLoad = clientId === 'demo'
+        ? ['SPY']
+        : ['SPY', ...INDUSTRY_BASKET];
+      const loadedSeries = await Promise.all(
+        symbolsToLoad.map(async (symbol) => [
+          symbol,
+          await fetchMonthlySeriesFromAlphaVantage(symbol),
+        ] as const),
+      );
+      const seriesBySymbol = new Map(loadedSeries);
+      const spyData = seriesBySymbol.get('SPY') ?? {};
       const spySortedDates = Object.keys(spyData).sort();
       const useRealSP500Data = spySortedDates.length > months;
 
       // Senior-housing REIT basket — pure senior living operators/REITs only.
       // BKD and AMH were removed: BKD delisted/volatile; AMH is an apartment REIT.
-      const INDUSTRY_BASKET = ['WELL', 'VTR', 'LTC', 'SBRA', 'OHI'];
       const basketSeriesMap: Record<string, Record<string, number>> = {};
       // Demo client uses a synthetic NIC-style industry curve (real REIT stock prices
       // reflect capital-markets volatility, not operational revenue growth).
       // Always initialise each entry so downstream Object.keys() calls never throw.
       for (const symbol of INDUSTRY_BASKET) {
         basketSeriesMap[symbol] = (clientId !== 'demo')
-          ? await fetchMonthlySeriesFromAlphaVantage(symbol)
+          ? seriesBySymbol.get(symbol) ?? {}
           : {};
       }
       const hasRealIndustryData = clientId !== 'demo' &&

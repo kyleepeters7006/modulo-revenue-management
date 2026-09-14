@@ -9,7 +9,7 @@
 import type { Express } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, like, sql } from "drizzle-orm";
 import { db, pool } from "../db";
 import { invalidateRefDataCache } from "../refDataCache";
 import {
@@ -814,6 +814,85 @@ export function registerInhousePlanningRoutes(
     } catch (error) {
       console.error("[inhouse-planning] campus occupancy failed:", error);
       res.status(500).json({ error: "Failed to load campus occupancy" });
+    }
+  });
+
+  // Reopened portfolio reports contain compact service-line plans without the
+  // resident rows used to derive campus dots in the browser. The portfolio run
+  // already creates one saved calculation per campus, so expose those exact
+  // campus/service-line results rather than collapsing the chart to six
+  // portfolio aggregates.
+  app.get("/api/inhouse-planning/campus-plan-points", async (req: any, res) => {
+    try {
+      const clientId = req.clientId || "demo";
+      const serviceLines = String(req.query.serviceLines ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (serviceLines.length === 0) {
+        return res.status(400).json({ error: "At least one service line is required" });
+      }
+      const scopeSuffix = `|${serviceLines.join(",")}`;
+      const rows = await db
+        .select({
+          locationId: inhouseAnnualReportRuns.locationId,
+          plans: inhouseAnnualReportRuns.plans,
+          tierGrid: inhouseAnnualReportRuns.tierGrid,
+          generatedAt: inhouseAnnualReportRuns.generatedAt,
+        })
+        .from(inhouseAnnualReportRuns)
+        .where(and(
+          eq(inhouseAnnualReportRuns.clientId, clientId),
+          isNotNull(inhouseAnnualReportRuns.locationId),
+          like(inhouseAnnualReportRuns.scopeKey, `%${scopeSuffix}`),
+        ))
+        .orderBy(desc(inhouseAnnualReportRuns.generatedAt));
+
+      const points = rows.flatMap((row) => {
+        const plans = Array.isArray(row.plans) ? row.plans : [];
+        const tierLines =
+          row.tierGrid &&
+          typeof row.tierGrid === "object" &&
+          Array.isArray((row.tierGrid as { lines?: unknown }).lines)
+            ? (row.tierGrid as { lines: any[] }).lines
+            : [];
+        return plans.flatMap((entry: any) => {
+          const sl = typeof entry?.sl === "string" ? entry.sl : null;
+          const plan = entry?.plan;
+          const summary = plan?.summary;
+          if (
+            !sl ||
+            !serviceLines.includes(sl) ||
+            !plan ||
+            !summary ||
+            !Number.isFinite(Number(summary.weightedAvgIncreasePct)) ||
+            !Number.isFinite(Number(plan.streetIncreasePct))
+          ) {
+            return [];
+          }
+          const tierLine = tierLines.find((line) => line?.serviceLine === sl);
+          const occupancyValue = tierLine?.occupancyPct;
+          if (occupancyValue == null) return [];
+          const occupancy = Number(occupancyValue);
+          if (!Number.isFinite(occupancy)) return [];
+          return [{
+            locationId: row.locationId,
+            location: plan.scope?.location ?? `Campus ${row.locationId}`,
+            serviceLine: sl,
+            occupancy,
+            inhouseIncrease: Number(summary.weightedAvgIncreasePct),
+            streetIncrease: Number(plan.streetIncreasePct),
+            occupancyMonth: tierLine?.occupancyMonth ?? null,
+            residents: Number(summary.residentCount) || 0,
+            generatedAt: row.generatedAt?.toISOString?.() ?? String(row.generatedAt),
+          }];
+        });
+      });
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ points });
+    } catch (error) {
+      console.error("[inhouse-planning] campus plan points failed:", error);
+      res.status(500).json({ error: "Failed to load campus plan points" });
     }
   });
 

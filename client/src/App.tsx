@@ -5,7 +5,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { UploadProvider } from "@/contexts/upload-context";
 import SessionExpiredNotice from "@/components/session-expired-notice";
-import { usePrefetch } from "@/hooks/usePrefetch";
 import Overview from "@/pages/overview";
 import DataManagement from "@/pages/data-management";
 import RateCard from "@/pages/rate-card";
@@ -31,7 +30,6 @@ import ResetPassword from "@/pages/reset-password";
 import ModuloAssistant from "@/components/assistant/ModuloAssistant";
 
 function AppContent() {
-  usePrefetch();
   return (
     <TooltipProvider>
       <div className="dark">

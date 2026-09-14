@@ -18,6 +18,7 @@ const BLUE = "#2F6B95";
 const MUTED = "#637381";
 const PALE = "#EEF3F7";
 const BORDER = "#C9D4DE";
+const GREEN = "#18723A";
 
 function objects(value: unknown): JsonObject[] {
   if (Array.isArray(value)) return value.filter((v): v is JsonObject => !!v && typeof v === "object");
@@ -135,6 +136,17 @@ function heading(doc: PDFKit.PDFDocument, x: number, y: number, width: number, v
 
 function valueOrDash(value: unknown, formatter: (v: unknown) => string | null = scalar): string {
   return formatter(value) ?? "—";
+}
+
+function increaseColor(value: number | null, values: Array<number | null>): string {
+  if (value == null) return "#202020";
+  const finite = values.filter((item): item is number => item != null && Number.isFinite(item));
+  const min = Math.min(...finite);
+  const max = Math.max(...finite);
+  const ratio = max > min ? (value - min) / (max - min) : 0.55;
+  if (ratio >= 0.66) return GREEN;
+  if (ratio >= 0.33) return "#375F3D";
+  return "#202020";
 }
 
 function reportRecommendation(report: AnnualReportPdfReport, plans: JsonObject[]): string | null {
@@ -350,6 +362,7 @@ type WorkbookRow = {
   proposedStreet: number | null;
   streetIncrease: number | null;
   variance: number | null;
+  annualizedRevenue: number | null;
   portfolioShare: number | null;
 };
 
@@ -395,6 +408,13 @@ function workbookRows(plans: JsonObject[], grid: unknown, tier?: string): Workbo
       proposedStreet,
       streetIncrease,
       variance: proposedStreet ? ((proposedInhouse ?? 0) - proposedStreet) / proposedStreet * 100 : null,
+      annualizedRevenue: scenario
+        ? (
+            currentInhouse != null && residents != null && inhouseIncrease != null
+              ? currentInhouse * residents * (inhouseIncrease / 100) * 12
+              : null
+          )
+        : number(first(summary, ["totalAnnualIncreaseDollars"])),
       portfolioShare: residents != null && totalResidents > 0 ? residents / totalResidents * 100 : null,
     };
   });
@@ -410,17 +430,18 @@ function drawWorkbookBlock(
   accent: string,
 ): void {
   const columns = [
-    { label: "Service line", weight: 1.35, align: "left" as const },
-    { label: "Count", weight: 0.62, align: "right" as const },
-    { label: "Current IH", weight: 0.82, align: "right" as const },
-    { label: "New IH", weight: 0.82, align: "right" as const },
-    { label: "IH avg inc.", weight: 0.72, align: "right" as const },
-    { label: "Current street", weight: 0.9, align: "right" as const },
-    { label: "New street", weight: 0.85, align: "right" as const },
-    { label: "Street inc.", weight: 0.72, align: "right" as const },
-    { label: "Street to IH", weight: 0.78, align: "right" as const },
-    { label: "Residents", weight: 0.72, align: "right" as const },
-    { label: "Portfolio %", weight: 0.72, align: "right" as const },
+    { label: "Service line", weight: 1.25, align: "left" as const },
+    { label: "Count", weight: 0.58, align: "right" as const },
+    { label: "Current IH", weight: 0.76, align: "right" as const },
+    { label: "New IH", weight: 0.76, align: "right" as const },
+    { label: "IH avg inc.", weight: 0.68, align: "right" as const },
+    { label: "Current street", weight: 0.84, align: "right" as const },
+    { label: "New street", weight: 0.79, align: "right" as const },
+    { label: "Street inc.", weight: 0.68, align: "right" as const },
+    { label: "Street to IH", weight: 0.72, align: "right" as const },
+    { label: "Annualized revenue", weight: 0.9, align: "right" as const },
+    { label: "Residents", weight: 0.67, align: "right" as const },
+    { label: "Portfolio %", weight: 0.67, align: "right" as const },
   ];
   const totalWeight = columns.reduce((sum, column) => sum + column.weight, 0);
   const widths = columns.map((column) => width * column.weight / totalWeight);
@@ -449,6 +470,8 @@ function drawWorkbookBlock(
   });
 
   const rowHeight = 15;
+  const inhouseValues = rows.map((row) => row.inhouseIncrease);
+  const streetValues = rows.map((row) => row.streetIncrease);
   rows.forEach((row, index) => {
     const rowY = headerY + 28 + index * rowHeight;
     if (index % 2) doc.rect(x, rowY, width, rowHeight).fill("#F6F8FA");
@@ -462,14 +485,19 @@ function drawWorkbookBlock(
       valueOrDash(row.proposedStreet, money),
       valueOrDash(row.streetIncrease, pct),
       valueOrDash(row.variance, pct),
+      valueOrDash(row.annualizedRevenue, money),
       row.residents == null ? "—" : row.residents.toLocaleString("en-US"),
       valueOrDash(row.portfolioShare, pct),
     ];
     values.forEach((value, columnIndex) => {
       line(doc, positions[columnIndex] + 3, rowY + 4, widths[columnIndex] - 6, value, {
-        size: 5.4,
+        size: 6.4,
         bold: columnIndex === 0,
-        color: "#202020",
+        color: columnIndex === 4
+          ? increaseColor(row.inhouseIncrease, inhouseValues)
+          : columnIndex === 7
+            ? increaseColor(row.streetIncrease, streetValues)
+            : "#202020",
         align: columns[columnIndex].align,
       });
     });
@@ -499,13 +527,19 @@ function drawWorkbookBlock(
     "—",
     valueOrDash(weighted("streetIncrease"), pct),
     valueOrDash(weighted("variance"), pct),
+    valueOrDash(rows.reduce((sum, row) => sum + (row.annualizedRevenue ?? 0), 0), money),
     residentTotal.toLocaleString("en-US"),
     residentTotal ? "100.0%" : "—",
   ];
   totals.forEach((value, columnIndex) => {
     line(doc, positions[columnIndex] + 3, totalY + 5, widths[columnIndex] - 6, value, {
-      size: 5.6,
+      size: 6.4,
       bold: true,
+      color: columnIndex === 4
+        ? increaseColor(weighted("inhouseIncrease"), inhouseValues)
+        : columnIndex === 7
+          ? increaseColor(weighted("streetIncrease"), streetValues)
+          : "#202020",
       align: columns[columnIndex].align,
     });
   });
@@ -514,23 +548,119 @@ function drawWorkbookBlock(
 function drawWorkbookPageHeader(
   doc: PDFKit.PDFDocument,
   report: AnnualReportPdfReport,
-  status: string,
   stamp: string,
   pageNumber: number,
 ): void {
   const width = doc.page.width - 36;
   line(doc, 18, 14, width * 0.65, "ANNUAL IN-HOUSE RATE PLAN", { size: 12, bold: true });
   line(doc, 18, 30, width * 0.65, `Scope: ${report.scopeKey}`, { size: 6.3, color: MUTED });
-  line(doc, 18 + width * 0.65, 15, width * 0.35, `${status}  •  Page ${pageNumber} of 2`, {
+  line(doc, 18 + width * 0.65, 15, width * 0.35, `Page ${pageNumber} of 2`, {
     size: 6.5, bold: true, color: BLUE, align: "right",
   });
   line(doc, 18 + width * 0.65, 30, width * 0.35, stamp, { size: 5.8, color: MUTED, align: "right" });
 }
 
+function drawWorkbookScatterplots(
+  doc: PDFKit.PDFDocument,
+  rows: WorkbookRow[],
+  grid: unknown,
+  x: number,
+  y: number,
+  width: number,
+): void {
+  const occupancy = new Map(
+    objects((grid as JsonObject)?.lines).map((line) => [
+      serviceLine(line),
+      number(first(line, ["occupancyPct"])),
+    ]),
+  );
+  const points = rows.flatMap((row) => {
+    const xValue = occupancy.get(row.line);
+    return xValue == null ? [] : [{ ...row, occupancy: xValue }];
+  });
+  if (!points.length) return;
+  line(doc, x, y, width, "PRICING POSITION BY SERVICE LINE", { size: 7.5, bold: true });
+  doc.moveTo(x, y + 11).lineTo(x + width, y + 11).lineWidth(0.5).strokeColor(BORDER).stroke();
+
+  const gap = 20;
+  const chartWidth = (width - gap) / 2;
+  const colors: Record<string, string> = {
+    AL: "#2F6B95", "AL/MC": "#7A5C9E", HC: "#388194",
+    "HC/MC": "#7A8B3A", SL: "#B06D32", VIL: "#8B4B62",
+  };
+  const draw = (field: "inhouseIncrease" | "streetIncrease", title: string, chartX: number) => {
+    const top = y + 17;
+    const plotX = chartX + 28;
+    const plotY = top + 11;
+    const plotWidth = chartWidth - 38;
+    const plotHeight = 53;
+    const xValues = points.map((point) => point.occupancy);
+    const yValues = points.map((point) => point[field] ?? 0);
+    const xMin = Math.floor(Math.min(...xValues) / 5) * 5;
+    const xMax = Math.max(xMin + 5, Math.ceil(Math.max(...xValues) / 5) * 5);
+    const yMin = Math.min(0, Math.floor(Math.min(...yValues)));
+    const yMax = Math.max(yMin + 1, Math.ceil(Math.max(...yValues)));
+    const occupiedLabels: Array<{ left: number; top: number; right: number; bottom: number }> = [];
+    const labelPlacements = points.map((point) => {
+      const value = point[field] ?? 0;
+      const px = plotX + (point.occupancy - xMin) / (xMax - xMin) * plotWidth;
+      const py = plotY + plotHeight - (value - yMin) / (yMax - yMin) * plotHeight;
+      const labelWidth = Math.max(8, point.line.length * 3.2);
+      const candidates = [
+        { x: px + 4, y: py - 2, align: "left" as const },
+        { x: px - labelWidth - 4, y: py - 2, align: "left" as const },
+        { x: px - labelWidth / 2, y: py - 9, align: "left" as const },
+        { x: px - labelWidth / 2, y: py + 5, align: "left" as const },
+        { x: px + 4, y: py - 9, align: "left" as const },
+        { x: px - labelWidth - 4, y: py - 9, align: "left" as const },
+      ];
+      const placement = candidates.find((candidate) => {
+        const box = {
+          left: candidate.x,
+          top: candidate.y,
+          right: candidate.x + labelWidth,
+          bottom: candidate.y + 7,
+        };
+        const withinPlot =
+          box.left >= plotX &&
+          box.right <= plotX + plotWidth &&
+          box.top >= plotY &&
+          box.bottom <= plotY + plotHeight;
+        const overlaps = occupiedLabels.some((used) =>
+          box.left < used.right + 2 &&
+          box.right > used.left - 2 &&
+          box.top < used.bottom + 2 &&
+          box.bottom > used.top - 2,
+        );
+        if (!withinPlot || overlaps) return false;
+        occupiedLabels.push(box);
+        return true;
+      }) ?? candidates[0];
+      return { point, px, py, labelWidth, ...placement };
+    });
+    line(doc, chartX, top, chartWidth, title, { size: 6.4, bold: true });
+    doc.moveTo(plotX, plotY).lineTo(plotX, plotY + plotHeight).lineTo(plotX + plotWidth, plotY + plotHeight)
+      .lineWidth(0.5).strokeColor("#657789").stroke();
+    [0, 0.5, 1].forEach((step) => {
+      const yy = plotY + plotHeight * (1 - step);
+      doc.moveTo(plotX, yy).lineTo(plotX + plotWidth, yy).lineWidth(0.25).strokeColor("#D9DEE5").stroke();
+      line(doc, chartX, yy - 2, 24, `${(yMin + (yMax - yMin) * step).toFixed(0)}%`, { size: 4.8, align: "right" });
+    });
+    line(doc, plotX, plotY + plotHeight + 3, 35, `${xMin}%`, { size: 4.8 });
+    line(doc, plotX + plotWidth - 55, plotY + plotHeight + 3, 55, `${xMax}% occupancy`, { size: 4.8, align: "right" });
+    labelPlacements.forEach(({ point, px, py, x: labelX, y: labelY, labelWidth }) => {
+      doc.circle(px, py, 2.5).fill(colors[point.line] ?? "#44546A");
+      line(doc, labelX, labelY, labelWidth, point.line, { size: 4.8, bold: true });
+    });
+  };
+  draw("inhouseIncrease", "In-House increase", x);
+  draw("streetIncrease", "Street Rate increase", x + chartWidth + gap);
+}
+
 /**
  * Render the saved report snapshot without recalculating it. The reference
- * workbook is a fixed two-page landscape report: Combined + Tier 1 on page 1,
- * then Tier 2 + Tier 3 on page 2.
+ * workbook is a fixed two-page landscape report: Combined + charts on page 1,
+ * then all three occupancy tiers on page 2.
  */
 export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -547,19 +677,19 @@ export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): P
     doc.on("end", () => resolve(Buffer.concat(chunks)));
 
     const plans = reportPlans(report.plans);
-    const status = report.status ?? planStatus(plans);
     const stamp = report.generatedAt ? new Date(report.generatedAt).toLocaleString("en-US") : "—";
     const pageX = 18;
     const pageWidth = doc.page.width - 36;
     const combinedRows = workbookRows(plans, report.tierGrid);
-    drawWorkbookPageHeader(doc, report, status, stamp, 1);
+    drawWorkbookPageHeader(doc, report, stamp, 1);
     drawWorkbookBlock(doc, combinedRows, pageX, 54, pageWidth, "Combined", "#44546A");
-    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "high"), pageX, 300, pageWidth, "Occupancy Tier 1  •  High occupancy", "#F5F4ED");
+    drawWorkbookScatterplots(doc, combinedRows, report.tierGrid, pageX, 300, pageWidth);
 
     doc.addPage();
-    drawWorkbookPageHeader(doc, report, status, stamp, 2);
-    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "target"), pageX, 54, pageWidth, "Occupancy Tier 2  •  Target occupancy", "#101010");
-    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "low"), pageX, 300, pageWidth, "Occupancy Tier 3  •  Low occupancy", "#388194");
+    drawWorkbookPageHeader(doc, report, stamp, 2);
+    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "high"), pageX, 54, pageWidth, "Occupancy Tier 1  •  High occupancy", "#F5F4ED");
+    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "target"), pageX, 218, pageWidth, "Occupancy Tier 2  •  Target occupancy", "#101010");
+    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "low"), pageX, 382, pageWidth, "Occupancy Tier 3  •  Low occupancy", "#388194");
 
     const pages = doc.bufferedPageRange();
     if (pages.count !== 2) {

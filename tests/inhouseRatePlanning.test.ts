@@ -493,8 +493,12 @@ console.log("\n-- 6. An achievable target solves the modeled quarterly outcome -
   const noTurnover = solveWithTurnover(0);
   ok("plan is feasible", result.feasible);
   ok(
-    "modeled replacement revenue reduces the in-house increase needed",
-    result.requiredAvgIncrease < noTurnover.requiredAvgIncrease,
+    "the solver does not add the former one-point resident cushion",
+    result.requiredAvgIncrease * 100 < 5,
+  );
+  ok(
+    "replacement Street Rates reduce the resident increase needed to clear the target",
+    result.requiredAvgIncrease < noTurnover.requiredAvgIncrease - 1e-6,
   );
   ok(
     "Street Rate is not pushed past the objective to do in-house's work",
@@ -505,17 +509,33 @@ console.log("\n-- 6. An achievable target solves the modeled quarterly outcome -
     result.recommendedStreetMonthly >= result.postIncreaseAvgRateMonthly * 1.01 - 0.01,
   );
   ok("every quarter passes", result.quarterResults.every((q) => q.passes));
-  const binding = result.quarterResults.find((q) => q.isBinding);
-  near(
-    "the binding quarter lands on the target instead of treating turnover as excess upside",
-    binding?.yoyGrowthPct ?? 0,
-    5,
-    0.001,
+  ok(
+    "the minimum combined solution still clears the target",
+    result.quarterResults.every((q) => q.yoyGrowthPct >= 5 - 0.001),
   );
   ok("no infeasibility block", result.infeasibility === null);
   ok(
     "the required increase is within the configured maximum",
     result.requiredAvgIncrease * 100 <= 8 + 1e-6,
+  );
+  const allocationWeightedNumerator = result.allocation.allocations.reduce(
+    (sum, allocation) =>
+      sum +
+      allocation.resident.weight *
+        allocation.resident.currentRateMonthly *
+        allocation.increase,
+    0,
+  );
+  const allocationWeightedDenominator = result.allocation.allocations.reduce(
+    (sum, allocation) =>
+      sum + allocation.resident.weight * allocation.resident.currentRateMonthly,
+    0,
+  );
+  near(
+    "resident recommendations reconcile exactly to the selected average",
+    allocationWeightedNumerator / allocationWeightedDenominator,
+    result.requiredAvgIncrease,
+    1e-9,
   );
 }
 
@@ -619,16 +639,19 @@ console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rat
     currentStreetRateMonthly: 5000,
     topCompetitorRateMonthly: 5500,
   });
-  ok(
-    "a scope below its desired Top Competitor position moves toward that position",
-    competitive.streetIncrease > 0,
+  near(
+    "competitive preference does not add unsupported Street growth beyond the target need",
+    competitive.streetIncrease * 100,
+    0,
+    0.01,
   );
   ok(
-    "but competitive position cannot push Street Rate past the growth objective",
-    competitive.streetIncrease * 100 <= 2 + 0.01,
+    "the lower combined solution still clears every measured quarter",
+    competitive.feasible && competitive.quarterResults.every((q) => q.passes),
   );
 
-  // In-house is capped hard, so Street Rate has to carry the objective here.
+  // In-house is selected first and capped hard, so Street Rate carries only
+  // the remaining modeled gap.
   const aboveDesired = solvePlan({
     residents: roomyPopulation(),
     assumptions: assumptions({
@@ -643,10 +666,15 @@ console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rat
     topCompetitorRateMonthly: 5000,
   });
   ok(
-    "Street Rate still rises when a capped in-house lever cannot reach the objective",
+    "Street Rate rises only after the resident-first average hits its cap",
     aboveDesired.streetIncrease * 100 > 6,
   );
-  ok("resident increases remain within their configured cap", aboveDesired.requiredAvgIncrease * 100 <= 1.5 + 0.01);
+  near(
+    "the in-house average uses the configured cap when the target requires more",
+    aboveDesired.requiredAvgIncrease * 100,
+    1.5,
+    1e-6,
+  );
 
   const noBenchmark = solvePlan({
     residents: roomyPopulation(),
@@ -672,8 +700,8 @@ console.log("\n-- 6c. Calculate Plan combines competitive and minimum Street Rat
   );
 }
 
-// ── 6d. Variance to Top Competitor decides which lever carries the growth ───
-console.log("\n-- 6d. Variance to Top Competitor decides Street vs in-house --");
+// ── 6d. Market positioning cannot add unsupported growth ────────────────────
+console.log("\n-- 6d. Minimum combined growth wins over optional market positioning --");
 {
   const solveAtVariance = (desiredVarianceToTopCompetitorPct: number) =>
     solvePlan({
@@ -690,11 +718,10 @@ console.log("\n-- 6d. Variance to Top Competitor decides Street vs in-house --")
       topCompetitorRateMonthly: 5200,
     });
 
-  // Asking rate sits above the desired competitor position, so only the growth
-  // preferred growth target moves Street Rate.
+  // Asking rate sits above the desired competitor position.
   const wellAbove = solveAtVariance(-40);
-  // The operator wants to be well above the top competitor, so the asking rate
-  // has competitive room and is the lever that moves first.
+  // The operator wants to be well above the top competitor, but that preference
+  // must not create growth beyond what the quarterly target requires.
   const wellBelow = solveAtVariance(40);
 
   ok(
@@ -702,16 +729,20 @@ console.log("\n-- 6d. Variance to Top Competitor decides Street vs in-house --")
     wellAbove.streetIncrease * 100 < 1,
   );
   ok(
-    "competitive room pulls Street Rate up",
-    wellBelow.streetIncrease > wellAbove.streetIncrease + 1e-6,
+    "competitive room does not increase Street Rate when it is unnecessary for the target",
+    Math.abs(wellBelow.streetIncrease - wellAbove.streetIncrease) < 1e-9,
   );
   ok(
     "but never past the growth objective",
     wellBelow.streetIncrease * 100 <= 5 + 0.01,
   );
   ok(
-    "more replacement Street Rate growth reduces the in-house increase needed",
-    wellBelow.requiredAvgIncrease < wellAbove.requiredAvgIncrease,
+    "market positioning does not change the minimum required resident average",
+    Math.abs(wellBelow.requiredAvgIncrease - wellAbove.requiredAvgIncrease) < 1e-9,
+  );
+  ok(
+    "the selected resident average stays below the growth target when embedded growth supplies the rest",
+    wellAbove.requiredAvgIncrease * 100 < 5,
   );
   ok(
     "both directions still clear every quarter",
@@ -720,8 +751,8 @@ console.log("\n-- 6d. Variance to Top Competitor decides Street vs in-house --")
   );
 }
 
-// ── 6e. Joint target fit beats a Street-first lever split ─────────────────
-console.log("\n-- 6e. Joint optimization minimizes avoidable later-quarter excess --");
+// ── 6e. Street and resident increases are jointly minimized ─────────────────
+console.log("\n-- 6e. Combined Street and resident growth is minimized --");
 {
   const solveWithStreetFloor = (minStreetIncreasePct: number) =>
     solvePlan({
@@ -742,8 +773,21 @@ console.log("\n-- 6e. Joint optimization minimizes avoidable later-quarter exces
   const referenceCandidates = [0, 2, 4, 6, 8].map(solveWithStreetFloor);
   const excess = (result: ReturnType<typeof solvePlan>) =>
     result.quarterResults.reduce((sum, q) => sum + Math.max(0, -q.shortfallPct) / 100, 0);
+  const combinedIncrease = (result: ReturnType<typeof solvePlan>) =>
+    result.streetIncrease + result.requiredAvgIncrease;
 
   ok("joint plan remains feasible in the high-turnover fixture", joint.feasible);
+  near(
+    "high turnover can eliminate an unnecessary resident increase",
+    joint.requiredAvgIncrease * 100,
+    0,
+    1e-6,
+  );
+  ok("every measurable quarter remains at or above target", joint.quarterResults.every((q) => q.passes));
+  ok(
+    "the selected combined increase is no greater than deterministic Street-floor alternatives",
+    combinedIncrease(joint) <= Math.min(...referenceCandidates.map(combinedIncrease)) + 1e-8,
+  );
   ok(
     "joint plan has no more maximum quarterly excess than a Street-first floor",
     Math.max(...joint.quarterResults.map((q) => Math.max(0, -q.shortfallPct))) <=
@@ -855,7 +899,7 @@ console.log("\n-- 6e. Joint optimization minimizes avoidable later-quarter exces
   );
 }
 
-// ── 7. Impossible because the maximum increase is too low ──────────────────
+// ── 7. Residual growth is impossible within the Street ceiling ─────────────
 console.log("\n-- 7. An unreachable target is reported, not silently approximated --");
 {
   const result = solvePlan({
@@ -869,18 +913,21 @@ console.log("\n-- 7. An unreachable target is reported, not silently approximate
   ok("plan is reported infeasible", !result.feasible);
   ok("an infeasibility block is returned", result.infeasibility !== null);
   ok(
-    "the binding constraint is the maximum increase",
-    result.infeasibility?.bindingConstraint === "max_increase",
+    "the residual shortfall is attributed to the Street ceiling",
+    result.infeasibility?.bindingConstraint === "street_ceiling",
     `got ${result.infeasibility?.bindingConstraint}`,
+  );
+  ok(
+    "the diagnostic does not recommend raising the resident cap under the fixed-average policy",
+    result.infeasibility?.minimumChange.maxInhouseIncreasePct === null,
+  );
+  ok(
+    "the diagnostic explains that resident recommendations remain fixed",
+    result.infeasibility?.message.includes("remain fixed at the resident-first average") === true,
   );
   ok(
     "no resident exceeds the 1% maximum despite the plan falling short",
     result.allocation.allocations.every((a) => a.increase <= 0.01 + 1e-9),
-  );
-  ok(
-    "a concrete larger maximum is suggested",
-    (result.infeasibility?.minimumChange.maxInhouseIncreasePct ?? 0) > 1,
-    `got ${result.infeasibility?.minimumChange.maxInhouseIncreasePct}`,
   );
   ok(
     "the achievable growth is reported and is below the target",
@@ -888,8 +935,8 @@ console.log("\n-- 7. An unreachable target is reported, not silently approximate
   );
 }
 
-// ── 7b. Impossible because the configured resident maximum is too low ──────
-console.log("\n-- 7b. Street position does not replace the resident maximum --");
+// ── 7b. Street is the remaining lever after the resident average is fixed ───
+console.log("\n-- 7b. Residual shortfall is assigned to Street Rate --");
 {
   const atStreet = [
     resident("A", 5000, 5000),
@@ -906,8 +953,8 @@ console.log("\n-- 7b. Street position does not replace the resident maximum --")
   });
   ok("plan is infeasible", !result.feasible);
   ok(
-    "the binding constraint is the resident maximum, not Street Rate",
-    result.infeasibility?.bindingConstraint === "max_increase",
+    "the binding constraint is the zero Street Rate ceiling",
+    result.infeasibility?.bindingConstraint === "street_ceiling",
     `got ${result.infeasibility?.bindingConstraint}`,
   );
   ok(

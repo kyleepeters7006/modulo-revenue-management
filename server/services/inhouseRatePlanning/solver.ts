@@ -5,18 +5,13 @@
  * operator-readable explanations, which are generated here on purpose so the
  * words an operator reads cannot drift away from the math that produced them.
  *
- * ── Why street rate and in-house increase are solved TOGETHER ───────────────
- * On real data 44% of AL private-pay residents already sit at or above their
- * street rate (median gap to street 1.1%, p10 −3.3%). With the default rule
- * that an in-house rate may not exceed street, those residents have zero
- * headroom, so the achievable weighted-average increase is a FUNCTION of the
- * street rate. A sequential "pick a street rate, then allocate" approach
- * therefore fails on the normal case, not on an edge case.
- *
- * The solver evaluates Street-rate candidates and bisects the in-house
- * increase required for each candidate. It then compares the complete
- * quarterly outcomes rather than treating either lever as an independent
- * target.
+ * ── Resident-first policy ────────────────────────────────────────────────────
+ * Existing-resident revenue is the dependable lever, so the solver first fixes
+ * a revenue-weighted in-house average one percentage point above the growth
+ * target, capped by the configured resident guardrails. It allocates that
+ * average by each resident's variance to Street Rate. Only after that average
+ * is fixed does it select a Street-rate increase for any remaining modeled gap
+ * and supported market positioning.
  *
  * ── Rate space ─────────────────────────────────────────────────────────────
  * Every rate in this file is a normalized MONTHLY rate. Callers convert HC and
@@ -752,6 +747,7 @@ interface JointCandidate {
   maxOvershoot: number;
   shortfall: number;
   marketPenalty: number;
+  portfolioPremiumDeficit: number;
 }
 
 /**
@@ -762,20 +758,24 @@ interface JointCandidate {
 function evaluateJointCandidate(
   ctx: EvalContext,
   streetIncrease: number,
-  maxAvgAt: (g: number) => number,
   marketPenalty: (g: number, avg: number) => number,
 ): JointCandidate {
   const model = buildProjectionModel(ctx, streetIncrease);
-  const maxAvg = maxAvgAt(streetIncrease);
-  const maxProjected = projectFromModel(ctx, streetIncrease, maxAvg, model);
-  const maxWorst = worstMargin(ctx, maxProjected);
-  const canReach = maxWorst.margin >= -PASS_EPSILON;
-  const required = canReach
-    ? requiredAvgIncreaseAt(ctx, streetIncrease, Math.max(maxAvg, ctx.max), model)
-    : maxAvg;
-  const allocation = allocationFor(ctx, streetIncrease, required);
+  const requiredResidentAvg = requiredAvgIncreaseAt(ctx, streetIncrease, ctx.max, model);
+  const residentTargetAvg = Math.max(ctx.min, Math.min(ctx.max, requiredResidentAvg));
+  const allocation = allocationFor(ctx, streetIncrease, residentTargetAvg);
   const projected = projectFromModel(ctx, streetIncrease, allocation.achievedAvgIncrease, model);
   const worst = worstMargin(ctx, projected);
+  const portfolioPremiumDeficit =
+    ctx.input.enforcePortfolioStreetPremium && ctx.input.currentStreetRateMonthly > 0
+      ? Math.max(
+          0,
+          (ctx.baseAvg * (1 + allocation.achievedAvgIncrease) * 1.01) /
+              ctx.input.currentStreetRateMonthly -
+            1 -
+            streetIncrease,
+        )
+      : 0;
   let overshoot = 0;
   let maxOvershoot = 0;
   let shortfall = 0;
@@ -802,6 +802,7 @@ function evaluateJointCandidate(
     maxOvershoot,
     shortfall,
     marketPenalty: marketPenalty(streetIncrease, allocation.achievedAvgIncrease),
+    portfolioPremiumDeficit,
   };
 }
 
@@ -1063,21 +1064,27 @@ function buildTargetDeviationDiagnostic(
 }
 
 /**
- * Compare candidate outcomes lexicographically:
+ * Compare complete Street/in-house combinations:
  *   1. achieve every testable quarter when possible;
- *   2. minimize shortfall or excess above target;
- *   3. preserve supported market positioning;
- *   4. prefer dependable in-house revenue when the quarterly fit is materially
- *      equivalent.
- *
- * The small target-fit tolerance prevents a tiny quarterly difference from
- * defeating a meaningful in-house preference, while still preventing the
- * several-point overshoot that motivated the joint solve.
+ *   2. minimize the combined Street and in-house increases;
+ *   3. minimize any unavoidable excess above target;
+ *   4. preserve supported market positioning.
  */
 function betterJointCandidate(a: JointCandidate, b: JointCandidate): boolean {
   if (a.feasible !== b.feasible) return a.feasible;
   if (!a.feasible && Math.abs(a.worst.margin - b.worst.margin) > 1e-8) {
     return a.worst.margin > b.worst.margin;
+  }
+  if (a.feasible) {
+    const premiumA = a.portfolioPremiumDeficit <= 1e-8;
+    const premiumB = b.portfolioPremiumDeficit <= 1e-8;
+    if (premiumA !== premiumB) return premiumA;
+    if (!premiumA && Math.abs(a.portfolioPremiumDeficit - b.portfolioPremiumDeficit) > 1e-8) {
+      return a.portfolioPremiumDeficit < b.portfolioPremiumDeficit;
+    }
+    const combinedA = a.streetIncrease + a.allocation.achievedAvgIncrease;
+    const combinedB = b.streetIncrease + b.allocation.achievedAvgIncrease;
+    if (Math.abs(combinedA - combinedB) > 1e-8) return combinedA < combinedB;
   }
   if (a.feasible && Math.abs(a.maxOvershoot - b.maxOvershoot) > 0.0005) {
     return a.maxOvershoot < b.maxOvershoot;
@@ -1089,14 +1096,11 @@ function betterJointCandidate(a: JointCandidate, b: JointCandidate): boolean {
   if (Math.abs(a.marketPenalty - b.marketPenalty) > 1e-8) {
     return a.marketPenalty < b.marketPenalty;
   }
-  return a.allocation.achievedAvgIncrease > b.allocation.achievedAvgIncrease + 1e-8;
+  return a.streetIncrease < b.streetIncrease - 1e-8;
 }
 
 export function solvePlan(input: SolveInput): SolveOutput {
   const ctx = buildContext(input);
-  // Both levers participate in one quarterly realized-rate objective. Existing
-  // resident revenue is preferred only when the target fit is materially
-  // equivalent; hard operator and January YoY ceilings always win.
   const currentStreet = input.currentStreetRateMonthly;
   const ordinaryCeiling = Math.max(0, input.assumptions.maxStreetIncreasePct / 100);
   const priorJanuaryStreet = input.priorJanuaryStreetRateMonthly;
@@ -1168,13 +1172,17 @@ export function solvePlan(input: SolveInput): SolveOutput {
   }
   let best: JointCandidate | null = null;
   for (const streetIncrease of Array.from(candidates)) {
-    const candidate = evaluateJointCandidate(ctx, streetIncrease, maxAvgAt, marketPenalty);
+    const candidate = evaluateJointCandidate(
+      ctx,
+      streetIncrease,
+      marketPenalty,
+    );
     if (best == null || betterJointCandidate(candidate, best)) best = candidate;
   }
   // The candidate set always contains at least the configured minimum and the
   // hard ceiling. This guard keeps the failure explicit if that invariant ever
   // changes during a future refactor.
-  if (!best) throw new Error("Rate planning joint optimization produced no candidates.");
+  if (!best) throw new Error("Rate planning Street optimization produced no candidates.");
 
   const streetIncrease = best.streetIncrease;
   const finalAllocation = best.allocation;
@@ -1206,7 +1214,7 @@ export function solvePlan(input: SolveInput): SolveOutput {
   if (configuredMinimum > 0 && Math.abs(streetIncrease - configuredMinimum) < 1e-6) {
     optimizationDrivers.push("the configured Street minimum");
   }
-  if (Math.abs(streetIncrease - ceilStreet) < 1e-6 && ceilStreet < ordinaryCeiling - 1e-6) {
+  if (Math.abs(streetIncrease - ceilStreet) < 1e-6) {
     optimizationDrivers.push("the Street or January-to-January ceiling");
   }
   if (ctx.turnover > 0 && input.currentStreetRateMonthly > 0) {
@@ -1242,9 +1250,9 @@ export function solvePlan(input: SolveInput): SolveOutput {
     projectionModelCount: candidates.size,
     optimizationNote:
       feasible && targetDeviationDiagnostic.cumulativeDeviationPct > PASS_EPSILON
-        ? `The target is met with ${formatPct(targetDeviationDiagnostic.maximumQuarterDeviationPct, 2)} maximum-quarter and ${formatPct(targetDeviationDiagnostic.cumulativeDeviationPct, 2)} cumulative modeled overshoot because the selected joint path rises across later quarters.${driverText}`
+        ? `The minimum combined solution uses a ${formatPct(appliedAvg * 100, 2)} in-house average and meets the target with ${formatPct(targetDeviationDiagnostic.maximumQuarterDeviationPct, 2)} maximum-quarter and ${formatPct(targetDeviationDiagnostic.cumulativeDeviationPct, 2)} cumulative modeled overshoot.${driverText}`
         : !feasible
-          ? `The best available joint combination still misses at least one quarter because the configured resident and Street guardrails are binding.${driverText}`
+          ? `The best combined solution uses a ${formatPct(appliedAvg * 100, 2)} in-house average, but still misses at least one quarter because configured guardrails are binding.${driverText}`
           : null,
   };
 }
@@ -1405,30 +1413,16 @@ function buildInfeasibility(
   worst: { margin: number; label: string | null },
 ): Infeasibility {
   const requiredAvg = requiredAvgIncreaseAt(ctx, streetIncrease, Math.max(ctx.max, 1));
-  const achievable = allocation.maxAvgIncrease;
+  const residentFirstAvg = allocation.achievedAvgIncrease;
+  const requestedBeforeCap = ctx.target + 0.01;
+  const residentCapApplied = requestedBeforeCap > ctx.max + 1e-9;
 
-  // Which bound is actually holding the average down?
-  let streetCappedWeight = 0;
-  let maxCappedWeight = 0;
-  let noHeadroomWeight = 0;
-  let totalWeight = 0;
-  for (const a of allocation.allocations) {
-    const w = a.resident.weight * a.resident.currentRateMonthly;
-    totalWeight += w;
-    if (a.constraint === "at_or_above_street") noHeadroomWeight += w;
-    else if (a.constraint === "street_cap") streetCappedWeight += w;
-    else if (a.constraint === "max") maxCappedWeight += w;
-  }
-
-  let bindingConstraint: Infeasibility["bindingConstraint"];
-  if (totalWeight > 0 && noHeadroomWeight / totalWeight >= 0.5) bindingConstraint = "no_headroom";
-  else if (streetCappedWeight + noHeadroomWeight > maxCappedWeight) bindingConstraint = "street_cap";
-  else if (maxCappedWeight > 0) bindingConstraint = "max_increase";
-  else bindingConstraint = "street_ceiling";
-
-  // Minimum single change that would make the target reachable.
-  const neededMaxPct = findMinimumMaxIncrease(ctx, streetIncrease, requiredAvg);
-  const neededStreetPct = findMinimumStreetIncrease(ctx);
+  // Under the resident-first policy, the resident average is intentionally
+  // fixed before Street Rate is optimized. If the full plan is still short,
+  // the remaining adjustable lever is Street Rate; raising the resident maximum
+  // would not change the selected average and must not be recommended.
+  const bindingConstraint: Infeasibility["bindingConstraint"] = "street_ceiling";
+  const neededStreetPct = findMinimumStreetIncrease(ctx, residentFirstAvg);
 
   const achievableGrowth = (() => {
     let worstGrowth = Number.POSITIVE_INFINITY;
@@ -1444,87 +1438,40 @@ function buildInfeasibility(
 
   const parts: string[] = [];
   parts.push(
-    `The ${formatPct(ctx.target * 100)} target needs a ${formatPct(requiredAvg * 100)} weighted-average in-house increase, but the current settings only permit ${formatPct(achievable * 100)}.`,
+    `The resident-first policy selected a ${formatPct(residentFirstAvg * 100)} weighted-average in-house increase for the ${formatPct(ctx.target * 100)} growth target.`,
   );
-  if (bindingConstraint === "no_headroom") {
-    const share = totalWeight > 0 ? (noHeadroomWeight / totalWeight) * 100 : 0;
+  if (residentCapApplied) {
     parts.push(
-      `${share.toFixed(0)}% of in-house revenue sits with residents already at or above their street rate, so they cannot be increased at all while in-house rates are held to street.`,
-    );
-  } else if (bindingConstraint === "street_cap") {
-    parts.push(
-      "Most of the shortfall comes from residents who hit their street rate before reaching the maximum increase. Raising the street rate is what creates the room.",
-    );
-  } else if (bindingConstraint === "max_increase") {
-    parts.push(
-      `The ${formatPct(ctx.max * 100)} maximum increase is the binding limit — residents have headroom to street but are not allowed to use it.`,
-    );
-  } else {
-    parts.push(
-      `Even at the ${formatPct(ceilStreet * 100)} street-increase ceiling the target cannot be reached.`,
+      `The preferred target-plus-one-point average was capped at the configured ${formatPct(ctx.max * 100)} resident maximum.`,
     );
   }
+  parts.push(
+    `The modeled quarter would need ${formatPct(requiredAvg * 100)} from residents at the selected Street Rate, but resident recommendations remain fixed at the resident-first average. Even at the ${formatPct(ceilStreet * 100)} Street Rate ceiling, the remaining growth gap cannot be reached.`,
+  );
 
   return {
     bindingConstraint,
     message: parts.join(" "),
     bindingQuarterLabel: worst.label,
     requiredAvgIncreasePct: requiredAvg * 100,
-    achievableAvgIncreasePct: achievable * 100,
+    achievableAvgIncreasePct: residentFirstAvg * 100,
     minimumChange: {
-      maxInhouseIncreasePct: neededMaxPct,
+      maxInhouseIncreasePct: null,
       streetIncreasePct: neededStreetPct,
       achievableGrowthTargetPct: achievableGrowth,
     },
   };
 }
 
-/** Smallest max-increase setting whose ceiling reaches `requiredAvg`. Null if none does. */
-function findMinimumMaxIncrease(
-  ctx: EvalContext,
-  streetIncrease: number,
-  requiredAvg: number,
-): number | null {
-  const streetActiveAtInhouse = ctx.streetMs <= ctx.inhouseMs;
-  const ceilingAt = (maxPct: number) =>
-    allocateIncreases({
-      residents: ctx.input.residents,
-      targetAvgIncrease: Number.POSITIVE_INFINITY,
-      minIncrease: Math.min(ctx.min, maxPct),
-      maxIncrease: maxPct,
-      strength: ctx.input.assumptions.equalizationStrength,
-      allowAboveStreet: true,
-      streetMultiplier: streetActiveAtInhouse ? 1 + streetIncrease : 1,
-    }).maxAvgIncrease;
-
-  const HARD_CEILING = 1.0; // 100% — beyond this the answer is not a plan
-  if (ceilingAt(HARD_CEILING) < requiredAvg - 1e-9) return null;
-  let lo = ctx.max;
-  let hi = HARD_CEILING;
-  if (ceilingAt(lo) >= requiredAvg) return lo * 100;
-  for (let i = 0; i < 50; i++) {
-    const mid = (lo + hi) / 2;
-    if (ceilingAt(mid) >= requiredAvg) hi = mid;
-    else lo = mid;
-  }
-  return hi * 100;
-}
-
 /** Smallest street increase at which the target becomes reachable. Null if none is. */
-function findMinimumStreetIncrease(ctx: EvalContext): number | null {
+function findMinimumStreetIncrease(ctx: EvalContext, residentTargetAvg: number): number | null {
   const HARD_CEILING = 1.0;
-  const streetActiveAtInhouse = ctx.streetMs <= ctx.inhouseMs;
   const feasibleAt = (g: number) => {
-    const ceiling = allocateIncreases({
-      residents: ctx.input.residents,
-      targetAvgIncrease: Number.POSITIVE_INFINITY,
-      minIncrease: ctx.min,
-      maxIncrease: ctx.max,
-      strength: ctx.input.assumptions.equalizationStrength,
-      allowAboveStreet: true,
-      streetMultiplier: streetActiveAtInhouse ? 1 + g : 1,
-    }).maxAvgIncrease;
-    return worstMargin(ctx, projectFor(ctx, g, ceiling)).margin >= -PASS_EPSILON;
+    const allocation = allocationFor(ctx, g, residentTargetAvg);
+    return (
+      worstMargin(ctx, projectFor(ctx, g, allocation.achievedAvgIncrease)).margin >=
+      -PASS_EPSILON
+    );
   };
   if (!feasibleAt(HARD_CEILING)) return null;
   let lo = 0;

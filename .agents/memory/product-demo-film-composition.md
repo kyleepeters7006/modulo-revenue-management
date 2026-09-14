@@ -5,6 +5,19 @@ description: Non-obvious rules for cutting screen-recording-style product videos
 
 # Composing a product demo film from static screenshots
 
+## Methodology videos must use the real product
+
+Process and methodology videos should be built around actual software captures,
+not illustrated or reconstructed interface scenes. Motion may come from genuine
+screen recordings or restrained camera movement over real product screenshots.
+
+**Why:** the product owner explicitly wants viewers to see the software performing
+the process, not an abstract visual explanation of the same concepts.
+
+**How to apply:** source every workflow scene from the running app or an approved
+product capture. Editorial headings and framing are acceptable, but the evidence
+inside the frame must remain recognizable, readable product UI.
+
 ## Never cross-dissolve two dense UI screens
 
 A plain `xfade=transition=fade` between two screenshots of a data-dense app puts
@@ -17,6 +30,20 @@ soft areas; product screens do not.
 
 **How to apply:** dip through black (`transition=fadeblack`) or wipe. Keep the
 transition inside a narration pause so the audio does not fight the cut.
+
+## Static software screens must remain physically stable
+
+Do not apply continuous `zoompan` motion to dense product screenshots. Even a
+small per-frame zoom can create subpixel resampling that makes table text and
+window edges appear to shake.
+
+**Why:** the product owner rejected this motion as visible screen instability in
+the Annual In-House Rate Plan tutorial.
+
+**How to apply:** scale each screenshot once to integer output dimensions and
+hold the resulting frame unchanged for the scene. Use brief dips to black for
+motion between screens. If camera movement is needed, use a genuine screen
+recording or validate a restrained transform frame by frame.
 
 ## An opaque end card must not fade in over live UI
 

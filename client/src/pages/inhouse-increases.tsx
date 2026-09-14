@@ -36,6 +36,7 @@ import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
   Dialog,
   DialogContent,
@@ -1091,18 +1092,32 @@ interface CampusOccupancyReading {
   source: "occupancy_history" | "rent_roll";
 }
 
+interface CampusPlanPoint {
+  locationId: string;
+  location: string;
+  serviceLine: string;
+  occupancy: number;
+  inhouseIncrease: number;
+  streetIncrease: number;
+  occupancyMonth: string | null;
+  residents: number;
+  generatedAt: string;
+}
+
 function PlanScatterReview({
   plans,
   selectedLocationId,
   selectedServiceLines,
   tierGrid,
   campusOccupancy,
+  campusPlanPoints,
 }: {
   plans: PlanWithSl[];
   selectedLocationId: string | null;
   selectedServiceLines: string[];
   tierGrid: TierGridResult | null;
   campusOccupancy: CampusOccupancyReading[];
+  campusPlanPoints: CampusPlanPoint[];
 }) {
   const [highlight, setHighlight] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -1134,31 +1149,29 @@ function PlanScatterReview({
       // memory while Scope changes. Never let those stale plans contribute a
       // point under the newly selected filter labels.
       const tierLine = tierGrid?.lines.find((line) => line.serviceLine === sl);
-      // Portfolio plans are valid service-line aggregates, but not valid
-      // campus slices. Plot one portfolio point per line from the plan summary
-      // and portfolio occupancy rather than grouping resident rows by campus.
-      if (selectedLocationId === null && plan.scope.locationId === null) {
+      // Compact saved reports omit resident rows. Their calculated summary is
+      // still sufficient for one aggregate point while details reload. Full
+      // portfolio plans continue below and group resident rows by campus so
+      // "All campuses" actually displays every campus with measured occupancy.
+      if (plan.residents.length === 0) {
+        if (selectedLocationId === null) {
+          const restoredCampusPoints = campusPlanPoints.filter((point) => point.serviceLine === sl);
+          if (restoredCampusPoints.length > 0) {
+            return restoredCampusPoints.map((point) => ({
+              ...point,
+              streetSource: "calculated campus service-line recommendation",
+            }));
+          }
+        }
         return [{
-          location: "All campuses",
+          location: plan.scope.location ?? (selectedLocationId === null ? "All campuses" : "Selected campus"),
           serviceLine: sl,
           occupancy: tierLine?.occupancyPct ?? null,
           inhouseIncrease: plan.summary.weightedAvgIncreasePct,
           streetIncrease: plan.streetIncreasePct,
-          streetSource: "calculated portfolio service-line recommendation",
-          occupancyMonth: tierLine?.occupancyMonth ?? null,
-          residents: plan.summary.residentCount,
-        }];
-      }
-      // Compact campus reports omit resident rows. Their calculated summary is
-      // still sufficient for the scatter point while details reload.
-      if (plan.residents.length === 0 && selectedLocationId !== null) {
-        return [{
-          location: plan.scope.location ?? "Selected campus",
-          serviceLine: sl,
-          occupancy: tierLine?.occupancyPct ?? null,
-          inhouseIncrease: plan.summary.weightedAvgIncreasePct,
-          streetIncrease: plan.streetIncreasePct,
-          streetSource: "calculated campus service-line recommendation",
+          streetSource: selectedLocationId === null
+            ? "calculated portfolio service-line recommendation"
+            : "calculated campus service-line recommendation",
           occupancyMonth: tierLine?.occupancyMonth ?? null,
           residents: plan.summary.residentCount,
         }];
@@ -1189,7 +1202,7 @@ function PlanScatterReview({
         };
       });
     }).filter((point) => point.occupancy != null && Number.isFinite(point.occupancy));
-  }, [occupancyByLine, plans, selectedLocationId, selectedServiceLines, tierGrid]);
+  }, [campusPlanPoints, occupancyByLine, plans, selectedLocationId, selectedServiceLines, tierGrid]);
 
   const unknownCount = useMemo(() => {
     const scopedPlans = filterPlansForScatterScope(plans, selectedLocationId, selectedServiceLines);
@@ -1245,7 +1258,7 @@ function PlanScatterReview({
           data-testid="button-toggle-inhouse-scatterplots"
         >
           <div className="space-y-1.5">
-            <CardTitle className="text-base">Pricing position by service line</CardTitle>
+            <CardTitle className="text-base">Pricing Position by Service Line</CardTitle>
             <CardDescription>
               Scatterplots of occupancy against in-house and Street Rate increases.
             </CardDescription>
@@ -1261,7 +1274,7 @@ function PlanScatterReview({
         <CardContent id="inhouse-scatterplot-content" className="pt-4">
           <p className="mb-3 text-xs text-muted-foreground">
             {selectedLocationId === null
-              ? "Each dot is a portfolio service-line calculation. Occupancy is measured; unknown readings are not plotted."
+              ? "Each dot is one campus and service-line calculation. Occupancy is measured; unknown readings are not plotted."
               : "Each dot is a selected-campus service-line calculation. Occupancy is measured; unknown readings are not plotted."}
           </p>
           <div className="mb-4 flex flex-wrap gap-x-4 gap-y-2 border-y py-3">
@@ -1845,6 +1858,21 @@ export default function InhouseIncreases() {
     queryKey: ["/api/inhouse-planning/occupancy-by-campus"],
     enabled: plans !== null,
     staleTime: 5 * 60 * 1000,
+  });
+  const { data: campusPlanPointsData } = useQuery<{ points: CampusPlanPoint[] }>({
+    queryKey: ["/api/inhouse-planning/campus-plan-points", serviceLines.join(",")],
+    queryFn: async () => {
+      const params = new URLSearchParams({ serviceLines: serviceLines.join(",") });
+      const res = await fetch(`/api/inhouse-planning/campus-plan-points?${params}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    enabled: plans !== null && scopeLocationId === null,
+    refetchInterval: restoredPlanDetailsOmitted ? 10_000 : false,
+    retry: false,
   });
 
   // Saved assumptions for this scope. Loading them replaces the editor state
@@ -3593,198 +3621,191 @@ export default function InhouseIncreases() {
               </p>
             </div>
 
-            <div className="overflow-x-auto">
-              <div className="min-w-[46rem]">
-                <div
-                  className={cn(
-                    TIER_GRID_COLS,
-                    "items-end border-b pb-1 text-[11px] font-medium text-muted-foreground",
-                  )}
-                >
-                  <span>Service line</span>
-                  <span>Tier</span>
-                  <HeaderHelp
-                    label="Occupancy"
-                    explanation="The measured occupancy range this tier governs. Set the lower cutoff on the Low row and the upper cutoff on the High row; the Target range between them follows automatically."
-                  />
-                  <HeaderHelp
-                    label="In-house min / max"
-                    explanation="The smallest and largest increase any individual resident may receive under this tier."
-                  />
-                  <HeaderHelp
-                    label="Street min / max"
-                    explanation="The bounds on the recommended Street Rate increase under this tier."
-                  />
-                  <HeaderHelp
-                    label="Max YoY"
-                    explanation="Ceiling on the Street Rate increase measured year over year, independent of the per-cycle maximum."
-                  />
-                  <HeaderHelp
-                    label="vs Top comp"
-                    explanation="Where the Street Rate should sit against the care-adjusted Top Competitor benchmark. Negative prices below the competitor, positive above."
-                  />
-                  <HeaderHelp
-                    label="Equalization"
-                    explanation="How much more the residents furthest below street rate get than those closest to it."
-                  />
-                </div>
-
-                {serviceLines.map((sl) => {
-                  const policy = tierPolicyFor(sl);
-                  // Until the stored policy arrives, what is shown is a
-                  // default. Editing it would record the default as chosen and
-                  // discard whatever the server actually had for this line.
-                  const lineDisabled = !tierLineLoaded(sl);
-                  return (
-                    <div key={sl} className="border-b py-1 last:border-b-0">
-                      {OCCUPANCY_TIER_IDS.map((tier, tierIndex) => {
-                        const g = policy.tiers[tier];
-                        return (
-                          <div
-                            key={tier}
-                            className={cn(TIER_GRID_COLS, "items-center py-0.5")}
-                            data-testid={`tier-row-${sl}-${tier}`}
-                          >
-                            <span className="truncate text-xs font-medium">
-                              {tierIndex === 0 ? sl : ""}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {OCCUPANCY_TIER_LABELS[tier]}
-                            </span>
-
-                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                              {tier === "low" && (
-                                <>
-                                  <span>&lt;</span>
-                                  <TierInput
-                                    disabled={lineDisabled}
-                                    value={policy.lowCutoffPct}
-                                    min={0}
-                                    max={100}
-                                    onCommit={(v) => updateTierCutoff(sl, "lowCutoffPct", v)}
-                                    testId={`tier-cutoff-low-${sl}`}
-                                  />
-                                </>
-                              )}
-                              {tier === "target" && (
-                                <span className="tabular-nums">
-                                  {policy.lowCutoffPct}–{policy.highCutoffPct}%
-                                </span>
-                              )}
-                              {tier === "high" && (
-                                <>
-                                  <span>≥</span>
-                                  <TierInput
-                                    disabled={lineDisabled}
-                                    value={policy.highCutoffPct}
-                                    min={0}
-                                    max={100}
-                                    onCommit={(v) => updateTierCutoff(sl, "highCutoffPct", v)}
-                                    testId={`tier-cutoff-high-${sl}`}
-                                  />
-                                </>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-1">
-                              <TierInput
-                                disabled={lineDisabled}
-                                value={g.minInhouseIncreasePct}
-                                min={0}
-                                max={100}
-                                onCommit={(v) =>
-                                  updateTierGuardrail(sl, tier, "minInhouseIncreasePct", v)
-                                }
-                              />
-                              <span className="text-[11px] text-muted-foreground">–</span>
-                              <TierInput
-                                disabled={lineDisabled}
-                                value={g.maxInhouseIncreasePct}
-                                min={0}
-                                max={100}
-                                onCommit={(v) =>
-                                  updateTierGuardrail(sl, tier, "maxInhouseIncreasePct", v)
-                                }
-                              />
-                            </div>
-
-                            <div className="flex items-center gap-1">
-                              <TierInput
-                                disabled={lineDisabled}
-                                value={g.minStreetIncreasePct}
-                                min={0}
-                                max={100}
-                                onCommit={(v) =>
-                                  updateTierGuardrail(sl, tier, "minStreetIncreasePct", v)
-                                }
-                              />
-                              <span className="text-[11px] text-muted-foreground">–</span>
-                              <TierInput
-                                disabled={lineDisabled}
-                                value={g.maxStreetIncreasePct}
-                                min={0}
-                                max={100}
-                                onCommit={(v) =>
-                                  updateTierGuardrail(sl, tier, "maxStreetIncreasePct", v)
-                                }
-                              />
-                            </div>
-
-                            <TierInput
-
-                              disabled={lineDisabled}
-                              value={g.maxYoYStreetIncreasePct}
-                              min={0}
-                              max={100}
-                              onCommit={(v) =>
-                                updateTierGuardrail(sl, tier, "maxYoYStreetIncreasePct", v)
-                              }
-                            />
-
-                            <TierInput
-
-                              disabled={lineDisabled}
-                              value={g.desiredVarianceToTopCompetitorPct}
-                              min={-100}
-                              max={100}
-                              onCommit={(v) =>
-                                updateTierGuardrail(
-                                  sl,
-                                  tier,
-                                  "desiredVarianceToTopCompetitorPct",
-                                  v,
-                                )
-                              }
-                            />
-
-                            <Select
-                              value={g.equalizationStrength}
-                              onValueChange={(v) =>
-                                updateTierGuardrail(
-                                  sl,
-                                  tier,
-                                  "equalizationStrength",
-                                  v as EqualizationStrength,
-                                )
-                              }
-                            >
-                              <SelectTrigger className="h-7 px-2 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="low">Low</SelectItem>
-                                <SelectItem value="medium">Medium</SelectItem>
-                                <SelectItem value="high">High</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        );
-                      })}
+            <Accordion type="multiple" className="rounded-md border" data-testid="assumption-tier-accordion">
+              {OCCUPANCY_TIER_IDS.map((tier) => (
+                <AccordionItem key={tier} value={tier} className="last:border-b-0">
+                  <AccordionTrigger
+                    className="px-3 py-2.5 hover:no-underline"
+                    data-testid={`button-toggle-assumption-tier-${tier}`}
+                  >
+                    <div className="flex flex-1 items-center justify-between gap-4 pr-3 text-left">
+                      <div>
+                        <p className="text-sm font-semibold">{OCCUPANCY_TIER_LABELS[tier]}</p>
+                        <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
+                          {tier === "low"
+                            ? "Lower occupancy · conservative pricing guardrails"
+                            : tier === "target"
+                              ? "Target occupancy · balanced pricing guardrails"
+                              : "Higher occupancy · strongest pricing opportunity"}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-[11px] font-normal text-muted-foreground">
+                        {serviceLines.length} service {serviceLines.length === 1 ? "line" : "lines"}
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="pb-0">
+                    <div className="overflow-x-auto border-t">
+                      <div className="min-w-[46rem] px-3 py-2">
+                        <div
+                          className={cn(
+                            TIER_GRID_COLS,
+                            "items-end border-b pb-1 text-[11px] font-medium text-muted-foreground",
+                          )}
+                        >
+                          <span>Service line</span>
+                          <span>Tier</span>
+                          <HeaderHelp
+                            label="Occupancy"
+                            explanation="The measured occupancy range this tier governs. Set the lower cutoff on the Low tier and the upper cutoff on the High tier; the Target range between them follows automatically."
+                          />
+                          <HeaderHelp
+                            label="In-house min / max"
+                            explanation="The smallest and largest increase any individual resident may receive under this tier."
+                          />
+                          <HeaderHelp
+                            label="Street min / max"
+                            explanation="The bounds on the recommended Street Rate increase under this tier."
+                          />
+                          <HeaderHelp
+                            label="Max YoY"
+                            explanation="Ceiling on the Street Rate increase measured year over year, independent of the per-cycle maximum."
+                          />
+                          <HeaderHelp
+                            label="vs Top comp"
+                            explanation="Where the Street Rate should sit against the care-adjusted Top Competitor benchmark. Negative prices below the competitor, positive above."
+                          />
+                          <HeaderHelp
+                            label="Equalization"
+                            explanation="How much more the residents furthest below street rate get than those closest to it."
+                          />
+                        </div>
+
+                        {serviceLines.map((sl) => {
+                          const policy = tierPolicyFor(sl);
+                          const lineDisabled = !tierLineLoaded(sl);
+                          const g = policy.tiers[tier];
+                          return (
+                            <div
+                              key={sl}
+                              className={cn(TIER_GRID_COLS, "items-center border-b py-1 last:border-b-0")}
+                              data-testid={`tier-row-${sl}-${tier}`}
+                            >
+                              <span className="truncate text-xs font-medium">{sl}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {OCCUPANCY_TIER_LABELS[tier]}
+                              </span>
+
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                {tier === "low" && (
+                                  <>
+                                    <span>&lt;</span>
+                                    <TierInput
+                                      disabled={lineDisabled}
+                                      value={policy.lowCutoffPct}
+                                      min={0}
+                                      max={100}
+                                      onCommit={(v) => updateTierCutoff(sl, "lowCutoffPct", v)}
+                                      testId={`tier-cutoff-low-${sl}`}
+                                    />
+                                  </>
+                                )}
+                                {tier === "target" && (
+                                  <span className="tabular-nums">
+                                    {policy.lowCutoffPct}–{policy.highCutoffPct}%
+                                  </span>
+                                )}
+                                {tier === "high" && (
+                                  <>
+                                    <span>≥</span>
+                                    <TierInput
+                                      disabled={lineDisabled}
+                                      value={policy.highCutoffPct}
+                                      min={0}
+                                      max={100}
+                                      onCommit={(v) => updateTierCutoff(sl, "highCutoffPct", v)}
+                                      testId={`tier-cutoff-high-${sl}`}
+                                    />
+                                  </>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                <TierInput
+                                  disabled={lineDisabled}
+                                  value={g.minInhouseIncreasePct}
+                                  min={0}
+                                  max={100}
+                                  onCommit={(v) => updateTierGuardrail(sl, tier, "minInhouseIncreasePct", v)}
+                                />
+                                <span className="text-[11px] text-muted-foreground">–</span>
+                                <TierInput
+                                  disabled={lineDisabled}
+                                  value={g.maxInhouseIncreasePct}
+                                  min={0}
+                                  max={100}
+                                  onCommit={(v) => updateTierGuardrail(sl, tier, "maxInhouseIncreasePct", v)}
+                                />
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                <TierInput
+                                  disabled={lineDisabled}
+                                  value={g.minStreetIncreasePct}
+                                  min={0}
+                                  max={100}
+                                  onCommit={(v) => updateTierGuardrail(sl, tier, "minStreetIncreasePct", v)}
+                                />
+                                <span className="text-[11px] text-muted-foreground">–</span>
+                                <TierInput
+                                  disabled={lineDisabled}
+                                  value={g.maxStreetIncreasePct}
+                                  min={0}
+                                  max={100}
+                                  onCommit={(v) => updateTierGuardrail(sl, tier, "maxStreetIncreasePct", v)}
+                                />
+                              </div>
+
+                              <TierInput
+                                disabled={lineDisabled}
+                                value={g.maxYoYStreetIncreasePct}
+                                min={0}
+                                max={100}
+                                onCommit={(v) => updateTierGuardrail(sl, tier, "maxYoYStreetIncreasePct", v)}
+                              />
+
+                              <TierInput
+                                disabled={lineDisabled}
+                                value={g.desiredVarianceToTopCompetitorPct}
+                                min={-100}
+                                max={100}
+                                onCommit={(v) => updateTierGuardrail(sl, tier, "desiredVarianceToTopCompetitorPct", v)}
+                              />
+
+                              <Select
+                                value={g.equalizationStrength}
+                                onValueChange={(v) =>
+                                  updateTierGuardrail(sl, tier, "equalizationStrength", v as EqualizationStrength)
+                                }
+                              >
+                                <SelectTrigger className="h-7 px-2 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="low">Low</SelectItem>
+                                  <SelectItem value="medium">Medium</SelectItem>
+                                  <SelectItem value="high">High</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -3893,29 +3914,29 @@ export default function InhouseIncreases() {
       </Card>
 
       <Card className="border-primary/20 bg-gradient-to-br from-card to-primary/[0.03]">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
+        <CardHeader className="space-y-0.5 px-4 pb-2 pt-3">
+          <CardTitle className="flex items-center gap-2 text-sm">
             <Save className="h-4 w-4 text-primary" />
             Saved work and last run
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-xs">
             Reopen or refresh the latest calculation, submitted plan, or annual report for this scope.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-lg border bg-background/80 p-3" data-testid="calculated-plan-last-run">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Latest calculation</p>
+        <CardContent className="grid gap-2 px-4 pb-3 md:grid-cols-3">
+          <div className="rounded-md border bg-background/80 p-2.5" data-testid="calculated-plan-last-run">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Latest calculation</p>
             {plans && lastRunAt ? (
               <>
-                <p className="mt-1 text-sm font-medium">{plans.length} service line{plans.length === 1 ? "" : "s"} calculated</p>
+                <p className="mt-0.5 text-xs font-medium">{plans.length} service line{plans.length === 1 ? "" : "s"} calculated</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{new Date(lastRunAt).toLocaleString()}</p>
                 {restoredPlanDetailsOmitted && (
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
                     Saved totals and projections restored. Recalculate to reload resident details.
                   </p>
                 )}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Button variant="link" size="sm" className="h-8 p-0 text-xs" onClick={() => document.getElementById("calculated-plan-results")?.scrollIntoView({ behavior: "smooth" })}>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <Button variant="link" size="sm" className="h-7 p-0 text-[11px]" onClick={() => document.getElementById("calculated-plan-results")?.scrollIntoView({ behavior: "smooth" })}>
                     View calculated result
                   </Button>
                   <Button
@@ -3928,7 +3949,7 @@ export default function InhouseIncreases() {
                       calculateTiers.isPending ||
                       !tierPoliciesReady
                     }
-                    className="h-8 text-xs"
+                    className="h-7 px-2.5 text-[11px]"
                     data-testid="button-recalculate-top"
                   >
                     {calculate.isPending || calculateTiers.isPending ? (
@@ -3941,41 +3962,41 @@ export default function InhouseIncreases() {
                 </div>
               </>
             ) : (
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">No calculation is saved for the selected campus and service lines.</p>
+              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">No calculation is saved for the selected campus and service lines.</p>
             )}
           </div>
 
-          <div className="rounded-lg border bg-background/80 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Submitted plan</p>
+          <div className="rounded-md border bg-background/80 p-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Submitted plan</p>
             {plansQuery.data?.plans?.[0] ? (
               <>
-                <p className="mt-1 text-sm font-medium">v{plansQuery.data.plans[0].version} · {plansQuery.data.plans[0].serviceLine}</p>
+                <p className="mt-0.5 text-xs font-medium">v{plansQuery.data.plans[0].version} · {plansQuery.data.plans[0].serviceLine}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {formatPct(plansQuery.data.plans[0].summary?.weightedAvgIncreasePct ?? 0, 2)} average · {plansQuery.data.plans[0].status}
                 </p>
-                <Button variant="link" size="sm" className="mt-1 h-auto p-0 text-xs" onClick={() => document.getElementById("plan-history")?.scrollIntoView({ behavior: "smooth" })}>
+                <Button variant="link" size="sm" className="mt-0.5 h-auto p-0 text-[11px]" onClick={() => document.getElementById("plan-history")?.scrollIntoView({ behavior: "smooth" })}>
                   View plan history
                 </Button>
               </>
             ) : (
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">No plan has been submitted for this scope yet.</p>
+              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">No plan has been submitted for this scope yet.</p>
             )}
           </div>
 
-          <div className="rounded-lg border bg-background/80 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Annual report and PDF</p>
+          <div className="rounded-md border bg-background/80 p-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Annual report and PDF</p>
             {latestAnnualReportQuery.data?.report ? (
               <>
-                <p className="mt-1 text-sm font-medium">Executive report available</p>
+                <p className="mt-0.5 text-xs font-medium">Executive report available</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Saved {new Date(latestAnnualReportQuery.data.report.generatedAt).toLocaleString()}
                 </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Button size="sm" className="h-8 text-xs" onClick={() => setLocation(`/inhouse-increases/annual-report?scopeKey=${encodeURIComponent(latestAnnualReportQuery.data!.report!.scopeKey)}`)}>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <Button size="sm" className="h-7 px-2.5 text-[11px]" onClick={() => setLocation(`/inhouse-increases/annual-report?scopeKey=${encodeURIComponent(latestAnnualReportQuery.data!.report!.scopeKey)}`)}>
                     <FileText className="mr-1.5 h-3.5 w-3.5" />
                     Open report
                   </Button>
-                  <Button asChild variant="outline" size="sm" className="h-8 text-xs">
+                  <Button asChild variant="outline" size="sm" className="h-7 px-2.5 text-[11px]">
                     <a href={`/api/inhouse-planning/annual-report-runs/${latestAnnualReportQuery.data.report.id}/pdf`} download>
                       <Download className="mr-1.5 h-3.5 w-3.5" />
                       PDF
@@ -3984,7 +4005,7 @@ export default function InhouseIncreases() {
                 </div>
               </>
             ) : (
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">No annual report has been saved for this scope. Calculate the plan, then choose Annual Report.</p>
+              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">No annual report has been saved for this scope. Calculate the plan, then choose Annual Report.</p>
             )}
           </div>
         </CardContent>
@@ -4012,7 +4033,7 @@ export default function InhouseIncreases() {
               data-testid="button-toggle-inhouse-occupancy-tiers"
             >
               <div>
-                <CardTitle className="text-base">Increases by occupancy tier</CardTitle>
+                <CardTitle className="text-base">Increases by Occupancy Tier</CardTitle>
                 <CardDescription>
                   Compare the measured tier with the other occupancy scenarios.
                 </CardDescription>
@@ -4215,6 +4236,7 @@ export default function InhouseIncreases() {
           selectedServiceLines={serviceLines}
           tierGrid={tierGrid}
           campusOccupancy={campusOccupancyData?.readings ?? []}
+          campusPlanPoints={campusPlanPointsData?.points ?? []}
         />
       )}
 
@@ -4234,7 +4256,7 @@ export default function InhouseIncreases() {
         <>
           <Card data-testid="monthly-rate-growth-chart">
             <CardHeader className="pb-2 text-center">
-              <CardTitle className="text-base">Rate growth snapshot</CardTitle>
+              <CardTitle className="text-base">Rate Growth Snapshot</CardTitle>
               <CardDescription>
                 Street and in-house growth by service line, followed by the weighted total for all selected lines.
               </CardDescription>

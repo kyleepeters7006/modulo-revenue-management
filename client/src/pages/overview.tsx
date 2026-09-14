@@ -4,8 +4,31 @@ import RevenueChart from "@/components/dashboard/revenue-chart";
 import IndustryContext from "@/components/dashboard/industry-context";
 import { Link } from "wouter";
 import { BookOpen } from "lucide-react";
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function Overview() {
+  const queryClient = useQueryClient();
+
+  // RateGrowthDrilldown is rendered inside OverviewTiles after the larger
+  // overview payload arrives. Start its independent request immediately so the
+  // chart does not wait behind the KPI query; React Query shares the in-flight
+  // request when the chart mounts.
+  useEffect(() => {
+    void queryClient.prefetchQuery({
+      queryKey: ["/api/overview/rate-growth", {}],
+      queryFn: async () => {
+        const response = await fetch("/api/overview/rate-growth", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error("Unable to preload rate growth");
+        return response.json();
+      },
+      staleTime: 5 * 60 * 1000,
+    });
+  }, [queryClient]);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />

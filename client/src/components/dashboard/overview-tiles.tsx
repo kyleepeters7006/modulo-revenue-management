@@ -1,6 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { DollarSign, Home, Users, TrendingUp, Info, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatNumber, formatCurrency, formatPercentage } from "@/lib/formatters";
@@ -82,14 +82,16 @@ function OccupancySparkline({ values = [], delta }: { values?: number[]; delta?:
       : resolvedDelta < -0.5
         ? { stroke: "#dc2626", text: "text-red-700", label: "Declining" }
         : { stroke: "#ca8a04", text: "text-yellow-700", label: "Stable" };
-  const width = 54;
-  const height = 16;
+  // Keep the trend compact enough for the six-column service-line cards. The
+  // previous 54px chart crowded the occupancy percentage at narrower widths.
+  const width = 38;
+  const height = 12;
   const min = values.length ? Math.min(...values) : 0;
   const max = values.length ? Math.max(...values) : 0;
   const range = max - min || 1;
   const pointPairs = values.map((value, index) => {
     const x = values.length === 1 ? width / 2 : index * (width / (values.length - 1));
-    const y = 2 + (max - value) / range * (height - 4);
+    const y = 1.5 + (max - value) / range * (height - 3);
     return { x, y, value };
   });
   const points = pointPairs.map(({ x, y }) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
@@ -105,9 +107,9 @@ function OccupancySparkline({ values = [], delta }: { values?: number[]; delta?:
     >
       {points && (
         <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
-          <polyline points={points} fill="none" stroke={tone.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          <polyline points={points} fill="none" stroke={tone.stroke} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           {pointPairs.map(({ x, y, value }, index) => (
-            <circle key={`${index}-${value}`} cx={x} cy={y} r="1.6" fill={tone.stroke} />
+            <circle key={`${index}-${value}`} cx={x} cy={y} r="1.2" fill={tone.stroke} />
           ))}
         </svg>
       )}
@@ -121,19 +123,9 @@ export default function OverviewTiles() {
   const [expandedRoomTypes, setExpandedRoomTypes] = useState<Set<string>>(new Set());
   const [tileDetailOpen, setTileDetailOpen] = useState(false);
   const [selectedTile, setSelectedTile] = useState<{ type: 'units' | 'occupancy' | 'current-revenue' | 'potential-revenue'; title: string } | null>(null);
-  const queryClient = useQueryClient();
-
   const { data: overviewData, isLoading } = useQuery<OverviewData>({
     queryKey: ["/api/overview"],
   });
-
-  // Prefetch tile details on hover for faster dialog loading
-  const prefetchTileDetails = useCallback((tileType: string) => {
-    queryClient.prefetchQuery({
-      queryKey: ['/api/tile-details', tileType],
-      staleTime: 5 * 60 * 1000,
-    });
-  }, [queryClient]);
 
   const toggleRoomTypeExpanded = (roomType: string) => {
     setExpandedRoomTypes(prev => {
@@ -288,7 +280,6 @@ export default function OverviewTiles() {
               key={tile.title} 
               className="dashboard-card !p-0 cursor-pointer hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-200 group"
               onClick={() => handleTileClick(tile.tileType, tile.title)}
-              onMouseEnter={() => prefetchTileDetails(tile.tileType)}
               data-testid={`tile-clickable-${tile.tileType}`}
             >
              <CardContent className="p-3">

@@ -380,7 +380,7 @@ input[type="range"]::-moz-range-thumb {
   .report-panel { break-inside: avoid; box-shadow: none !important; }
   .annual-report-sheet h1 { font-size: 25px !important; }
   .annual-report-sheet { gap: 8px !important; }
-  .annual-report-sheet table th, .annual-report-sheet table td { padding: 4px 5px !important; font-size: 8.5px !important; line-height: 1.15 !important; }
+  .annual-report-sheet table th, .annual-report-sheet table td { padding: 4px 5px !important; font-size: 9.5px !important; line-height: 1.15 !important; }
   .report-section-band { padding: 4px 7px !important; }
   .report-page-header { margin-bottom: 7px !important; padding-bottom: 5px !important; }
 }
@@ -397,17 +397,27 @@ input[type="range"]::-moz-range-thumb {
 .annual-report-sheet .report-panel table { border-collapse: collapse; }
 .annual-report-sheet .report-panel thead { background: hsl(204 47% 84%); }
 .annual-report-sheet .report-panel th { border-bottom: 1px solid hsl(213 22% 63%); }
-.report-data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.report-data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .report-data-table th { background: hsl(204 47% 84%); color: hsl(214 29% 22%); border: 1px solid hsl(213 22% 63%); padding: 5px 6px; font-weight: 700; text-align: right; }
 .report-data-table th:first-child, .report-data-table td:first-child { text-align: left; }
 .report-data-table td { border: 1px solid hsl(213 22% 73%); padding: 5px 6px; text-align: right; vertical-align: top; }
 .report-data-table tbody tr:nth-child(even) { background: hsl(204 35% 95%); }
-.report-data-table .mono { font-family: 'EB Garamond', Georgia, serif; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.report-data-table .mono { font-family: 'EB Garamond', Georgia, serif; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.report-data-table .increase-pct { font-weight: 700; }
 .tier-block { border: 1px solid hsl(213 22% 63%); }
 .tier-block--tier1 .report-section-band { background: #f5f4ed; color: #202020; border-bottom: 1px solid #a8afb8; }
 .tier-block--tier2 .report-section-band { background: #101010; color: #ffffff; }
 .tier-block--tier3 .report-section-band { background: #388194; color: #ffffff; }
 .report-kicker { font-family: 'Source Sans 3', sans-serif; font-size: 9px; text-transform: uppercase; letter-spacing: .12em; color: hsl(214 16% 43%); }
+.report-scatter-section { border: 1px solid hsl(213 22% 63%); background: hsl(42 38% 98%); break-inside: avoid; }
+.report-scatter-heading { padding: 4px 8px; border-bottom: 1px solid hsl(213 22% 73%); color: hsl(214 29% 22%); font-size: 13px; font-weight: 700; }
+.report-scatter-grid-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 4px 8px 2px; }
+.report-scatter-title { margin-bottom: -2px; color: hsl(214 29% 22%); font-size: 11px; font-weight: 700; }
+.report-scatter svg { display: block; width: 100%; height: 105px; overflow: visible; }
+.report-scatter text { fill: hsl(214 20% 30%); font-family: 'EB Garamond', Georgia, serif; font-size: 9px; }
+.report-scatter .report-scatter-label { font-size: 9px; font-weight: 700; }
+.report-scatter-axis { stroke: hsl(213 22% 45%); stroke-width: 1; }
+.report-scatter-grid { stroke: hsl(213 22% 82%); stroke-width: .75; }
 
 /* Leaflet stacks controls (z-index 800) above popups (z-index 700), so an open
    popup can be partly hidden behind the zoom buttons. A popup is transient and

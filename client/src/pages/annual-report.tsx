@@ -61,6 +61,17 @@ function rate(value: number | null | undefined, basis: PlanResult["rateBasis"]) 
 function pct(value: number | null | undefined) {
   return value == null || !Number.isFinite(value) ? "—" : formatPct(value, 1);
 }
+function increaseTextColor(value: number | null | undefined, values: Array<number | null | undefined>) {
+  if (value == null || !Number.isFinite(value)) return "#202020";
+  const finite = values.filter((item): item is number => item != null && Number.isFinite(item));
+  const min = Math.min(...finite);
+  const max = Math.max(...finite);
+  const ratio = max > min ? (value - min) / (max - min) : 0.55;
+  const lightness = 22 + ratio * 12;
+  const saturation = 8 + ratio * 62;
+  const hue = 145 - ratio * 5;
+  return `hsl(${hue} ${saturation}% ${lightness}%)`;
+}
 function variance(current: number, street: number) {
   const dollars = current - street;
   const pct = street ? (dollars / street) * 100 : null;
@@ -378,6 +389,9 @@ function WorkbookReportBlock({
       proposedStreet,
       streetIncrease,
       position,
+      annualizedRevenue: scenario
+        ? currentInhouse * plan.summary.residentCount * ((inhouseIncrease ?? 0) / 100) * 12
+        : plan.summary.totalAnnualIncreaseDollars,
       portfolioShare: totalResidents ? plan.summary.residentCount / totalResidents * 100 : null,
     };
   });
@@ -392,6 +406,10 @@ function WorkbookReportBlock({
     (sum, row) => sum + (row.plan.summary.totalAnnualIncreaseDollars || 0),
     0,
   );
+  const inhouseIncreaseValues = rows.map((row) => row.inhouseIncrease);
+  const streetIncreaseValues = rows.map((row) => row.streetIncrease);
+  const weightedInhouse = weighted("inhouseIncrease");
+  const weightedStreet = weighted("streetIncrease");
 
   return (
     <section className={`tier-block tier-block--${accent}`}>
@@ -414,6 +432,7 @@ function WorkbookReportBlock({
               <th>New Street Rate</th>
               <th>Street avg increase</th>
               <th>Street to in-house</th>
+              <th>Annualized revenue</th>
               <th>Resident count</th>
               <th>Portfolio %</th>
             </tr>
@@ -425,11 +444,12 @@ function WorkbookReportBlock({
                 <td className="mono">{row.residents.toLocaleString()}</td>
                 <td className="mono">{workbookRate(row.currentInhouse, row.plan.rateBasis)}</td>
                 <td className="mono">{workbookRate(row.proposedInhouse, row.plan.rateBasis)}</td>
-                <td className="mono">{pct(row.inhouseIncrease)}</td>
+                <td className="mono increase-pct" style={{ color: increaseTextColor(row.inhouseIncrease, inhouseIncreaseValues) }}>{pct(row.inhouseIncrease)}</td>
                 <td className="mono">{workbookRate(row.currentStreet, row.plan.rateBasis)}</td>
                 <td className="mono">{workbookRate(row.proposedStreet, row.plan.rateBasis)}</td>
-                <td className="mono">{pct(row.streetIncrease)}</td>
+                <td className="mono increase-pct" style={{ color: increaseTextColor(row.streetIncrease, streetIncreaseValues) }}>{pct(row.streetIncrease)}</td>
                 <td className="mono">{pct(row.position)}</td>
+                <td className="mono font-semibold">{signedMoney(row.annualizedRevenue)}</td>
                 <td className="mono">{row.residents.toLocaleString()}</td>
                 <td className="mono">{pct(row.portfolioShare)}</td>
               </tr>
@@ -439,11 +459,12 @@ function WorkbookReportBlock({
               <td className="mono">{totalResidents.toLocaleString()}</td>
               <td>—</td>
               <td>—</td>
-              <td className="mono">{pct(weighted("inhouseIncrease"))}</td>
+              <td className="mono increase-pct" style={{ color: increaseTextColor(weightedInhouse, inhouseIncreaseValues) }}>{pct(weightedInhouse)}</td>
               <td>—</td>
               <td>—</td>
-              <td className="mono">{pct(weighted("streetIncrease"))}</td>
+              <td className="mono increase-pct" style={{ color: increaseTextColor(weightedStreet, streetIncreaseValues) }}>{pct(weightedStreet)}</td>
               <td className="mono">{pct(weighted("position"))}</td>
+              <td className="mono">{signedMoney(rows.reduce((sum, row) => sum + row.annualizedRevenue, 0))}</td>
               <td className="mono">{totalResidents.toLocaleString()}</td>
               <td className="mono">{totalResidents ? "100.0%" : "—"}</td>
             </tr>
@@ -472,10 +493,117 @@ function WorkbookPageHeader({
         </p>
       </div>
       <div className="text-right text-xs">
-        <p className="font-semibold text-[#44546A]">{report.status ?? "Calculated"} · Page {page} of 2</p>
+        <p className="font-semibold text-[#44546A]">Page {page} of 2</p>
         <p className="mt-1 text-muted-foreground">Last run {dateTime(report.generatedAt)}</p>
       </div>
     </header>
+  );
+}
+
+const REPORT_SCATTER_COLORS: Record<string, string> = {
+  AL: "#2F6B95",
+  "AL/MC": "#7A5C9E",
+  HC: "#388194",
+  "HC/MC": "#7A8B3A",
+  SL: "#B06D32",
+  VIL: "#8B4B62",
+};
+
+function WorkbookScatterplots({ report }: { report: AnnualReport }) {
+  const points = report.plans.flatMap(({ sl, plan }) => {
+    const line = report.tierGrid.lines.find((entry) => entry.serviceLine === sl);
+    return line?.occupancyPct == null ? [] : [{
+      sl,
+      occupancy: line.occupancyPct,
+      inhouse: plan.summary.weightedAvgIncreasePct,
+      street: plan.streetIncreasePct,
+    }];
+  });
+  if (!points.length) return null;
+
+  const chart = (field: "inhouse" | "street", title: string) => {
+    const width = 430;
+    const height = 105;
+    const pad = { left: 34, right: 12, top: 18, bottom: 24 };
+    const xValues = points.map((point) => point.occupancy);
+    const yValues = points.map((point) => point[field]);
+    const xMin = Math.floor(Math.min(...xValues) / 5) * 5;
+    const xMax = Math.max(xMin + 5, Math.ceil(Math.max(...xValues) / 5) * 5);
+    const yMin = Math.min(0, Math.floor(Math.min(...yValues)));
+    const yMax = Math.max(yMin + 1, Math.ceil(Math.max(...yValues)));
+    const plotWidth = width - pad.left - pad.right;
+    const plotHeight = height - pad.top - pad.bottom;
+    const sx = (value: number) => pad.left + (value - xMin) / (xMax - xMin) * plotWidth;
+    const sy = (value: number) => pad.top + plotHeight - (value - yMin) / (yMax - yMin) * plotHeight;
+    const occupiedLabels: Array<{ left: number; top: number; right: number; bottom: number }> = [];
+    const labelPlacements = points.map((point) => {
+      const px = sx(point.occupancy);
+      const py = sy(point[field]);
+      const labelWidth = Math.max(12, point.sl.length * 5.5);
+      const candidates = [
+        { x: px + 6, y: py + 3, anchor: "start" as const },
+        { x: px - 6, y: py + 3, anchor: "end" as const },
+        { x: px, y: py - 7, anchor: "middle" as const },
+        { x: px, y: py + 12, anchor: "middle" as const },
+        { x: px + 6, y: py - 6, anchor: "start" as const },
+        { x: px - 6, y: py - 6, anchor: "end" as const },
+      ];
+      const placement = candidates.find((candidate) => {
+        const left = candidate.anchor === "start"
+          ? candidate.x
+          : candidate.anchor === "end"
+            ? candidate.x - labelWidth
+            : candidate.x - labelWidth / 2;
+        const box = { left, top: candidate.y - 8, right: left + labelWidth, bottom: candidate.y + 2 };
+        const withinPlot =
+          box.left >= pad.left &&
+          box.right <= width - pad.right &&
+          box.top >= pad.top &&
+          box.bottom <= pad.top + plotHeight;
+        const overlaps = occupiedLabels.some((used) =>
+          box.left < used.right + 2 &&
+          box.right > used.left - 2 &&
+          box.top < used.bottom + 2 &&
+          box.bottom > used.top - 2,
+        );
+        if (!withinPlot || overlaps) return false;
+        occupiedLabels.push(box);
+        return true;
+      }) ?? candidates[0];
+      return { point, px, py, ...placement };
+    });
+    return (
+      <div className="report-scatter">
+        <p className="report-scatter-title">{title}</p>
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title}: occupancy against increase percentage`}>
+          <line x1={pad.left} y1={pad.top + plotHeight} x2={width - pad.right} y2={pad.top + plotHeight} className="report-scatter-axis" />
+          <line x1={pad.left} y1={pad.top} x2={pad.left} y2={pad.top + plotHeight} className="report-scatter-axis" />
+          {[0, 0.5, 1].map((step) => {
+            const y = pad.top + plotHeight * (1 - step);
+            const value = yMin + (yMax - yMin) * step;
+            return <g key={step}><line x1={pad.left} y1={y} x2={width - pad.right} y2={y} className="report-scatter-grid" /><text x={pad.left - 5} y={y + 3} textAnchor="end">{value.toFixed(0)}%</text></g>;
+          })}
+          <text x={pad.left} y={height - 5}>{xMin}%</text>
+          <text x={width - pad.right} y={height - 5} textAnchor="end">{xMax}% occupancy</text>
+          {labelPlacements.map(({ point, px, py, x, y, anchor }) => (
+            <g key={`${field}-${point.sl}`}>
+              <circle cx={px} cy={py} r="4.2" fill={REPORT_SCATTER_COLORS[point.sl] ?? "#44546A"} />
+              <text x={x} y={y} textAnchor={anchor} className="report-scatter-label">{point.sl}</text>
+            </g>
+          ))}
+        </svg>
+      </div>
+    );
+  };
+
+  return (
+    <section className="report-scatter-section">
+      <div className="report-scatter-heading">Pricing Position by Service Line</div>
+      <div className="report-scatter-grid-layout">
+        {chart("inhouse", "In-House increase")}
+        {chart("street", "Street Rate increase")}
+      </div>
+    </section>
   );
 }
 
@@ -485,10 +613,11 @@ function WorkbookReportBody({ report }: { report: AnnualReport }) {
       <article className="report-page space-y-4">
         <WorkbookPageHeader report={report} page={1} />
         <WorkbookReportBlock title="Combined" accent="combined" report={report} />
-        <WorkbookReportBlock title="Occupancy Tier 1 · High occupancy" accent="tier1" report={report} tier="high" />
+        <WorkbookScatterplots report={report} />
       </article>
       <article className="report-page space-y-4">
         <WorkbookPageHeader report={report} page={2} />
+        <WorkbookReportBlock title="Occupancy Tier 1 · High occupancy" accent="tier1" report={report} tier="high" />
         <WorkbookReportBlock title="Occupancy Tier 2 · Target occupancy" accent="tier2" report={report} tier="target" />
         <WorkbookReportBlock title="Occupancy Tier 3 · Low occupancy" accent="tier3" report={report} tier="low" />
         <p className="text-[10px] text-muted-foreground">

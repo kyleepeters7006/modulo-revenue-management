@@ -1,6 +1,6 @@
 ---
 name: In-house rate planning solver
-description: Non-obvious traps in the joint street/in-house rate solver — bisection tolerance, guardrail direction, zero-vs-missing weights, and untestable baselines.
+description: Non-obvious traps in the in-house rate solver — joint optimization, allocation reconciliation, guardrail direction, zero-vs-missing weights, and untestable baselines.
 ---
 
 ## Use only base-rate rows and standardize prior periods to today's unit mix
@@ -282,33 +282,30 @@ Three rules make that room match trustworthy:
   private pay is precisely the artifact being removed. Hold the historical side
   to the same base-product and plausibility rules, but not the same payer.
 
-## Jointly fit the quarterly target before preferring either lever
+## Minimize Street and resident growth jointly
 
-Street and in-house increases are candidate combinations, not two sequential
-targets. For each bounded Street candidate, solve the resident allocation
-against the full quarterly projection, including effective dates, turnover, and
-replacement Street Rates. Rank feasible candidates by maximum quarterly excess
-first, then cumulative excess; use a small material-equivalence tolerance before
-using market positioning and dependable in-house revenue as tie-breakers.
+For every allowed Street Rate candidate, solve the smallest revenue-weighted
+in-house average that lets the weakest measurable quarter reach the growth
+target. Compare feasible combinations by Street increase plus in-house increase;
+do not add a fixed cushion above the target. Embedded YoY growth and turnover
+replacement revenue may legitimately reduce the required resident increase.
 
-Configured minimums, resident maximums, the January-to-January ceiling, and
-data-validity gates remain hard constraints. Competitive position and the
-portfolio-level 1% Street premium are soft preferences: they may select among
-similar target fits but must not manufacture avoidable growth. Location-level
+Configured minimums, resident maximums, the January-to-January Street ceiling,
+data-validity gates, and the portfolio-level 1% Street premium remain constraints.
+Optional competitor positioning is secondary and must not create unsupported
+growth after a lower combined solution already clears the target. Location-level
 plans do not inherit the portfolio premium.
 
-**Why:** solving only the hardest quarter can leave later quarters several
-points above target when replacement residents enter at a rising Street Rate.
-The rejected zero-turnover overlay had the same double-counting problem. A
-joint quarterly comparison preserves dependable in-house revenue without
-turning Street Rate or modeled turnover into automatic excess.
+**Why:** a fixed target-plus-one-point resident average caused every quarter to
+overshoot even when historical growth and turnover already supplied part of the
+target. The approved objective is the minimum combined change that keeps every
+measurable quarter at or just above goal.
 
-**How to apply:** search the valid Street interval, re-run the in-house
-allocation for every candidate, and keep the best complete projection. Keep
-the selected binding quarter and a plain-language note when excess is caused by
-the modeled Street/turnover path or a binding guardrail. Do not introduce
-days-vacant or time-to-sell as solver inputs until their grain, provenance,
-coverage, scale, and missing-data behavior are validated.
+**How to apply:** build each Street candidate's projection model, solve its exact
+required resident average, clamp and allocate it through resident guardrails,
+then compare complete combinations. Feasibility outranks minimization; configured
+constraints still win and must report clipping or shortfall when the target is
+unreachable. Keep market preferences behind target fit and combined-growth cost.
 
 The daily projection is affine in the pre-increase in-house rate, post-increase
 in-house rate, current Street Rate, and proposed Street Rate. Cache those

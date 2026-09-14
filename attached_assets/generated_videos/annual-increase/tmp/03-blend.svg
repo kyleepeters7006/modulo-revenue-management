@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720"><rect width="1280" height="720" fill="#071722"/>
+  <g transform="translate(128 72) scale(.8)">
+  <rect width="1280" height="720" fill="#071722"/>
+  <rect x="80" y="58" width="1120" height="2" fill="#43d0c0" opacity=".7"/>
+  <text x="80" y="34" font-family="DejaVu Sans,Arial" font-size="14" font-weight="700" fill="#43d0c0" text-anchor="start">02  /  BLEND</text>
+  <text x="270" y="38" font-family="DejaVu Sans,Arial" font-size="25" font-weight="500" fill="#f5f7f6" text-anchor="start">Combine Street and in-house rate growth</text>
+  <text x="1198" y="35" font-family="DejaVu Sans,Arial" font-size="12" font-weight="500" fill="#9aadb2" text-anchor="end">TURNOVER  •  RETAINED  •  WEIGHTED</text>
+      <rect x="80" y="70" width="1120" height="610" fill="#f7f9f9"/>
+      <text x="112" y="112" font-family="DejaVu Sans,Arial" font-size="23" font-weight="700" fill="#183446" text-anchor="start">One quarterly rate path, built from two resident groups</text>
+      <text x="112" y="140" font-family="DejaVu Sans,Arial" font-size="12" font-weight="400" fill="#667b85" text-anchor="start">The mix changes as predicted turnover moves residents from in-house rates to current Street Rates.</text>
+      <rect x="112" y="180" width="450" height="330" rx="10" fill="#fff" stroke="#dbe4e7"/>
+      <text x="140" y="216" font-family="DejaVu Sans,Arial" font-size="11" font-weight="700" fill="#667b85" text-anchor="start">RETAINED RESIDENTS</text>
+      <text x="140" y="267" font-family="DejaVu Sans,Arial" font-size="48" font-weight="700" fill="#183446" text-anchor="start">72%</text>
+      <text x="260" y="256" font-family="DejaVu Sans,Arial" font-size="13" font-weight="600" fill="#536a74" text-anchor="start">Planned in-house increase</text>
+      <text x="260" y="284" font-family="DejaVu Sans,Arial" font-size="25" font-weight="700" fill="#375F3D" text-anchor="start">+4.4%</text>
+      <rect x="140" y="324" width="376" height="24" rx="12" fill="#e4eaec"/><rect x="140" y="324" width="271" height="24" rx="12" fill="#44546A"/>
+      <text x="140" y="390" font-family="DejaVu Sans,Arial" font-size="12" font-weight="400" fill="#667b85" text-anchor="start">Existing residents remain on the</text> <text x="140" y="413" font-family="DejaVu Sans,Arial" font-size="12" font-weight="400" fill="#667b85" text-anchor="start">planned annual increase path.</text>
+      <rect x="606" y="180" width="450" height="330" rx="10" fill="#fff" stroke="#dbe4e7"/>
+      <text x="634" y="216" font-family="DejaVu Sans,Arial" font-size="11" font-weight="700" fill="#667b85" text-anchor="start">PREDICTED TURNOVER</text>
+      <text x="634" y="267" font-family="DejaVu Sans,Arial" font-size="48" font-weight="700" fill="#087f78" text-anchor="start">28%</text>
+      <text x="754" y="256" font-family="DejaVu Sans,Arial" font-size="13" font-weight="600" fill="#536a74" text-anchor="start">New Street Rate growth</text>
+      <text x="754" y="284" font-family="DejaVu Sans,Arial" font-size="25" font-weight="700" fill="#087f78" text-anchor="start">+7.0%</text>
+      <rect x="634" y="324" width="376" height="24" rx="12" fill="#e4eaec"/><rect x="634" y="324" width="105" height="24" rx="12" fill="#43d0c0"/>
+      <text x="634" y="390" font-family="DejaVu Sans,Arial" font-size="12" font-weight="400" fill="#667b85" text-anchor="start">Move-ins reset to the latest</text> <text x="634" y="413" font-family="DejaVu Sans,Arial" font-size="12" font-weight="400" fill="#667b85" text-anchor="start">revenue-accretive Street Rate.</text>
+      <rect x="350" y="538" width="470" height="76" rx="10" fill="#edf9f7" stroke="#90c9c1"/>
+      <text x="585" y="568" font-family="DejaVu Sans,Arial" font-size="10" font-weight="700" fill="#087f78" text-anchor="middle">WEIGHTED BLEND</text>
+      <text x="585" y="596" font-family="DejaVu Sans,Arial" font-size="21" font-weight="700" fill="#183446" text-anchor="middle">5.1% effective rate growth</text>
+    </g>
+  <rect x="128" y="72" width="1024" height="576" rx="4" fill="none" stroke="#ffffff" opacity=".7"/></svg>

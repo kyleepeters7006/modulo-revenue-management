@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720"><rect width="1280" height="720" fill="#071722"/>
+  <g transform="translate(128 72) scale(.8)">
+  <rect width="1280" height="720" fill="#071722"/>
+  <rect x="80" y="58" width="1120" height="2" fill="#43d0c0" opacity=".7"/>
+  <text x="80" y="34" font-family="DejaVu Sans,Arial" font-size="14" font-weight="700" fill="#43d0c0" text-anchor="start">03  /  SOLVE</text>
+  <text x="270" y="38" font-family="DejaVu Sans,Arial" font-size="25" font-weight="500" fill="#f5f7f6" text-anchor="start">Reconcile rate and revenue to the target</text>
+  <text x="1198" y="35" font-family="DejaVu Sans,Arial" font-size="12" font-weight="500" fill="#9aadb2" text-anchor="end">QUARTERS  •  RATE  •  REVENUE</text>
+      <rect x="80" y="70" width="1120" height="610" fill="#f7f9f9"/>
+      <text x="112" y="112" font-family="DejaVu Sans,Arial" font-size="23" font-weight="700" fill="#183446" text-anchor="start">The solver works backward from the growth target</text>
+      <text x="112" y="140" font-family="DejaVu Sans,Arial" font-size="12" font-weight="400" fill="#667b85" text-anchor="start">It coordinates both pricing levers until every quarter clears the required trajectory.</text>
+      <rect x="112" y="174" width="1056" height="378" rx="10" fill="#fff" stroke="#dbe4e7"/>
+      <line x1="164" y1="480" x2="1116" y2="480" stroke="#9dafb6"/><line x1="164" y1="230" x2="164" y2="480" stroke="#9dafb6"/>
+      <line x1="164" y1="330" x2="1116" y2="330" stroke="#e9bd65" stroke-width="2" stroke-dasharray="9 7"/>
+      <text x="1108" y="320" font-family="DejaVu Sans,Arial" font-size="11" font-weight="700" fill="#946c16" text-anchor="end">6.0% TARGET</text>
+      <polyline points="164,432 390,372 616,323 842,286 1116,260" fill="none" stroke="#43d0c0" stroke-width="5"/>
+      <polyline points="164,447 390,393 616,340 842,300 1116,274" fill="none" stroke="#44546A" stroke-width="4"/>
+      <text x="164" y="510" font-family="DejaVu Sans,Arial" font-size="11" font-weight="700" fill="#667b85" text-anchor="middle">Q1</text><text x="390" y="510" font-family="DejaVu Sans,Arial" font-size="11" font-weight="700" fill="#667b85" text-anchor="middle">Q2</text><text x="616" y="510" font-family="DejaVu Sans,Arial" font-size="11" font-weight="700" fill="#667b85" text-anchor="middle">Q3</text><text x="842" y="510" font-family="DejaVu Sans,Arial" font-size="11" font-weight="700" fill="#667b85" text-anchor="middle">Q4</text><text x="1116" y="510" font-family="DejaVu Sans,Arial" font-size="11" font-weight="700" fill="#667b85" text-anchor="end">YEAR END</text>
+      <text x="850" y="252" font-family="DejaVu Sans,Arial" font-size="11" font-weight="700" fill="#087f78" text-anchor="start">RATE GROWTH</text>
+      <text x="850" y="296" font-family="DejaVu Sans,Arial" font-size="11" font-weight="700" fill="#183446" text-anchor="start">REVENUE GROWTH</text>
+      <rect x="330" y="578" width="620" height="60" rx="10" fill="#edf9f7" stroke="#90c9c1"/>
+      <text x="640" y="615" font-family="DejaVu Sans,Arial" font-size="16" font-weight="700" fill="#087f78" text-anchor="middle">ALL ELSE EQUAL, THE PLAN HITS THE TARGET.</text>
+    </g>
+  <rect x="128" y="72" width="1024" height="576" rx="4" fill="none" stroke="#ffffff" opacity=".7"/></svg>

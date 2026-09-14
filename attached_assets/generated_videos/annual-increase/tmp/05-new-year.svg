@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720"><rect width="1280" height="720" fill="#071722"/>
+  <g transform="translate(128 72) scale(.8)">
+  <rect width="1280" height="720" fill="#071722"/>
+  <rect x="80" y="58" width="1120" height="2" fill="#43d0c0" opacity=".7"/>
+  <text x="80" y="34" font-family="DejaVu Sans,Arial" font-size="14" font-weight="700" fill="#43d0c0" text-anchor="start">04  /  TRANSITION</text>
+  <text x="270" y="38" font-family="DejaVu Sans,Arial" font-size="25" font-weight="500" fill="#f5f7f6" text-anchor="start">The new year activates the plan</text>
+  <text x="1198" y="35" font-family="DejaVu Sans,Arial" font-size="12" font-weight="500" fill="#9aadb2" text-anchor="end">BASELINE  •  EXECUTE  •  LEARN</text>
+      <rect x="80" y="70" width="1120" height="610" fill="#f7f9f9"/>
+      <text x="112" y="112" font-family="DejaVu Sans,Arial" font-size="23" font-weight="700" fill="#183446" text-anchor="start">The annual plan sets the opening position</text>
+      <text x="112" y="140" font-family="DejaVu Sans,Arial" font-size="12" font-weight="400" fill="#667b85" text-anchor="start">Then live occupancy, demand, competitive position, and move-ins take over.</text>
+      <line x1="150" y1="350" x2="1110" y2="350" stroke="#b8c5ca" stroke-width="4"/>
+      <circle cx="260" cy="350" r="54" fill="#44546A"/><text x="260" y="342" font-family="DejaVu Sans,Arial" font-size="12" font-weight="700" fill="white" text-anchor="middle">ANNUAL</text><text x="260" y="365" font-family="DejaVu Sans,Arial" font-size="18" font-weight="700" fill="white" text-anchor="middle">PLAN</text>
+      <circle cx="560" cy="350" r="54" fill="#43d0c0"/><text x="560" y="342" font-family="DejaVu Sans,Arial" font-size="12" font-weight="700" fill="#183446" text-anchor="middle">JAN 1</text><text x="560" y="365" font-family="DejaVu Sans,Arial" font-size="16" font-weight="700" fill="#183446" text-anchor="middle">GO LIVE</text>
+      <circle cx="880" cy="350" r="54" fill="#e9bd65"/><text x="880" y="342" font-family="DejaVu Sans,Arial" font-size="12" font-weight="700" fill="#183446" text-anchor="middle">DYNAMIC</text><text x="880" y="365" font-family="DejaVu Sans,Arial" font-size="16" font-weight="700" fill="#183446" text-anchor="middle">PRICING</text>
+      <path d="M314 350 L506 350" stroke="#43d0c0" stroke-width="5"/><polygon points="506,350 488,340 488,360" fill="#43d0c0"/>
+      <path d="M614 350 L826 350" stroke="#e9bd65" stroke-width="5"/><polygon points="826,350 808,340 808,360" fill="#e9bd65"/>
+      <text x="260" y="453" font-family="DejaVu Sans,Arial" font-size="13" font-weight="700" fill="#536a74" text-anchor="middle">Target-aligned baseline</text>
+      <text x="560" y="453" font-family="DejaVu Sans,Arial" font-size="13" font-weight="700" fill="#536a74" text-anchor="middle">New rates take effect</text>
+      <text x="880" y="453" font-family="DejaVu Sans,Arial" font-size="13" font-weight="700" fill="#536a74" text-anchor="middle">Signals update every move</text>
+      <rect x="316" y="536" width="548" height="72" rx="10" fill="#edf9f7" stroke="#90c9c1"/>
+      <text x="590" y="580" font-family="DejaVu Sans,Arial" font-size="16" font-weight="700" fill="#087f78" text-anchor="middle">FROM PLAN TO CONTINUOUS EXECUTION</text>
+    </g>
+  <rect x="128" y="72" width="1024" height="576" rx="4" fill="none" stroke="#ffffff" opacity=".7"/></svg>

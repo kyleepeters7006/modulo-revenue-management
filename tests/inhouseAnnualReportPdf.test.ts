@@ -11,47 +11,49 @@ import assert from "node:assert/strict";
 import { generateAnnualInhouseReportPdf } from "../server/services/inhouseAnnualReportPdf";
 
 (async () => {
+const serviceLines = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
 const buffer = await generateAnnualInhouseReportPdf({
   scopeKey: "portfolio",
   locationId: null,
-  serviceLines: ["AL"],
-  plans: [{
-    sl: "AL",
+  serviceLines,
+  plans: serviceLines.map((sl, index) => ({
+    sl,
     plan: {
-      scope: { serviceLine: "AL" },
+      scope: { serviceLine: sl },
       feasible: true,
-      rateBasis: "monthly",
-      currentStreetRateDisplay: 2_000,
-      recommendedStreetRateDisplay: 2_100,
+      rateBasis: sl.startsWith("HC") ? "daily" : "monthly",
+      currentStreetRateDisplay: 2_000 + index * 100,
+      recommendedStreetRateDisplay: 2_100 + index * 100,
       summary: {
-        totalMonthlyIncreaseDollars: 1_000,
-        totalAnnualIncreaseDollars: 12_000,
-        residentsReceivingIncrease: 10,
-        residentCount: 12,
+        totalMonthlyIncreaseDollars: 1_000 + index * 100,
+        totalAnnualIncreaseDollars: 12_000 + index * 1_200,
+        residentsReceivingIncrease: 10 + index,
+        residentCount: 12 + index,
         minIncreasePct: 2,
         maxIncreasePct: 5,
-        newAvgInhouseRateMonthly: 1_900,
+        newAvgInhouseRateMonthly: 1_900 + index * 100,
       },
       monthlyRateProjection: [{
         month: "Q1 2026",
-        projectedRateMonthly: 1_900,
-        streetRateMonthly: 2_100,
+        projectedRateMonthly: 1_900 + index * 100,
+        streetRateMonthly: 2_100 + index * 100,
       }],
       explanation: { headline: "Keep increases within target." },
     },
-  }],
+  })),
   tierGrid: {
-    lines: [{
-      serviceLine: "AL",
+    lines: serviceLines.map((serviceLine, index) => ({
+      serviceLine,
       currentTier: "target",
-      cells: [{
-        tier: "target",
-        isCurrent: true,
-        inhouseIncreasePct: 4,
-        streetIncreasePct: 3,
+      occupancyPct: 88 + index,
+      cells: ["high", "target", "low"].map((tier, tierIndex) => ({
+        tier,
+        isCurrent: tier === "target",
+        inhouseIncreasePct: 3 + tierIndex,
+        streetIncreasePct: 2 + tierIndex,
         feasible: true,
-      }],
-    }],
+      })),
+    })),
   },
   generatedAt: new Date("2026-01-01T00:00:00.000Z"),
 });

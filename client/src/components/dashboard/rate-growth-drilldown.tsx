@@ -5,7 +5,7 @@ import {
   Line,
   LineChart,
   ResponsiveContainer,
-  Tooltip,
+  Tooltip as RechartsTooltip,
   ReferenceLine,
   XAxis,
   YAxis,
@@ -13,6 +13,12 @@ import {
 import { ArrowLeft, ChevronRight, Download, Loader2, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { formatCurrency } from "@/lib/formatters";
 import { useToast } from "@/hooks/use-toast";
 
@@ -67,6 +73,7 @@ const LEVEL_LABEL: Record<DrillLevel, string> = {
   campus: "Campus",
   room: "Room",
 };
+const NIC_MAP_SERVICE_LINES = new Set(["AL", "SL", "VIL"]);
 const COLORS = ["#177e89", "#d97732", "#456990", "#9a6fb0", "#658b62", "#b24c63"];
 
 function monthLabel(value: string) {
@@ -240,7 +247,7 @@ export function RateChart({
               width={52}
               stroke="var(--dashboard-muted)"
             />
-            <Tooltip
+            <RechartsTooltip
               content={tooltipContent}
             />
             {markerMonth && (
@@ -355,11 +362,21 @@ export default function RateGrowthDrilldown() {
   });
 
   const data = query.data;
+  const selectedNicMapServiceLine =
+    data?.selection.serviceLine ??
+    (data?.level === "group" ? groupServiceLines["Senior Housing"] : undefined);
+  const selectedNicMapPropertyType =
+    selectedNicMapServiceLine === "VIL" ? "Majority IL" : "Majority AL";
+  const nicMapBenchmarks = (data?.benchmarks ?? []).filter(
+    (benchmark) => benchmark.propertyType === selectedNicMapPropertyType,
+  );
   const nicMapAvailable = Boolean(
-    data?.selection.serviceLine && (data.benchmarks?.length ?? 0) > 0,
+    selectedNicMapServiceLine &&
+      NIC_MAP_SERVICE_LINES.has(selectedNicMapServiceLine) &&
+      nicMapBenchmarks.length > 0,
   );
   const visibleBenchmarks = nicMapAvailable && showNicMap
-    ? data?.benchmarks ?? []
+    ? nicMapBenchmarks
     : [];
   const visibleSeries = useMemo(
     () => (data?.series ?? []).slice(0, data?.level === "group" || data?.level === "serviceLine" ? 8 : 6),
@@ -537,9 +554,14 @@ export default function RateGrowthDrilldown() {
                       <RateChart
                         key={series.key}
                         series={[selectedSeries]}
-                        benchmarks={visibleBenchmarks.filter(
-                          (benchmark) => !benchmark.appliesToKey || benchmark.appliesToKey === series.key,
-                        )}
+                        benchmarks={
+                          series.key === "Senior Housing"
+                            ? visibleBenchmarks.filter(
+                                (benchmark) =>
+                                  !benchmark.appliesToKey || benchmark.appliesToKey === series.key,
+                              )
+                            : []
+                        }
                         colorOffset={index}
                         headingLabel={series.label}
                         serviceLineSelector={{
@@ -548,8 +570,10 @@ export default function RateGrowthDrilldown() {
                             { value: "all", label: `All ${series.label}` },
                             ...serviceLineSeries.map((item) => ({ value: item.key, label: item.label })),
                           ],
-                          onChange: (value) =>
-                            setGroupServiceLines((current) => ({ ...current, [series.key]: value })),
+                          onChange: (value) => {
+                            setShowNicMap(false);
+                            setGroupServiceLines((current) => ({ ...current, [series.key]: value }));
+                          },
                         }}
                       />
                     );
@@ -588,17 +612,28 @@ export default function RateGrowthDrilldown() {
                 <span className="flex items-center gap-1.5"><i className="h-0.5 w-5 border-t-2 border-dashed border-amber-600" /> NIC MAP® rate tiers</span>
               )}
               {nicMapAvailable && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowNicMap((current) => !current)}
-                  className="h-7 px-2 text-[11px]"
-                  aria-pressed={showNicMap}
-                  data-testid="rate-growth-toggle-nic-map"
-                >
-                  {showNicMap ? "Hide NIC MAP®" : "Show NIC MAP®"}
-                </Button>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowNicMap((current) => !current)}
+                        className="h-7 px-2 text-[11px]"
+                        aria-pressed={showNicMap}
+                        data-testid="rate-growth-toggle-nic-map"
+                      >
+                        {showNicMap ? "Hide NIC MAP®" : "Show NIC MAP®"}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-xs leading-relaxed">
+                      Shows NIC MAP® quarterly average monthly rent for the matching senior-housing
+                      property profile. It is an external market benchmark for context, not a
+                      Modulo pricing recommendation or cap.
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               )}
               <span className="ml-auto">{LEVEL_LABEL[data.level]} view</span>
             </div>
