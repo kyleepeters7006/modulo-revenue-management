@@ -267,6 +267,7 @@ export function RateChart({
 export default function RateGrowthDrilldown() {
   const [selection, setSelection] = useState<Selection>({});
   const [history, setHistory] = useState<Selection[]>([]);
+  const [showNicMap, setShowNicMap] = useState(false);
 
   const query = useQuery<RateGrowthResponse, RateGrowthError>({
     queryKey: ["/api/overview/rate-growth", selection],
@@ -290,11 +291,18 @@ export default function RateGrowthDrilldown() {
   });
 
   const data = query.data;
+  const nicMapAvailable = Boolean(
+    data?.selection.serviceLine && (data.benchmarks?.length ?? 0) > 0,
+  );
+  const visibleBenchmarks = nicMapAvailable && showNicMap
+    ? data?.benchmarks ?? []
+    : [];
   const visibleSeries = useMemo(
     () => (data?.series ?? []).slice(0, data?.level === "group" || data?.level === "serviceLine" ? 8 : 6),
     [data],
   );
   const drillInto = (next: Selection) => {
+    if (next.serviceLine !== selection.serviceLine) setShowNicMap(false);
     setHistory((current) => [...current, selection]);
     setSelection(next);
   };
@@ -302,7 +310,9 @@ export default function RateGrowthDrilldown() {
   const goBack = () => {
     setHistory((current) => {
       const next = [...current];
-      setSelection(next.pop() ?? {});
+      const previous = next.pop() ?? {};
+      if (previous.serviceLine !== selection.serviceLine) setShowNicMap(false);
+      setSelection(previous);
       return next;
     });
   };
@@ -338,7 +348,7 @@ export default function RateGrowthDrilldown() {
           <div className="mt-3 flex flex-wrap items-center gap-1 text-xs" data-testid="rate-growth-breadcrumbs">
             <button
               type="button"
-              onClick={() => { setSelection({}); setHistory([]); }}
+              onClick={() => { setSelection({}); setHistory([]); setShowNicMap(false); }}
               className={data.level === "group" ? "font-semibold text-[var(--dashboard-text)]" : "text-[var(--dashboard-muted)] hover:text-[var(--trilogy-teal)]"}
               data-testid="rate-growth-breadcrumb-overview"
             >
@@ -398,13 +408,13 @@ export default function RateGrowthDrilldown() {
                     <RateChart
                       key={series.key}
                       series={[series]}
-                      benchmarks={(data.benchmarks ?? []).filter(
+                      benchmarks={visibleBenchmarks.filter(
                         (benchmark) => !benchmark.appliesToKey || benchmark.appliesToKey === series.key,
                       )}
                       colorOffset={index}
                     />
                   ))
-                : <RateChart series={visibleSeries} benchmarks={data.benchmarks ?? []} />}
+                : <RateChart series={visibleSeries} benchmarks={visibleBenchmarks} />}
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" data-testid="rate-growth-drill-controls">
               {data.series.map((series, index) => (
@@ -434,15 +444,28 @@ export default function RateGrowthDrilldown() {
             <div className="flex flex-wrap gap-4 border-t border-[var(--dashboard-border)] pt-3 text-[11px] text-[var(--dashboard-muted)]">
               <span className="flex items-center gap-1.5"><i className="h-0.5 w-5 bg-[var(--trilogy-teal)]" /> Street rate</span>
               <span className="flex items-center gap-1.5"><i className="h-0.5 w-5 border-t-2 border-dashed border-[var(--trilogy-teal)]" /> In-house rate</span>
-              {(data.benchmarks?.length ?? 0) > 0 && (
+              {visibleBenchmarks.length > 0 && (
                 <span className="flex items-center gap-1.5"><i className="h-0.5 w-5 border-t-2 border-dashed border-amber-600" /> NIC MAP® rate tiers</span>
+              )}
+              {nicMapAvailable && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowNicMap((current) => !current)}
+                  className="h-7 px-2 text-[11px]"
+                  aria-pressed={showNicMap}
+                  data-testid="rate-growth-toggle-nic-map"
+                >
+                  {showNicMap ? "Hide NIC MAP®" : "Show NIC MAP®"}
+                </Button>
               )}
               <span className="ml-auto">{LEVEL_LABEL[data.level]} view</span>
             </div>
-            {(data.benchmarks?.length ?? 0) > 0 && (
+            {visibleBenchmarks.length > 0 && (
               <div className="rounded-md border border-amber-200/70 bg-amber-50/70 px-3 py-2 text-[11px] text-amber-950">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  {data.benchmarks!.map((benchmark) => (
+                  {visibleBenchmarks.map((benchmark) => (
                     <span key={benchmark.key}>
                       <strong>{benchmark.label}</strong>
                       {benchmark.matchMethod === "nearby_metro" ? " · nearby-metro match" : ""}
@@ -450,12 +473,12 @@ export default function RateGrowthDrilldown() {
                     </span>
                   ))}
                   <a
-                    href={data.benchmarks![0].sourceUrl}
+                    href={visibleBenchmarks[0].sourceUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="ml-auto font-medium underline decoration-amber-700/40 underline-offset-2"
                   >
-                    NIC MAP® · {data.benchmarks![0].asOf}
+                    NIC MAP® · {visibleBenchmarks[0].asOf}
                   </a>
                 </div>
                 <p className="mt-1 text-amber-900/80">
