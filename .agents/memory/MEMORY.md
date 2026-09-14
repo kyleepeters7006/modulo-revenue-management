@@ -121,3 +121,4 @@
 - [In-house assumption acknowledgements](inhouse-assumption-acknowledgements.md) — effective-date editors must use the exact saved row immediately and reload the newest scoped row.
 - [Portfolio-to-campus planning](portfolio-campus-planning.md) — portfolio runs create independent campus reports from portfolio inputs; later campus saves override only that campus.
 - [Overview loading concurrency](overview-loading-concurrency.md) — start independent chart requests with KPI loading; never globally prefetch unrelated pages from Overview.
+- [Playwright browser on Nix](playwright-nix-browser.md) — use a system Chromium executable when the bundled headless shell lacks shared libraries.
