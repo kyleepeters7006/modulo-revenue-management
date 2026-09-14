@@ -50,7 +50,6 @@ import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
   ArrowLeft,
-  ArrowRight,
   Calculator,
   CheckCircle2,
   ChevronDown,
@@ -163,7 +162,7 @@ function HeaderHelp({ label, explanation }: { label: string; explanation: string
       <TooltipTrigger asChild>
         <span
           tabIndex={0}
-          className="inline-flex cursor-help items-center gap-1 border-b border-dotted border-current/40 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex cursor-help items-center justify-self-center gap-1 border-b border-dotted border-current/40 text-center outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {label}
           <Info className="h-3 w-3" aria-hidden="true" />
@@ -226,7 +225,7 @@ function QuarterYoyBreakdown({ quarters }: { quarters: QuarterYoyCell[] }) {
             <>
               {quarter.qualifierLabel && (
                 <span className="font-medium text-muted-foreground">
-                  {quarter.qualifierLabel}
+                  {quarter.qualifierLabel.split(/\s+/)[0]}
                 </span>
               )}
               <span
@@ -776,6 +775,7 @@ function DateField({
         id={testId}
         data-testid={testId}
         type="date"
+        required
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="h-9"
@@ -1376,8 +1376,9 @@ export default function InhouseIncreases() {
       let detailsOmitted = restored ? stored?.detailsOmitted === true : false;
       let restoredInputsKey =
         restored
-          ? stored?.inputsKey
-            ?? (stored?.inputSnapshot ? planningInputSnapshotKey(stored.inputSnapshot) : null)
+          ? stored?.inputSnapshot
+            ? planningInputSnapshotKey(stored.inputSnapshot)
+            : stored?.inputsKey ?? null
           : null;
 
       // Older cache entries and individually calculated lines may not have a
@@ -1884,19 +1885,30 @@ export default function InhouseIncreases() {
   });
 
   const annualReport = useMutation({
-    mutationFn: async () => {
-      if (!plans || !tierGrid) throw new Error("Calculate a plan before creating an annual report.");
+    mutationFn: async ({
+      reportPlans,
+      reportTierGrid,
+      reportLocationId,
+      reportServiceLines,
+      openAfterSave,
+    }: {
+      reportPlans: PlanWithSl[];
+      reportTierGrid: TierGridResult;
+      reportLocationId: string | null;
+      reportServiceLines: string[];
+      openAfterSave: boolean;
+    }) => {
       // A report is a presentation snapshot, not a second resident data store.
       // Persist aggregate distribution bands rather than one object per
       // resident. Portfolio plans can contain thousands of residents, and the
       // repeated anonymous objects add no report information while exceeding
       // normal HTTP request limits.
-      const compactPlans = plans.map(({ sl, plan }) => ({
+      const compactPlans = reportPlans.map(({ sl, plan }) => ({
         sl,
         plan: compactPlanForAnnualReport(plan),
       }));
       const compactTierGrid = {
-        lines: tierGrid.lines.map((line) => ({
+        lines: reportTierGrid.lines.map((line) => ({
           serviceLine: line.serviceLine,
           occupancyPct: line.occupancyPct,
           occupancyMonth: line.occupancyMonth,
@@ -1906,13 +1918,13 @@ export default function InhouseIncreases() {
           currentPlan: compactPlans.find(({ sl }) => sl === line.serviceLine)?.plan
             ?? compactPlanForAnnualReport(line.currentPlan),
         })),
-        skipped: tierGrid.skipped,
-        scopeKey: tierGrid.scopeKey,
+        skipped: reportTierGrid.skipped,
+        scopeKey: reportTierGrid.scopeKey,
       };
       const payload = {
-        scopeKey: tierGrid.scopeKey,
-        locationId: scopeLocationId,
-        serviceLines,
+        scopeKey: reportTierGrid.scopeKey,
+        locationId: reportLocationId,
+        serviceLines: reportServiceLines,
         plans: compactPlans,
         tierGrid: compactTierGrid,
       };
@@ -1923,16 +1935,35 @@ export default function InhouseIncreases() {
         );
       }
       const response = await apiRequest("/api/inhouse-planning/annual-report-runs", "POST", payload);
-      return (await response.json()) as { report: { id: string; scopeKey: string } };
+      return {
+        ...(await response.json()) as { report: { id: string; scopeKey: string } },
+        openAfterSave,
+      };
     },
-    onSuccess: ({ report }) => {
+    onSuccess: ({ report, openAfterSave }) => {
       queryClient.invalidateQueries({
-        queryKey: ["/api/inhouse-planning/annual-report-runs/latest", report.scopeKey],
+        queryKey: ["/api/inhouse-planning/annual-report-runs/latest"],
       });
-      setLocation(`/inhouse-increases/annual-report?scopeKey=${encodeURIComponent(report.scopeKey)}`);
+      if (openAfterSave) {
+        setLocation(`/inhouse-increases/annual-report?scopeKey=${encodeURIComponent(report.scopeKey)}`);
+      }
     },
     onError: (error: Error) => toast({ title: "Annual report could not be created", description: error.message, variant: "destructive" }),
   });
+  const autoSavedAnnualReportRun = useRef<string | null>(null);
+  useEffect(() => {
+    if (!plans || !tierGrid || tierGridStale || !lastRunAt) return;
+    const runKey = `${tierGrid.scopeKey}|${lastRunAt}`;
+    if (autoSavedAnnualReportRun.current === runKey) return;
+    autoSavedAnnualReportRun.current = runKey;
+    annualReport.mutate({
+      reportPlans: plans,
+      reportTierGrid: tierGrid,
+      reportLocationId: plans[0]?.plan.scope.locationId ?? null,
+      reportServiceLines: plans.map(({ sl }) => sl),
+      openAfterSave: false,
+    });
+  }, [plans, tierGrid, tierGridStale, lastRunAt]);
 
   /**
    * The what-if grid: every selected service line solved under all three of
@@ -2077,7 +2108,7 @@ export default function InhouseIncreases() {
       const scopeKey = scopeLocationId ?? "all";
       const submitted: Record<string, OccupancyTierPolicy> = {};
       for (const sl of serviceLines) submitted[sl] = tierPolicyFor(sl);
-      await Promise.all(
+      const responses = await Promise.all(
         serviceLines.map((sl) =>
           apiRequest("/api/inhouse-planning/assumptions", "POST", {
             locationId: scopeLocationId,
@@ -2087,10 +2118,15 @@ export default function InhouseIncreases() {
           }).then((r) => r.json()),
         ),
       );
-      return { scopeKey, submitted };
+      return {
+        scopeKey,
+        submitted,
+        savedAssumptions: responses[0]?.assumptions as PlanningAssumptions | undefined,
+      };
     },
-    onSuccess: ({ scopeKey, submitted }) => {
+    onSuccess: ({ scopeKey, submitted, savedAssumptions }) => {
       setAssumptionsTouched(false);
+      if (savedAssumptions) setAssumptions(savedAssumptions);
       /**
        * Write the acknowledged policies into the cache before invalidating.
        *
@@ -2188,10 +2224,11 @@ export default function InhouseIncreases() {
   const latestAnnualReportQuery = useQuery<{
     report: { id: string; generatedAt: string; scopeKey: string } | null;
   }>({
-    queryKey: ["/api/inhouse-planning/annual-report-runs/latest", "any-scope"],
+    queryKey: ["/api/inhouse-planning/annual-report-runs/latest", tierScopeKey],
     queryFn: async () => {
+      const params = new URLSearchParams({ scopeKey: tierScopeKey });
       const res = await fetch(
-        "/api/inhouse-planning/annual-report-runs/latest",
+        `/api/inhouse-planning/annual-report-runs/latest?${params}`,
         { credentials: "include", cache: "no-store" },
       );
       if (!res.ok) throw new Error(await res.text());
@@ -2325,10 +2362,14 @@ export default function InhouseIncreases() {
   // nothing.
   const hasChangedPlanAssumptions =
     !!plans?.length &&
-    (calculatedInputsKey === null || calculatedInputsKey !== tierInputsKey);
+    ((tierGrid?.inputSnapshot
+      ? planningInputSnapshotKey(tierGrid.inputSnapshot)
+      : calculatedInputsKey) !== tierInputsKey);
 
   const rangeError =
-    assumptions.minInhouseIncreasePct > assumptions.maxInhouseIncreasePct
+    !assumptions.streetRateEffectiveDate || !assumptions.inhouseEffectiveDate
+      ? "Choose both effective dates before calculating or saving assumptions."
+      : assumptions.minInhouseIncreasePct > assumptions.maxInhouseIncreasePct
       ? "The minimum increase cannot be larger than the maximum."
       : assumptions.minStreetIncreasePct > assumptions.maxStreetIncreasePct
         ? "The minimum Street Rate increase cannot be larger than the maximum."
@@ -3220,7 +3261,13 @@ export default function InhouseIncreases() {
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => annualReport.mutate()}
+                onClick={() => annualReport.mutate({
+                  reportPlans: plans,
+                  reportTierGrid: tierGrid,
+                  reportLocationId: scopeLocationId,
+                  reportServiceLines: serviceLines,
+                  openAfterSave: true,
+                })}
                 disabled={annualReport.isPending}
                 data-testid="button-annual-report"
                 className="border border-primary/25 bg-primary/10 text-primary hover:bg-primary/15"
@@ -3861,53 +3908,6 @@ export default function InhouseIncreases() {
             </CardContent>
           </Card>
 
-          {/* ── Feasibility ─────────────────────────────────────────── */}
-          {allFeasible ? (
-            <Alert className="border-emerald-500/40 bg-emerald-500/10">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-              <AlertTitle>
-                {plans.length > 1
-                  ? "Each configured growth target is reachable across the selected service lines"
-                  : `${formatPct(plans[0].plan.assumptions.rateGrowthTargetPct)} growth is reachable`}
-              </AlertTitle>
-              <AlertDescription>
-                Every quarter in the next year clears the target
-                {plans.length === 1 && plans[0].plan.bindingQuarterLabel && (
-                  <> — <span className="font-medium">{plans[0].plan.bindingQuarterLabel}</span> is the tightest</>
-                )}.
-              </AlertDescription>
-            </Alert>
-          ) : (
-            // Show per-line feasibility breakdown when any line fails.
-            <div className="space-y-2" data-testid="alert-infeasible">
-              {plans.map(({ sl, plan }) =>
-                plan.feasible ? (
-                  <Alert key={sl} className="border-emerald-500/40 bg-emerald-500/10">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                    <AlertTitle>{sl} — reachable</AlertTitle>
-                  </Alert>
-                ) : (
-                  <Alert key={sl} variant="destructive">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>{sl} — {formatPct(plan.assumptions.rateGrowthTargetPct)} growth is not reachable</AlertTitle>
-                    <AlertDescription className="space-y-1 text-sm">
-                      <p>{plan.infeasibility?.message}</p>
-                      {plan.infeasibility && (
-                        <ul className="ml-4 list-disc space-y-0.5">
-                          <li>Needs {formatPct(plan.infeasibility.requiredAvgIncreasePct, 2)} avg; guardrails allow {formatPct(plan.infeasibility.achievableAvgIncreasePct, 2)}.</li>
-                          {plan.infeasibility.minimumChange.maxInhouseIncreasePct !== null && (
-                            <li>Raise max resident increase to at least <span className="font-medium">{formatPct(plan.infeasibility.minimumChange.maxInhouseIncreasePct, 2)}</span>.</li>
-                          )}
-                          <li>Or accept <span className="font-medium">{formatPct(plan.infeasibility.minimumChange.achievableGrowthTargetPct, 2)}</span> growth, which these guardrails do reach.</li>
-                        </ul>
-                      )}
-                    </AlertDescription>
-                  </Alert>
-                ),
-              )}
-            </div>
-          )}
-
           {allWarnings.length > 0 && (
             <Alert>
               <Info className="h-4 w-4" />
@@ -3940,53 +3940,6 @@ export default function InhouseIncreases() {
             </Alert>
           )}
 
-          {/* ── Street rate — one card per service line ─────────────── */}
-          <div className={cn("grid gap-4", plans.length === 1 ? "lg:grid-cols-3" : "sm:grid-cols-2 lg:grid-cols-3")}>
-            {plans.map(({ sl, plan }) => {
-              const slUnit = plan.rateBasis === "daily" ? "/day" : "/mo";
-              return (
-                <Card key={sl}>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Street rate{plans.length > 1 ? ` · ${sl}` : ""}</CardTitle>
-                    <CardDescription>Effective {plan.assumptions.streetRateEffectiveDate}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-base text-muted-foreground line-through">{formatMoney(plan.currentStreetRateDisplay)}</span>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-2xl font-semibold" data-testid="text-recommended-street">{formatMoney(plan.recommendedStreetRateDisplay)}</span>
-                      <span className="text-sm text-muted-foreground">{slUnit}</span>
-                    </div>
-                    <Badge variant="secondary" className="text-xs">{formatPct(plan.streetIncreasePct, 2)} increase</Badge>
-                  </CardContent>
-                </Card>
-              );
-            })}
-
-            {/* ── Combined resident summary ── */}
-            <Card className={plans.length === 1 ? "lg:col-span-2" : "sm:col-span-2 lg:col-span-3"}>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Resident increases{plans.length > 1 ? " — all lines" : ""}</CardTitle>
-                <CardDescription>
-                  Effective {assumptions.inhouseEffectiveDate}
-                  {plans.length === 1 ? ` · population read from ${plans[0].plan.scope.sourceMonth}` : ""}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                <Stat label="Average increase" value={formatPct(combinedSummary.weightedAvgIncreasePct, 2)} note="Revenue weighted" testId="text-avg-increase" />
-                <Stat label="Residents" value={combinedSummary.residentCount.toLocaleString()} note={`${combinedSummary.residentsReceivingIncrease.toLocaleString()} receive one`} />
-                <Stat label="Monthly revenue added" value={formatMoney(combinedSummary.totalMonthlyIncreaseDollars)} note={`${formatMoney(combinedSummary.totalAnnualIncreaseDollars)} annualized`} />
-                <Stat
-                  label="Held back"
-                  value={(combinedSummary.residentsBlockedByStreet + combinedSummary.residentsAtMax).toLocaleString()}
-                  note={`${combinedSummary.residentsBlockedByStreet} at street · ${combinedSummary.residentsAtMax} at max · View residents`}
-                  onClick={showHeldBackResidents}
-                  testId="button-view-held-back-residents"
-                />
-              </CardContent>
-            </Card>
-          </div>
-
           {/* ── How each plan was derived + quarterly (per line) ─────── */}
           {plans.map(({ sl, plan }) => (
             <div key={sl} className="space-y-4">
@@ -4015,12 +3968,59 @@ export default function InhouseIncreases() {
                           : "Expand for the arithmetic behind the summary above."}
                       </CardDescription>
                     </span>
-                    <Badge variant="outline" className="shrink-0 text-[11px] font-normal">
-                      {expandedPlanDetails[sl] ? "Hide detail" : "Show detail"}
-                    </Badge>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "gap-1 text-[11px] font-normal",
+                          plan.feasible
+                            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                            : "border-destructive/40 bg-destructive/10 text-destructive",
+                        )}
+                      >
+                        {plan.feasible
+                          ? <CheckCircle2 className="h-3 w-3" />
+                          : <AlertTriangle className="h-3 w-3" />}
+                        {plan.feasible ? "Reachable" : "Not reachable"}
+                      </Badge>
+                      <Badge variant="outline" className="text-[11px] font-normal">
+                        {expandedPlanDetails[sl] ? "Hide detail" : "Show detail"}
+                      </Badge>
+                    </span>
                   </button>
                 </CardHeader>
                 {expandedPlanDetails[sl] && <CardContent id={`plan-detail-${sl}`} className="space-y-4 pt-4">
+                  {plan.feasible ? (
+                    <Alert className="border-emerald-500/40 bg-emerald-500/10">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      <AlertTitle>
+                        {sl} — {formatPct(plan.assumptions.rateGrowthTargetPct)} growth is reachable
+                      </AlertTitle>
+                      <AlertDescription>
+                        Every quarter in the next year clears the target
+                        {plan.bindingQuarterLabel && (
+                          <> — <span className="font-medium">{plan.bindingQuarterLabel}</span> is the tightest</>
+                        )}.
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <Alert variant="destructive" data-testid={`alert-infeasible-${sl}`}>
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertTitle>{sl} — {formatPct(plan.assumptions.rateGrowthTargetPct)} growth is not reachable</AlertTitle>
+                      <AlertDescription className="space-y-1 text-sm">
+                        <p>{plan.infeasibility?.message}</p>
+                        {plan.infeasibility && (
+                          <ul className="ml-4 list-disc space-y-0.5">
+                            <li>Needs {formatPct(plan.infeasibility.requiredAvgIncreasePct, 2)} avg; guardrails allow {formatPct(plan.infeasibility.achievableAvgIncreasePct, 2)}.</li>
+                            {plan.infeasibility.minimumChange.maxInhouseIncreasePct !== null && (
+                              <li>Raise max resident increase to at least <span className="font-medium">{formatPct(plan.infeasibility.minimumChange.maxInhouseIncreasePct, 2)}</span>.</li>
+                            )}
+                            <li>Or accept <span className="font-medium">{formatPct(plan.infeasibility.minimumChange.achievableGrowthTargetPct, 2)}</span> growth, which these guardrails do reach.</li>
+                          </ul>
+                        )}
+                      </AlertDescription>
+                    </Alert>
+                  )}
                   <div className="rounded-md border bg-muted/20 p-3">
                     <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">How this plan was derived</p>
                     <Explanation explanation={plan.explanation} />
@@ -4247,6 +4247,29 @@ export default function InhouseIncreases() {
               </Card>
             </div>
           ))}
+
+          {/* ── Combined resident summary ── */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Resident increases{plans.length > 1 ? " — all lines" : ""}</CardTitle>
+              <CardDescription>
+                Effective {assumptions.inhouseEffectiveDate}
+                {plans.length === 1 ? ` · population read from ${plans[0].plan.scope.sourceMonth}` : ""}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Stat label="Average increase" value={formatPct(combinedSummary.weightedAvgIncreasePct, 2)} note="Revenue weighted" testId="text-avg-increase" />
+              <Stat label="Residents" value={combinedSummary.residentCount.toLocaleString()} note={`${combinedSummary.residentsReceivingIncrease.toLocaleString()} receive one`} />
+              <Stat label="Monthly revenue added" value={formatMoney(combinedSummary.totalMonthlyIncreaseDollars)} note={`${formatMoney(combinedSummary.totalAnnualIncreaseDollars)} annualized`} />
+              <Stat
+                label="Held back"
+                value={(combinedSummary.residentsBlockedByStreet + combinedSummary.residentsAtMax).toLocaleString()}
+                note={`${combinedSummary.residentsBlockedByStreet} at street · ${combinedSummary.residentsAtMax} at max · View residents`}
+                onClick={showHeldBackResidents}
+                testId="button-view-held-back-residents"
+              />
+            </CardContent>
+          </Card>
 
           {/* ── Residents — all lines combined ──────────────────────── */}
           <Card id="resident-recommendations" className="scroll-mt-4">

@@ -191,6 +191,18 @@ export interface PlanningInputSnapshotEntry {
   tierPolicy: OccupancyTierPolicy;
 }
 
+function canonicalJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJsonValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, nested]) => [key, canonicalJsonValue(nested)]),
+    );
+  }
+  return value;
+}
+
 /**
  * Stable identity for the exact inputs sent to a tiered calculation.
  *
@@ -202,11 +214,13 @@ export function planningInputSnapshotKey(
   entries: ReadonlyArray<PlanningInputSnapshotEntry>,
 ): string {
   return JSON.stringify(
-    entries.map(({ serviceLine, assumptions, tierPolicy }) => [
-      serviceLine,
-      tierPolicy,
-      assumptions,
-    ]),
+    canonicalJsonValue(
+      entries.map(({ serviceLine, assumptions, tierPolicy }) => [
+        serviceLine,
+        tierPolicy,
+        assumptions,
+      ]),
+    ),
   );
 }
 

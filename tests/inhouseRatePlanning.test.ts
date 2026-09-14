@@ -20,6 +20,7 @@
  */
 import type {
   BaselineQuarter,
+  OccupancyTierPolicy,
   PlanningAssumptions,
   PlanningResident,
 } from "../shared/inhousePlanning";
@@ -1040,6 +1041,20 @@ console.log("\n-- 7d. Normalized tier plans keep their raw input snapshot --");
       serviceLine: "AL",
       assumptions: rawAssumptions,
       tierPolicy,
+    }]) === snapshot,
+  );
+  const reorderedAssumptions = Object.fromEntries(
+    Object.entries(rawAssumptions).reverse(),
+  ) as PlanningAssumptions;
+  const reorderedTierPolicy = Object.fromEntries(
+    Object.entries(tierPolicy).reverse(),
+  ) as unknown as OccupancyTierPolicy;
+  ok(
+    "JSON property order changes do not make unchanged inputs stale",
+    planningInputSnapshotKey([{
+      serviceLine: "AL",
+      assumptions: reorderedAssumptions,
+      tierPolicy: reorderedTierPolicy,
     }]) === snapshot,
   );
   ok(
