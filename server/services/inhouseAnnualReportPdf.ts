@@ -209,9 +209,9 @@ function drawTierTable(doc: PDFKit.PDFDocument, grid: unknown, x: number, y: num
   const cells = tierCells(grid);
   const top = y + 17;
   doc.rect(x, top - 2, width, 13).fill(PALE);
-  const cols = [0, width * 0.40, width * 0.57, width * 0.72, width * 0.86];
-  const widths = [width * 0.39, width * 0.16, width * 0.14, width * 0.13, width * 0.13];
-  ["Service line / tier", "Range", "In-house", "Street", "Feasible"].forEach((label, i) => {
+  const cols = [0, width * 0.48, width * 0.68, width * 0.84];
+  const widths = [width * 0.47, width * 0.19, width * 0.15, width * 0.15];
+  ["Service line / tier", "Occupancy range", "In-house", "Street"].forEach((label, i) => {
     line(doc, x + cols[i], top, widths[i], label, { size: 5.4, bold: true, color: MUTED });
   });
   cells.slice(0, 18).forEach((cell, i) => {
@@ -221,19 +221,27 @@ function drawTierTable(doc: PDFKit.PDFDocument, grid: unknown, x: number, y: num
     line(doc, x + cols[1], yy, widths[1], valueOrDash(first(cell, ["rangeLabel", "range", "occupancyRange"])), { size: 5.2 });
     line(doc, x + cols[2], yy, widths[2], valueOrDash(first(cell, ["inhouseIncreasePct"]), pct), { size: 5.2 });
     line(doc, x + cols[3], yy, widths[3], valueOrDash(first(cell, ["streetIncreasePct"]), pct), { size: 5.2 });
-    line(doc, x + cols[4], yy, widths[4], valueOrDash(first(cell, ["feasible", "targetStatus"])), { size: 5.2 });
   });
 }
 
 function drawKpis(doc: PDFKit.PDFDocument, plans: JsonObject[], x: number, y: number, width: number): void {
-  heading(doc, x, y, width, "Revenue / variance KPIs");
-  const cols = [0, width * 0.15, width * 0.45, width * 0.74];
-  const widths = [width * 0.14, width * 0.29, width * 0.28, width * 0.25];
+  heading(doc, x, y, width, "Revenue impact");
+  const top = y + 17;
+  doc.rect(x, top - 2, width, 13).fill(PALE);
+  const cols = [0, width * 0.20, width * 0.50, width * 0.79];
+  const widths = [width * 0.19, width * 0.29, width * 0.28, width * 0.20];
+  ["Line", "Annual", "Monthly", "Variance"].forEach((label, i) => {
+    line(doc, x + cols[i], top, widths[i], label, { size: 5.4, bold: true, color: MUTED });
+  });
+  let annualTotal = 0;
+  let monthlyTotal = 0;
   plans.slice(0, 7).forEach((plan, i) => {
-    const yy = y + 17 + i * 18;
+    const yy = top + 15 + i * 14;
     const summary = (first(plan, ["summary"]) as JsonObject | undefined) ?? {};
     const annual = first(summary, ["totalAnnualIncreaseDollars"]) ?? first(plan, ["totalAnnualIncreaseDollars"]);
     const monthly = first(summary, ["totalMonthlyIncreaseDollars"]) ?? first(plan, ["totalMonthlyIncreaseDollars"]);
+    annualTotal += number(annual) ?? 0;
+    monthlyTotal += number(monthly) ?? 0;
     const explicitVariance = first(plan, [
       "varianceToTopCompetitorPct", "summary.varianceToTopCompetitorPct",
       "targetDeviationDiagnostic.varianceToTargetPct",
@@ -245,9 +253,80 @@ function drawKpis(doc: PDFKit.PDFDocument, plans: JsonObject[], x: number, y: nu
       (currentInhouse != null && futureStreet ? ((currentInhouse - futureStreet) / futureStreet) * 100 : undefined);
     const variance = calculatedVariance;
     line(doc, x + cols[0], yy, widths[0], serviceLine(plan), { size: 5.8, bold: true });
-    line(doc, x + cols[1], yy, widths[1], `Annual ${valueOrDash(annual, money)}`, { size: 5.4 });
-    line(doc, x + cols[2], yy, widths[2], `Monthly ${valueOrDash(monthly, money)}`, { size: 5.4 });
-    line(doc, x + cols[3], yy, widths[3], `Var ${valueOrDash(variance, pct)}`, { size: 5.4 });
+    line(doc, x + cols[1], yy, widths[1], valueOrDash(annual, money), { size: 5.5 });
+    line(doc, x + cols[2], yy, widths[2], valueOrDash(monthly, money), { size: 5.5 });
+    line(doc, x + cols[3], yy, widths[3], valueOrDash(variance, pct), { size: 5.5, align: "right" });
+  });
+  const totalY = top + 15 + Math.min(plans.length, 7) * 14 + 2;
+  doc.moveTo(x, totalY - 4).lineTo(x + width, totalY - 4).lineWidth(0.6).strokeColor(BORDER).stroke();
+  line(doc, x + cols[0], totalY, widths[0], "TOTAL", { size: 5.8, bold: true });
+  line(doc, x + cols[1], totalY, widths[1], valueOrDash(annualTotal, money), { size: 5.8, bold: true });
+  line(doc, x + cols[2], totalY, widths[2], valueOrDash(monthlyTotal, money), { size: 5.8, bold: true });
+}
+
+function drawRateComparisonChart(
+  doc: PDFKit.PDFDocument,
+  plans: JsonObject[],
+  x: number,
+  y: number,
+  width: number,
+): void {
+  heading(doc, x, y, width, "Street vs. in-house rate");
+  const rows = plans.slice(0, 7).map((plan) => {
+    const summary = (first(plan, ["summary"]) as JsonObject | undefined) ?? {};
+    return {
+      name: serviceLine(plan),
+      inhouse: number(first(summary, ["newAvgInhouseRateMonthly"])),
+      street: number(first(plan, ["recommendedStreetRateMonthly"])),
+    };
+  });
+  const maximum = Math.max(1, ...rows.flatMap(({ inhouse, street }) => [inhouse ?? 0, street ?? 0]));
+  const labelWidth = 36;
+  const valueWidth = 43;
+  const barWidth = Math.max(40, width - labelWidth - valueWidth - 10);
+  rows.forEach((row, index) => {
+    const yy = y + 20 + index * 24;
+    const daily = rateUnit(row.name) === "daily";
+    const divisor = daily ? 30.4 : 1;
+    const inhouse = row.inhouse == null ? null : row.inhouse / divisor;
+    const street = row.street == null ? null : row.street / divisor;
+    const displayMaximum = maximum / divisor;
+    line(doc, x, yy + 4, labelWidth, row.name, { size: 5.8, bold: true });
+    if (inhouse != null) {
+      doc.rect(x + labelWidth, yy, Math.max(1, barWidth * inhouse / displayMaximum), 6).fill("#2F6B95");
+      line(doc, x + labelWidth + barWidth + 5, yy, valueWidth, valueOrDash(inhouse, money), { size: 5.2 });
+    }
+    if (street != null) {
+      doc.rect(x + labelWidth, yy + 9, Math.max(1, barWidth * street / displayMaximum), 6).fill("#7BC4BE");
+      line(doc, x + labelWidth + barWidth + 5, yy + 9, valueWidth, valueOrDash(street, money), { size: 5.2 });
+    }
+  });
+  const legendY = y + 20 + rows.length * 24 + 2;
+  doc.rect(x, legendY, 7, 5).fill("#2F6B95");
+  line(doc, x + 10, legendY - 1, 50, "In-house", { size: 5.2, color: MUTED });
+  doc.rect(x + 62, legendY, 7, 5).fill("#7BC4BE");
+  line(doc, x + 72, legendY - 1, 50, "Street", { size: 5.2, color: MUTED });
+}
+
+function drawDistribution(doc: PDFKit.PDFDocument, plans: JsonObject[], x: number, y: number, width: number): void {
+  heading(doc, x, y, width, "Increase distribution");
+  const distributions = plans.flatMap((plan) => {
+    const candidate = first(plan, ["increaseDistribution", "distribution", "summary.increaseDistribution"]);
+    if (candidate !== undefined) return objects(candidate);
+    return [];
+  });
+  if (!distributions.length) {
+    line(doc, x, y + 19, width, "No increase distribution was saved.", { size: 6.5, color: MUTED });
+    return;
+  }
+  const maximum = Math.max(1, ...distributions.map((entry) => number(first(entry, ["count"])) ?? 0));
+  distributions.slice(0, 6).forEach((entry, i) => {
+    const yy = y + 21 + i * 22;
+    const label = text(first(entry, ["label", "bucket", "range"])) ?? "Range";
+    const count = number(first(entry, ["count", "residents", "residentCount"])) ?? 0;
+    line(doc, x, yy, 38, label, { size: 5.8, bold: true });
+    doc.rect(x + 40, yy, Math.max(1, (width - 72) * count / maximum), 8).fill("#AFC6D8");
+    line(doc, x + width - 27, yy, 27, String(count), { size: 5.8, align: "right" });
   });
 }
 
@@ -255,53 +334,10 @@ function drawNarrative(doc: PDFKit.PDFDocument, report: AnnualReportPdfReport, p
   heading(doc, x, y, width, "Recommendation / rationale");
   line(doc, x, y + 17, width, `Recommendation: ${reportRecommendation(report, plans) ?? "Not provided"}`, { size: 6.7 });
   line(doc, x, y + 30, width, `Rationale: ${reportRationale(report, plans) ?? "Not provided"}`, { size: 6.7 });
-  heading(doc, x, y + 48, width, "Rate-position periods");
-  const periods = plans.flatMap((plan) => objects(first(plan, [
-    "quarters", "monthlyRateProjection", "ratePositionPeriods", "ratePositions",
-  ])));
-  if (!periods.length) {
-    line(doc, x, y + 65, width, "No rate-position periods were saved.", { size: 6.5, color: MUTED });
-  } else {
-    periods.slice(0, 3).forEach((period, i) => {
-      const label = text(first(period, ["label", "period", "quarter", "month"])) ?? "Period";
-      const position = first(period, ["variancePct", "varianceToTopCompetitorPct", "positionPct"]);
-      const projected = first(period, ["projectedRateMonthly", "inhouseRateMonthly"]);
-      const street = first(period, ["streetRateMonthly", "recommendedStreetRateMonthly"]);
-      const suffix = position != null
-        ? `variance ${valueOrDash(position, pct)}`
-        : `in-house ${valueOrDash(projected, money)} / street ${valueOrDash(street, money)}`;
-      line(doc, x, y + 65 + i * 13, width, `${label}: ${suffix}`, { size: 6.5 });
-    });
-  }
-  heading(doc, x, y + 108, width, "Increase distribution");
-  const distributions = plans.flatMap((plan) => {
-    const candidate = first(plan, ["increaseDistribution", "distribution", "summary.increaseDistribution"]);
-    if (candidate !== undefined) return objects(candidate);
-    const summary = (first(plan, ["summary"]) as JsonObject | undefined) ?? {};
-    const receiving = first(summary, ["residentsReceivingIncrease"]);
-    const residents = first(summary, ["residentCount"]);
-    const min = first(summary, ["minIncreasePct"]);
-    const max = first(summary, ["maxIncreasePct"]);
-    return receiving !== undefined || residents !== undefined
-      ? [{
-        label: serviceLine(plan),
-        count: `${valueOrDash(receiving)} of ${valueOrDash(residents)} residents`,
-        range: min !== undefined || max !== undefined
-          ? `${valueOrDash(min, pct)}–${valueOrDash(max, pct)}`
-          : undefined,
-      }]
-      : [];
-  });
-  if (!distributions.length) {
-    line(doc, x, y + 125, width, "No increase distribution was saved.", { size: 6.5, color: MUTED });
-  } else {
-    distributions.slice(0, 6).forEach((entry, i) => {
-      const label = text(first(entry, ["label", "bucket", "range"])) ?? "Range";
-      const count = first(entry, ["count", "residents", "residentCount"]);
-      const range = first(entry, ["range"]);
-      line(doc, x, y + 125 + i * 13, width, `${label}: ${valueOrDash(count)}${range ? ` (${range})` : ""}`, { size: 6.5 });
-    });
-  }
+  const gap = 18;
+  const chartWidth = width * 0.62;
+  drawRateComparisonChart(doc, plans, x, y + 52, chartWidth);
+  drawDistribution(doc, plans, x + chartWidth + gap, y + 52, width - chartWidth - gap);
 }
 
 /**
@@ -339,7 +375,7 @@ export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): P
     drawPlanTable(doc, plans, 30, 66, planWidth);
     drawTierTable(doc, report.tierGrid, 30 + planWidth + gap, 66, tierWidth);
     drawKpis(doc, plans, 30 + planWidth + gap + tierWidth + gap, 66, kpiWidth);
-    drawNarrative(doc, report, plans, 30, 230, pageWidth);
+    drawNarrative(doc, report, plans, 30, 225, pageWidth);
 
     line(doc, 30, doc.page.height - 25, pageWidth, `Status: ${status}  •  Generated: ${stamp}`, { size: 6.5, color: MUTED });
     const pages = doc.bufferedPageRange();

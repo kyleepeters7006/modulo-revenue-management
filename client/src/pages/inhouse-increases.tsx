@@ -844,6 +844,11 @@ function PlanScatterReview({
 
   const points = useMemo(() => {
     return plans.flatMap(({ sl, plan }) => {
+      // A portfolio plan is not a set of campus plans. Do not group its
+      // resident rows client-side and present those slices as measured campus
+      // recommendations; campus-specific calculations are persisted and
+      // restored when the campus filter is selected.
+      if (selectedLocationId === null && plan.scope.locationId === null) return [];
       const grouped = new Map<string, { revenue: number; increase: number; weight: number; residents: number }>();
       plan.residents.forEach((resident) => {
         const key = resident.location;
@@ -1346,6 +1351,7 @@ export default function InhouseIncreases() {
 
   const previousStorageIdentity = useRef<string | null | undefined>(undefined);
   const currentStorageIdentity = useRef<string | null>(storageIdentityKey);
+  const restoredAnnualReport = useRef(false);
   useEffect(() => {
     const previous = previousStorageIdentity.current;
     previousStorageIdentity.current = storageIdentityKey;
@@ -1365,6 +1371,7 @@ export default function InhouseIncreases() {
   // the operator later filters to either line individually (and vice versa).
   useEffect(() => {
     let cancelled = false;
+    restoredAnnualReport.current = false;
     setPlans(null);
     setCalculatedInputsKey(null);
     setLastRunAt(null);
@@ -1433,7 +1440,7 @@ export default function InhouseIncreases() {
           : null;
       }
 
-      if (cancelled) return;
+      if (cancelled || restoredAnnualReport.current) return;
       setPlans(restored);
       setCalculatedInputsKey(restoredInputsKey);
       setLastRunAt(restoredLastRunAt);
@@ -2252,7 +2259,14 @@ export default function InhouseIncreases() {
   });
 
   const latestAnnualReportQuery = useQuery<{
-    report: { id: string; generatedAt: string; scopeKey: string } | null;
+    report: {
+      id: string;
+      generatedAt: string;
+      scopeKey: string;
+      locationId: string | null;
+      plans?: unknown;
+      tierGrid?: unknown;
+    } | null;
   }>({
     queryKey: ["/api/inhouse-planning/annual-report-runs/latest", tierScopeKey],
     queryFn: async () => {
@@ -2266,7 +2280,93 @@ export default function InhouseIncreases() {
     },
     enabled: isAuthenticated,
     retry: false,
+    // Portfolio fan-out runs in a bounded background queue. Keep checking a
+    // selected campus so its newly generated report replaces an older snapshot
+    // as soon as that campus finishes.
+    refetchInterval: scopeLocationId === null ? false : 10_000,
   });
+
+  /**
+   * Portfolio campus reports are generated server-side after the portfolio
+   * request returns. When the operator later filters to a campus, restore that
+   * campus's saved compact result rather than slicing the portfolio resident
+   * array and labelling its totals as campus metrics.
+   */
+  useEffect(() => {
+    const report = latestAnnualReportQuery.data?.report;
+    if (scopeLocationId === null || !report) return;
+    if (report.locationId !== scopeLocationId || !Array.isArray(report.plans)) return;
+    const reportTime = Date.parse(report.generatedAt || "");
+    const currentTime = Date.parse(lastRunAt || "");
+    if (plans && Number.isFinite(currentTime) && (!Number.isFinite(reportTime) || currentTime >= reportTime)) {
+      return;
+    }
+    const restored = report.plans.filter((value): value is PlanWithSl => {
+      if (!value || typeof value !== "object") return false;
+      const candidate = value as { sl?: unknown; plan?: unknown };
+      const plan = candidate.plan as Partial<PlanResult> | undefined;
+      return (
+        typeof candidate.sl === "string" &&
+        !!plan &&
+        !!plan.scope &&
+        !!plan.assumptions &&
+        !!plan.summary
+      );
+    });
+    const selected = restored.filter(({ sl }) => serviceLines.includes(sl));
+    if (selected.length === 0) return;
+    restoredAnnualReport.current = true;
+    setPlans(selected);
+    setLastRunAt(report.generatedAt || null);
+    setRestoredPlanDetailsOmitted(true);
+    setCalculatedInputsKey(null);
+    const inputSnapshot =
+      report.tierGrid &&
+      typeof report.tierGrid === "object" &&
+      Array.isArray((report.tierGrid as { inputSnapshot?: unknown }).inputSnapshot)
+        ? (report.tierGrid as { inputSnapshot: PlanningInputSnapshotEntry[] }).inputSnapshot
+        : null;
+    if (inputSnapshot?.length) {
+      const firstInput = inputSnapshot.find(({ serviceLine }) =>
+        serviceLines.includes(serviceLine),
+      );
+      if (firstInput) setAssumptions(firstInput.assumptions);
+      setPerLineTargets(Object.fromEntries(
+        inputSnapshot.map(({ serviceLine, assumptions }) => [
+          serviceLine,
+          {
+            rateGrowthTargetPct: assumptions.rateGrowthTargetPct,
+            annualTurnoverPct: assumptions.annualTurnoverPct,
+          },
+        ]),
+      ));
+      setTierState({
+        scopeKey: policyScopeKey,
+        policies: Object.fromEntries(
+          inputSnapshot.map(({ serviceLine, tierPolicy }) => [serviceLine, tierPolicy]),
+        ),
+        edited: {},
+        loaded: Object.fromEntries(
+          inputSnapshot.map(({ serviceLine }) => [serviceLine, true as const]),
+        ),
+      });
+      // Prevent a slower campus-assumptions fetch from replacing the portfolio
+      // inputs that generated this report. The first explicit campus save
+      // creates the intended campus override.
+      setAssumptionsTouched(true);
+    }
+    const first = selected.find((entry) => entry.plan.feasible) ?? selected[0];
+    setExpandedQuarter(first?.plan.bindingQuarterLabel
+      ? `${first.sl}-${first.plan.bindingQuarterLabel}`
+      : null);
+  }, [
+    latestAnnualReportQuery.data,
+    lastRunAt,
+    plans,
+    policyScopeKey,
+    scopeLocationId,
+    serviceLines,
+  ]);
 
   const removePlan = useMutation({
     mutationFn: async (planId: string) =>

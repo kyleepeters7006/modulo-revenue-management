@@ -41,6 +41,8 @@ import {
   generateAnnualInhouseReportPdf,
   planStatus as annualReportPlanStatus,
 } from "../services/inhouseAnnualReportPdf";
+import { generateCampusAnnualReports } from "../services/inhouseAnnualReportGeneration";
+import { compactPlanForAnnualReport } from "@shared/inhouseAnnualReportSnapshot";
 import { computeHistoricalTurnover } from "../services/inhouseRatePlanning/historicalTurnover";
 import {
   fetchOccupancyByCampus,
@@ -622,6 +624,102 @@ export function registerInhousePlanningRoutes(
           };
         }),
       });
+      if (locationId === null && result.lines.length > 0) {
+        const campusReportBatchStartedAt = new Date();
+        const reportLines = body.data.lines.map((line, index) => {
+          const resolved = stored[index];
+          return {
+            serviceLine: line.serviceLine,
+            assumptions: enforceCurrentPlanningPolicy(
+              line.assumptions ?? resolved.assumptions,
+            ),
+            tierPolicy: line.tierPolicy ?? resolved.tierPolicy,
+          };
+        });
+        void (async () => {
+          const campusRows = await db
+            .select({ id: locations.id, name: locations.name })
+            .from(locations)
+            .where(eq(locations.clientId, clientId));
+          const generated = await generateCampusAnnualReports({
+            locations: campusRows,
+            lines: reportLines,
+            concurrency: 2,
+            calculate: (campus, lines) =>
+              calculatePlanTiersBatch({
+                clientId,
+                locationId: campus.id,
+                location: campus.name,
+                lines: lines as any,
+              }) as any,
+            save: async ({ location: campus, serviceLines, result: campusResult }) => {
+              const compactPlans = campusResult.lines.map((line) => ({
+                sl: line.serviceLine,
+                plan: compactPlanForAnnualReport(line.currentPlan as any),
+              }));
+              const scopeKey = `${campus.id}|${serviceLines.join(",")}`;
+              // One timestamp identifies the entire portfolio run. A slower
+              // older fan-out must never overwrite a campus already saved by
+              // a newer portfolio run.
+              const generatedAt = campusReportBatchStartedAt;
+              const tierGrid = {
+                lines: campusResult.lines.map((line) => ({
+                  serviceLine: line.serviceLine,
+                  occupancyPct: line.occupancyPct,
+                  occupancyMonth: line.occupancyMonth,
+                  occupancySource: (line as any).occupancySource ?? null,
+                  currentTier: line.currentTier,
+                  cells: line.cells,
+                  warnings: line.warnings,
+                  currentPlan: compactPlans.find(({ sl }) => sl === line.serviceLine)?.plan
+                    ?? compactPlanForAnnualReport(line.currentPlan as any),
+                })),
+                skipped: campusResult.skipped,
+                scopeKey,
+                // The generated campus report must reopen with the portfolio
+                // inputs that produced it. Normal campus saves can then create
+                // a more-specific override without changing the portfolio row.
+                inputSnapshot: reportLines,
+              };
+              await db
+                .insert(inhouseAnnualReportRuns)
+                .values({
+                  clientId,
+                  scopeKey,
+                  locationId: campus.id,
+                  serviceLines,
+                  plans: compactPlans,
+                  tierGrid,
+                  generatedAt,
+                } as any)
+                .onConflictDoUpdate({
+                  target: [inhouseAnnualReportRuns.clientId, inhouseAnnualReportRuns.scopeKey],
+                  set: {
+                    locationId: campus.id,
+                    serviceLines,
+                    plans: compactPlans,
+                    tierGrid,
+                    generatedAt,
+                  } as any,
+                  setWhere: sql`${inhouseAnnualReportRuns.generatedAt} <= ${generatedAt}`,
+                });
+            },
+            onError: (campus, error) => {
+              console.error(
+                `[inhouse-planning] campus annual report failed for ${campus.name}:`,
+                error,
+              );
+            },
+          });
+          if (generated.failed.length > 0) {
+            console.warn(
+              `[inhouse-planning] ${generated.failed.length} campus annual report(s) were not saved`,
+            );
+          }
+        })().catch((error) => {
+          console.error("[inhouse-planning] campus annual report generation failed:", error);
+        });
+      }
       res.setHeader("Cache-Control", "no-store");
       res.json(result);
     } catch (error) {
