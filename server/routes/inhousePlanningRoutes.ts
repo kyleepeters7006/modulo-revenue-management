@@ -915,14 +915,6 @@ export function registerInhousePlanningRoutes(
         assumptions,
       });
 
-      if (!plan.feasible) {
-        return res.status(409).json({
-          error:
-            "This plan does not reach the growth target and cannot be applied. Adjust the assumptions first.",
-          infeasibility: plan.infeasibility,
-        });
-      }
-
       // Read-max, supersede and insert must be ONE transaction on ONE
       // connection. Two operators approving at the same moment would otherwise
       // both read the same MAX(version), both mark the other's plan superseded,

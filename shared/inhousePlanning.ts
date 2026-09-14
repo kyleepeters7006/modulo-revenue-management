@@ -797,11 +797,11 @@ export interface PlanSubmissionCandidate {
 }
 
 /**
- * A multi-line calculation can contain both valid and infeasible results.
- * Only feasible lines may be sent to the apply endpoint.
+ * Every calculated line may be submitted as a proposal. Feasibility describes
+ * whether the configured target was reached; it is not an approval gate.
  */
-export function selectSubmittablePlans<T extends PlanSubmissionCandidate>(plans: T[]): T[] {
-  return plans.filter(({ plan }) => plan.feasible);
+export function selectPlansForSubmission<T extends PlanSubmissionCandidate>(plans: T[]): T[] {
+  return plans;
 }
 
 /** Quarter label used everywhere: "Q3 2026". */

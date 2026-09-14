@@ -1455,6 +1455,13 @@ function explainPlan(ctx: {
     summary.newAvgInhouseRateMonthly > 0
       ? (solved.recommendedStreetMonthly / summary.newAvgInhouseRateMonthly - 1) * 100
       : 0;
+  const streetPremiumChangePct = recommendedStreetPremiumPct - currentStreetPremiumPct;
+  const streetPremiumDirection =
+    Math.abs(streetPremiumChangePct) < 0.05
+      ? "The recommendation preserves the existing Street-to-in-house spread"
+      : streetPremiumChangePct > 0
+        ? `The recommendation widens the spread by ${formatPct(streetPremiumChangePct, 2).replace("%", " percentage points")}`
+        : `The recommendation narrows the spread by ${formatPct(Math.abs(streetPremiumChangePct), 2).replace("%", " percentage points")}`;
   const steps: CalcExplanation["steps"] = [
     {
       label: "Growth target",
@@ -1479,7 +1486,7 @@ function explainPlan(ctx: {
     {
       label: "Street premium over in-house · current → recommended",
       value: `${formatPct(currentStreetPremiumPct, 2)} → ${formatPct(recommendedStreetPremiumPct, 2)}`,
-      note: "Current is compared with current and recommended with recommended, using the same matched resident-room cohort.",
+      note: `${streetPremiumDirection}. Current is compared with current and recommended with recommended, using the same matched resident-room cohort.`,
     },
     {
       label: "Turnover assumption",

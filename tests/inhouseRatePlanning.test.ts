@@ -26,7 +26,7 @@ import type {
 import {
   DEFAULT_ASSUMPTIONS,
   planAssumptionsMatch,
-  selectSubmittablePlans,
+  selectPlansForSubmission,
   validatePlanningSignal,
 } from "../shared/inhousePlanning";
 import {
@@ -911,8 +911,8 @@ console.log("\n-- 7b. Street position does not replace the resident maximum --")
   );
 }
 
-// ── 7c. Mixed service-line submission ─────────────────────────────────────
-console.log("\n-- 7c. One infeasible service line does not block a valid submission --");
+// ── 7c. Target attainment is advisory for proposal submission ─────────────
+console.log("\n-- 7c. Below-target plans remain submittable as proposals --");
 {
   const feasibleAssumptions = assumptions({ rateGrowthTargetPct: 5 });
   const infeasibleAssumptions = assumptions({
@@ -949,17 +949,18 @@ console.log("\n-- 7c. One infeasible service line does not block a valid submiss
       },
     },
   ];
-  const submittable = selectSubmittablePlans(calculated);
-  const hasMixedWarning = calculated.some(({ plan }) => !plan.feasible) && submittable.length > 0;
+  const submittable = selectPlansForSubmission(calculated);
+  const hasMixedWarning = calculated.some(({ plan }) => !plan.feasible);
 
   ok("the mixed fixture has one feasible line", calculated.filter(({ plan }) => plan.feasible).length === 1);
   ok("the mixed fixture has one infeasible line", calculated.filter(({ plan }) => !plan.feasible).length === 1);
   ok(
-    "only the feasible service line is selected for submission",
-    submittable.length === 1 && submittable[0].sl === "AL",
+    "both feasible and below-target service lines are selected for proposal submission",
+    submittable.length === 2 && submittable.some(({ sl }) => sl === "AL") &&
+      submittable.some(({ sl }) => sl === "MC"),
   );
-  ok("the warning is shown when valid requests remain alongside an infeasible line", hasMixedWarning);
-  ok("the submitted count matches the requests that would be sent", submittable.length === 1);
+  ok("the warning remains informational when a line is below target", hasMixedWarning);
+  ok("the submitted count matches every calculated line", submittable.length === calculated.length);
 
   const changedAssumptions = { ...feasibleAssumptions, maxInhouseIncreasePct: 7 };
   ok(
@@ -983,9 +984,8 @@ console.log("\n-- 7c. One infeasible service line does not block a valid submiss
     planAssumptionsMatch(recalculated.plan.assumptions, changedAssumptions),
   );
   ok(
-    "submission is re-enabled after recalculation when the valid line remains feasible",
-    selectSubmittablePlans([recalculated, calculated[1]]).length === 1 &&
-      recalculated.plan.feasible,
+    "submission includes every recalculated proposal regardless of target attainment",
+    selectPlansForSubmission([recalculated, calculated[1]]).length === 2,
   );
 }
 

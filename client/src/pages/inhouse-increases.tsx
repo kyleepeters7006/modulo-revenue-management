@@ -78,7 +78,7 @@ import {
   formatMoney,
   formatPct,
   planAssumptionsMatch,
-  selectSubmittablePlans,
+  selectPlansForSubmission,
   type CalcExplanation,
   type EqualizationStrength,
   type PlanResult,
@@ -1256,9 +1256,10 @@ export default function InhouseIncreases() {
     scope: false,
     assumptions: false,
     occupancyTiers: false,
+    dataWarnings: false,
   });
 
-  function toggleSection(section: "scope" | "assumptions" | "occupancyTiers") {
+  function toggleSection(section: "scope" | "assumptions" | "occupancyTiers" | "dataWarnings") {
     setExpandedSections((current) => ({ ...current, [section]: !current[section] }));
   }
 
@@ -1271,6 +1272,7 @@ export default function InhouseIncreases() {
   const [sortKey, setSortKey] = useState<SortKey>("increasePct");
   const [sortDesc, setSortDesc] = useState(true);
   const [constrainedOnly, setConstrainedOnly] = useState(false);
+  const [heldBackOnly, setHeldBackOnly] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
 
   const scopeLocationId = locationId === ALL_CAMPUSES ? null : locationId;
@@ -2073,22 +2075,12 @@ export default function InhouseIncreases() {
   const applyPlan = useMutation({
     mutationFn: async () => {
       const currentPlans = plans ?? [];
-      const submittablePlans = selectSubmittablePlans(currentPlans);
+      const submittablePlans = selectPlansForSubmission(currentPlans);
       if (submittablePlans.length === 0) {
-        throw new Error("No service lines currently reach the target. Recalculate after adjusting the assumptions.");
+        throw new Error("Calculate a plan before submitting proposals.");
       }
       const hasChangedAssumptions = submittablePlans.some(
-        ({ sl, plan }) => {
-          const line = tierGrid?.lines.find((candidate) => candidate.serviceLine === sl);
-          const currentTier = line?.currentTier ?? null;
-          const effective = currentTier
-            ? applyOccupancyTier(
-                assumptionsForLine(sl),
-                tierPolicyFor(sl).tiers[currentTier],
-              )
-            : assumptionsForLine(sl);
-          return !planAssumptionsMatch(plan.assumptions, effective);
-        },
+        ({ sl, plan }) => !planAssumptionsMatch(plan.assumptions, effectiveAssumptionsForPlan(sl)),
       );
       if (hasChangedAssumptions) {
         throw new Error("These results were calculated with different assumptions. Recalculate the plan before submitting it.");
@@ -2266,8 +2258,16 @@ export default function InhouseIncreases() {
     }));
   }
 
+  function effectiveAssumptionsForPlan(sl: string): PlanningAssumptions {
+    const currentTier =
+      tierGrid?.lines.find((candidate) => candidate.serviceLine === sl)?.currentTier ?? null;
+    return currentTier
+      ? applyOccupancyTier(assumptionsForLine(sl), tierPolicyFor(sl).tiers[currentTier])
+      : assumptionsForLine(sl);
+  }
+
   const hasChangedPlanAssumptions = !!plans?.some(
-    ({ sl, plan }) => !planAssumptionsMatch(plan.assumptions, assumptionsForLine(sl)),
+    ({ sl, plan }) => !planAssumptionsMatch(plan.assumptions, effectiveAssumptionsForPlan(sl)),
   );
 
   const rangeError =
@@ -2284,9 +2284,15 @@ export default function InhouseIncreases() {
   );
 
   const sortedResidents = useMemo(() => {
-    const filtered = constrainedOnly
-      ? allTaggedResidents.filter((r) => r.constraint !== "none")
-      : allTaggedResidents;
+    const filtered = heldBackOnly
+      ? allTaggedResidents.filter((r) =>
+          r.constraint === "max" ||
+          r.constraint === "street_cap" ||
+          r.constraint === "at_or_above_street",
+        )
+      : constrainedOnly
+        ? allTaggedResidents.filter((r) => r.constraint !== "none")
+        : allTaggedResidents;
     const pick = (r: TaggedResident): string | number => {
       switch (sortKey) {
         case "location": return r.location;
@@ -2305,7 +2311,19 @@ export default function InhouseIncreases() {
           ? av.localeCompare(bv) : Number(av) - Number(bv);
       return sortDesc ? -cmp : cmp;
     });
-  }, [allTaggedResidents, sortKey, sortDesc, constrainedOnly]);
+  }, [allTaggedResidents, sortKey, sortDesc, constrainedOnly, heldBackOnly]);
+
+  function showHeldBackResidents() {
+    setHeldBackOnly(true);
+    setConstrainedOnly(false);
+    setVisibleCount(50);
+    requestAnimationFrame(() => {
+      document.getElementById("resident-recommendations")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) { setSortDesc((d) => !d); }
@@ -2413,7 +2431,7 @@ export default function InhouseIncreases() {
       quartersMeetingGoal += plan.quarters.filter(
         (quarter, index) => quarterDisplays[index].yoyPct != null && quarter.passes,
       ).length;
-      projectedQuarterCount += quarterlyYoySummary.measuredQuarterCount;
+      projectedQuarterCount += plan.quarters.length;
       for (const quarter of plan.quarters) {
         const key = `${quarter.year}-Q${quarter.quarter}`;
         const bucket = quarterTotals.get(key) ?? {
@@ -2496,7 +2514,6 @@ export default function InhouseIncreases() {
   }, [plans]);
 
   const allFeasible = plans ? plans.every((p) => p.plan.feasible) : false;
-  const anyFeasible = plans ? plans.some((p) => p.plan.feasible) : false;
   const allWarnings = plans ? Array.from(new Set(plans.flatMap((p) => p.plan.warnings))) : [];
   const quarterlyComparisonPeriods = plans?.[0]?.plan.quarters
     .map(({ quarter, year }) => `Q${quarter} ${year} vs Q${quarter} ${year - 1}`)
@@ -3477,7 +3494,7 @@ export default function InhouseIncreases() {
                   />
                   <HeaderHelp
                     label="Quarters at goal"
-                    explanation={`Measured periods meeting the goal: ${quarterlyComparisonPeriods}. Partial and unavailable prior-year baselines are excluded.`}
+                     explanation="Planned quarters meeting the goal out of all four quarters. A partial prior-year baseline counts when it produces a valid comparison; an unavailable comparison does not count as meeting the goal."
                   />
                 </div>
                 {plans.map(({ sl, plan }) => {
@@ -3500,9 +3517,9 @@ export default function InhouseIncreases() {
                     };
                   });
                   const quartersMeetingGoal = quarterCells.filter(
-                    (quarter) => quarter.includedInSummary && quarter.passes,
+                     (quarter) => quarter.yoyPct != null && quarter.passes,
                   ).length;
-                  const measuredQuarterCount = quarterlyYoySummary.measuredQuarterCount;
+                   const plannedQuarterCount = quarterCells.length;
                   const adjustedTopComp = plan.adjustedTopCompetitorRateMonthly;
                   const projectedAdjustedTopComp =
                     adjustedTopComp != null
@@ -3574,10 +3591,10 @@ export default function InhouseIncreases() {
                         <QuarterYoyBreakdown quarters={quarterCells} />
                       </div>
                       <div>
-                        <p className={cn("font-semibold", quartersMeetingGoal === measuredQuarterCount ? "text-emerald-600" : "text-amber-600")}>
-                          {quartersMeetingGoal} / {measuredQuarterCount}
+                        <p className={cn("font-semibold", quartersMeetingGoal === plannedQuarterCount ? "text-emerald-600" : "text-amber-600")}>
+                          {quartersMeetingGoal} / {plannedQuarterCount}
                         </p>
-                        <p className="text-xs text-muted-foreground">Measured quarters</p>
+                        <p className="text-xs text-muted-foreground">Planned quarters</p>
                       </div>
                     </div>
                   );
@@ -3819,12 +3836,32 @@ export default function InhouseIncreases() {
           {allWarnings.length > 0 && (
             <Alert>
               <Info className="h-4 w-4" />
-              <AlertTitle>Worth knowing about this data</AlertTitle>
-              <AlertDescription>
-                <ul className="ml-4 list-disc space-y-1 text-sm">
-                  {allWarnings.map((w, i) => <li key={i}>{w}</li>)}
-                </ul>
-              </AlertDescription>
+              <AlertTitle>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-3 text-left"
+                  onClick={() => toggleSection("dataWarnings")}
+                  aria-expanded={expandedSections.dataWarnings}
+                  aria-controls="inhouse-data-warnings"
+                >
+                  <span>
+                    Worth knowing about this data
+                    <span className="ml-2 font-normal text-muted-foreground">
+                      {allWarnings.length} {allWarnings.length === 1 ? "note" : "notes"}
+                    </span>
+                  </span>
+                  {expandedSections.dataWarnings
+                    ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                </button>
+              </AlertTitle>
+              {expandedSections.dataWarnings && (
+                <AlertDescription id="inhouse-data-warnings">
+                  <ul className="ml-4 mt-2 list-disc space-y-1 text-sm">
+                    {allWarnings.map((w, i) => <li key={i}>{w}</li>)}
+                  </ul>
+                </AlertDescription>
+              )}
             </Alert>
           )}
 
@@ -3864,7 +3901,13 @@ export default function InhouseIncreases() {
                 <Stat label="Average increase" value={formatPct(combinedSummary.weightedAvgIncreasePct, 2)} note="Revenue weighted" testId="text-avg-increase" />
                 <Stat label="Residents" value={combinedSummary.residentCount.toLocaleString()} note={`${combinedSummary.residentsReceivingIncrease.toLocaleString()} receive one`} />
                 <Stat label="Monthly revenue added" value={formatMoney(combinedSummary.totalMonthlyIncreaseDollars)} note={`${formatMoney(combinedSummary.totalAnnualIncreaseDollars)} annualized`} />
-                <Stat label="Held back" value={(combinedSummary.residentsBlockedByStreet + combinedSummary.residentsAtMax).toLocaleString()} note={`${combinedSummary.residentsBlockedByStreet} at street · ${combinedSummary.residentsAtMax} at max`} />
+                <Stat
+                  label="Held back"
+                  value={(combinedSummary.residentsBlockedByStreet + combinedSummary.residentsAtMax).toLocaleString()}
+                  note={`${combinedSummary.residentsBlockedByStreet} at street · ${combinedSummary.residentsAtMax} at max · View residents`}
+                  onClick={showHeldBackResidents}
+                  testId="button-view-held-back-residents"
+                />
               </CardContent>
             </Card>
           </div>
@@ -4131,22 +4174,34 @@ export default function InhouseIncreases() {
           ))}
 
           {/* ── Residents — all lines combined ──────────────────────── */}
-          <Card>
+          <Card id="resident-recommendations" className="scroll-mt-4">
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <CardTitle className="text-base">Resident recommendations</CardTitle>
                   <CardDescription>
                     {sortedResidents.length.toLocaleString()} of{" "}
-                    {allTaggedResidents.length.toLocaleString()} residents. Tap a row to see how the increase was calculated.
+                     {allTaggedResidents.length.toLocaleString()} residents
+                     {heldBackOnly ? " held back by the Street Rate or maximum increase" : ""}.
+                     {" "}Tap a row to see why and how the increase was calculated.
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="flex items-center gap-2">
                     <Switch id="constrained-only" data-testid="switch-constrained-only" checked={constrainedOnly}
-                      onCheckedChange={(v) => { setConstrainedOnly(v); setVisibleCount(50); }} />
+                      onCheckedChange={(v) => { setConstrainedOnly(v); setHeldBackOnly(false); setVisibleCount(50); }} />
                     <Label htmlFor="constrained-only" className="text-xs">Only residents hitting a limit</Label>
                   </div>
+                  {heldBackOnly && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setHeldBackOnly(false)}
+                    >
+                      Clear held-back filter
+                    </Button>
+                  )}
                   {/* One export button per service line */}
                   {plans.map(({ sl }) => (
                     <Button key={sl} variant="outline" size="sm" data-testid="button-export-plan"
@@ -4259,19 +4314,11 @@ export default function InhouseIncreases() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {!anyFeasible && (
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
+              {!allFeasible && (
+                <Alert>
+                  <Info className="h-4 w-4" />
                   <AlertDescription>
-                    No plans reach the target. Adjust the assumptions above first.
-                  </AlertDescription>
-                </Alert>
-              )}
-              {!allFeasible && anyFeasible && (
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>
-                     Some service lines do not reach the target and cannot be submitted. Only feasible lines will be submitted.
+                    Some service lines do not reach the target. They can still be submitted as proposals for review.
                   </AlertDescription>
                 </Alert>
               )}
@@ -4312,11 +4359,11 @@ export default function InhouseIncreases() {
               <div className="flex flex-wrap gap-2">
                 <Button
                   onClick={() => applyPlan.mutate()}
-                  disabled={!anyFeasible || !isAuthenticated || applyPlan.isPending || hasChangedPlanAssumptions}
+                  disabled={!isAuthenticated || applyPlan.isPending || hasChangedPlanAssumptions}
                   data-testid="button-apply-plan"
                 >
                   {applyPlan.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Submit proposals for {plans.length > 1 ? `${plans.filter((p) => p.plan.feasible).length} plan(s)` : "plan"}
+                  Submit proposals for {plans.length > 1 ? `${plans.length} plan(s)` : "plan"}
                 </Button>
                 <Button
                   type="button"
@@ -4437,20 +4484,34 @@ function Stat({
   value,
   note,
   testId,
+  onClick,
 }: {
   label: string;
   value: string;
   note?: string;
   testId?: string;
+  onClick?: () => void;
 }) {
-  return (
-    <div className="space-y-0.5">
+  const content = (
+    <>
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-xl font-semibold" data-testid={testId}>
+      <div className="text-xl font-semibold" data-testid={onClick ? undefined : testId}>
         {value}
       </div>
       {note && <div className="text-[11px] text-muted-foreground">{note}</div>}
-    </div>
+    </>
+  );
+  return onClick ? (
+    <button
+      type="button"
+      className="space-y-0.5 rounded-md p-2 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onClick}
+      data-testid={testId}
+    >
+      {content}
+    </button>
+  ) : (
+    <div className="space-y-0.5">{content}</div>
   );
 }
 
