@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { compactPlanForAnnualReport } from "../client/src/lib/inhouseAnnualReportSnapshot";
+import {
+  compactPlanForAnnualReport,
+  hydrateAnnualReportPlanSnapshot,
+} from "../client/src/lib/inhouseAnnualReportSnapshot";
 import {
   CalculationDetailToggle,
   QuarterlySummaryRow,
@@ -19,6 +22,10 @@ const roomDetails = Array.from({ length: 10_000 }, (_, i) => ({
 const plan = {
   feasible: true,
   rateBasis: "monthly",
+  assumptions: {
+    rateGrowthTargetPct: 6,
+  },
+  bindingQuarterLabel: "Q1 2026",
   residents,
   quarters: Array.from({ length: 4 }, (_, i) => {
     const quarter = i + 1;
@@ -60,14 +67,22 @@ if (compact.residents.length !== 0) throw new Error("resident rows were retained
 if (compact.quarters.length !== 4) throw new Error("quarter conclusions were lost");
 if ("roomDetails" in compact.quarters[0]) throw new Error("quarter room details were retained");
 if ("explanation" in compact.quarters[0]) throw new Error("quarter narratives were retained");
-if ("requiredRateMonthly" in compact.quarters[0]) throw new Error("solver-only quarter rates were retained");
+assert.equal(compact.quarters[0].requiredRateMonthly, 5100, "needed rate was not retained");
+assert.equal(compact.quarters[0].shortfallPct, 0, "quarter shortfall was not retained");
+assert.equal(compact.quarters[0].isBinding, true, "binding quarter was not retained");
 if ("streetRateRecommendations" in compact.summary) {
   throw new Error("legacy recommendation rows were retained");
 }
 if (count !== residents.length) throw new Error(`distribution lost residents: ${count}`);
 if (bytes >= 100_000) throw new Error(`snapshot is still too large: ${bytes} bytes`);
 
-const restored = JSON.parse(JSON.stringify(compact));
+const legacyCompact = JSON.parse(JSON.stringify(compact));
+for (const quarter of legacyCompact.quarters) {
+  delete quarter.requiredRateMonthly;
+  delete quarter.shortfallPct;
+  delete quarter.isBinding;
+}
+const restored = hydrateAnnualReportPlanSnapshot(legacyCompact);
 const renderQuarter = () =>
   renderToStaticMarkup(
     createElement(
@@ -86,7 +101,7 @@ const renderQuarter = () =>
     ),
   );
 assert.doesNotThrow(renderQuarter, "compact quarterly summary should render");
-assert.match(renderQuarter(), /—/, "omitted quarter rates should display as an em dash");
+assert.match(renderQuarter(), /\$5,035/, "legacy compact report should recover the needed rate");
 
 const renderDetailToggle = () =>
   renderToStaticMarkup(

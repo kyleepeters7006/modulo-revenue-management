@@ -76,7 +76,10 @@ import {
   readInhousePlan,
   writeInhousePlanBundle,
 } from "@/lib/inhousePlanStorage";
-import { compactPlanForAnnualReport } from "@/lib/inhouseAnnualReportSnapshot";
+import {
+  compactPlanForAnnualReport,
+  hydrateAnnualReportPlanSnapshot,
+} from "@/lib/inhouseAnnualReportSnapshot";
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
 import { DAYS_PER_MONTH } from "@shared/careRates";
 import {
@@ -102,7 +105,10 @@ import {
   type OccupancyTierPolicy,
   type PlanningInputSnapshotEntry,
 } from "@shared/inhousePlanning";
-import type { AnnualReportQuarterSnapshot } from "@shared/inhouseAnnualReportSnapshot";
+import type {
+  AnnualReportPlanSnapshot,
+  AnnualReportQuarterSnapshot,
+} from "@shared/inhouseAnnualReportSnapshot";
 import type {
   InhousePlanHistoryEntry,
   StreetRateSource,
@@ -1648,6 +1654,7 @@ export default function InhouseIncreases() {
   const previousStorageIdentity = useRef<string | null | undefined>(undefined);
   const currentStorageIdentity = useRef<string | null>(storageIdentityKey);
   const restoredAnnualReport = useRef(false);
+  const autoDetailReloadScope = useRef<string | null>(null);
   useEffect(() => {
     const previous = previousStorageIdentity.current;
     previousStorageIdentity.current = storageIdentityKey;
@@ -1668,6 +1675,7 @@ export default function InhouseIncreases() {
   useEffect(() => {
     let cancelled = false;
     restoredAnnualReport.current = false;
+    autoDetailReloadScope.current = null;
     setPlans(null);
     setCalculatedInputsKey(null);
     setLastRunAt(null);
@@ -2493,6 +2501,31 @@ export default function InhouseIncreases() {
       }),
   });
 
+  // Campus reports and browser cache entries intentionally omit resident rows.
+  // Once the exact saved inputs have hydrated, refresh that selected scope so
+  // filtering to a campus shows its resident recommendations rather than 0 of 0.
+  useEffect(() => {
+    if (
+      !restoredPlanDetailsOmitted ||
+      scopeLocationId === null ||
+      !tierInputsReady ||
+      calculateTiers.isPending
+    ) {
+      return;
+    }
+    const scope = `${storageIdentityKey ?? "anonymous"}|${tierScopeKey}|${tierInputsKey}`;
+    if (autoDetailReloadScope.current === scope) return;
+    autoDetailReloadScope.current = scope;
+    calculateTiers.mutate();
+  }, [
+    restoredPlanDetailsOmitted,
+    scopeLocationId,
+    storageIdentityKey,
+    tierInputsKey,
+    tierInputsReady,
+    tierScopeKey,
+  ]);
+
   // Saving writes the shared assumptions to every selected service line.
   const saveAssumptions = useMutation({
     mutationFn: async () => {
@@ -2721,17 +2754,25 @@ export default function InhouseIncreases() {
     if (plans && Number.isFinite(currentTime) && (!Number.isFinite(reportTime) || currentTime >= reportTime)) {
       return;
     }
-    const restored = report.plans.filter((value): value is PlanWithSl => {
-      if (!value || typeof value !== "object") return false;
+    const restored = report.plans.flatMap((value): PlanWithSl[] => {
+      if (!value || typeof value !== "object") return [];
       const candidate = value as { sl?: unknown; plan?: unknown };
       const plan = candidate.plan as Partial<PlanResult> | undefined;
-      return (
-        typeof candidate.sl === "string" &&
-        !!plan &&
-        !!plan.scope &&
-        !!plan.assumptions &&
-        !!plan.summary
-      );
+      if (
+        typeof candidate.sl !== "string" ||
+        !plan ||
+        !plan.scope ||
+        !plan.assumptions ||
+        !plan.summary
+      ) {
+        return [];
+      }
+      return [{
+        sl: candidate.sl,
+        plan: hydrateAnnualReportPlanSnapshot(
+          plan as unknown as AnnualReportPlanSnapshot,
+        ) as unknown as PlanResult,
+      }];
     });
     const selected = restored.filter(({ sl }) => serviceLines.includes(sl));
     if (selected.length === 0) return;
@@ -4834,8 +4875,10 @@ export default function InhouseIncreases() {
                 <div>
                   <CardTitle className="text-base">Resident recommendations</CardTitle>
                   <CardDescription>
-                     {heldBackOnly && (calculate.isPending || calculateTiers.isPending) && allTaggedResidents.length === 0
-                       ? "Loading held-back residents and their calculation details…"
+                     {restoredPlanDetailsOmitted && calculateTiers.isPending
+                       ? "Loading residents and their calculation details for this campus…"
+                       : heldBackOnly && (calculate.isPending || calculateTiers.isPending) && allTaggedResidents.length === 0
+                         ? "Loading held-back residents and their calculation details…"
                        : <>
                            {sortedResidents.length.toLocaleString()} of{" "}
                            {allTaggedResidents.length.toLocaleString()} residents
