@@ -6,6 +6,7 @@ import {
   LineChart,
   ResponsiveContainer,
   Tooltip,
+  ReferenceLine,
   XAxis,
   YAxis,
 } from "recharts";
@@ -16,13 +17,13 @@ import { formatCurrency } from "@/lib/formatters";
 
 type DrillLevel = "group" | "serviceLine" | "campus" | "room";
 type Selection = { group?: string; serviceLine?: string; campus?: string; room?: string };
-type Point = { month: string; streetRate: number | null; inHouseRate: number | null; units: number };
-type Series = {
+export type RateGrowthPoint = { month: string; streetRate: number | null; inHouseRate: number | null; units: number };
+export type RateGrowthSeries = {
   key: string;
   label: string;
   rateBasis: "daily" | "monthly";
   next?: Selection;
-  points: Point[];
+  points: RateGrowthPoint[];
 };
 type BenchmarkPoint = {
   month: string;
@@ -48,7 +49,7 @@ type Benchmark = {
 type RateGrowthResponse = {
   level: DrillLevel;
   selection: Selection;
-  series: Series[];
+  series: RateGrowthSeries[];
   benchmarks?: Benchmark[];
 };
 
@@ -77,7 +78,7 @@ function benchmarkField(benchmark: Benchmark, tier: keyof Omit<BenchmarkPoint, "
   return `nic:${benchmark.key}:${tier}`;
 }
 
-function buildChartData(seriesList: Series[], benchmarks: Benchmark[]) {
+function buildChartData(seriesList: RateGrowthSeries[], benchmarks: Benchmark[]) {
   const points = new Map<string, Record<string, number | string | undefined>>();
   const actualMonths = seriesList.flatMap((series) => series.points.map((point) => point.month)).sort();
   const firstMonth = actualMonths[0];
@@ -105,14 +106,16 @@ function buildChartData(seriesList: Series[], benchmarks: Benchmark[]) {
   );
 }
 
-function RateChart({
+export function RateChart({
   series,
   benchmarks = [],
   colorOffset = 0,
+  markerMonth,
 }: {
-  series: Series[];
+  series: RateGrowthSeries[];
   benchmarks?: Benchmark[];
   colorOffset?: number;
+  markerMonth?: string | null;
 }) {
   const chartData = buildChartData(series, benchmarks);
   const daily = series[0]?.rateBasis === "daily";
@@ -214,6 +217,14 @@ function RateChart({
             <Tooltip
               content={tooltipContent}
             />
+            {markerMonth && (
+              <ReferenceLine
+                x={markerMonth}
+                stroke="var(--dashboard-muted)"
+                strokeDasharray="3 3"
+                label={{ value: "Annual Increase", position: "insideTopRight", fontSize: 10 }}
+              />
+            )}
             {series.flatMap((item, index) => {
               const color = COLORS[(index + colorOffset) % COLORS.length];
               return [

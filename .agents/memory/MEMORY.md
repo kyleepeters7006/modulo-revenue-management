@@ -113,3 +113,4 @@
 - [Startup migration readiness](startup-migration-readiness.md) — bind the listener before schema work, gate APIs until ready, and make destructive background jobs await the same barrier.
 - [Planning signal validation](planning-signal-validation.md) — trust only source-present vacancy snapshots; keep time-to-sell unavailable until transition history exists.
 - [Authenticated fixture cleanup](authenticated-fixture-cleanup.md) — MFA test users need dependent security records removed before teardown.
+- [Annual in-house report snapshots](annual-inhouse-report-snapshots.md) — reports persist one compact calculated snapshot per tenant/scope; they never recalculate or retain resident identity.

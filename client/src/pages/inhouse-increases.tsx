@@ -56,6 +56,7 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  FileText,
   ExternalLink,
   Info,
   Loader2,
@@ -1827,6 +1828,40 @@ export default function InhouseIncreases() {
     },
   });
 
+  const annualReport = useMutation({
+    mutationFn: async () => {
+      if (!plans || !tierGrid) throw new Error("Calculate a plan before creating an annual report.");
+      // A report is a presentation snapshot, not a second resident data store.
+      // Keep only the anonymous increase values needed for distribution bands.
+      const compactPlans = plans.map(({ sl, plan }) => ({
+        sl,
+        plan: {
+          ...plan,
+          residents: plan.residents.map(({ increasePct }) => ({ increasePct })),
+        },
+      }));
+      const compactTierGrid = {
+        ...tierGrid,
+        lines: tierGrid.lines.map((line) => ({
+          ...line,
+          currentPlan: compactPlans.find(({ sl }) => sl === line.serviceLine)?.plan,
+        })),
+      };
+      const response = await apiRequest("/api/inhouse-planning/annual-report-runs", "POST", {
+        scopeKey: tierGrid.scopeKey,
+        locationId: scopeLocationId,
+        serviceLines,
+        plans: compactPlans,
+        tierGrid: compactTierGrid,
+      });
+      return (await response.json()) as { report: { id: string; scopeKey: string } };
+    },
+    onSuccess: ({ report }) => {
+      setLocation(`/inhouse-increases/annual-report?scopeKey=${encodeURIComponent(report.scopeKey)}`);
+    },
+    onError: (error: Error) => toast({ title: "Annual report could not be created", description: error.message, variant: "destructive" }),
+  });
+
   /**
    * The what-if grid: every selected service line solved under all three of
    * its tiers. Fanned out per line like the single-plan calculation, so the
@@ -2976,6 +3011,19 @@ export default function InhouseIncreases() {
               )}
               Save assumptions
             </Button>
+            {plans && tierGrid && !tierGridStale && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => annualReport.mutate()}
+                disabled={annualReport.isPending}
+                data-testid="button-annual-report"
+                className="border border-primary/25 bg-primary/10 text-primary hover:bg-primary/15"
+              >
+                {annualReport.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                Annual Report
+              </Button>
+            )}
             {!tierPoliciesReady && (
               <div
                 className={cn(
@@ -3465,7 +3513,12 @@ export default function InhouseIncreases() {
                       <p className="text-xs text-muted-foreground">
                         {formatPct(growthSnapshot.averageQuarterlyYoyPct - growthSnapshot.quarterlyGoalPct, 1)} vs goal
                       </p>
-                      <QuarterYoyBreakdown quarters={growthSnapshot.quarterlyBreakdown} />
+                      <QuarterYoyBreakdown
+                        quarters={growthSnapshot.quarterlyBreakdown.map((quarter) => ({
+                          ...quarter,
+                          includedInSummary: quarter.yoyPct != null,
+                        }))}
+                      />
                     </div>
                     <div>
                       <p className={cn("font-semibold", growthSnapshot.quartersMeetingGoal === growthSnapshot.projectedQuarterCount ? "text-emerald-600" : "text-amber-600")}>

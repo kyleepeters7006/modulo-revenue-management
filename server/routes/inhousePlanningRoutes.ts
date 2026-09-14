@@ -11,7 +11,12 @@ import { z } from "zod";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db, pool } from "../db";
 import { invalidateRefDataCache } from "../refDataCache";
-import { inhousePlanningAssumptions, inhouseRatePlans, locations } from "@shared/schema";
+import {
+  inhouseAnnualReportRuns,
+  inhousePlanningAssumptions,
+  inhouseRatePlans,
+  locations,
+} from "@shared/schema";
 import {
   applyOccupancyTier,
   DEFAULT_ASSUMPTIONS,
@@ -32,6 +37,10 @@ import {
   PlanningDataError,
 } from "../services/inhouseRatePlanning";
 import { buildRatePlanWorkbook } from "../services/inhouseRatePlanning/excelExport";
+import {
+  generateAnnualInhouseReportPdf,
+  planStatus as annualReportPlanStatus,
+} from "../services/inhouseAnnualReportPdf";
 import { computeHistoricalTurnover } from "../services/inhouseRatePlanning/historicalTurnover";
 import {
   fetchOccupancyByCampus,
@@ -138,6 +147,26 @@ const batchScopeSchema = z.object({
         seen.add(line.serviceLine);
       });
     }),
+});
+
+// These are intentionally JSON-shaped rather than tied to the UI's report
+// interfaces. The report is a snapshot: saving it must not coerce, recalculate,
+// or discard a calculated field that a newer client knows about.
+const reportJsonSchema = z.custom<unknown>((value) => {
+  if (value === undefined) return false;
+  try {
+    return JSON.stringify(value) !== undefined;
+  } catch {
+    return false;
+  }
+}, { message: "Must be valid JSON" });
+
+const annualReportRunSchema = z.object({
+  scopeKey: z.string().trim().min(1).max(300),
+  locationId: z.string().max(100).nullable().optional(),
+  serviceLines: z.array(z.enum(["AL", "AL/MC", "SL", "VIL", "HC", "HC/MC"])).min(1).max(6),
+  plans: z.array(reportJsonSchema).min(1).max(6),
+  tierGrid: reportJsonSchema,
 });
 
 async function assumptionsForMeasuredTier(
@@ -648,6 +677,132 @@ export function registerInhousePlanningRoutes(
     } catch (error) {
       console.error("[inhouse-planning] campus occupancy failed:", error);
       res.status(500).json({ error: "Failed to load campus occupancy" });
+    }
+  });
+
+  // ── Annual report snapshots ───────────────────────────────────────────────
+
+  function normalizedAnnualReport(row: any) {
+    const plans = row.plans;
+    const status = annualReportPlanStatus(
+      Array.isArray(plans)
+        ? plans
+        : plans && typeof plans === "object"
+          ? Object.values(plans)
+          : [],
+    );
+    return {
+      id: row.id,
+      scopeKey: row.scopeKey,
+      locationId: row.locationId ?? null,
+      serviceLines: row.serviceLines,
+      plans: row.plans,
+      tierGrid: row.tierGrid,
+      createdAt: row.createdAt?.toISOString?.() ?? (row.createdAt ? String(row.createdAt) : null),
+      generatedAt:
+        row.generatedAt?.toISOString?.() ?? (row.generatedAt ? String(row.generatedAt) : null),
+      status,
+    };
+  }
+
+  app.post("/api/inhouse-planning/annual-report-runs", requireAuth, async (req: any, res) => {
+    try {
+      const body = annualReportRunSchema.safeParse(req.body);
+      if (!body.success) {
+        return res.status(400).json({
+          error: body.error.errors[0]?.message || "Invalid annual report payload",
+        });
+      }
+      const clientId = req.clientId || "demo";
+      const locationId = body.data.locationId || null;
+      if (locationId) await resolveLocationName(clientId, locationId);
+
+      // clientId is deliberately taken only from tenant middleware. Unknown
+      // request fields are stripped by the schema and never reach this insert.
+      const generatedAt = new Date();
+      const values = {
+        clientId,
+        scopeKey: body.data.scopeKey,
+        locationId,
+        serviceLines: body.data.serviceLines,
+        plans: body.data.plans,
+        tierGrid: body.data.tierGrid,
+        generatedAt,
+      };
+      const [row] = await db
+        .insert(inhouseAnnualReportRuns)
+        .values(values as any)
+        .onConflictDoUpdate({
+          target: [inhouseAnnualReportRuns.clientId, inhouseAnnualReportRuns.scopeKey],
+          set: {
+            locationId,
+            serviceLines: body.data.serviceLines,
+            plans: body.data.plans,
+            tierGrid: body.data.tierGrid,
+            generatedAt,
+          } as any,
+        })
+        .returning();
+
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({ report: normalizedAnnualReport(row) });
+    } catch (error) {
+      if (error instanceof PlanningDataError) {
+        return res.status(422).json({ error: error.message });
+      }
+      console.error("[inhouse-planning] annual report save failed:", error);
+      return res.status(500).json({ error: "Failed to save the annual in-house report" });
+    }
+  });
+
+  app.get("/api/inhouse-planning/annual-report-runs/latest", requireAuth, async (req: any, res) => {
+    try {
+      const scopeKey = String(req.query.scopeKey || "").trim();
+      if (!scopeKey) return res.status(400).json({ error: "scopeKey is required" });
+      const clientId = req.clientId || "demo";
+      const [row] = await db
+        .select()
+        .from(inhouseAnnualReportRuns)
+        .where(and(
+          eq(inhouseAnnualReportRuns.clientId, clientId),
+          eq(inhouseAnnualReportRuns.scopeKey, scopeKey),
+        ))
+        .orderBy(desc(inhouseAnnualReportRuns.generatedAt))
+        .limit(1);
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({ report: row ? normalizedAnnualReport(row) : null });
+    } catch (error) {
+      console.error("[inhouse-planning] latest annual report fetch failed:", error);
+      return res.status(500).json({ error: "Failed to load the latest annual in-house report" });
+    }
+  });
+
+  app.get("/api/inhouse-planning/annual-report-runs/:id/pdf", requireAuth, async (req: any, res) => {
+    try {
+      const clientId = req.clientId || "demo";
+      const [row] = await db
+        .select()
+        .from(inhouseAnnualReportRuns)
+        .where(and(
+          eq(inhouseAnnualReportRuns.id, String(req.params.id)),
+          eq(inhouseAnnualReportRuns.clientId, clientId),
+        ))
+        .limit(1);
+      if (!row) return res.status(404).json({ error: "Annual report not found" });
+
+      const report = normalizedAnnualReport(row);
+      const buffer = await generateAnnualInhouseReportPdf(report);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="annual-inhouse-increase-report_${row.id}.pdf"`,
+      );
+      res.setHeader("Content-Length", String(buffer.length));
+      res.setHeader("Cache-Control", "no-store");
+      return res.end(buffer);
+    } catch (error) {
+      console.error("[inhouse-planning] annual report PDF failed:", error);
+      return res.status(500).json({ error: "Failed to build the annual in-house report PDF" });
     }
   });
 

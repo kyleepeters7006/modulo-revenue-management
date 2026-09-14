@@ -370,6 +370,17 @@ input[type="range"]::-moz-range-thumb {
   }
 }
 
+@media print {
+  @page { size: landscape; margin: 0.35in; }
+  body { background: #f4f7f7 !important; }
+  .report-toolbar { display: none !important; }
+  .annual-report-sheet { max-width: none !important; }
+  .report-panel { break-inside: avoid; box-shadow: none !important; }
+  .annual-report-sheet h1 { font-size: 30px !important; }
+  .annual-report-sheet { gap: 12px !important; }
+  .annual-report-sheet table th, .annual-report-sheet table td { padding: 6px 8px !important; }
+}
+
 /* Leaflet stacks controls (z-index 800) above popups (z-index 700), so an open
    popup can be partly hidden behind the zoom buttons. A popup is transient and
    deliberately opened by the user, so it should win over the always-on controls. */

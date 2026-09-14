@@ -838,6 +838,41 @@ app.use((req, res, next) => {
     logMigration(`[migration] inhouse rate planning migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Idempotent migration: the annual in-house report is a tenant-scoped
+  // snapshot of the exact calculated payload shown to an operator. There is
+  // intentionally one current run per client + scope key.
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS inhouse_annual_report_runs (
+        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id     varchar NOT NULL REFERENCES clients(id),
+        scope_key     text NOT NULL,
+        location_id   varchar REFERENCES locations(id),
+        service_lines jsonb NOT NULL,
+        plans         jsonb NOT NULL,
+        tier_grid     jsonb NOT NULL,
+        created_at    timestamp NOT NULL DEFAULT now(),
+        generated_at  timestamp NOT NULL DEFAULT now()
+      )`));
+    await db.execute(sql.raw(`
+      ALTER TABLE inhouse_annual_report_runs
+        ADD COLUMN IF NOT EXISTS location_id varchar REFERENCES locations(id),
+        ADD COLUMN IF NOT EXISTS service_lines jsonb,
+        ADD COLUMN IF NOT EXISTS plans jsonb,
+        ADD COLUMN IF NOT EXISTS tier_grid jsonb,
+        ADD COLUMN IF NOT EXISTS created_at timestamp DEFAULT now(),
+        ADD COLUMN IF NOT EXISTS generated_at timestamp DEFAULT now()`));
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS inhouse_annual_report_runs_scope_uniq
+        ON inhouse_annual_report_runs (client_id, scope_key)`));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS inhouse_annual_report_runs_client_generated_at_idx
+        ON inhouse_annual_report_runs (client_id, generated_at DESC)`));
+    logMigration("[migration] annual in-house report runs table ensured");
+  } catch (migErr) {
+    logMigration(`[migration] annual in-house report runs migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Idempotent migration: persist Reference Data audit workbook job metadata.
   // The workbook itself remains in a per-job temporary directory, while this
   // table lets the API recover status after the Node process is restarted.

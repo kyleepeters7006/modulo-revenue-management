@@ -24,6 +24,7 @@ import DataImport from "@/pages/data-import";
 import DataImports from "@/pages/data-imports";
 import StreetRateQuality from "@/pages/street-rate-quality";
 import InhouseIncreases from "@/pages/inhouse-increases";
+import AnnualReport from "@/pages/annual-report";
 import NotFound from "@/pages/not-found";
 import UserManagement from "@/pages/user-management";
 import ResetPassword from "@/pages/reset-password";
@@ -55,6 +56,7 @@ function Router() {
       <Route path="/rate-card" component={RateCard} />
       <Route path="/pricing-controls" component={PricingControls} />
       <Route path="/inhouse-increases" component={InhouseIncreases} />
+      <Route path="/inhouse-increases/annual-report" component={AnnualReport} />
       <Route path="/room-attributes" component={RoomAttributes} />
       <Route path="/competitors">
         <Redirect to="/competitor-analysis" />

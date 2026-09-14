@@ -6,6 +6,7 @@ import {
   pgTable,
   primaryKey,
   timestamp,
+  uuid,
   varchar,
   text,
   integer,
@@ -748,8 +749,31 @@ export const inhouseRatePlans = pgTable("inhouse_rate_plans", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+/**
+ * The calculated annual report is an immutable snapshot of the inputs shown
+ * to the operator.  Re-generating a report replaces the snapshot for the
+ * same tenant and scope rather than creating an unbounded report history.
+ */
+export const inhouseAnnualReportRuns = pgTable("inhouse_annual_report_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clientId: varchar("client_id").notNull().references(() => clients.id),
+  scopeKey: text("scope_key").notNull(),
+  locationId: varchar("location_id").references(() => locations.id),
+  serviceLines: jsonb("service_lines").notNull(),
+  plans: jsonb("plans").notNull(),
+  tierGrid: jsonb("tier_grid").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  generatedAt: timestamp("generated_at").defaultNow().notNull(),
+}, (table) => ({
+  scopeUnique: uniqueIndex("inhouse_annual_report_runs_scope_uniq")
+    .on(table.clientId, table.scopeKey),
+  clientGeneratedAt: index("inhouse_annual_report_runs_client_generated_at_idx")
+    .on(table.clientId, table.generatedAt),
+}));
+
 export const insertInhousePlanningAssumptionsSchema = createInsertSchema(inhousePlanningAssumptions);
 export const insertInhouseRatePlansSchema = createInsertSchema(inhouseRatePlans);
+export const insertInhouseAnnualReportRunSchema = createInsertSchema(inhouseAnnualReportRuns);
 
 export const insertStreetRatesSchema = createInsertSchema(streetRates);
 export const insertSpecialRatesSchema = createInsertSchema(specialRates);
