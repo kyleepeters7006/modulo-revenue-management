@@ -321,3 +321,33 @@ type = "audio"
 title = "AI prioritization"
 description = "Text-to-speech audio: AI ranks the changes most likely to reach the revenue goal, informed by elasticity and operating history."
 logical_id = "5a3f1435-2d3d-4d3e-93e8-3efe8a3b5788"
+
+[[outputs]]
+id = "ZUX-RsUnKkRHwaTvB0Evo"
+uri = "file://attached_assets/generated_audio/annual-increase-process-narration.mp3"
+type = "audio"
+title = "annual increase process narration"
+description = "Text-to-speech audio: Set the campus and service lines. Define the annual growth target, turnover, effective dates, minimum and maximum in-house increases, Street Rate limits, competitive position, a…"
+logical_id = "86b30b35-a368-4836-97fd-06834bc4bec2"
+
+[[outputs]]
+id = "5xwwFKP_-XLzEmS7sc92N"
+uri = "file://attached_assets/generated_audio/annual-increase-process-narration_2.mp3"
+type = "audio"
+title = "annual increase process narration"
+description = "Text-to-speech audio: Choose the campus and service lines. Set the growth target, turnover, effective dates, in-house increase range, Street Rate limits, competitive position, and equalization streng…"
+logical_id = "4df82b76-bde8-4bc0-b725-0fa095354672"
+
+[[outputs]]
+id = "5krNMcaUhjtDUhNyPyzVi"
+uri = "file://attached_assets/generated_videos/annual-increase/modulo-annual-increase-process.mp4"
+type = "video"
+title = "Modulo Annual Increase Process"
+description = "30-second product film covering annual increase parameters, occupancy-tier recommendations, result interpretation, and the one-page executive PDF."
+logical_id = "0ac3eb9c-7a36-4b2d-88e8-5a5261a2d7c1"
+content_hash = "sha256:acb6335595f141d91fe03906f7275a465df870920197074f868f6efa8d5742ce"
+size = 992113
+mtime_ms = 1789345775145
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/0ac3eb9c-7a36-4b2d-88e8-5a5261a2d7c1/b6f0fd75-8697-4a97-8d50-cfe6cef063d6"
+storage_version_token = "1789345833821447"
+content_type = "video/mp4"

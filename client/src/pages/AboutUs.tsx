@@ -12,7 +12,30 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 
 export default function AboutUs() {
   const [, setLocation] = useLocation();
-  const [videoOpen, setVideoOpen] = useState(false);
+  const [selectedVideo, setSelectedVideo] = useState<null | "overview" | "annual">(null);
+  const videos = {
+    overview: {
+      title: "Modulo product overview",
+      description: "How Modulo decomposes portfolio data, prioritizes actions with AI, and measures outcomes.",
+      eyebrow: "30-second overview",
+      cardTitle: "See Modulo in practice",
+      cardBody: "How AI turns portfolio data into prioritized, operator-controlled revenue actions.",
+      poster: "/media/modulo-pricing-intelligence-poster.jpg",
+      source: "/media/modulo-pricing-intelligence.mp4",
+      captions: "/media/modulo-pricing-intelligence.vtt",
+    },
+    annual: {
+      title: "Annual increase planning",
+      description: "How operators set annual increase parameters, interpret occupancy-tier recommendations, and share an executive PDF.",
+      eyebrow: "30-second process",
+      cardTitle: "Plan annual increases",
+      cardBody: "Set explicit guardrails, review the result and interpretations, then share the one-page executive PDF.",
+      poster: "/media/modulo-annual-increase-process-poster.jpg",
+      source: "/media/modulo-annual-increase-process.mp4",
+      captions: "/media/modulo-annual-increase-process.vtt",
+    },
+  } as const;
+  const activeVideo = selectedVideo ? videos[selectedVideo] : null;
 
   return (
     <div className="min-h-screen bg-[var(--dashboard-bg)] p-4 sm:p-6 md:p-8">
@@ -76,59 +99,53 @@ export default function AboutUs() {
         </div>
 
         {/* Product film */}
-        <section className="mb-10 flex justify-center">
-          <button
-            type="button"
-            onClick={() => setVideoOpen(true)}
-            className="group flex w-full max-w-xl items-center gap-4 rounded-2xl border border-[var(--trilogy-dark-blue)]/15 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--trilogy-teal)]/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--trilogy-teal)]"
-            aria-label="Watch the Modulo product overview"
-          >
-            <span className="relative block w-40 shrink-0 overflow-hidden rounded-xl bg-[var(--trilogy-dark-blue)] sm:w-52">
-              <img
-                src="/media/modulo-pricing-intelligence-poster.jpg"
-                alt=""
-                className="aspect-video w-full object-cover"
-              />
-              <span className="absolute inset-0 flex items-center justify-center bg-[var(--trilogy-dark-blue)]/20 transition group-hover:bg-[var(--trilogy-dark-blue)]/10">
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[var(--trilogy-dark-blue)] shadow">
-                  <Play className="ml-0.5 h-4 w-4 fill-current" />
+        <section className="mb-10 grid gap-4 md:grid-cols-2">
+          {(Object.keys(videos) as Array<keyof typeof videos>).map((key) => {
+            const video = videos[key];
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSelectedVideo(key)}
+                className="group flex w-full items-center gap-4 rounded-2xl border border-[var(--trilogy-dark-blue)]/15 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--trilogy-teal)]/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--trilogy-teal)]"
+                aria-label={`Watch ${video.title}`}
+              >
+                <span className="relative block w-40 shrink-0 overflow-hidden rounded-xl bg-[var(--trilogy-dark-blue)] sm:w-48">
+                  <img src={video.poster} alt="" className="aspect-video w-full object-cover" />
+                  <span className="absolute inset-0 flex items-center justify-center bg-[var(--trilogy-dark-blue)]/20 transition group-hover:bg-[var(--trilogy-dark-blue)]/10">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-[var(--trilogy-dark-blue)] shadow">
+                      <Play className="ml-0.5 h-4 w-4 fill-current" />
+                    </span>
+                  </span>
                 </span>
-              </span>
-            </span>
-            <span className="min-w-0 py-1">
-              <span className="block text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--trilogy-teal)]">
-                30-second overview
-              </span>
-              <span className="mt-1 block text-lg font-semibold text-[var(--trilogy-dark-blue)]">
-                See Modulo in practice
-              </span>
-              <span className="mt-1 block text-sm leading-snug text-[var(--trilogy-grey)]">
-                How AI turns portfolio data into prioritized, operator-controlled revenue actions.
-              </span>
-            </span>
-          </button>
+                <span className="min-w-0 py-1">
+                  <span className="block text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--trilogy-teal)]">{video.eyebrow}</span>
+                  <span className="mt-1 block text-lg font-semibold text-[var(--trilogy-dark-blue)]">{video.cardTitle}</span>
+                  <span className="mt-1 block text-sm leading-snug text-[var(--trilogy-grey)]">{video.cardBody}</span>
+                </span>
+              </button>
+            );
+          })}
         </section>
 
-        <Dialog open={videoOpen} onOpenChange={setVideoOpen}>
+        <Dialog open={activeVideo != null} onOpenChange={(open) => !open && setSelectedVideo(null)}>
           <DialogContent className="max-w-5xl border-0 bg-[#071722] p-0 text-white">
             <DialogHeader className="sr-only">
-              <DialogTitle>Modulo product overview</DialogTitle>
-              <DialogDescription>
-                How Modulo decomposes portfolio data, prioritizes actions with AI, and measures outcomes.
-              </DialogDescription>
+              <DialogTitle>{activeVideo?.title}</DialogTitle>
+              <DialogDescription>{activeVideo?.description}</DialogDescription>
             </DialogHeader>
             <video
-              key={videoOpen ? "open" : "closed"}
+              key={selectedVideo ?? "closed"}
               controls
-              autoPlay={videoOpen}
+              autoPlay={activeVideo != null}
               playsInline
-              poster="/media/modulo-pricing-intelligence-poster.jpg"
+              poster={activeVideo?.poster}
               className="aspect-video w-full rounded-lg bg-black"
             >
-              <source src="/media/modulo-pricing-intelligence.mp4" type="video/mp4" />
+              {activeVideo && <source src={activeVideo.source} type="video/mp4" />}
               <track
                 kind="captions"
-                src="/media/modulo-pricing-intelligence.vtt"
+                src={activeVideo?.captions}
                 srcLang="en"
                 label="English"
               />
