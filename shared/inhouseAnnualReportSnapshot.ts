@@ -50,22 +50,25 @@ export function compactPlanForAnnualReport(plan: PlanResult): AnnualReportPlanSn
     currentStreetRateDisplay: plan.currentStreetRateDisplay,
     recommendedStreetRateDisplay: plan.recommendedStreetRateDisplay,
     requiredWeightedAvgIncreasePct: plan.requiredWeightedAvgIncreasePct,
-    // Keep quarter conclusions for reopening a saved campus result, but omit
-    // room-level bridge rows: those are the large repeated arrays the report
-    // does not render.
-    quarters: plan.quarters.map(({ roomDetails: _roomDetails, ...quarter }) => quarter),
+    // Keep only the quarter conclusions used by the restored growth snapshot.
+    // Solver narratives and room-level bridges are large and are not rendered
+    // by either annual-report surface.
+    quarters: plan.quarters.map((quarter) => ({
+      year: quarter.year,
+      quarter: quarter.quarter,
+      label: quarter.label,
+      passes: quarter.passes,
+      projectedRateMonthly: quarter.projectedRateMonthly,
+      yoyGrowthPct: quarter.yoyGrowthPct,
+      priorYear: quarter.priorYear,
+    })),
     monthlyRateProjection: plan.monthlyRateProjection,
     bindingQuarterLabel: plan.bindingQuarterLabel,
     adjustedTopCompetitorRateMonthly: plan.adjustedTopCompetitorRateMonthly,
     summary,
     residents: [],
-    planningSignals: plan.planningSignals,
-    infeasibility: plan.infeasibility,
-    optimizationNote: plan.optimizationNote,
     targetDeviationDiagnostic: plan.targetDeviationDiagnostic,
-    explanation: plan.explanation,
     warnings: plan.warnings,
-    standardization: plan.standardization,
     increaseDistribution,
   } as unknown as AnnualReportPlanSnapshot;
 }

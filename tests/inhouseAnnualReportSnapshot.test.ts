@@ -27,7 +27,9 @@ const bytes = Buffer.byteLength(JSON.stringify(compact));
 const count = compact.increaseDistribution.reduce((sum, band) => sum + band.count, 0);
 
 if (compact.residents.length !== 0) throw new Error("resident rows were retained");
-if ("quarters" in compact) throw new Error("quarter details were retained");
+if (compact.quarters.length !== 4) throw new Error("quarter conclusions were lost");
+if ("roomDetails" in compact.quarters[0]) throw new Error("quarter room details were retained");
+if ("explanation" in compact.quarters[0]) throw new Error("quarter narratives were retained");
 if ("streetRateRecommendations" in compact.summary) {
   throw new Error("legacy recommendation rows were retained");
 }

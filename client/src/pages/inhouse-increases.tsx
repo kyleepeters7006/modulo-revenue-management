@@ -2119,11 +2119,10 @@ export default function InhouseIncreases() {
           serviceLine: line.serviceLine,
           occupancyPct: line.occupancyPct,
           occupancyMonth: line.occupancyMonth,
+          occupancySource: line.occupancySource,
           currentTier: line.currentTier,
           cells: line.cells,
           warnings: line.warnings,
-          currentPlan: compactPlans.find(({ sl }) => sl === line.serviceLine)?.plan
-            ?? compactPlanForAnnualReport(line.currentPlan),
         })),
         skipped: reportTierGrid.skipped,
         scopeKey: reportTierGrid.scopeKey,
@@ -2504,19 +2503,23 @@ export default function InhouseIncreases() {
     const saved = report.tierGrid as Partial<TierGridResult> & {
       skipped?: Array<{ sl?: string; serviceLine?: string; message: string }>;
     };
-    if (
-      !Array.isArray(saved.lines) ||
-      !saved.lines.every((line) =>
-        isStoredPlan({ sl: line.serviceLine, plan: line.currentPlan }),
-      )
-    ) return;
+    if (!Array.isArray(saved.lines)) return;
+    const reportPlans = Array.isArray(report.plans) ? report.plans : [];
+    const hydratedLines = saved.lines.map((line) => {
+      const currentPlan = line.currentPlan ??
+        reportPlans.find((entry) =>
+          isStoredPlan(entry) && entry.sl === line.serviceLine
+        )?.plan;
+      return currentPlan ? { ...line, currentPlan } : null;
+    });
+    if (hydratedLines.some((line) => line == null)) return;
     const inputSnapshot = Array.isArray(saved.inputSnapshot)
       ? saved.inputSnapshot
       : [];
     setTierGrid({
-      lines: saved.lines,
+      lines: hydratedLines as TierGridLine[],
       skipped: (saved.skipped ?? []).map((entry) => ({
-        sl: entry.sl ?? entry.serviceLine ?? "Service line",
+        sl: entry.sl ?? (entry as { serviceLine?: string }).serviceLine ?? "Service line",
         message: entry.message,
       })),
       identityKey: storageIdentityKey,
@@ -2583,15 +2586,18 @@ export default function InhouseIncreases() {
         : null;
     if (
       savedTierGrid &&
-      Array.isArray(savedTierGrid.lines) &&
-      savedTierGrid.lines.every((line) =>
-        isStoredPlan({ sl: line.serviceLine, plan: line.currentPlan }),
-      )
+      Array.isArray(savedTierGrid.lines)
     ) {
+      const hydratedLines = savedTierGrid.lines.map((line) => {
+        const currentPlan = line.currentPlan ??
+          restored.find(({ sl }) => sl === line.serviceLine)?.plan;
+        return currentPlan ? { ...line, currentPlan } : null;
+      });
+      if (hydratedLines.some((line) => line == null)) return;
       setTierGrid({
-        lines: savedTierGrid.lines,
+        lines: hydratedLines as TierGridLine[],
         skipped: (savedTierGrid.skipped ?? []).map((entry) => ({
-          sl: entry.sl ?? entry.serviceLine ?? "Service line",
+          sl: entry.sl ?? (entry as { serviceLine?: string }).serviceLine ?? "Service line",
           message: entry.message,
         })),
         identityKey: storageIdentityKey,
