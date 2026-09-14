@@ -449,6 +449,10 @@ type SortKey =
 // ── Small presentational helpers ───────────────────────────────────────────
 
 /** Renders the derivation the calculation layer produced for itself. */
+function keepArrowsTogether(value: string): string {
+  return value.replace(/\s+→\s+/g, "\u00a0→\u00a0");
+}
+
 function Explanation({ explanation }: { explanation: CalcExplanation }) {
   return (
     <div className="space-y-3 text-sm">
@@ -456,8 +460,12 @@ function Explanation({ explanation }: { explanation: CalcExplanation }) {
       <div className="space-y-1.5">
         {explanation.steps.map((step, i) => (
           <div key={i} className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-3">
-            <span className="min-w-[13rem] text-muted-foreground">{step.label}</span>
-            <span className="font-mono font-medium">{step.value}</span>
+            <span className="min-w-[13rem] text-muted-foreground">
+              {keepArrowsTogether(step.label)}
+            </span>
+            <span className="shrink-0 whitespace-nowrap font-mono font-medium">
+              {keepArrowsTogether(step.value)}
+            </span>
             {step.note && (
               <span className="text-xs text-muted-foreground sm:ml-2">{step.note}</span>
             )}
