@@ -1066,6 +1066,22 @@ function DateField({
 /** A PlanResult tagged with the service line it was calculated for. */
 interface PlanWithSl { sl: string; plan: PlanResult }
 
+/**
+ * Restore operations are asynchronous, so the previous scope can briefly
+ * remain in `plans` after a filter changes. Filter both scope dimensions at
+ * render time instead of relying on an effect to clear the old result first.
+ */
+export function filterPlansForScatterScope(
+  plans: ReadonlyArray<PlanWithSl>,
+  selectedLocationId: string | null,
+  selectedServiceLines: ReadonlyArray<string>,
+): PlanWithSl[] {
+  return plans.filter(({ sl, plan }) =>
+    selectedServiceLines.includes(sl) &&
+    (plan.scope.locationId ?? null) === selectedLocationId,
+  );
+}
+
 interface CampusOccupancyReading {
   locationId: string;
   location: string;
@@ -1113,12 +1129,10 @@ function PlanScatterReview({
   }, [campusOccupancy, plans, selectedLocationId, tierGrid]);
 
   const points = useMemo(() => {
-    return plans.flatMap(({ sl, plan }) => {
+    return filterPlansForScatterScope(plans, selectedLocationId, selectedServiceLines).flatMap(({ sl, plan }) => {
       // Async browser/report restores can briefly leave the previous result in
       // memory while Scope changes. Never let those stale plans contribute a
       // point under the newly selected filter labels.
-      if (!selectedServiceLines.includes(sl)) return [];
-      if ((plan.scope.locationId ?? null) !== selectedLocationId) return [];
       const tierLine = tierGrid?.lines.find((line) => line.serviceLine === sl);
       // Portfolio plans are valid service-line aggregates, but not valid
       // campus slices. Plot one portfolio point per line from the plan summary
@@ -1178,9 +1192,10 @@ function PlanScatterReview({
   }, [occupancyByLine, plans, selectedLocationId, selectedServiceLines, tierGrid]);
 
   const unknownCount = useMemo(() => {
-    const combos = new Set(plans.flatMap(({ sl, plan }) => plan.residents.map((r) => `${r.location}::${sl}`)));
+    const scopedPlans = filterPlansForScatterScope(plans, selectedLocationId, selectedServiceLines);
+    const combos = new Set(scopedPlans.flatMap(({ sl, plan }) => plan.residents.map((r) => `${r.location}::${sl}`)));
     return Array.from(combos).filter((key) => !occupancyByLine.get(key)?.occupancyPct && occupancyByLine.get(key)?.occupancyPct !== 0).length;
-  }, [occupancyByLine, plans]);
+  }, [occupancyByLine, plans, selectedLocationId, selectedServiceLines]);
 
   const tooltip = (key: "inhouseIncrease" | "streetIncrease") => ({ active, payload }: any) => {
     if (!active || !payload?.length) return null;
@@ -1443,7 +1458,7 @@ type TaggedResident = ResidentRecommendation & { _sl: string };
  * while switching campus or service-line selections never shows another
  * scope's result.
  */
-function calculatedPlanScopeKey(locationId: string | null, serviceLines: string[]): string {
+export function calculatedPlanScopeKey(locationId: string | null, serviceLines: string[]): string {
   return `${locationId ?? ALL_CAMPUSES}::${Array.from(new Set(serviceLines)).sort().join(",")}`;
 }
 
@@ -2729,7 +2744,11 @@ export default function InhouseIncreases() {
   useEffect(() => {
     if (tierGrid) return;
     const report = latestAnnualReportQuery.data?.report;
-    if (!report || report.locationId !== scopeLocationId) return;
+    if (
+      !report ||
+      report.scopeKey !== tierScopeKey ||
+      report.locationId !== scopeLocationId
+    ) return;
     if (!report.tierGrid || typeof report.tierGrid !== "object") return;
     const saved = report.tierGrid as Partial<TierGridResult> & {
       skipped?: Array<{ sl?: string; serviceLine?: string; message: string }>;
@@ -2765,6 +2784,7 @@ export default function InhouseIncreases() {
     latestAnnualReportQuery.data,
     scopeLocationId,
     storageIdentityKey,
+    tierScopeKey,
     tierGrid,
     tierInputsKey,
   ]);
@@ -2783,7 +2803,11 @@ export default function InhouseIncreases() {
     // inputs into the editor: current campus assumptions win when present, and
     // current portfolio assumptions are the fallback when they are not.
     if (!assumptionsQuery.isSuccess) return;
-    if (report.locationId !== scopeLocationId || !Array.isArray(report.plans)) return;
+    if (
+      report.scopeKey !== tierScopeKey ||
+      report.locationId !== scopeLocationId ||
+      !Array.isArray(report.plans)
+    ) return;
     // Saving the current calculation creates a report with a newer timestamp
     // than the calculation. It is still the same result, not a newer result to
     // restore; restoring it would advance lastRunAt and trigger another save.
@@ -2868,6 +2892,7 @@ export default function InhouseIncreases() {
     storageIdentityKey,
     scopeLocationId,
     serviceLines,
+    tierScopeKey,
   ]);
 
   const removePlan = useMutation({
@@ -4184,7 +4209,7 @@ export default function InhouseIncreases() {
 
       {plans && plans.length > 0 && (
         <PlanScatterReview
-          key={tierScopeKey}
+          key={calculatedPlanScopeKey(scopeLocationId, serviceLines)}
           plans={plans}
           selectedLocationId={scopeLocationId}
           selectedServiceLines={serviceLines}
