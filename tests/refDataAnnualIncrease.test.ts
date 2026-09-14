@@ -3,7 +3,8 @@
  *
  * Applying an in-house increase plan adds per-group columns to the Reference
  * Data grid and takes over the Final rate for the occupied rooms it covers.
- * This drives the real endpoints end to end (calculate → apply → read the
+ * This drives the real endpoints end to end (calculate → apply → implement →
+ * publish → read the
  * grid) rather than re-implementing their SQL, because a test that embeds a
  * hand-copied query guards nothing.
  *
@@ -45,6 +46,7 @@ const FAIL = "\x1b[31m✗\x1b[0m";
 let passed = 0;
 let failed = 0;
 type AuthContext = { cookie: string; csrfToken: string };
+const fixturePlanIds = new Set<string>();
 
 function ok(desc: string, cond: boolean, detail = "") {
   if (cond) { console.log(`${PASS} ${desc}`); passed++; }
@@ -63,11 +65,12 @@ async function login(): Promise<AuthContext> {
   const hash = await bcrypt.hash(PASSWORD, 4);
   await pool.query(
     `INSERT INTO users
-       (username, password_hash, client_id, mfa_enabled, mfa_secret_encrypted, mfa_last_used_step)
-     VALUES ($1, $2, $3, true, $4, NULL)
+       (username, password_hash, client_id, role, mfa_enabled, mfa_secret_encrypted, mfa_last_used_step)
+     VALUES ($1, $2, $3, 'admin', true, $4, NULL)
      ON CONFLICT (username) DO UPDATE SET
        password_hash = $2,
        client_id = $3,
+       role = 'admin',
        account_status = 'active',
        mfa_enabled = true,
        mfa_secret_encrypted = $4,
@@ -131,6 +134,27 @@ async function postJson(path: string, auth: AuthContext, body: unknown) {
   return res.json();
 }
 
+async function postJsonAllowStatus(path: string, auth: AuthContext, body: unknown) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: auth.cookie,
+      Origin: BASE,
+      "x-csrf-token": auth.csrfToken,
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let parsed: any = null;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = { raw: text };
+  }
+  return { status: res.status, body: parsed };
+}
+
 /** Pick a campus with enough occupied, in-house-rated rooms to be meaningful. */
 async function pickScope(serviceLine: string) {
   const spot = (await pool.query(
@@ -157,6 +181,17 @@ async function pickScope(serviceLine: string) {
 }
 
 async function cleanup() {
+  // Annual proposals are linked to two Rule Administration envelopes. Remove
+  // those first so a failed approval or an interrupted test cannot leave
+  // orphaned rules after the plan itself is deleted.
+  await pool.query(
+    `DELETE FROM adjustment_rules
+      WHERE client_id = $1
+        AND action->>'annualPlanId' IN (
+          SELECT id::text FROM inhouse_rate_plans WHERE client_id = $1
+        )`,
+    [CLIENT],
+  );
   await pool.query(`DELETE FROM inhouse_rate_plans WHERE client_id = $1`, [CLIENT]);
   const client = await pool.connect();
   try {
@@ -198,6 +233,77 @@ async function cleanup() {
   } finally {
     client.release();
   }
+}
+
+async function linkedPlanRules(planId: string) {
+  return (await pool.query(
+    `SELECT id, action->>'proposalType' AS proposal_type
+       FROM adjustment_rules
+      WHERE client_id = $1 AND action->>'annualPlanId' = $2
+      ORDER BY id`,
+    [CLIENT, planId],
+  )).rows as Array<{ id: string; proposal_type: string }>;
+}
+
+async function assertFixtureTeardown() {
+  const usernameRows = await pool.query(
+    `SELECT id FROM users WHERE username = $1`,
+    [USERNAME],
+  );
+  const [planRows, ruleRows, sessionRows, auditRows, recoveryRows, resetRows] =
+    await Promise.all([
+      pool.query(
+        `SELECT count(*)::int AS n FROM inhouse_rate_plans WHERE client_id = $1`,
+        [CLIENT],
+      ),
+      fixturePlanIds.size === 0
+        ? Promise.resolve({ rows: [{ n: 0 }] })
+        : pool.query(
+          `SELECT count(*)::int AS n
+             FROM adjustment_rules
+            WHERE action->>'annualPlanId' = ANY($1::text[])`,
+          [[...fixturePlanIds]],
+        ),
+      pool.query(
+        `SELECT count(*)::int AS n
+           FROM auth_sessions
+          WHERE user_id IN (SELECT id FROM users WHERE username = $1)`,
+        [USERNAME],
+      ),
+      pool.query(
+        `SELECT count(*)::int AS n
+           FROM security_audit_events
+          WHERE user_id IN (SELECT id FROM users WHERE username = $1)`,
+        [USERNAME],
+      ),
+      pool.query(
+        `SELECT count(*)::int AS n
+           FROM mfa_recovery_codes
+          WHERE user_id IN (SELECT id FROM users WHERE username = $1)`,
+        [USERNAME],
+      ),
+      pool.query(
+        `SELECT count(*)::int AS n
+           FROM password_reset_tokens
+          WHERE user_id IN (SELECT id FROM users WHERE username = $1)`,
+        [USERNAME],
+      ),
+    ]);
+  const counts = [
+    Number(planRows.rows[0]?.n) || 0,
+    Number(ruleRows.rows[0]?.n) || 0,
+    Number(sessionRows.rows[0]?.n) || 0,
+    Number(auditRows.rows[0]?.n) || 0,
+    Number(recoveryRows.rows[0]?.n) || 0,
+    Number(resetRows.rows[0]?.n) || 0,
+    usernameRows.rows.length,
+  ];
+  ok(
+    "teardown removes plans, linked rules, sessions, security records, and fixture user",
+    counts.every((n) => n === 0),
+    `remaining counts: plans=${counts[0]}, rules=${counts[1]}, sessions=${counts[2]}, ` +
+      `audit=${counts[3]}, recovery=${counts[4]}, reset=${counts[5]}, users=${counts[6]}`,
+  );
 }
 
 /** Grouped + detail rows for one scope. */
@@ -295,12 +401,38 @@ async function runScope(
   ok(`${label}: plan produced residents`, residents.length > 0, `got ${residents.length}`);
   if (!residents.length) return;
 
-  await postJson("/api/inhouse-planning/apply", auth, {
+  const submitted = await postJson("/api/inhouse-planning/apply", auth, {
     locationId: scope.locationId, serviceLine: scope.serviceLine, assumptions, tierPolicy,
   });
+  const planId = String(submitted.planId || "");
+  ok(`${label}: apply returned a plan id`, planId.length > 0);
+  if (!planId) return;
+  fixturePlanIds.add(planId);
 
-  const after = await readGrid(auth, scope);
-  const covered = after.grouped.filter((r) => r.ihRecommendationResidents);
+  // Applying creates one linked street proposal and one resident plan
+  // proposal. Implementing either one through the real approval endpoint must
+  // transition both together; publishing then makes the plan live.
+  const proposalRules = await linkedPlanRules(planId);
+  const inhouseRule = proposalRules.find((r) => r.proposal_type === "inhouse_rate_plan");
+  const streetRule = proposalRules.find((r) => r.proposal_type === "annual_plan_street_rate");
+  ok(`${label}: apply created both linked rule proposals`,
+    proposalRules.length === 2 && !!inhouseRule && !!streetRule,
+    `found ${proposalRules.length} rules`);
+  if (!inhouseRule || !streetRule) return;
+
+  // The current fixture's room identities only match the prior January when
+  // the solver horizon is the following year. Publish intentionally skips
+  // future-dated rule envelopes, so make this test-created pair due without
+  // altering the solver-produced resident allocations or production behavior.
+  await pool.query(
+    `UPDATE adjustment_rules
+        SET effective_date = CURRENT_DATE
+      WHERE client_id = $1 AND action->>'annualPlanId' = $2`,
+    [CLIENT, planId],
+  );
+
+  const proposalGrid = await readGrid(auth, scope);
+  const covered = proposalGrid.grouped.filter((r) => r.ihRecommendationResidents);
   ok(`${label}: increase columns populated after applying`, covered.length > 0);
   if (!covered.length) return;
 
@@ -358,7 +490,7 @@ async function runScope(
 
   // ── 3. Detail → grouped parity ──────────────────────────────────────────
   const byGroup = new Map<string, any[]>();
-  for (const d of after.detail) {
+  for (const d of proposalGrid.detail) {
     const k = d.roomType;
     if (!byGroup.has(k)) byGroup.set(k, []);
     byGroup.get(k)!.push(d);
@@ -386,20 +518,105 @@ async function runScope(
       units.every((u) => u.ihRecommendationNewRate === null || Number(u.ihRecommendationNewRate) > 0));
   }
 
-  // ── 4. Room detail → service-line total, and no impact contamination ────
-  // The apply endpoint records a proposal. The Reference Data surface exposes
-  // that proposal under the recommendation fields until an operator
-  // implements its linked rules, so this check must not expect Final to move.
+  const implementation = await postJson(
+    `/api/adjustment-rules/${inhouseRule.id}/implement`,
+    auth,
+    {},
+  );
+  ok(`${label}: implementing one linked rule implements both`,
+    implementation.lifecycleStatus === "implemented" &&
+      Array.isArray(implementation.rules) &&
+      implementation.rules.length === 2 &&
+      implementation.rules.every((r: any) => r.lifecycle_status === "implemented"),
+    `response lifecycle=${implementation.lifecycleStatus}, rules=${implementation.rules?.length ?? 0}`);
+
+  const repeatedImplementation = await postJsonAllowStatus(
+    `/api/adjustment-rules/${inhouseRule.id}/implement`,
+    auth,
+    {},
+  );
+  ok(`${label}: repeated implementation is rejected without duplicating the pair`,
+    repeatedImplementation.status === 409 &&
+      (await linkedPlanRules(planId)).length === 2,
+    `status=${repeatedImplementation.status}`);
+
+  const published = await postJson("/api/adjustment-rules/publish", auth, { confirm: true });
+  ok(`${label}: publishing applies the annual plan`,
+    Number(published.appliedInhousePlans) >= 1,
+    `appliedInhousePlans=${published.appliedInhousePlans}`);
+
+  const implementedGrid = await readGrid(auth, scope);
+  const implementedByGroup = new Map<string, any[]>();
+  for (const d of implementedGrid.detail) {
+    const k = d.roomType;
+    if (!implementedByGroup.has(k)) implementedByGroup.set(k, []);
+    implementedByGroup.get(k)!.push(d);
+  }
+
+  // ── 4. Final takeover after approval, grouped and room detail ───────────
+  // Match against the recommendation captured before implementation. This
+  // proves the applied plan, not merely a freshly calculated recommendation,
+  // is driving the served Final value.
+  for (const expected of covered) {
+    if (expected.hasManualOverride) continue;
+    const actual = implementedGrid.grouped.find((r) => r.roomType === expected.roomType);
+    ok(`${label} / ${expected.roomType}: applied plan is visible in grouped data`,
+      !!actual && actual.ihPlanNewRate !== null);
+    if (!actual) continue;
+    near(`${label} / ${expected.roomType}: grouped Final matches implemented plan`,
+      actual.proposedRule, actual.ihPlanNewRate, 0.51);
+    near(`${label} / ${expected.roomType}: grouped implemented rate matches recommendation`,
+      actual.ihPlanNewRate, expected.ihRecommendationNewRate, 0.51);
+    ok(`${label} / ${expected.roomType}: grouped Final is flagged as plan-driven`,
+      actual.finalFromPlan === true);
+
+    const detail = implementedByGroup.get(expected.roomType) ?? [];
+    const coveredDetail = detail.filter((u) => u.ihPlanNewRate !== null);
+    ok(`${label} / ${expected.roomType}: room detail has covered implemented residents`,
+      coveredDetail.length === Number(actual.ihPlanResidents) &&
+        coveredDetail.length > 0,
+      `detail=${coveredDetail.length}, grouped=${actual.ihPlanResidents}`);
+    for (const unit of coveredDetail) {
+      near(`${label} / ${expected.roomType} / ${unit.roomNumber}: detail Final matches implemented plan`,
+        unit.proposedRule, unit.ihPlanNewRate, 0.51);
+      ok(`${label} / ${expected.roomType} / ${unit.roomNumber}: detail Final is plan-driven`,
+        unit.finalFromPlan === true);
+    }
+    const detailRateSum = coveredDetail.reduce(
+      (sum, unit) => sum + Number(unit.ihPlanNewRate), 0,
+    );
+    if (coveredDetail.length > 0) {
+      near(`${label} / ${expected.roomType}: detail Final average matches grouped Final`,
+        detailRateSum / coveredDetail.length, actual.proposedRule, 0.51);
+    }
+  }
+
+  const appliedPlan = (await pool.query(
+    `SELECT status FROM inhouse_rate_plans WHERE id = $1 AND client_id = $2`,
+    [planId, CLIENT],
+  )).rows[0];
+  ok(`${label}: approved plan is persisted as applied`, appliedPlan?.status === "applied");
+
+  const repeatedPublish = await postJsonAllowStatus(
+    "/api/adjustment-rules/publish",
+    auth,
+    { confirm: true },
+  );
+  ok(`${label}: repeated publish is rejected after the approval is complete`,
+    repeatedPublish.status === 409,
+    `status=${repeatedPublish.status}`);
+
+  // ── 5. Room detail → service-line total, and no impact contamination ────
   const groupedResidents = covered.reduce(
     (sum, row) => sum + (Number(row.ihRecommendationResidents) || 0), 0,
   );
-  const detailResidents = after.detail.reduce(
+  const detailResidents = proposalGrid.detail.reduce(
     (sum, row) => sum + (Number(row.ihRecommendationResidents) || 0), 0,
   );
   const groupedImpact = covered.reduce(
     (sum, row) => sum + (Number(row.ihRecommendationMonthlyImpact) || 0), 0,
   );
-  const detailImpact = after.detail.reduce(
+  const detailImpact = proposalGrid.detail.reduce(
     (sum, row) => sum + (Number(row.ihRecommendationMonthlyImpact) || 0), 0,
   );
   ok(`${label}: detail residents sum to service-line total`,
@@ -408,7 +625,7 @@ async function runScope(
   near(`${label}: detail monthly impact sums to service-line total`,
     detailImpact, groupedImpact, 0.51);
 
-  for (const r of after.grouped) {
+  for (const r of implementedGrid.grouped) {
     const b = beforeImpact.get(r.roomType) ?? null;
     const a = r.revMonthlyImpact ?? null;
     if (b === null && a === null) {
@@ -434,6 +651,7 @@ async function main() {
     if (hc) await runScope(cookie, hc, true);
   } finally {
     await cleanup();
+    await assertFixtureTeardown();
     console.log(
       "\nNote: plans were deleted, but the dev server's reference-data cache may hold " +
       "plan values for up to 10 minutes. Restart the app for a clean grid.",

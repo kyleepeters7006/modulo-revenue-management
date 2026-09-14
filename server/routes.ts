@@ -25055,7 +25055,7 @@ Return ONLY valid JSON, no markdown fences:
       // publishing claims those records for the authenticated client as they
       // move to history, eliminating their global scope going forward.
       const lockedRules = await connection.query(
-        `SELECT id, action, effective_date
+        `SELECT id, action, effective_date::text AS effective_date
            FROM adjustment_rules
           WHERE (client_id = $1 OR client_id IS NULL)
             AND is_active = true
@@ -25198,7 +25198,7 @@ Return ONLY valid JSON, no markdown fences:
       // A new active rule could have been inserted while the locked rules were
       // being evaluated. Re-read the set and abort unless it is still exact.
       const currentRules = await connection.query(
-        `SELECT id, action, effective_date
+        `SELECT id, action, effective_date::text AS effective_date
            FROM adjustment_rules
           WHERE (client_id = $1 OR client_id IS NULL)
             AND is_active = true
@@ -25436,7 +25436,10 @@ Return ONLY valid JSON, no markdown fences:
             [pair.rows.map((row: any) => row.id)],
           );
           await connection.query("COMMIT");
-          await onRulesChanged(clientId);
+          // An annual plan is still inert until the publish endpoint applies
+          // its linked pair. Scheduling a full pricing run here can race that
+          // publish transaction and make the approval look stale.
+          await purgeRuleCaches(clientId);
           return res.json({
             rule: updated.rows.find((row: any) => row.id === id),
             rules: updated.rows,
