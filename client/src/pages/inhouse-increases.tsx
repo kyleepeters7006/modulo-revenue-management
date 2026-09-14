@@ -475,20 +475,7 @@ function Explanation({
   onExport: () => void;
 }) {
   const [verificationRate, setVerificationRate] = useState<"inhouse" | "street" | null>(null);
-  const verification =
-    verificationRate === "inhouse"
-      ? {
-          title: "Current In-House rate",
-          value: plan.summary.currentAvgInhouseRateMonthly,
-          description:
-            "The weighted average current rate for the private-pay resident-room cohort used by this plan.",
-        }
-      : {
-          title: "Current Street Rate",
-          value: plan.currentStreetRateMonthly,
-          description:
-            "The weighted average product-matched Street Rate for the same private-pay resident-room cohort.",
-        };
+  const verificationTitle = "Resident rate averages";
   return (
     <>
       <div className="space-y-3 text-sm">
@@ -542,29 +529,33 @@ function Explanation({
       <Dialog open={verificationRate !== null} onOpenChange={(open) => !open && setVerificationRate(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{verification.title} · {serviceLine}</DialogTitle>
-            <DialogDescription>{verification.description}</DialogDescription>
+            <DialogTitle>{verificationTitle} · {serviceLine}</DialogTitle>
+            <DialogDescription>
+              Weighted averages for the resident rows included in this calculation.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="rounded-lg border bg-muted/30 p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Plan value
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Current In-House
+                </div>
+                <div className="mt-1 text-2xl font-semibold">
+                  {formatMoney(plan.summary.currentAvgInhouseRateMonthly)}
+                </div>
               </div>
-              <div className="mt-1 text-2xl font-semibold">{formatMoney(verification.value)}</div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                {plan.summary.residentCount.toLocaleString()} residents · rent roll month {formatMonth(plan.scope.sourceMonth)}
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Matched Street Rate
+                </div>
+                <div className="mt-1 text-2xl font-semibold">
+                  {formatMoney(plan.currentStreetRateMonthly)}
+                </div>
               </div>
             </div>
-            <div className="space-y-1 text-sm text-muted-foreground">
-              <p>
-                In-House and Street use the same resident-room population. Each room’s current
-                rate is paired with its product-matched Street Rate and weighted by the resident’s
-                time in the planning horizon.
-              </p>
-              <p>
-                The Excel workbook includes the room-level source values, effective Street Rate,
-                resident weight, formulas, and reconciliation totals used by the plan.
-              </p>
+            <div className="text-sm text-muted-foreground">
+              {plan.summary.residentCount.toLocaleString()} resident rows · rent roll month{" "}
+              {formatMonth(plan.scope.sourceMonth)}
             </div>
           </div>
           <DialogFooter>
@@ -572,7 +563,7 @@ function Explanation({
               {exportPending
                 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 : <Download className="mr-2 h-4 w-4" />}
-              Download rent roll verification
+              Download resident detail
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1122,7 +1113,7 @@ const NO_TIER_POLICIES: Record<string, OccupancyTierPolicy> = {};
 
 /** Column track for the tier summary grid, shared by its headers and rows. */
 const TIER_SUMMARY_COLS =
-  "grid grid-cols-[4rem_4.75rem_1fr] gap-x-2 sm:grid-cols-[6rem_5.5rem_repeat(3,minmax(6.5rem,1fr))]";
+  "grid grid-cols-[3.5rem_4.25rem_5.5rem_1fr] gap-x-2 sm:grid-cols-[6rem_5.5rem_minmax(6.5rem,1fr)_repeat(3,minmax(6.5rem,1fr))]";
 
 /** Signed one-decimal percent, or an em dash when the tier produced nothing. */
 function formatTierPct(value: number | null | undefined): string {
@@ -2548,6 +2539,10 @@ export default function InhouseIncreases() {
     const report = latestAnnualReportQuery.data?.report;
     if (scopeLocationId === null || !report) return;
     if (report.locationId !== scopeLocationId || !Array.isArray(report.plans)) return;
+    // Saving the current calculation creates a report with a newer timestamp
+    // than the calculation. It is still the same result, not a newer result to
+    // restore; restoring it would advance lastRunAt and trigger another save.
+    if (plans && tierGrid?.scopeKey === report.scopeKey) return;
     const reportTime = Date.parse(report.generatedAt || "");
     const currentTime = Date.parse(lastRunAt || "");
     if (plans && Number.isFinite(currentTime) && (!Number.isFinite(reportTime) || currentTime >= reportTime)) {
@@ -3799,6 +3794,12 @@ export default function InhouseIncreases() {
                     label="Occupancy"
                     explanation="Measured occupancy for this service line, from occupancy history. This is what selects the tier in force."
                   />
+                  <div className="flex justify-center text-center">
+                    <HeaderHelp
+                      label="Average"
+                      explanation="Simple average of the Low, Target, and High occupancy scenarios for this service line."
+                    />
+                  </div>
                   {OCCUPANCY_TIER_IDS.map((tier) => (
                     <span
                       key={tier}
@@ -3816,6 +3817,7 @@ export default function InhouseIncreases() {
                 >
                   <span />
                   <span />
+                  <span className="text-center">in-house / street</span>
                   {OCCUPANCY_TIER_IDS.map((tier) => (
                     <span
                       key={tier}
@@ -3828,6 +3830,20 @@ export default function InhouseIncreases() {
 
                 {tierGrid.lines.map((line) => {
                   const byTier = new Map(line.cells.map((c) => [c.tier, c]));
+                  const validCells = line.cells.filter(
+                    (cell) =>
+                      !cell.error &&
+                      cell.inhouseIncreasePct != null &&
+                      cell.streetIncreasePct != null,
+                  );
+                  const averageInhouse = validCells.length
+                    ? validCells.reduce((sum, cell) => sum + cell.inhouseIncreasePct!, 0) /
+                      validCells.length
+                    : null;
+                  const averageStreet = validCells.length
+                    ? validCells.reduce((sum, cell) => sum + cell.streetIncreasePct!, 0) /
+                      validCells.length
+                    : null;
                   return (
                     <div
                       key={line.serviceLine}
@@ -3838,6 +3854,14 @@ export default function InhouseIncreases() {
                       <span className="text-xs tabular-nums text-muted-foreground">
                         {line.occupancyPct == null ? "—" : `${line.occupancyPct.toFixed(1)}%`}
                       </span>
+                      <div
+                        className="rounded px-1.5 py-1 text-center text-xs tabular-nums"
+                        title="Simple average of the three occupancy scenarios"
+                      >
+                        <span>{formatTierPct(averageInhouse)}</span>
+                        <span className="text-muted-foreground"> / </span>
+                        <span>{formatTierPct(averageStreet)}</span>
+                      </div>
                       {OCCUPANCY_TIER_IDS.map((tier) => {
                         const cell = byTier.get(tier);
                         const current = line.currentTier === tier;
@@ -4511,7 +4535,13 @@ export default function InhouseIncreases() {
                             open ? (
                               <tr key={`${qKey}-detail`} className="border-b bg-muted/30">
                                 <td colSpan={7} className="space-y-4 px-4 py-4">
-                                  <Explanation explanation={q.explanation} />
+                                  <Explanation
+                                    explanation={q.explanation}
+                                    plan={plan}
+                                    serviceLine={sl}
+                                    exportPending={exportPlan.isPending}
+                                    onExport={() => exportPlan.mutate(sl)}
+                                  />
                                   <div className="rounded-md border bg-background">
                                     <div className="flex flex-wrap items-start justify-between gap-2 border-b px-3 py-2.5">
                                       <div>
@@ -4752,6 +4782,9 @@ export default function InhouseIncreases() {
                     {sortedResidents.slice(0, visibleCount).flatMap((r) => {
                       const open = expandedResident === r.key;
                       const colSpan = plans.length > 1 ? 10 : 9;
+                      // Tagged residents are created directly from these plans,
+                      // so the matching service-line plan is guaranteed here.
+                      const residentPlan = plans.find(({ sl }) => sl === r._sl)!.plan;
                       return [
                         <tr key={r.key} data-testid="row-resident"
                           className="cursor-pointer border-b transition-colors hover:bg-muted/50"
@@ -4800,7 +4833,15 @@ export default function InhouseIncreases() {
                         </tr>,
                         open ? (
                           <tr key={`${r.key}-detail`} className="border-b bg-muted/30">
-                            <td colSpan={colSpan} className="px-4 py-4"><Explanation explanation={r.explanation} /></td>
+                            <td colSpan={colSpan} className="px-4 py-4">
+                              <Explanation
+                                explanation={r.explanation}
+                                plan={residentPlan}
+                                serviceLine={r._sl}
+                                exportPending={exportPlan.isPending}
+                                onExport={() => exportPlan.mutate(r._sl)}
+                              />
+                            </td>
                           </tr>
                         ) : null,
                       ];

@@ -480,13 +480,25 @@ async function checkScope(scope: { clientId: string; serviceLine: string; label:
   await wb.xlsx.load(buffer as any);
 
   const names = wb.worksheets.map((w) => w.name);
+  ok("only the resident detail sheet is present", names.length === 1 && names[0] === "Resident detail", names.join(", "));
+  const verificationDetail = wb.getWorksheet("Resident detail")!;
   ok(
-    "all six sheets present",
-    ["Plan summary", "Resident detail", "Move-in trends", "Rate history", "Quarter reconciliation", "Method"].every((n) =>
-      names.includes(n),
-    ),
-    names.join(", "),
+    "resident detail carries every included resident",
+    verificationDetail.rowCount === audit.residents.length + 6,
+    `${verificationDetail.rowCount} rows`,
   );
+  const verificationTotalRow = verificationDetail.rowCount;
+  const currentAverage = verificationDetail.getCell(`I${verificationTotalRow}`).value as ExcelJS.CellFormulaValue;
+  const streetAverage = verificationDetail.getCell(`J${verificationTotalRow}`).value as ExcelJS.CellFormulaValue;
+  ok(
+    "current In-House weighted average ties to the plan",
+    Math.abs(Number(currentAverage.result) - plan.summary.currentAvgInhouseRateMonthly) < EPS,
+  );
+  ok(
+    "matched Street weighted average ties to the plan",
+    Math.abs(Number(streetAverage.result) - plan.currentStreetRateMonthly) < EPS,
+  );
+  return;
   const summary = wb.getWorksheet("Plan summary")!;
   ok(
     "summary carries the solver target-deviation diagnostic",

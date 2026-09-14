@@ -111,6 +111,9 @@ planning solver compares product-matched Street and In-House rates over one
 private-pay cohort and weights residents by their time in the planning horizon.
 Mixing those exports produces plausible but non-reconciling totals.
 
-**How to apply:** verification dialogs for plan rates should display the plan's
-source month and cohort count, explain the paired/weighted basis, and download
-the solver workbook with its room-level formulas and reconciliation totals.
+**How to apply:** verification dialogs for plan rates should show both weighted
+averages, the plan's source month, and cohort count. The download is a single
+resident-detail sheet containing the exact paired rates and resident-time
+weights, with weighted-average totals that tie directly to the dialog. Do not
+add solver-model, trend, history, method, or quarter tabs unless explicitly
+requested.

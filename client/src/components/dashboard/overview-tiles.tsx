@@ -99,7 +99,7 @@ function OccupancySparkline({ values = [], delta }: { values?: number[]; delta?:
 
   return (
     <div
-      className="flex shrink-0 items-center gap-1"
+      className="flex shrink-0 items-center"
       title={`${tone.label}: ${deltaLabel} percentage points`}
       aria-label={`${tone.label} occupancy trend, ${deltaLabel} percentage points`}
     >
@@ -111,7 +111,6 @@ function OccupancySparkline({ values = [], delta }: { values?: number[]; delta?:
           ))}
         </svg>
       )}
-      <span className={`whitespace-nowrap text-[10px] font-bold ${tone.text}`}>{deltaLabel}</span>
     </div>
   );
 }

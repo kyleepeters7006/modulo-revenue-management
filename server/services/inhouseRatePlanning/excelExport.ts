@@ -244,124 +244,116 @@ export async function buildRatePlanWorkbook(input: BuildExportInput): Promise<Bu
   wb.creator = "Rate Planning";
   wb.created = new Date();
 
-  const wsSummary = wb.addWorksheet("Plan summary", {
-    views: [{ state: "frozen", ySplit: 1 }],
-  });
   const wsDetail = wb.addWorksheet("Resident detail");
-  const wsMoveIn = wb.addWorksheet("Move-in trends");
-  const wsHistory = wb.addWorksheet("Rate history");
-  const wsQuarterRooms = wb.addWorksheet("Quarter reconciliation");
-  const wsMethod = wb.addWorksheet("Method");
-
-  // Detail is built first: the summary's totals are formulas over its rows.
-  const detail = buildDetailSheet(wsDetail, plan, audit, daily);
-  buildSummarySheet(wsSummary, plan, audit, daily, detail, input.generatedBy);
-  const moveIn = buildMoveInSheet(wsMoveIn, plan, audit);
-  const history = buildHistorySheet(wsHistory, plan, audit);
-  buildQuarterReconciliationSheet(wsQuarterRooms, plan, audit, daily);
-  buildMethodSheet(wsMethod, plan, audit, daily, detail);
-
-  const buffer = Buffer.from(await wb.xlsx.writeBuffer());
-
-  const charts: ChartSpec[] = [];
-  if (moveIn.cohortRows > 0) {
-    charts.push({
-      sheetName: "Move-in trends",
-      type: "bar",
-      title: "Residents by move-in year",
-      valueAxisFormat: FMT_INT,
-      series: [
-        {
-          name: "Residents",
-          categoriesRef: `'Move-in trends'!$A$${moveIn.cohortFirst}:$A$${moveIn.cohortLast}`,
-          valuesRef: `'Move-in trends'!$B$${moveIn.cohortFirst}:$B$${moveIn.cohortLast}`,
-        },
-      ],
-      anchor: { fromCol: 9, fromRow: moveIn.cohortFirst - 2, toCol: 17, toRow: moveIn.cohortFirst + 14 },
-    });
-    charts.push({
-      sheetName: "Move-in trends",
-      type: "line",
-      title: "Current rate vs street rate by move-in year",
-      valueAxisFormat: FMT_INT,
-      series: [
-        {
-          name: "Average current rate",
-          categoriesRef: `'Move-in trends'!$A$${moveIn.cohortFirst}:$A$${moveIn.cohortLast}`,
-          valuesRef: `'Move-in trends'!$C$${moveIn.cohortFirst}:$C$${moveIn.cohortLast}`,
-          color: "4472C4",
-        },
-        {
-          name: "Average street rate",
-          categoriesRef: `'Move-in trends'!$A$${moveIn.cohortFirst}:$A$${moveIn.cohortLast}`,
-          valuesRef: `'Move-in trends'!$D$${moveIn.cohortFirst}:$D$${moveIn.cohortLast}`,
-          color: "ED7D31",
-        },
-      ],
-      anchor: { fromCol: 9, fromRow: moveIn.cohortFirst + 16, toCol: 17, toRow: moveIn.cohortFirst + 32 },
-    });
-  }
-  if (moveIn.recentRows > 0) {
-    charts.push({
-      sheetName: "Move-in trends",
-      type: "bar",
-      title: "Move-ins per month (last 24 months)",
-      valueAxisFormat: FMT_INT,
-      series: [
-        {
-          name: "Move-ins",
-          categoriesRef: `'Move-in trends'!$A$${moveIn.recentFirst}:$A$${moveIn.recentLast}`,
-          valuesRef: `'Move-in trends'!$B$${moveIn.recentFirst}:$B$${moveIn.recentLast}`,
-          color: "70AD47",
-        },
-      ],
-      anchor: { fromCol: 9, fromRow: moveIn.recentFirst - 2, toCol: 17, toRow: moveIn.recentFirst + 14 },
-    });
-  }
-  if (history.monthRows > 0) {
-    charts.push({
-      sheetName: "Rate history",
-      type: "line",
-      title: "Realized in-house rate by month",
-      valueAxisFormat: FMT_INT,
-      series: [
-        {
-          name: "Realized rate (monthly equivalent)",
-          categoriesRef: `'Rate history'!$A$${history.monthFirst}:$A$${history.monthLast}`,
-          valuesRef: `'Rate history'!$B$${history.monthFirst}:$B$${history.monthLast}`,
-        },
-      ],
-      anchor: { fromCol: 6, fromRow: history.monthFirst - 2, toCol: 15, toRow: history.monthFirst + 16 },
-    });
-  }
-  if (history.quarterRows > 0) {
-    charts.push({
-      sheetName: "Rate history",
-      type: "bar",
-      title: "Projected vs prior-year rate by quarter",
-      valueAxisFormat: FMT_INT,
-      series: [
-        {
-          name: "Prior year",
-          categoriesRef: `'Rate history'!$A$${history.quarterFirst}:$A$${history.quarterLast}`,
-          valuesRef: `'Rate history'!$B$${history.quarterFirst}:$B$${history.quarterLast}`,
-          color: "A5A5A5",
-        },
-        {
-          name: "Projected with this plan",
-          categoriesRef: `'Rate history'!$A$${history.quarterFirst}:$A$${history.quarterLast}`,
-          valuesRef: `'Rate history'!$C$${history.quarterFirst}:$C$${history.quarterLast}`,
-          color: "4472C4",
-        },
-      ],
-      anchor: { fromCol: 8, fromRow: history.quarterFirst - 2, toCol: 17, toRow: history.quarterFirst + 16 },
-    });
-  }
-
-  return injectCharts(buffer, charts);
+  buildVerificationDetailSheet(wsDetail, plan, audit, daily);
+  return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
 // ── Resident detail ────────────────────────────────────────────────────────
+
+function buildVerificationDetailSheet(
+  ws: ExcelJS.Worksheet,
+  plan: PlanResult,
+  audit: PlanAudit,
+  daily: boolean,
+): void {
+  const columns = [
+    { header: "Campus", key: "campus", width: 26 },
+    { header: "Room", key: "room", width: 11 },
+    { header: "Room type", key: "roomType", width: 18 },
+    { header: "Care level", key: "care", width: 13 },
+    { header: "Payor", key: "payor", width: 16 },
+    { header: "Move-in date", key: "moveIn", width: 14 },
+    { header: "Companion bed", key: "companion", width: 14 },
+    { header: "Resident-day weight", key: "weight", width: 18 },
+    { header: daily ? "Current rate (monthly equivalent)" : "Current In-House rate (monthly)", key: "current", width: 24 },
+    { header: daily ? "Matched Street Rate (monthly equivalent)" : "Matched Street Rate (monthly)", key: "street", width: 25 },
+    { header: "Street Rate basis", key: "basis", width: 24 },
+  ];
+  ws.columns = columns;
+  ws.mergeCells("A1:K1");
+  ws.getCell("A1").value = "Resident rate verification";
+  ws.getCell("A1").font = { bold: true, size: 16, color: { argb: "FF1F3864" } };
+  ws.mergeCells("A2:K2");
+  ws.getCell("A2").value =
+    `${plan.scope.location ?? "All campuses"} · ${plan.scope.serviceLine} · rent roll ${plan.scope.sourceMonth} · ${audit.residents.length.toLocaleString()} residents`;
+  ws.getCell("A2").font = { italic: true, color: { argb: "FF666666" } };
+
+  ws.getCell("A3").value = "Average current In-House rate";
+  ws.getCell("B3").value = plan.summary.currentAvgInhouseRateMonthly;
+  ws.getCell("D3").value = "Average matched Street Rate";
+  ws.getCell("E3").value = plan.currentStreetRateMonthly;
+  for (const address of ["A3", "D3"]) ws.getCell(address).font = { bold: true };
+  for (const address of ["B3", "E3"]) {
+    ws.getCell(address).font = { bold: true, color: { argb: "FF0F766E" } };
+    ws.getCell(address).numFmt = FMT_MONEY;
+  }
+
+  const headerRow = 5;
+  const hr = ws.getRow(headerRow);
+  columns.forEach((column, index) => {
+    hr.getCell(index + 1).value = column.header;
+    ws.getColumn(index + 1).width = column.width;
+  });
+  styleHeaderRow(hr);
+
+  const firstDataRow = headerRow + 1;
+  audit.residents.forEach((resident, index) => {
+    const row = ws.getRow(firstDataRow + index);
+    row.values = [
+      resident.location,
+      resident.roomNumber,
+      resident.roomType ?? "",
+      resident.careLevel ?? "",
+      resident.payorType ?? "",
+      resident.moveInDate ? new Date(`${resident.moveInDate}T00:00:00Z`) : "",
+      resident.isCompanionBed ? "Yes" : "",
+      resident.weight,
+      resident.currentRateMonthly,
+      resident.streetRateMonthly,
+      streetBasisLabel(resident),
+    ];
+    row.getCell(6).numFmt = FMT_DATE;
+    row.getCell(8).numFmt = FMT_NUM2;
+    row.getCell(9).numFmt = FMT_MONEY;
+    row.getCell(10).numFmt = FMT_MONEY;
+    if (index % 2 === 1) {
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BAND_FILL } };
+      });
+    }
+  });
+
+  const lastDataRow = firstDataRow + audit.residents.length - 1;
+  const totalRow = lastDataRow + 1;
+  const total = ws.getRow(totalRow);
+  total.getCell(1).value = `WEIGHTED AVERAGE — ${audit.residents.length.toLocaleString()} residents`;
+  total.getCell(8).value = {
+    formula: `SUM(H${firstDataRow}:H${lastDataRow})`,
+    result: audit.residents.reduce((sum, resident) => sum + resident.weight, 0),
+  } as ExcelJS.CellFormulaValue;
+  total.getCell(9).value = {
+    formula: `SUMPRODUCT(H${firstDataRow}:H${lastDataRow},I${firstDataRow}:I${lastDataRow})/SUM(H${firstDataRow}:H${lastDataRow})`,
+    result: plan.summary.currentAvgInhouseRateMonthly,
+  } as ExcelJS.CellFormulaValue;
+  total.getCell(10).value = {
+    formula: `SUMPRODUCT(H${firstDataRow}:H${lastDataRow},J${firstDataRow}:J${lastDataRow})/SUM(H${firstDataRow}:H${lastDataRow})`,
+    result: plan.currentStreetRateMonthly,
+  } as ExcelJS.CellFormulaValue;
+  total.eachCell({ includeEmpty: true }, (cell) => {
+    cell.font = { bold: true };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TOTAL_FILL } };
+    cell.border = { top: { style: "double", color: { argb: "FF1F3864" } } };
+  });
+  total.getCell(8).numFmt = FMT_NUM2;
+  total.getCell(9).numFmt = FMT_MONEY;
+  total.getCell(10).numFmt = FMT_MONEY;
+  ws.views = [{ state: "frozen", xSplit: 2, ySplit: headerRow, topLeftCell: `C${firstDataRow}` }];
+  ws.autoFilter = {
+    from: { row: headerRow, column: 1 },
+    to: { row: lastDataRow, column: columns.length },
+  };
+}
 
 interface DetailLayout {
   headerRow: number;
