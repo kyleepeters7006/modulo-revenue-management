@@ -4021,8 +4021,8 @@ export default function InhouseIncreases() {
                   />
                   <div className="flex justify-center text-center">
                     <HeaderHelp
-                      label="Average"
-                      explanation="Simple average of the Low, Target, and High occupancy scenarios for this service line."
+                       label="Current tier"
+                       explanation="The in-house and Street Rate increases for the measured occupancy tier. These are the same recommendations shown in the Rate Growth Snapshot."
                     />
                   </div>
                   {OCCUPANCY_TIER_IDS.map((tier) => (
@@ -4055,20 +4055,8 @@ export default function InhouseIncreases() {
 
                 {tierGrid.lines.map((line) => {
                   const byTier = new Map(line.cells.map((c) => [c.tier, c]));
-                  const validCells = line.cells.filter(
-                    (cell) =>
-                      !cell.error &&
-                      cell.inhouseIncreasePct != null &&
-                      cell.streetIncreasePct != null,
-                  );
-                  const averageInhouse = validCells.length
-                    ? validCells.reduce((sum, cell) => sum + cell.inhouseIncreasePct!, 0) /
-                      validCells.length
-                    : null;
-                  const averageStreet = validCells.length
-                    ? validCells.reduce((sum, cell) => sum + cell.streetIncreasePct!, 0) /
-                      validCells.length
-                    : null;
+                  const currentInhouse = line.currentPlan.summary.weightedAvgIncreasePct;
+                  const currentStreet = line.currentPlan.streetIncreasePct;
                   return (
                     <div
                       key={line.serviceLine}
@@ -4081,11 +4069,11 @@ export default function InhouseIncreases() {
                       </span>
                       <div
                         className="rounded px-1.5 py-1 text-center text-xs tabular-nums"
-                        title="Simple average of the three occupancy scenarios"
+                         title={`Recommendation at the measured ${line.currentTier} occupancy tier`}
                       >
-                        <span>{formatTierPct(averageInhouse)}</span>
+                         <span>{formatTierPct(currentInhouse)}</span>
                         <span className="text-muted-foreground"> / </span>
-                        <span>{formatTierPct(averageStreet)}</span>
+                         <span>{formatTierPct(currentStreet)}</span>
                       </div>
                       {OCCUPANCY_TIER_IDS.map((tier) => {
                         const cell = byTier.get(tier);
