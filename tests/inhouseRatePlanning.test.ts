@@ -15,6 +15,7 @@
  *   • whichever quarter has the least cushion is the one that binds, whether
  *     that is the first or the last
  *   • the resident-level allocation reconciles back to the required aggregate
+ *   • every service line uses the same minimum-combined-growth objective
  *
  * Run with: npx tsx tests/inhouseRatePlanning.test.ts
  */
@@ -899,7 +900,113 @@ console.log("\n-- 6e. Combined Street and resident growth is minimized --");
   );
 }
 
-// ── 7. Residual growth is impossible within the Street ceiling ─────────────
+// ── 6f. Every service line stays close to its quarterly growth goal ──────────
+console.log("\n-- 6f. All service lines minimize combined growth without broad overshoot --");
+{
+  const serviceLines = ["AL", "AL/MC", "SL", "VIL", "HC", "HC/MC"] as const;
+  const baselineByQuarter = new Map(
+    QUARTERS.map((q, index) => {
+      const prior = addQuarters(q, -4);
+      return [
+        q.label,
+        {
+          ...prior,
+          // The current $4,850 average already embeds 1.6%–3.2% growth over
+          // these historical quarters. Turnover then adds replacement revenue
+          // at the $5,200 Street Rate, so neither planned lever should carry
+          // the full 5% goal by itself.
+          realizedRateMonthly: 4700 + index * 25,
+          basis: "actual" as const,
+          monthsAvailable: 3,
+          monthsExpected: 3,
+          residentDays: 8100,
+        },
+      ] satisfies [string, BaselineQuarter];
+    }),
+  );
+  // A quarter may sit slightly above goal because one annual pair of levers has
+  // to satisfy four different historical baselines. A quarter-point catches a
+  // restored one-point cushion while allowing the monthly/daily billing bases
+  // and bounded Street search to differ by harmless rounding.
+  const MAX_UNBOUND_QUARTER_OVERSHOOT_PCT = 0.25;
+
+  for (const serviceLine of serviceLines) {
+    const residents = [4400, 4700, 5000, 5300].map((currentRate, index) =>
+      resident(
+        `${serviceLine}-${index + 1}`,
+        currentRate,
+        5200,
+        90,
+        serviceLine,
+      ),
+    );
+    const solveFor = (minStreetIncreasePct: number, annualTurnoverPct = 35) =>
+      solvePlan({
+        residents,
+        assumptions: assumptions({
+          rateGrowthTargetPct: 5,
+          annualTurnoverPct,
+          minStreetIncreasePct,
+        }),
+        baselineByQuarter,
+        quarters: QUARTERS,
+        anchorMs: ANCHOR_MS,
+        currentStreetRateMonthly: 5200,
+        rateWeightBasis:
+          serviceLine === "HC" || serviceLine === "HC/MC"
+            ? "resident_days"
+            : "resident_months",
+      });
+
+    const selected = solveFor(0);
+    const noTurnover = solveFor(0, 0);
+    const expectedInhouseIncrease =
+      serviceLine === "HC" || serviceLine === "HC/MC"
+        ? 0.014115823233182721
+        : 0.014115549300558807;
+    const measurableQuarters = selected.targetDeviationDiagnostic.quarters.filter(
+      (quarter) => quarter.testable,
+    );
+    const hardGuardrailBinds = selected.targetDeviationDiagnostic.drivers.some(
+      (driver) =>
+        (driver.id === "resident_guardrails" || driver.id === "street_bounds") &&
+        driver.status === "binding",
+    );
+
+    ok(`${serviceLine}: deterministic fixture measures all four quarters`, measurableQuarters.length === 4);
+    ok(
+      `${serviceLine}: every measurable quarter reaches the configured 5% goal`,
+      selected.feasible &&
+        selected.quarterResults.every((quarter) => quarter.yoyGrowthPct >= 5 - 0.001),
+    );
+    ok(
+      `${serviceLine}: turnover replacement revenue reduces the required in-house increase`,
+      selected.requiredAvgIncrease < noTurnover.requiredAvgIncrease - 1e-6,
+      `with turnover=${selected.requiredAvgIncrease}, without=${noTurnover.requiredAvgIncrease}`,
+    );
+    ok(
+      `${serviceLine}: optimizer keeps Street Rate at the deterministic minimum`,
+      Math.abs(selected.streetIncrease) <= 1e-12,
+      `selected=${selected.streetIncrease}`,
+    );
+    near(
+      `${serviceLine}: optimizer selects the deterministic minimum combined increase`,
+      selected.streetIncrease + selected.requiredAvgIncrease,
+      expectedInhouseIncrease,
+      1e-12,
+    );
+    ok(`${serviceLine}: no configured minimum or hard guardrail binds this fixture`, !hardGuardrailBinds);
+    ok(
+      `${serviceLine}: unbound quarterly overshoot stays within ${MAX_UNBOUND_QUARTER_OVERSHOOT_PCT} points`,
+      hardGuardrailBinds ||
+        selected.targetDeviationDiagnostic.maximumQuarterDeviationPct <=
+          MAX_UNBOUND_QUARTER_OVERSHOOT_PCT + 1e-9,
+      `maximum=${selected.targetDeviationDiagnostic.maximumQuarterDeviationPct}`,
+    );
+  }
+}
+
+// ── 7. Impossible because the maximum increase is too low ──────────────────
 console.log("\n-- 7. An unreachable target is reported, not silently approximated --");
 {
   const result = solvePlan({
@@ -913,21 +1020,18 @@ console.log("\n-- 7. An unreachable target is reported, not silently approximate
   ok("plan is reported infeasible", !result.feasible);
   ok("an infeasibility block is returned", result.infeasibility !== null);
   ok(
-    "the residual shortfall is attributed to the Street ceiling",
-    result.infeasibility?.bindingConstraint === "street_ceiling",
+    "the binding constraint is the maximum increase",
+    result.infeasibility?.bindingConstraint === "max_increase",
     `got ${result.infeasibility?.bindingConstraint}`,
-  );
-  ok(
-    "the diagnostic does not recommend raising the resident cap under the fixed-average policy",
-    result.infeasibility?.minimumChange.maxInhouseIncreasePct === null,
-  );
-  ok(
-    "the diagnostic explains that resident recommendations remain fixed",
-    result.infeasibility?.message.includes("remain fixed at the resident-first average") === true,
   );
   ok(
     "no resident exceeds the 1% maximum despite the plan falling short",
     result.allocation.allocations.every((a) => a.increase <= 0.01 + 1e-9),
+  );
+  ok(
+    "a concrete larger maximum is suggested",
+    (result.infeasibility?.minimumChange.maxInhouseIncreasePct ?? 0) > 1,
+    `got ${result.infeasibility?.minimumChange.maxInhouseIncreasePct}`,
   );
   ok(
     "the achievable growth is reported and is below the target",
@@ -935,8 +1039,8 @@ console.log("\n-- 7. An unreachable target is reported, not silently approximate
   );
 }
 
-// ── 7b. Street is the remaining lever after the resident average is fixed ───
-console.log("\n-- 7b. Residual shortfall is assigned to Street Rate --");
+// ── 7b. Impossible because the configured resident maximum is too low ──────
+console.log("\n-- 7b. Street position does not replace the resident maximum --");
 {
   const atStreet = [
     resident("A", 5000, 5000),
@@ -953,8 +1057,8 @@ console.log("\n-- 7b. Residual shortfall is assigned to Street Rate --");
   });
   ok("plan is infeasible", !result.feasible);
   ok(
-    "the binding constraint is the zero Street Rate ceiling",
-    result.infeasibility?.bindingConstraint === "street_ceiling",
+    "the binding constraint is the resident maximum, not Street Rate",
+    result.infeasibility?.bindingConstraint === "max_increase",
     `got ${result.infeasibility?.bindingConstraint}`,
   );
   ok(

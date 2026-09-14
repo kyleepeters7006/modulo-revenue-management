@@ -5,13 +5,13 @@
  * operator-readable explanations, which are generated here on purpose so the
  * words an operator reads cannot drift away from the math that produced them.
  *
- * ── Resident-first policy ────────────────────────────────────────────────────
- * Existing-resident revenue is the dependable lever, so the solver first fixes
- * a revenue-weighted in-house average one percentage point above the growth
- * target, capped by the configured resident guardrails. It allocates that
- * average by each resident's variance to Street Rate. Only after that average
- * is fixed does it select a Street-rate increase for any remaining modeled gap
- * and supported market positioning.
+ * ── Joint optimization policy ────────────────────────────────────────────────
+ * For every allowed Street-rate candidate, the solver finds the smallest
+ * revenue-weighted in-house average that lets every measurable quarter reach
+ * the growth target. It then selects the minimum combined Street and in-house
+ * increase, subject to configured floors, ceilings, and portfolio guardrails.
+ * The same objective applies to every service line; only the billing weight
+ * basis differs between monthly senior housing and daily health care.
  *
  * ── Rate space ─────────────────────────────────────────────────────────────
  * Every rate in this file is a normalized MONTHLY rate. Callers convert HC and
@@ -1413,16 +1413,28 @@ function buildInfeasibility(
   worst: { margin: number; label: string | null },
 ): Infeasibility {
   const requiredAvg = requiredAvgIncreaseAt(ctx, streetIncrease, Math.max(ctx.max, 1));
-  const residentFirstAvg = allocation.achievedAvgIncrease;
-  const requestedBeforeCap = ctx.target + 0.01;
-  const residentCapApplied = requestedBeforeCap > ctx.max + 1e-9;
+  const achievable = allocation.maxAvgIncrease;
 
-  // Under the resident-first policy, the resident average is intentionally
-  // fixed before Street Rate is optimized. If the full plan is still short,
-  // the remaining adjustable lever is Street Rate; raising the resident maximum
-  // would not change the selected average and must not be recommended.
-  const bindingConstraint: Infeasibility["bindingConstraint"] = "street_ceiling";
-  const neededStreetPct = findMinimumStreetIncrease(ctx, residentFirstAvg);
+  let streetCappedWeight = 0;
+  let maxCappedWeight = 0;
+  let noHeadroomWeight = 0;
+  let totalWeight = 0;
+  for (const a of allocation.allocations) {
+    const w = a.resident.weight * a.resident.currentRateMonthly;
+    totalWeight += w;
+    if (a.constraint === "at_or_above_street") noHeadroomWeight += w;
+    else if (a.constraint === "street_cap") streetCappedWeight += w;
+    else if (a.constraint === "max") maxCappedWeight += w;
+  }
+
+  let bindingConstraint: Infeasibility["bindingConstraint"];
+  if (totalWeight > 0 && noHeadroomWeight / totalWeight >= 0.5) bindingConstraint = "no_headroom";
+  else if (streetCappedWeight + noHeadroomWeight > maxCappedWeight) bindingConstraint = "street_cap";
+  else if (maxCappedWeight > 0) bindingConstraint = "max_increase";
+  else bindingConstraint = "street_ceiling";
+
+  const neededMaxPct = findMinimumMaxIncrease(ctx, streetIncrease, requiredAvg);
+  const neededStreetPct = findMinimumStreetIncrease(ctx);
 
   const achievableGrowth = (() => {
     let worstGrowth = Number.POSITIVE_INFINITY;
@@ -1438,40 +1450,87 @@ function buildInfeasibility(
 
   const parts: string[] = [];
   parts.push(
-    `The resident-first policy selected a ${formatPct(residentFirstAvg * 100)} weighted-average in-house increase for the ${formatPct(ctx.target * 100)} growth target.`,
+    `The ${formatPct(ctx.target * 100)} target needs a ${formatPct(requiredAvg * 100)} weighted-average in-house increase, but the current settings only permit ${formatPct(achievable * 100)}.`,
   );
-  if (residentCapApplied) {
+  if (bindingConstraint === "no_headroom") {
+    const share = totalWeight > 0 ? (noHeadroomWeight / totalWeight) * 100 : 0;
     parts.push(
-      `The preferred target-plus-one-point average was capped at the configured ${formatPct(ctx.max * 100)} resident maximum.`,
+      `${share.toFixed(0)}% of in-house revenue sits with residents already at or above their street rate, so they cannot be increased at all while in-house rates are held to street.`,
+    );
+  } else if (bindingConstraint === "street_cap") {
+    parts.push(
+      "Most of the shortfall comes from residents who hit their street rate before reaching the maximum increase. Raising the street rate is what creates the room.",
+    );
+  } else if (bindingConstraint === "max_increase") {
+    parts.push(
+      `The ${formatPct(ctx.max * 100)} maximum increase is the binding limit — residents have headroom to street but are not allowed to use it.`,
+    );
+  } else {
+    parts.push(
+      `Even at the ${formatPct(ceilStreet * 100)} street-increase ceiling the target cannot be reached.`,
     );
   }
-  parts.push(
-    `The modeled quarter would need ${formatPct(requiredAvg * 100)} from residents at the selected Street Rate, but resident recommendations remain fixed at the resident-first average. Even at the ${formatPct(ceilStreet * 100)} Street Rate ceiling, the remaining growth gap cannot be reached.`,
-  );
 
   return {
     bindingConstraint,
     message: parts.join(" "),
     bindingQuarterLabel: worst.label,
     requiredAvgIncreasePct: requiredAvg * 100,
-    achievableAvgIncreasePct: residentFirstAvg * 100,
+    achievableAvgIncreasePct: achievable * 100,
     minimumChange: {
-      maxInhouseIncreasePct: null,
+      maxInhouseIncreasePct: neededMaxPct,
       streetIncreasePct: neededStreetPct,
       achievableGrowthTargetPct: achievableGrowth,
     },
   };
 }
 
-/** Smallest street increase at which the target becomes reachable. Null if none is. */
-function findMinimumStreetIncrease(ctx: EvalContext, residentTargetAvg: number): number | null {
+/** Smallest max-increase setting whose ceiling reaches `requiredAvg`. Null if none does. */
+function findMinimumMaxIncrease(
+  ctx: EvalContext,
+  streetIncrease: number,
+  requiredAvg: number,
+): number | null {
+  const streetActiveAtInhouse = ctx.streetMs <= ctx.inhouseMs;
+  const ceilingAt = (maxPct: number) =>
+    allocateIncreases({
+      residents: ctx.input.residents,
+      targetAvgIncrease: Number.POSITIVE_INFINITY,
+      minIncrease: Math.min(ctx.min, maxPct),
+      maxIncrease: maxPct,
+      strength: ctx.input.assumptions.equalizationStrength,
+      allowAboveStreet: true,
+      streetMultiplier: streetActiveAtInhouse ? 1 + streetIncrease : 1,
+    }).maxAvgIncrease;
+
   const HARD_CEILING = 1.0;
+  if (ceilingAt(HARD_CEILING) < requiredAvg - 1e-9) return null;
+  let lo = ctx.max;
+  let hi = HARD_CEILING;
+  if (ceilingAt(lo) >= requiredAvg) return lo * 100;
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2;
+    if (ceilingAt(mid) >= requiredAvg) hi = mid;
+    else lo = mid;
+  }
+  return hi * 100;
+}
+
+/** Smallest street increase at which the target becomes reachable. Null if none is. */
+function findMinimumStreetIncrease(ctx: EvalContext): number | null {
+  const HARD_CEILING = 1.0;
+  const streetActiveAtInhouse = ctx.streetMs <= ctx.inhouseMs;
   const feasibleAt = (g: number) => {
-    const allocation = allocationFor(ctx, g, residentTargetAvg);
-    return (
-      worstMargin(ctx, projectFor(ctx, g, allocation.achievedAvgIncrease)).margin >=
-      -PASS_EPSILON
-    );
+    const ceiling = allocateIncreases({
+      residents: ctx.input.residents,
+      targetAvgIncrease: Number.POSITIVE_INFINITY,
+      minIncrease: ctx.min,
+      maxIncrease: ctx.max,
+      strength: ctx.input.assumptions.equalizationStrength,
+      allowAboveStreet: true,
+      streetMultiplier: streetActiveAtInhouse ? 1 + g : 1,
+    }).maxAvgIncrease;
+    return worstMargin(ctx, projectFor(ctx, g, ceiling)).margin >= -PASS_EPSILON;
   };
   if (!feasibleAt(HARD_CEILING)) return null;
   let lo = 0;
