@@ -9,8 +9,31 @@
  */
 import assert from "node:assert/strict";
 import { generateAnnualInhouseReportPdf } from "../server/services/inhouseAnnualReportPdf";
+import { annualRateGrowthBridge } from "../shared/inhouseAnnualReportSnapshot";
 
 (async () => {
+const bridge = annualRateGrowthBridge(
+  [1, 2, 3, 4].map((quarter) => ({
+    year: 2027,
+    quarter,
+    label: `Q${quarter} 2027`,
+    passes: true,
+    projectedRateMonthly: 107,
+    yoyGrowthPct: 7,
+    priorYear: {
+      year: 2026,
+      quarter,
+      realizedRateMonthly: 100,
+    },
+  })) as any,
+  "monthly",
+  103,
+);
+assert.ok(bridge, "annual growth bridge is available");
+assert.ok(Math.abs(bridge.priorPeriodCarryoverPct - 3) < 1e-9);
+assert.ok(Math.abs(bridge.planYearContributionPct - 4) < 1e-9);
+assert.ok(Math.abs(bridge.fullYearYoyPct - 7) < 1e-9);
+
 const serviceLines = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
 const buffer = await generateAnnualInhouseReportPdf({
   scopeKey: "portfolio",

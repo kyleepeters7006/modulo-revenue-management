@@ -17,6 +17,7 @@ import {
   type OccupancyTierPlanCell,
   type PlanResult,
 } from "@shared/inhousePlanning";
+import { annualRateGrowthBridge } from "@shared/inhouseAnnualReportSnapshot";
 
 type IncreaseDistribution = { label: string; count: number };
 type ReportPlan = PlanResult & { increaseDistribution?: IncreaseDistribution[] };
@@ -378,6 +379,9 @@ function WorkbookReportBlock({
     const position = proposedInhouse
       ? ((proposedStreet - proposedInhouse) / proposedInhouse) * 100
       : null;
+    const growthBridge = tier
+      ? null
+      : annualRateGrowthBridge(plan.quarters, plan.rateBasis, currentInhouse);
     return {
       sl,
       plan,
@@ -389,6 +393,7 @@ function WorkbookReportBlock({
       proposedStreet,
       streetIncrease,
       position,
+      growthBridge,
       annualizedRevenue: scenario
         ? currentInhouse * plan.summary.residentCount * ((inhouseIncrease ?? 0) / 100) * 12
         : plan.summary.totalAnnualIncreaseDollars,
@@ -410,6 +415,34 @@ function WorkbookReportBlock({
   const streetIncreaseValues = rows.map((row) => row.streetIncrease);
   const weightedInhouse = weighted("inhouseIncrease");
   const weightedStreet = weighted("streetIncrease");
+  const bridgeResidents = rows.reduce(
+    (sum, row) => sum + (row.growthBridge ? row.residents : 0),
+    0,
+  );
+  const combinedPrior = rows.reduce(
+    (sum, row) =>
+      sum + (row.growthBridge?.priorYearAverageRateMonthly ?? 0) * row.residents,
+    0,
+  );
+  const combinedCurrent = rows.reduce(
+    (sum, row) => sum + (row.growthBridge ? row.currentInhouse * row.residents : 0),
+    0,
+  );
+  const combinedProjected = rows.reduce(
+    (sum, row) =>
+      sum + (row.growthBridge?.projectedPlanYearAverageRateMonthly ?? 0) * row.residents,
+    0,
+  );
+  const combinedCarryover = combinedPrior > 0
+    ? (combinedCurrent / combinedPrior - 1) * 100
+    : null;
+  const combinedFullYearYoy = combinedPrior > 0
+    ? (combinedProjected / combinedPrior - 1) * 100
+    : null;
+  const combinedPlanYearContribution =
+    combinedCarryover != null && combinedFullYearYoy != null
+      ? combinedFullYearYoy - combinedCarryover
+      : null;
 
   return (
     <section className={`tier-block tier-block--${accent}`}>
@@ -420,14 +453,16 @@ function WorkbookReportBlock({
         </span>
       </div>
       <div className="overflow-x-auto">
-          <table className="report-data-table min-w-[1060px]">
+          <table className={`report-data-table min-w-[1060px] ${tier ? "report-data-table--standard" : "report-data-table--bridge"}`}>
           <thead>
             <tr>
               <th>Service line</th>
-              <th>Count</th>
               <th>Current IH<br />rate</th>
               <th>New IH<br />rate</th>
-              <th>IH avg<br />increase</th>
+              <th>Resident annual<br />increase</th>
+              {!tier && <th>Prior-period<br />carryover</th>}
+              {!tier && <th>Plan-year<br />contribution</th>}
+              {!tier && <th>Full-year<br />YoY</th>}
               <th>Current Street<br />Rate</th>
               <th>New Street<br />Rate</th>
               <th>Street avg<br />increase</th>
@@ -441,10 +476,12 @@ function WorkbookReportBlock({
             {rows.map((row) => (
               <tr key={row.sl}>
                 <td className="font-semibold">{row.sl}</td>
-                <td className="mono">{row.residents.toLocaleString()}</td>
                 <td className="mono">{workbookRate(row.currentInhouse, row.plan.rateBasis)}</td>
                 <td className="mono">{workbookRate(row.proposedInhouse, row.plan.rateBasis)}</td>
                 <td className="mono increase-pct" style={{ color: increaseTextColor(row.inhouseIncrease, inhouseIncreaseValues) }}>{pct(row.inhouseIncrease)}</td>
+                {!tier && <td className="mono">{pct(row.growthBridge?.priorPeriodCarryoverPct)}</td>}
+                {!tier && <td className="mono">{pct(row.growthBridge?.planYearContributionPct)}</td>}
+                {!tier && <td className="mono font-semibold">{pct(row.growthBridge?.fullYearYoyPct)}</td>}
                 <td className="mono">{workbookRate(row.currentStreet, row.plan.rateBasis)}</td>
                 <td className="mono">{workbookRate(row.proposedStreet, row.plan.rateBasis)}</td>
                 <td className="mono increase-pct" style={{ color: increaseTextColor(row.streetIncrease, streetIncreaseValues) }}>{pct(row.streetIncrease)}</td>
@@ -456,10 +493,12 @@ function WorkbookReportBlock({
             ))}
             <tr className="font-semibold">
               <td>Total</td>
-              <td className="mono">{totalResidents.toLocaleString()}</td>
               <td>—</td>
               <td>—</td>
               <td className="mono increase-pct" style={{ color: increaseTextColor(weightedInhouse, inhouseIncreaseValues) }}>{pct(weightedInhouse)}</td>
+              {!tier && <td className="mono">{bridgeResidents > 0 ? pct(combinedCarryover) : "—"}</td>}
+              {!tier && <td className="mono">{bridgeResidents > 0 ? pct(combinedPlanYearContribution) : "—"}</td>}
+              {!tier && <td className="mono">{bridgeResidents > 0 ? pct(combinedFullYearYoy) : "—"}</td>}
               <td>—</td>
               <td>—</td>
               <td className="mono increase-pct" style={{ color: increaseTextColor(weightedStreet, streetIncreaseValues) }}>{pct(weightedStreet)}</td>

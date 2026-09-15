@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { annualRateGrowthBridge, type AnnualRateGrowthBridge } from "@shared/inhouseAnnualReportSnapshot";
 
 type JsonObject = Record<string, any>;
 
@@ -372,6 +373,7 @@ type WorkbookRow = {
   currentInhouse: number | null;
   proposedInhouse: number | null;
   inhouseIncrease: number | null;
+  growthBridge: AnnualRateGrowthBridge | null;
   currentStreet: number | null;
   proposedStreet: number | null;
   streetIncrease: number | null;
@@ -412,12 +414,18 @@ function workbookRows(plans: JsonObject[], grid: unknown, tier?: string): Workbo
     const proposedStreet = scenario && currentStreet != null && streetIncrease != null
       ? currentStreet * (1 + streetIncrease / 100)
       : measuredStreet;
+    const rateBasis = first(plan, ["rateBasis"]) === "daily" ? "daily" : "monthly";
+    const quarters = objects(first(plan, ["quarters"]));
+    const growthBridge = !tier && currentInhouse != null
+      ? annualRateGrowthBridge(quarters as any, rateBasis, currentInhouse)
+      : null;
     return {
       line: lineName,
       residents,
       currentInhouse,
       proposedInhouse,
       inhouseIncrease,
+      growthBridge,
       currentStreet,
       proposedStreet,
       streetIncrease,
@@ -445,12 +453,17 @@ function drawWorkbookBlock(
   title: string,
   accent: string,
 ): void {
+  const includeGrowthBridge = rows.some((row) => row.growthBridge != null);
   const columns = [
-    { label: "Service line", weight: 1.34, align: "left" as const },
-    { label: "Count", weight: 0.56, align: "center" as const },
-    { label: "Current\nIH rate", weight: 0.76, align: "center" as const },
-    { label: "New\nIH rate", weight: 0.76, align: "center" as const },
-    { label: "IH avg\nincrease", weight: 0.72, align: "center" as const },
+    { label: "Service line", weight: includeGrowthBridge ? 0.9 : 1.3, align: "left" as const },
+    { label: "Current\nIH rate", weight: includeGrowthBridge ? 0.7 : 0.9, align: "center" as const },
+    { label: "New\nIH rate", weight: includeGrowthBridge ? 0.7 : 0.9, align: "center" as const },
+    { label: "Resident annual\nincrease", weight: includeGrowthBridge ? 0.65 : 0.8, align: "center" as const },
+    ...(includeGrowthBridge ? [
+      { label: "Prior-period\ncarryover", weight: 0.65, align: "center" as const },
+      { label: "Plan-year\ncontribution", weight: 0.65, align: "center" as const },
+      { label: "Full-year\nYoY", weight: 0.65, align: "center" as const },
+    ] : []),
     { label: "Current\nStreet Rate", weight: 0.9, align: "center" as const },
     { label: "New\nStreet Rate", weight: 0.84, align: "center" as const },
     { label: "Street avg\nincrease", weight: 0.72, align: "center" as const },
@@ -461,6 +474,12 @@ function drawWorkbookBlock(
   ];
   const totalWeight = columns.reduce((sum, column) => sum + column.weight, 0);
   const widths = columns.map((column) => width * column.weight / totalWeight);
+  const inhouseIncreaseColumn = columns.findIndex(
+    (column) => column.label === "Resident annual\nincrease",
+  );
+  const streetIncreaseColumn = columns.findIndex(
+    (column) => column.label === "Street avg\nincrease",
+  );
   const positions: number[] = [];
   widths.reduce((position, columnWidth) => {
     positions.push(position);
@@ -488,10 +507,14 @@ function drawWorkbookBlock(
     if (index % 2) doc.rect(x, rowY, width, rowHeight).fill("#F6F8FA");
     const values = [
       row.line,
-      row.residents == null ? "—" : row.residents.toLocaleString("en-US"),
       valueOrDash(row.currentInhouse, money),
       valueOrDash(row.proposedInhouse, money),
       valueOrDash(row.inhouseIncrease, pct),
+      ...(includeGrowthBridge ? [
+        valueOrDash(row.growthBridge?.priorPeriodCarryoverPct, pct),
+        valueOrDash(row.growthBridge?.planYearContributionPct, pct),
+        valueOrDash(row.growthBridge?.fullYearYoyPct, pct),
+      ] : []),
       valueOrDash(row.currentStreet, money),
       valueOrDash(row.proposedStreet, money),
       valueOrDash(row.streetIncrease, pct),
@@ -504,9 +527,9 @@ function drawWorkbookBlock(
       line(doc, positions[columnIndex] + 3, rowY + 4, widths[columnIndex] - 6, value, {
         size: 6.4,
         bold: columnIndex === 0,
-        color: columnIndex === 4
+        color: columnIndex === inhouseIncreaseColumn
           ? increaseColor(row.inhouseIncrease, inhouseValues)
-          : columnIndex === 7
+          : columnIndex === streetIncreaseColumn
             ? increaseColor(row.streetIncrease, streetValues)
             : "#202020",
         align: columns[columnIndex].align,
@@ -527,13 +550,40 @@ function drawWorkbookBlock(
       ? rows.reduce((sum, row) => sum + (row[field] ?? 0) * (row.residents ?? 0), 0) / denominator
       : null;
   };
+  const bridgeRows = rows.filter(
+    (row) => row.growthBridge != null && row.residents != null && row.residents > 0,
+  );
+  const bridgePrior = bridgeRows.reduce(
+    (sum, row) =>
+      sum + row.growthBridge!.priorYearAverageRateMonthly * row.residents!,
+    0,
+  );
+  const bridgeCurrent = bridgeRows.reduce(
+    (sum, row) => sum + (row.currentInhouse ?? 0) * row.residents!,
+    0,
+  );
+  const bridgeProjected = bridgeRows.reduce(
+    (sum, row) =>
+      sum + row.growthBridge!.projectedPlanYearAverageRateMonthly * row.residents!,
+    0,
+  );
+  const totalCarryover = bridgePrior > 0 ? (bridgeCurrent / bridgePrior - 1) * 100 : null;
+  const totalFullYearYoy = bridgePrior > 0 ? (bridgeProjected / bridgePrior - 1) * 100 : null;
+  const totalPlanYearContribution =
+    totalCarryover != null && totalFullYearYoy != null
+      ? totalFullYearYoy - totalCarryover
+      : null;
   doc.rect(x, totalY, width, 17).fill("#E9EDF2");
   const totals = [
     "Total",
-    residentTotal.toLocaleString("en-US"),
     "—",
     "—",
     valueOrDash(weighted("inhouseIncrease"), pct),
+    ...(includeGrowthBridge ? [
+      valueOrDash(totalCarryover, pct),
+      valueOrDash(totalPlanYearContribution, pct),
+      valueOrDash(totalFullYearYoy, pct),
+    ] : []),
     "—",
     "—",
     valueOrDash(weighted("streetIncrease"), pct),
@@ -546,9 +596,9 @@ function drawWorkbookBlock(
     line(doc, positions[columnIndex] + 3, totalY + 5, widths[columnIndex] - 6, value, {
       size: 6.4,
       bold: true,
-      color: columnIndex === 4
+      color: columnIndex === inhouseIncreaseColumn
         ? increaseColor(weighted("inhouseIncrease"), inhouseValues)
-        : columnIndex === 7
+        : columnIndex === streetIncreaseColumn
           ? increaseColor(weighted("streetIncrease"), streetValues)
           : "#202020",
       align: columns[columnIndex].align,

@@ -42,6 +42,72 @@ export interface AnnualReportPlanSnapshot {
   increaseDistribution: IncreaseDistributionBand[];
 }
 
+export interface AnnualRateGrowthBridge {
+  priorYearAverageRateMonthly: number;
+  projectedPlanYearAverageRateMonthly: number;
+  priorPeriodCarryoverPct: number;
+  planYearContributionPct: number;
+  fullYearYoyPct: number;
+}
+
+/**
+ * Bridges the prior-year average to today's rate and then to the projected
+ * plan-year average. The two percentage-point contributions add exactly to
+ * full-year YoY growth.
+ */
+export function annualRateGrowthBridge(
+  quarters: AnnualReportQuarterSnapshot[],
+  rateBasis: PlanResult["rateBasis"],
+  currentRateMonthly: number,
+): AnnualRateGrowthBridge | null {
+  let priorWeighted = 0;
+  let projectedWeighted = 0;
+  let priorWeight = 0;
+  let projectedWeight = 0;
+
+  for (const quarter of quarters) {
+    const prior = quarter.priorYear.realizedRateMonthly;
+    if (
+      prior == null ||
+      prior <= 0 ||
+      !Number.isFinite(prior) ||
+      !Number.isFinite(quarter.projectedRateMonthly)
+    ) continue;
+    const periodWeight = rateBasis === "monthly"
+      ? 3
+      : (
+          Date.UTC(quarter.year, quarter.quarter * 3, 1) -
+          Date.UTC(quarter.year, (quarter.quarter - 1) * 3, 1)
+        ) / 86_400_000;
+    const priorPeriodWeight = rateBasis === "monthly"
+      ? 3
+      : (
+          Date.UTC(quarter.priorYear.year, quarter.priorYear.quarter * 3, 1) -
+          Date.UTC(quarter.priorYear.year, (quarter.priorYear.quarter - 1) * 3, 1)
+        ) / 86_400_000;
+    priorWeighted += prior * priorPeriodWeight;
+    projectedWeighted += quarter.projectedRateMonthly * periodWeight;
+    priorWeight += priorPeriodWeight;
+    projectedWeight += periodWeight;
+  }
+
+  if (priorWeight <= 0 || projectedWeight <= 0 || currentRateMonthly <= 0) return null;
+  const priorYearAverageRateMonthly = priorWeighted / priorWeight;
+  const projectedPlanYearAverageRateMonthly = projectedWeighted / projectedWeight;
+  if (priorYearAverageRateMonthly <= 0) return null;
+  const priorPeriodCarryoverPct =
+    (currentRateMonthly / priorYearAverageRateMonthly - 1) * 100;
+  const fullYearYoyPct =
+    (projectedPlanYearAverageRateMonthly / priorYearAverageRateMonthly - 1) * 100;
+  return {
+    priorYearAverageRateMonthly,
+    projectedPlanYearAverageRateMonthly,
+    priorPeriodCarryoverPct,
+    planYearContributionPct: fullYearYoyPct - priorPeriodCarryoverPct,
+    fullYearYoyPct,
+  };
+}
+
 /**
  * Older compact snapshots omitted fields that the restored quarterly table
  * displays. Rebuild those deterministic values so saved reports remain useful.
