@@ -3,7 +3,7 @@
  *
  * This intentionally uses a saved-shaped payload rather than the calculation
  * service: PDF generation must render the snapshot and must not recalculate.
- * The attached executive workbook template establishes a fixed two-page
+ * The attached executive workbook template establishes a fixed three-page
  * landscape contract.
  * Run with: npx tsx tests/inhouseAnnualReportPdf.test.ts
  */
@@ -106,8 +106,8 @@ const buffer = await generateAnnualInhouseReportPdf({
 assert.ok(buffer.length > 0, "PDF buffer is non-empty");
 assert.equal(
   [...buffer.toString("latin1").matchAll(/\/Type \/Page\b/g)].length,
-  2,
-  "annual report PDF is exactly two pages",
+  3,
+  "annual report PDF is exactly three pages",
 );
 console.log("Annual in-house report PDF tests: passed");
 })().catch((error) => {

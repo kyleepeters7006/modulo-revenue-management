@@ -83,6 +83,10 @@ import {
   compactPlanForAnnualReport,
   hydrateAnnualReportPlanSnapshot,
 } from "@/lib/inhouseAnnualReportSnapshot";
+import {
+  RESIDENT_INCREASE_TIER_LABELS as SHARED_RESIDENT_INCREASE_TIER_LABELS,
+  residentIncreaseTier as sharedResidentIncreaseTier,
+} from "@shared/inhouseAnnualReportSnapshot";
 import { RATE_PRODUCT_LABEL } from "@shared/rateProduct";
 import { DAYS_PER_MONTH } from "@shared/careRates";
 import {
@@ -1116,29 +1120,11 @@ function DateField({
 /** A PlanResult tagged with the service line it was calculated for. */
 interface PlanWithSl { sl: string; plan: PlanResult }
 
-export const RESIDENT_INCREASE_TIER_LABELS = [
-  "<3%",
-  "3.0%",
-  "3.5%",
-  "4.0%",
-  "4.5%",
-  "5.0%",
-  "5.5%",
-  "6.0%",
-  "6.5%",
-  "7.0%",
-  "7.5%",
-  "8.0%",
-  "8.5%",
-  "9.0%+",
-] as const;
+export const RESIDENT_INCREASE_TIER_LABELS = SHARED_RESIDENT_INCREASE_TIER_LABELS;
 export type ResidentIncreaseTierLabel = typeof RESIDENT_INCREASE_TIER_LABELS[number];
 
 export function residentIncreaseTier(value: number): ResidentIncreaseTierLabel {
-  if (!Number.isFinite(value) || value < 3) return "<3%";
-  if (value >= 9) return "9.0%+";
-  const halfPoint = Math.floor(value * 2 + 1e-9) / 2;
-  return `${halfPoint.toFixed(1)}%` as ResidentIncreaseTierLabel;
+  return sharedResidentIncreaseTier(value);
 }
 
 export function residentIncreaseTierCounts(
@@ -1197,6 +1183,7 @@ function PlanScatterReview({
   tierGrid,
   campusOccupancy,
   campusPlanPoints,
+  onExpandedChange,
 }: {
   plans: PlanWithSl[];
   selectedLocationId: string | null;
@@ -1204,6 +1191,7 @@ function PlanScatterReview({
   tierGrid: TierGridResult | null;
   campusOccupancy: CampusOccupancyReading[];
   campusPlanPoints: CampusPlanPoint[];
+  onExpandedChange?: (expanded: boolean) => void;
 }) {
   const [highlight, setHighlight] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -1338,7 +1326,11 @@ function PlanScatterReview({
         <button
           type="button"
           className="flex w-full items-start justify-between gap-4 text-left"
-          onClick={() => setExpanded((current) => !current)}
+           onClick={() => setExpanded((current) => {
+             const next = !current;
+             onExpandedChange?.(next);
+             return next;
+           })}
           aria-expanded={expanded}
           aria-controls="inhouse-scatterplot-content"
           data-testid="button-toggle-inhouse-scatterplots"
@@ -1729,11 +1721,17 @@ export default function InhouseIncreases() {
   const [mobileTier, setMobileTier] = useState<OccupancyTierId>("target");
   const [assumptionsTouched, setAssumptionsTouched] = useState(false);
   const [plans, setPlans] = useState<PlanWithSl[] | null>(null);
+  // Campus scatter data is expensive to assemble and the review starts
+  // collapsed. Keep the initial page load independent of those chart queries.
+  // The scope key prevents an expanded chart from one campus/selection from
+  // enabling the request for a different selection during a transition.
+  const [scatterExpandedScope, setScatterExpandedScope] = useState<string | null>(null);
   // Persisted separately from PlanResult because the server normalizes empty
   // dates and applies the measured tier's guardrails before returning a plan.
   const [calculatedInputsKey, setCalculatedInputsKey] = useState<string | null>(null);
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
   const [restoredPlanDetailsOmitted, setRestoredPlanDetailsOmitted] = useState(false);
+  const [restoringPlanDetails, setRestoringPlanDetails] = useState(false);
   const [expandedQuarter, setExpandedQuarter] = useState<string | null>(null);
   const [expandedResident, setExpandedResident] = useState<string | null>(null);
   const [expandedPlanDetails, setExpandedPlanDetails] = useState<Record<string, boolean>>({});
@@ -1823,6 +1821,7 @@ export default function InhouseIncreases() {
     let cancelled = false;
     restoredAnnualReport.current = false;
     autoDetailReloadScope.current = null;
+    setRestoringPlanDetails(false);
     setPlans(null);
     setCalculatedInputsKey(null);
     setLastRunAt(null);
@@ -1940,12 +1939,25 @@ export default function InhouseIncreases() {
   const locations = locationsData?.locations ?? [];
 
   const { data: campusOccupancyData } = useQuery<{ readings: CampusOccupancyReading[] }>({
-    queryKey: ["/api/inhouse-planning/occupancy-by-campus"],
-    enabled: plans !== null,
+    queryKey: [
+      "/api/inhouse-planning/occupancy-by-campus",
+      storageIdentityKey ?? "anonymous",
+      calculatedPlanKey ?? "unscoped",
+    ],
+    enabled:
+      plans !== null &&
+      scopeLocationId === null &&
+      scatterExpandedScope === calculatedPlanKey,
     staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
   });
   const { data: campusPlanPointsData } = useQuery<{ points: CampusPlanPoint[] }>({
-    queryKey: ["/api/inhouse-planning/campus-plan-points", serviceLines.join(",")],
+    queryKey: [
+      "/api/inhouse-planning/campus-plan-points",
+      storageIdentityKey ?? "anonymous",
+      serviceLines.join(","),
+    ],
     queryFn: async () => {
       const params = new URLSearchParams({ serviceLines: serviceLines.join(",") });
       const res = await fetch(`/api/inhouse-planning/campus-plan-points?${params}`, {
@@ -1955,8 +1967,17 @@ export default function InhouseIncreases() {
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
-    enabled: plans !== null && scopeLocationId === null,
-    refetchInterval: restoredPlanDetailsOmitted ? 10_000 : false,
+    enabled:
+      plans !== null &&
+      scopeLocationId === null &&
+      scatterExpandedScope === calculatedPlanKey,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
+    refetchInterval:
+      restoredPlanDetailsOmitted && scatterExpandedScope === calculatedPlanKey
+        ? 10_000
+        : false,
     retry: false,
   });
 
@@ -2249,6 +2270,16 @@ export default function InhouseIncreases() {
     assumptionsQuery.isSuccess &&
     tierState.scopeKey === policyScopeKey &&
     serviceLines.every((sl) => tierState.loaded[sl] === true);
+  const assumptionsStatus =
+    assumptionsQuery.isError
+      ? "Saved assumptions could not be loaded."
+      : tierPoliciesQuery.isError
+        ? "Saved occupancy tier settings could not be loaded."
+        : !tierInputsReady
+          ? "Loading assumptions…"
+          : turnoverQuery.isPending && !turnoverQuery.data
+            ? "Loading measured turnover…"
+            : null;
   const calculatedTierInputsKey =
     tierGrid?.inputSnapshot?.length
       ? planningInputSnapshotKey(tierGrid.inputSnapshot)
@@ -2678,7 +2709,10 @@ export default function InhouseIncreases() {
     const scope = `${storageIdentityKey ?? "anonymous"}|${tierScopeKey}|${tierInputsKey}`;
     if (autoDetailReloadScope.current === scope) return;
     autoDetailReloadScope.current = scope;
-    calculateTiers.mutate();
+    setRestoringPlanDetails(true);
+    calculateTiers.mutate(undefined, {
+      onSettled: () => setRestoringPlanDetails(false),
+    });
   }, [
     restoredPlanDetailsOmitted,
     storageIdentityKey,
@@ -3064,6 +3098,7 @@ export default function InhouseIncreases() {
   }
 
   function calculatePlanAndTiers() {
+    setRestoringPlanDetails(false);
     calculateTiers.mutate();
   }
 
@@ -3488,7 +3523,14 @@ export default function InhouseIncreases() {
           In-House Rate Planning
         </h1>
         <p className="mx-auto max-w-3xl text-sm text-muted-foreground">
-          Set a growth goal and see the rates required to reach it.
+          Set a growth goal and see the rates required to reach it.{" "}
+          <a
+            href="/pricing-algorithm#inhouse-increases"
+            className="font-medium text-primary underline underline-offset-2 hover:no-underline"
+            data-testid="link-inhouse-calculation-logic"
+          >
+            Read how the calculation works
+          </a>
         </p>
       </header>
 
@@ -3640,6 +3682,22 @@ export default function InhouseIncreases() {
               <CardDescription>
                 Growth targets, turnover, effective dates, and occupancy-tier guardrails.
               </CardDescription>
+              {assumptionsStatus && (
+                <p
+                  className={cn(
+                    "mt-1 flex items-center gap-1.5 text-[11px]",
+                    assumptionsQuery.isError || tierPoliciesQuery.isError
+                      ? "text-destructive"
+                      : "text-muted-foreground",
+                  )}
+                  data-testid="inhouse-assumptions-status"
+                >
+                  {!assumptionsQuery.isError && !tierPoliciesQuery.isError && (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  )}
+                  {assumptionsStatus}
+                </p>
+              )}
             </div>
             {expandedSections.assumptions
               ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -3998,7 +4056,11 @@ export default function InhouseIncreases() {
               ) : (
                 <Calculator className="mr-2 h-4 w-4" />
               )}
-              Calculate plan
+              {restoringPlanDetails
+                ? "Loading saved plan details"
+                : calculate.isPending || calculateTiers.isPending
+                  ? "Calculating plan"
+                  : "Calculate plan"}
             </Button>
             <Button
               variant="outline"
@@ -4164,9 +4226,11 @@ export default function InhouseIncreases() {
       {(calculate.isPending || calculateTiers.isPending) && (!plans?.length || !tierGrid) && (
         <div className="flex items-center gap-3 rounded-md border p-6 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Calculating the plan for {serviceLines.length > 1
-            ? `${serviceLines.length} service lines and their occupancy tiers`
-            : `${serviceLines[0]} and its occupancy tiers`}…
+          {restoringPlanDetails
+            ? "Loading saved plan details…"
+            : `Calculating the plan for ${serviceLines.length > 1
+              ? `${serviceLines.length} service lines and their occupancy tiers`
+              : `${serviceLines[0]} and its occupancy tiers`}…`}
         </div>
       )}
 
@@ -4386,6 +4450,9 @@ export default function InhouseIncreases() {
           tierGrid={tierGrid}
           campusOccupancy={campusOccupancyData?.readings ?? []}
           campusPlanPoints={campusPlanPointsData?.points ?? []}
+          onExpandedChange={(expanded) =>
+            setScatterExpandedScope(expanded ? calculatedPlanKey : null)
+          }
         />
       )}
 
@@ -4397,7 +4464,7 @@ export default function InhouseIncreases() {
           data-testid="plan-updating-status"
         >
           <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          Updating plan…
+          {restoringPlanDetails ? "Loading saved plan details…" : "Updating plan…"}
         </div>
       )}
 

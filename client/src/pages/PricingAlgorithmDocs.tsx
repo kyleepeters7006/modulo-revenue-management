@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useEffect } from "react";
 import {
   ArrowLeft, Target, TrendingUp, BarChart3, Shield,
   GitBranch, SlidersHorizontal, Users, ArrowRight, CheckCircle2,
@@ -28,6 +29,15 @@ const Section = ({
 
 export default function PricingAlgorithmDocs() {
   const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    const targetId = window.location.hash.slice(1);
+    if (!targetId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   return (
     <div className="min-h-screen bg-[var(--dashboard-bg)] p-4 sm:p-6 md:p-8">
@@ -241,17 +251,77 @@ export default function PricingAlgorithmDocs() {
               The <strong className="text-[var(--trilogy-dark-blue)]">In-House Increases</strong> planner lets you set an annual realized-rate growth target and translate it into specific increases for every current private-pay resident. It solves two things jointly: a recommended street rate increase and a per-resident in-house increase, so neither lever is ignored.
             </p>
             <p>
-              The solver simulates two groups over the next four quarters — existing residents (who receive the increase on the in-house effective date and turn over at the configured rate) and new move-ins (who enter at the updated street rate). Census is held constant. The weighted projection is compared against the same quarter a year earlier; the plan is feasible when every quarter clears the target.
+              The calculation is performed in this order:
             </p>
+            <ol className="list-decimal space-y-2.5 pl-5">
+              <li>
+                <strong className="text-[var(--trilogy-dark-blue)]">Set the scope and source month.</strong>{" "}
+                The plan is for one campus or the portfolio and one service line. It reads the latest occupied rent-roll month in that scope, resolves the effective dates, and creates a four-quarter planning horizon. Calculating a plan is read-only; submitting it is a separate action.
+              </li>
+              <li>
+                <strong className="text-[var(--trilogy-dark-blue)]">Build the private-pay base population.</strong>{" "}
+                Current residents with a usable base in-house rate are selected. Residents who leave before the modeled horizon are excluded. The same resident population and billing weights are used for the in-house and Street Rate comparisons, so one side cannot quietly use a different denominator.
+              </li>
+              <li>
+                <strong className="text-[var(--trilogy-dark-blue)]">Match and normalize Street Rates.</strong>{" "}
+                Each resident receives the asking rate for their own rate product, with a product-matched median or configured formula used when the row is missing or implausible. All solver arithmetic uses normalized monthly rates; HC and HC/MC daily rates are converted for the solve and converted back for display.
+              </li>
+              <li>
+                <strong className="text-[var(--trilogy-dark-blue)]">Create like-for-like historical baselines.</strong>{" "}
+                Historical quarters are compared on matched rooms and restated to today’s base-rate mix, which prevents occupancy or room-mix changes from being mistaken for price growth. Complete, partial, projected, and limited-match baselines remain labelled. A quarter without a usable prior-year rate is not used to declare feasibility.
+              </li>
+              <li>
+                <strong className="text-[var(--trilogy-dark-blue)]">Apply dates and turnover to the projection.</strong>{" "}
+                The model starts after the source month, holds census constant, and simulates daily survival. Existing residents receive their in-house change on the in-house effective date. Replacements enter at the Street Rate active on their move-in date and do not also receive the in-house increase. Monthly lines use resident-month weighting; HC and HC/MC use resident-day weighting.
+              </li>
+              <li>
+                <strong className="text-[var(--trilogy-dark-blue)]">Define the allowed Street Rate candidates.</strong>{" "}
+                The search respects the configured Street minimum, the per-cycle Street ceiling, and the January-to-January maximum; the tightest applicable ceiling wins. A matched Top Competitor position can push the Street Rate upward, but it is a preference/floor rather than a reason to reduce a rate or chase unsupported growth. Portfolio plans also prefer the configured Street-over-in-house premium.
+              </li>
+              <li>
+                <strong className="text-[var(--trilogy-dark-blue)]">Solve the required in-house average for each Street candidate.</strong>{" "}
+                For every allowed Street candidate, the solver finds the smallest weighted-average in-house increase that can clear every testable quarter after turnover, timing, and replacement pricing are included. It then allocates that average to residents and rechecks the resulting projection instead of relying on a zero-turnover shortcut.
+              </li>
+              <li>
+                <strong className="text-[var(--trilogy-dark-blue)]">Allocate the average across residents.</strong>{" "}
+                Each resident’s headroom is the product-matched Street Rate in force when the in-house change lands, compared with the resident’s current rate. Low, Medium, and High equalization progressively favor residents with more headroom. A single calibration value spreads the increase, then each result is clamped to the configured minimum and maximum. Street variance shapes the distribution; it is not a hard in-house ceiling in the current compatibility mode, so a resident may finish above current Street when the configured maximum allows it.
+              </li>
+              <li>
+                <strong className="text-[var(--trilogy-dark-blue)]">Test every quarter.</strong>{" "}
+                The projected realized rate is compared with the same quarter one year earlier. A candidate is feasible only when every testable quarter reaches the target. The quarter with the smallest margin is reported as the binding quarter.
+              </li>
+              <li>
+                <strong className="text-[var(--trilogy-dark-blue)]">Rank complete candidates.</strong>{" "}
+                Feasible candidates beat infeasible candidates. Among feasible candidates, the solver prefers satisfying the portfolio premium, then the lower combined Street plus in-house increase, lower maximum overshoot, closer target fit, lower market penalty, and finally the lower Street increase. If none is feasible, the candidate with the smallest worst-quarter shortfall is preferred before the later tie-breakers.
+              </li>
+              <li>
+                <strong className="text-[var(--trilogy-dark-blue)]">Explain the result and diagnose limits.</strong>{" "}
+                The returned plan includes the arithmetic, quarter-level rates, allocation constraints, and the drivers that affected the result. An infeasible plan remains visible as a best-effort result, identifying the binding constraint, the shortfall quarter, the achievable growth, and the smallest supported change to the maximum in-house increase or Street increase that would close the gap.
+              </li>
+            </ol>
+            <div className="rounded-xl border border-[var(--trilogy-teal)]/25 bg-[var(--trilogy-teal)]/5 p-3">
+              <p>
+                <strong className="text-[var(--trilogy-dark-blue)]">In plain language:</strong>{" "}
+                the planner searches Street Rate options first, solves the least in-house increase needed for each option, spreads that increase according to resident headroom, and chooses the best option that satisfies all measurable quarters and guardrails.
+              </p>
+              <p className="mt-2">
+                Example: a resident paying $3,600 with a $4,000 product-matched Street Rate has $400 of headroom. The planner may assign a $150 increase this cycle, while a resident already at $3,950 receives a different amount based on equalization and the configured bounds. The plan is solved across the weighted population, not by applying the same dollar amount blindly to every resident.
+              </p>
+            </div>
             <p>
-              Each resident's increase is shaped by their headroom — the gap between their current rate and the street rate cap. An equalization setting (Low / Medium / High) controls how aggressively that headroom is used to spread increases toward residents who are furthest below street. Hard limits ensure no resident ever receives a rate cut, no rate is pushed above the street cap unless you explicitly allow it, and every increase stays within the minimum and maximum you set.
+              Every number carries a plain-language explanation in the planner. The documentation and the planner describe the same live calculation path; changing the assumptions and recalculating is the way to see how a different constraint changes the result.
             </p>
-            <p>
-              Example: a resident paying $3,600 with a $4,000 street-rate cap has $400 of headroom. The planner may assign a $150 increase this cycle, while a resident already at $3,950 receives only the amount allowed by the configured equalization and maximum. The plan is solved across the population, not by applying the same dollar amount blindly to every resident.
-            </p>
-            <p>
-              Every number carries a plain-language explanation. Infeasible plans — where the target cannot be reached within your guardrails — still return a best-effort result so you can see exactly which quarter falls short and by how much, what the binding constraint is, and what the smallest single change would be to close the gap.
-            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button
+                size="sm"
+                onClick={() => setLocation("/inhouse-increases")}
+                className="bg-[var(--trilogy-teal)] text-white hover:bg-[var(--trilogy-teal-dark)]"
+                data-testid="button-open-inhouse-planner"
+              >
+                Open In-House Planner
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
           </Section>
 
         </div>

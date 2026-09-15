@@ -20,10 +20,14 @@ import {
 import {
   annualRateGrowthBridge,
   annualRateGrowthRevenue,
+  RESIDENT_INCREASE_TIER_LABELS,
 } from "@shared/inhouseAnnualReportSnapshot";
 
 type IncreaseDistribution = { label: string; count: number };
-type ReportPlan = PlanResult & { increaseDistribution?: IncreaseDistribution[] };
+type ReportPlan = PlanResult & {
+  increaseDistribution?: IncreaseDistribution[];
+  residentIncreaseDistribution?: IncreaseDistribution[];
+};
 type PlanWithSl = { sl: string; plan: ReportPlan };
 type TierLine = {
   serviceLine: string;
@@ -165,14 +169,12 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
   const legacyAffectedResidents = measuredPlans.flatMap((plan) =>
     (plan.residents ?? []).filter((resident) => resident.increasePct > 0),
   );
-  const emptyDistribution = [
-    { label: "<3%", min: -Infinity, max: 3 },
-    { label: "3–4.9%", min: 3, max: 5 },
-    { label: "5–5.9%", min: 5, max: 6 },
-    { label: "6–6.9%", min: 6, max: 7 },
-    { label: "7–7.9%", min: 7, max: 8 },
-    { label: "8%+", min: 8, max: Infinity },
-  ];
+  const emptyDistribution = RESIDENT_INCREASE_TIER_LABELS.map((label) => {
+    if (label === "<3%") return { label, min: -Infinity, max: 3 };
+    if (label === "9.0%+") return { label, min: 9, max: Infinity };
+    const min = Number.parseFloat(label);
+    return { label, min, max: min + 0.5 };
+  });
   const savedDistribution = measuredPlans.flatMap((plan) => plan.increaseDistribution ?? []);
   const distributionBands = emptyDistribution.map((band) => ({
     ...band,
@@ -544,7 +546,7 @@ function WorkbookPageHeader({
         </p>
       </div>
       <div className="text-right text-xs">
-        <p className="font-semibold text-[#44546A]">Page {page} of 2</p>
+        <p className="font-semibold text-[#44546A]">Page {page} of 3</p>
         <p className="mt-1 text-muted-foreground">Last run {dateTime(report.generatedAt)}</p>
       </div>
     </header>
@@ -663,6 +665,85 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
   );
 }
 
+function ResidentIncreaseCharts({ plans }: { plans: ReportPlan[] }) {
+  const chartPlans = plans.filter((plan) =>
+    (plan.residentIncreaseDistribution ?? plan.increaseDistribution ?? []).some((entry) => entry.count > 0),
+  );
+  if (!chartPlans.length) return null;
+
+  return (
+    <section className="report-resident-section">
+      <div className="report-scatter-heading">Resident in-house increases by tier</div>
+      <p className="report-resident-description">
+        Number of residents receiving each recommended in-house increase, shown separately by service line.
+      </p>
+      <div className="report-resident-grid">
+        {chartPlans.map((plan) => {
+          const distribution = new Map(
+            (plan.residentIncreaseDistribution ?? plan.increaseDistribution ?? [])
+              .map((entry) => [entry.label, entry.count]),
+          );
+          const values = RESIDENT_INCREASE_TIER_LABELS.map((label) => distribution.get(label) ?? 0);
+          const maximum = Math.max(1, ...values);
+          const width = 520;
+          const height = 210;
+          const pad = { left: 36, right: 8, top: 18, bottom: 43 };
+          const plotWidth = width - pad.left - pad.right;
+          const plotHeight = height - pad.top - pad.bottom;
+          const slotWidth = plotWidth / values.length;
+          const barWidth = Math.max(3, slotWidth * 0.68);
+          return (
+            <div key={plan.scope.serviceLine} className="report-resident-chart">
+              <p className="report-resident-title">{plan.scope.serviceLine}</p>
+              <svg
+                viewBox={`0 0 ${width} ${height}`}
+                role="img"
+                aria-label={`${plan.scope.serviceLine}: resident in-house increases by tier`}
+              >
+                <line x1={pad.left} y1={pad.top} x2={pad.left} y2={pad.top + plotHeight} className="report-scatter-axis" />
+                <line x1={pad.left} y1={pad.top + plotHeight} x2={width - pad.right} y2={pad.top + plotHeight} className="report-scatter-axis" />
+                {[0, 0.5, 1].map((step) => {
+                  const y = pad.top + plotHeight * (1 - step);
+                  const value = Math.round(maximum * step);
+                  return (
+                    <g key={step}>
+                      <line x1={pad.left} y1={y} x2={width - pad.right} y2={y} className="report-scatter-grid" />
+                      <text x={pad.left - 5} y={y + 3} textAnchor="end">{value}</text>
+                    </g>
+                  );
+                })}
+                {values.map((value, index) => {
+                  const x = pad.left + index * slotWidth + (slotWidth - barWidth) / 2;
+                  const barHeight = value > 0 ? (value / maximum) * plotHeight : 0;
+                  const label = RESIDENT_INCREASE_TIER_LABELS[index];
+                  return (
+                    <g key={label}>
+                      {value > 0 && (
+                        <text x={x + barWidth / 2} y={pad.top + plotHeight - barHeight - 4} textAnchor="middle">
+                          {value}
+                        </text>
+                      )}
+                      <rect
+                        x={x}
+                        y={pad.top + plotHeight - barHeight}
+                        width={barWidth}
+                        height={barHeight}
+                        fill="#2F9E9A"
+                      />
+                      <text x={x + barWidth / 2} y={height - 23} textAnchor="middle">{label}</text>
+                    </g>
+                  );
+                })}
+                <text x={pad.left / 2} y={pad.top + plotHeight / 2} textAnchor="middle" transform={`rotate(-90 ${pad.left / 2} ${pad.top + plotHeight / 2})`}>Residents</text>
+              </svg>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function WorkbookReportBody({ report }: { report: AnnualReport }) {
   return (
     <div id="annual-report-sheet" className="annual-report-sheet mx-auto max-w-[1480px]">
@@ -678,6 +759,13 @@ function WorkbookReportBody({ report }: { report: AnnualReport }) {
         <WorkbookReportBlock title={occupancyTierTitle(report, "low", "Occupancy Tier 3 · Low occupancy")} accent="tier3" report={report} tier="low" />
         <p className="text-[10px] text-muted-foreground">
           Generated from the saved Modulo calculation. Scenario rates apply each occupancy tier’s calculated percentage to the same current-rate and resident-count basis.
+        </p>
+      </article>
+      <article className="report-page space-y-4">
+        <WorkbookPageHeader report={report} page={3} />
+        <ResidentIncreaseCharts plans={report.tierGrid.lines.map((line) => line.currentPlan).filter(Boolean)} />
+        <p className="text-[10px] text-muted-foreground">
+          These distributions use the saved resident recommendations from the measured occupancy tier; no resident-level data is retained in the annual report snapshot.
         </p>
       </article>
     </div>

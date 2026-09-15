@@ -5,6 +5,48 @@ export interface IncreaseDistributionBand {
   count: number;
 }
 
+export const RESIDENT_INCREASE_TIER_LABELS = [
+  "<3%",
+  "3.0%",
+  "3.5%",
+  "4.0%",
+  "4.5%",
+  "5.0%",
+  "5.5%",
+  "6.0%",
+  "6.5%",
+  "7.0%",
+  "7.5%",
+  "8.0%",
+  "8.5%",
+  "9.0%+",
+] as const;
+
+export type ResidentIncreaseTierLabel = typeof RESIDENT_INCREASE_TIER_LABELS[number];
+
+export function residentIncreaseTier(value: number): ResidentIncreaseTierLabel {
+  if (!Number.isFinite(value) || value < 3) return "<3%";
+  if (value >= 9) return "9.0%+";
+  const halfPoint = Math.floor(value * 2 + 1e-9) / 2;
+  return `${halfPoint.toFixed(1)}%` as ResidentIncreaseTierLabel;
+}
+
+export function residentIncreaseDistribution(
+  residents: ReadonlyArray<{ increasePct: number }>,
+): IncreaseDistributionBand[] {
+  const counts = new Map<ResidentIncreaseTierLabel, number>(
+    RESIDENT_INCREASE_TIER_LABELS.map((label) => [label, 0]),
+  );
+  for (const resident of residents) {
+    const label = residentIncreaseTier(resident.increasePct);
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return RESIDENT_INCREASE_TIER_LABELS.map((label) => ({
+    label,
+    count: counts.get(label) ?? 0,
+  }));
+}
+
 /**
  * The quarterly summary can be restored without solver-only values. Keep the
  * fields used by the report required, while making the omitted detail values
@@ -40,6 +82,8 @@ export interface AnnualReportPlanSnapshot {
   targetDeviationDiagnostic: PlanResult["targetDeviationDiagnostic"];
   warnings: PlanResult["warnings"];
   increaseDistribution: IncreaseDistributionBand[];
+  /** Full resident-recommendation distribution used by the page-3 charts. */
+  residentIncreaseDistribution?: IncreaseDistributionBand[];
 }
 
 export interface AnnualRateGrowthBridge {
@@ -156,28 +200,16 @@ export function hydrateAnnualReportPlanSnapshot(
   };
 }
 
-const DISTRIBUTION_BANDS = [
-  { label: "<3%", min: -Infinity, max: 3 },
-  { label: "3–4.9%", min: 3, max: 5 },
-  { label: "5–5.9%", min: 5, max: 6 },
-  { label: "6–6.9%", min: 6, max: 7 },
-  { label: "7–7.9%", min: 7, max: 8 },
-  { label: "8%+", min: 8, max: Infinity },
-] as const;
-
 /**
  * Annual reports are presentation snapshots. Keep every calculated aggregate
  * the report renders, but replace repeated resident and quarter-room arrays
- * with the six counts needed for the distribution.
+ * with the tier counts needed for the distribution.
  */
 export function compactPlanForAnnualReport(plan: PlanResult): AnnualReportPlanSnapshot {
-  const affected = plan.residents.filter(({ increasePct }) => increasePct > 0);
-  const increaseDistribution = DISTRIBUTION_BANDS.map((band) => ({
-    label: band.label,
-    count: affected.filter(
-      ({ increasePct }) => increasePct >= band.min && increasePct < band.max,
-    ).length,
-  }));
+  const increaseDistribution = residentIncreaseDistribution(
+    plan.residents.filter(({ increasePct }) => increasePct > 0),
+  );
+  const fullResidentIncreaseDistribution = residentIncreaseDistribution(plan.residents);
 
   const {
     streetRateRecommendations: _legacyRecommendations,
@@ -219,5 +251,6 @@ export function compactPlanForAnnualReport(plan: PlanResult): AnnualReportPlanSn
     targetDeviationDiagnostic: plan.targetDeviationDiagnostic,
     warnings: plan.warnings,
     increaseDistribution,
+    residentIncreaseDistribution: fullResidentIncreaseDistribution,
   };
 }

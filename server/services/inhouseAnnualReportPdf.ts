@@ -2,6 +2,7 @@ import PDFDocument from "pdfkit";
 import {
   annualRateGrowthBridge,
   annualRateGrowthRevenue,
+  RESIDENT_INCREASE_TIER_LABELS,
   type AnnualRateGrowthBridge,
 } from "@shared/inhouseAnnualReportSnapshot";
 
@@ -387,6 +388,100 @@ function drawNarrative(doc: PDFKit.PDFDocument, report: AnnualReportPdfReport, p
   drawDistribution(doc, plans, x + chartWidth + gap, y + 52, width - chartWidth - gap);
 }
 
+function drawResidentIncreaseCharts(
+  doc: PDFKit.PDFDocument,
+  plans: JsonObject[],
+  x: number,
+  y: number,
+  width: number,
+): void {
+  heading(doc, x, y, width, "Resident in-house increases by tier");
+  line(
+    doc,
+    x,
+    y + 16,
+    width,
+    "Number of residents receiving each recommended in-house increase, shown separately by service line.",
+    { size: 6.5, color: MUTED },
+  );
+
+  const chartPlans = plans.filter((plan) => {
+    const distribution = first(plan, [
+      "residentIncreaseDistribution",
+      "increaseDistribution",
+      "distribution",
+      "summary.increaseDistribution",
+    ]);
+    return objects(distribution).some((entry) =>
+      (number(first(entry, ["count", "residents", "residentCount"])) ?? 0) > 0,
+    );
+  });
+  if (!chartPlans.length) {
+    line(doc, x, y + 34, width, "No resident increase distribution was saved.", { size: 6.5, color: MUTED });
+    return;
+  }
+
+  const columns = Math.min(3, chartPlans.length);
+  const gap = 10;
+  const cardWidth = (width - gap * (columns - 1)) / columns;
+  const cardHeight = 214;
+  const plotTop = y + 47;
+  const plotHeight = 132;
+  const plotBottom = plotTop + plotHeight;
+  const plotLeftOffset = 24;
+  const plotRightOffset = 5;
+  const plotWidth = cardWidth - plotLeftOffset - plotRightOffset;
+
+  chartPlans.forEach((plan, index) => {
+    const row = Math.floor(index / columns);
+    const column = index % columns;
+    const cardX = x + column * (cardWidth + gap);
+    const cardY = y + 30 + row * (cardHeight + 12);
+    const distribution = new Map(
+      objects(first(plan, [
+        "residentIncreaseDistribution",
+        "increaseDistribution",
+        "distribution",
+        "summary.increaseDistribution",
+      ]))
+        .map((entry) => [
+          text(first(entry, ["label", "bucket", "range"])) ?? "",
+          number(first(entry, ["count", "residents", "residentCount"])) ?? 0,
+        ]),
+    );
+    const values = RESIDENT_INCREASE_TIER_LABELS.map((label) => distribution.get(label) ?? 0);
+    const maximum = Math.max(1, ...values);
+    const slotWidth = plotWidth / values.length;
+    const barWidth = Math.max(2, slotWidth * 0.7);
+
+    doc.rect(cardX, cardY, cardWidth, cardHeight).lineWidth(0.5).strokeColor(BORDER).stroke();
+    line(doc, cardX + 4, cardY + 7, cardWidth - 8, serviceLine(plan), { size: 7.3, bold: true, align: "center" });
+    doc.moveTo(cardX + plotLeftOffset, plotTop).lineTo(cardX + plotLeftOffset, plotBottom)
+      .lineTo(cardX + plotLeftOffset + plotWidth, plotBottom)
+      .lineWidth(0.5).strokeColor("#657789").stroke();
+
+    [0, 0.5, 1].forEach((step) => {
+      const yy = plotBottom - plotHeight * step;
+      const value = Math.round(maximum * step);
+      doc.moveTo(cardX + plotLeftOffset, yy)
+        .lineTo(cardX + plotLeftOffset + plotWidth, yy)
+        .lineWidth(0.25).strokeColor("#D9DEE5").stroke();
+      line(doc, cardX + 1, yy - 3, plotLeftOffset - 5, String(value), { size: 5.2, align: "right" });
+    });
+
+    values.forEach((value, valueIndex) => {
+      const barX = cardX + plotLeftOffset + valueIndex * slotWidth + (slotWidth - barWidth) / 2;
+      const barHeight = value > 0 ? (value / maximum) * plotHeight : 0;
+      if (value > 0) {
+        doc.rect(barX, plotBottom - barHeight, barWidth, barHeight).fill("#2F9E9A");
+        line(doc, barX - 2, plotBottom - barHeight - 8, barWidth + 4, String(value), { size: 4.2, align: "center" });
+      }
+      line(doc, barX - 4, plotBottom + 5, slotWidth + 8, RESIDENT_INCREASE_TIER_LABELS[valueIndex], { size: 4.1, align: "center" });
+    });
+    line(doc, cardX - 1, plotTop + plotHeight / 2, 18, "Residents", { size: 4.8, align: "center" });
+  });
+}
+
 type WorkbookRow = {
   line: string;
   residents: number | null;
@@ -639,7 +734,7 @@ function drawWorkbookPageHeader(
   const width = doc.page.width - 36;
   line(doc, 18, 14, width * 0.65, "ANNUAL IN-HOUSE RATE PLAN", { size: 12, bold: true });
   line(doc, 18, 30, width * 0.65, `Scope: ${report.scopeKey}`, { size: 6.3, color: MUTED });
-  line(doc, 18 + width * 0.65, 15, width * 0.35, `Page ${pageNumber} of 2`, {
+  line(doc, 18 + width * 0.65, 15, width * 0.35, `Page ${pageNumber} of 3`, {
     size: 6.5, bold: true, color: BLUE, align: "right",
   });
   line(doc, 18 + width * 0.65, 30, width * 0.35, stamp, { size: 5.8, color: MUTED, align: "right" });
@@ -752,8 +847,8 @@ function drawWorkbookScatterplots(
 
 /**
  * Render the saved report snapshot without recalculating it. The reference
- * workbook is a fixed two-page landscape report: Combined + charts on page 1,
- * then all three occupancy tiers on page 2.
+ * workbook is a fixed three-page landscape report: Combined + charts on page 1,
+ * all three occupancy tiers on page 2, and resident increase distributions on page 3.
  */
 export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -784,10 +879,14 @@ export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): P
     drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "target"), pageX, 218, pageWidth, occupancyTierTitle(report.tierGrid, "target", "Occupancy Tier 2  •  Target occupancy"), "#101010");
     drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "low"), pageX, 382, pageWidth, occupancyTierTitle(report.tierGrid, "low", "Occupancy Tier 3  •  Low occupancy"), "#388194");
 
+    doc.addPage();
+    drawWorkbookPageHeader(doc, report, stamp, 3);
+    drawResidentIncreaseCharts(doc, plans, pageX, 54, pageWidth);
+
     const pages = doc.bufferedPageRange();
-    if (pages.count !== 2) {
+    if (pages.count !== 3) {
       doc.end();
-      reject(new Error(`Annual in-house report must be exactly two pages (${pages.count} pages)`));
+      reject(new Error(`Annual in-house report must be exactly three pages (${pages.count} pages)`));
       return;
     }
     doc.end();
