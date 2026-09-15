@@ -240,6 +240,18 @@ async function selectSecondServiceLine(page: Page) {
   await page.getByTestId("button-toggle-inhouse-scope").click();
 }
 
+async function selectOnlyAL(page: Page) {
+  await page.getByTestId("button-toggle-inhouse-scope").click();
+  await page.getByTestId("select-service-line").click();
+  await page
+    .locator("label")
+    .filter({ hasText: /^HC$/ })
+    .getByRole("checkbox")
+    .uncheck();
+  await page.keyboard.press("Escape");
+  await page.getByTestId("button-toggle-inhouse-scope").click();
+}
+
 async function openAssumptions(page: Page) {
   const toggle = page.getByTestId("button-toggle-inhouse-assumptions");
   if (await toggle.getAttribute("aria-expanded") !== "true") {
@@ -285,6 +297,35 @@ test.describe("In-house assumptions persistence", () => {
     await openAssumptions(page);
     await expect(page.getByTestId("input-growth-target-AL")).toHaveValue(String(TARGET));
     await expect(page.getByTestId("input-growth-target-HC")).toHaveValue("7.5");
+  });
+
+  test("keeps saved line-specific targets when a line is removed and restored", async ({ page }) => {
+    const planning = await stubPlanningApis(page);
+    await page.goto(`${BASE_URL}/inhouse-increases?serviceLine=AL`);
+    await selectSecondServiceLine(page);
+    await openAssumptions(page);
+
+    const alInput = page.getByTestId("input-growth-target-AL");
+    const hcInput = page.getByTestId("input-growth-target-HC");
+    await alInput.fill(String(TARGET));
+    await alInput.press("Enter");
+    await page.getByTestId("button-save-assumptions").click();
+    await expect(page.getByText("Assumptions saved")).toBeVisible();
+
+    await expect.poll(() => planning.posts.length).toBe(2);
+    expect(Object.fromEntries(planning.posts.map((post) => [post.serviceLine, post.assumptions.rateGrowthTargetPct]))).toEqual({
+      AL: TARGET,
+      HC: 7.5,
+    });
+
+    await selectOnlyAL(page);
+    await openAssumptions(page);
+    await expect(page.getByTestId("input-growth-target")).toHaveValue(String(TARGET));
+
+    await selectSecondServiceLine(page);
+    await openAssumptions(page);
+    await expect(alInput).toHaveValue(String(TARGET));
+    await expect(hcInput).toHaveValue("7.5");
   });
 
   test("keeps every selected line's acknowledged decimal target after campus reload", async ({ page }) => {
