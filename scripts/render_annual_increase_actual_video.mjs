@@ -78,9 +78,8 @@ function imageFrame({ kicker, title, subtitle, images, index }) {
     <text x="56" y="119" fill="#b9cbd1" font-family="Arial, sans-serif"
       font-size="18">${esc(subtitle)}</text>
     <g filter="url(#shadow)">${imageTags}</g>
-    <rect x="1152" y="675" width="74" height="24" rx="12" fill="#163c46"/>
-    <text x="1189" y="692" text-anchor="middle" fill="#83f0e7"
-      font-family="Arial, sans-serif" font-size="13" font-weight="700">MODULO</text>
+    <image href="${dataUri("attached_assets/generated_videos/annual-increase/modulo-mark.png")}"
+      x="1148" y="662" width="78" height="38" preserveAspectRatio="xMidYMid meet"/>
     <text x="56" y="692" fill="#7e959d" font-family="Arial, sans-serif"
       font-size="13">ACTUAL SOFTWARE</text>
   </svg>`;

@@ -4262,6 +4262,16 @@ export default function InhouseIncreases() {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              <div className="mx-auto mb-3 max-w-7xl rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
+                <p className="font-semibold">Why can full-year growth be higher than both proposed increases?</p>
+                <p className="mt-1 text-xs leading-relaxed">
+                  Street and in-house percentages measure increases from today&apos;s rates. Full-year YoY compares the
+                  projected plan-year average with the prior-year average—not with today&apos;s rate. Prior-year rate
+                  increases already carried into today, effective-date timing, and residents turning over into the new
+                  Street Rate can therefore make full-year growth higher. HC is also weighted by resident days. A 7%
+                  full-year result does not mean current residents receive a 7% increase.
+                </p>
+              </div>
               <div className="mx-auto mb-6 max-w-7xl overflow-x-auto rounded-lg border">
                 <div className={cn(GROWTH_GRID_COLS, "bg-muted/40 px-4 py-2 text-center text-xs font-medium text-muted-foreground")}>
                   <HeaderHelp
@@ -4282,7 +4292,7 @@ export default function InhouseIncreases() {
                   />
                   <HeaderHelp
                     label="Full-year YoY growth"
-                    explanation="The projected average rate for the full plan year compared with the prior year's average. It includes retained residents and expected move-ins, weighted by how long each rate is in effect."
+                    explanation="The projected plan-year average compared with the prior-year average—not today's rate. It includes prior-year carryover, effective-date timing, retained residents, and expected move-ins at the new Street Rate. HC is weighted by resident days. This is not the increase each current resident receives."
                   />
                   <HeaderHelp
                     label="Quarterly YoY goal"

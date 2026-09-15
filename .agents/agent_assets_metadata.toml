@@ -342,14 +342,14 @@ logical_id = "4df82b76-bde8-4bc0-b725-0fa095354672"
 id = "5krNMcaUhjtDUhNyPyzVi"
 uri = "file://attached_assets/generated_videos/annual-increase/modulo-annual-increase-process.mp4"
 type = "video"
-title = "Annual In-House Rate Plan — Title Case"
-description = "Updated 30-second tutorial with all main scene titles capitalized in title case."
+title = "Annual In-House Rate Plan — Modulo Logo"
+description = "Updated 30-second tutorial with the transparent Modulo logo displayed in the lower-right corner throughout."
 logical_id = "0ac3eb9c-7a36-4b2d-88e8-5a5261a2d7c1"
-content_hash = "sha256:8608b5c74ff2996b2884ff2f21932891e66cc7da115c5ac441f7b2c69ae84712"
-size = 1128891
-mtime_ms = 1789435491802
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/0ac3eb9c-7a36-4b2d-88e8-5a5261a2d7c1/b2fe1e34-4eaf-43f6-8f6f-441847b8381a"
-storage_version_token = "1789435508210277"
+content_hash = "sha256:a4c7597b73f202465e3f79253cf3800cb883cae4ef87a33edb27a296e0a5f743"
+size = 1132673
+mtime_ms = 1789435662263
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/0ac3eb9c-7a36-4b2d-88e8-5a5261a2d7c1/a6caeeaf-86bb-4dc0-ab31-d26d7ec1231c"
+storage_version_token = "1789435679613087"
 content_type = "video/mp4"
 
 [[outputs]]
