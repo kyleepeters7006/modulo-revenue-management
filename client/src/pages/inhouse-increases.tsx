@@ -4282,7 +4282,7 @@ export default function InhouseIncreases() {
                   />
                   <HeaderHelp
                     label="Full-year YoY growth"
-                    explanation="Weighted projected realized rate for the full plan year versus the weighted realized rate for the full prior year."
+                    explanation="The projected average rate for the full plan year compared with the prior year's average. It includes retained residents and expected move-ins, weighted by how long each rate is in effect."
                   />
                   <HeaderHelp
                     label="Quarterly YoY goal"
