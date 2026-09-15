@@ -613,9 +613,9 @@ const ALL_CAMPUSES = "__all__";
 /** Which tier of the fallback chain the shown assumptions actually came from. */
 const SCOPE_LEVEL_LABEL: Record<string, string> = {
   default: "built-in defaults",
-  global: "your portfolio-wide assumptions",
-  serviceLine: "your portfolio-wide assumptions for this service line",
-  location: "campus-level assumptions",
+  global: "portfolio-wide assumptions",
+  serviceLine: "portfolio + service line assumptions",
+  location: "campus-wide assumptions",
   "location+serviceLine": "campus + service line assumptions",
 };
 
@@ -2030,31 +2030,34 @@ export default function InhouseIncreases() {
       const json = await res.json();
       if (!assumptionsTouched) {
         setAssumptions(json.assumptions);
-        // Seed per-line targets from the loaded values (only for lines that
-        // haven't been individually edited yet).
-        setPerLineTargets((prev) => {
-          // Nothing saved anywhere means the flat 35% is a system placeholder,
-          // not somebody's decision — and 35% is wrong for every line except
-          // by accident. Start each line at its own normal instead.
-          //
-          // Scope of this rule: it governs the PLACEHOLDER only. A value from a
-          // real saved row is never replaced by a band default; if that value
-          // is out of band the operator gets a warning, not a rewrite. Measured
-          // history is the one thing that does outrank a saved value (see the
-          // adoption effect below) — and when it does, the evidence line says
-          // so explicitly rather than just showing the new number.
-          const isPlaceholder = json.scopeLevel === "default";
-          const next: typeof prev = {};
-          for (const sl of serviceLines) {
-            next[sl] = prev[sl] ?? {
-              rateGrowthTargetPct: json.assumptions.rateGrowthTargetPct,
-              annualTurnoverPct: isPlaceholder
-                ? defaultTurnoverFor(sl)
-                : json.assumptions.annualTurnoverPct,
-            };
-          }
-          return next;
-        });
+        // Multi-line target values come from the assumptions batch below. The
+        // single-line request can seed its one target directly because its
+        // scope message and values are the same response.
+        if (serviceLines.length === 1) {
+          setPerLineTargets((prev) => {
+            // Nothing saved anywhere means the flat 35% is a system placeholder,
+            // not somebody's decision — and 35% is wrong for every line except
+            // by accident. Start each line at its own normal instead.
+            //
+            // Scope of this rule: it governs the PLACEHOLDER only. A value from a
+            // real saved row is never replaced by a band default; if that value
+            // is out of band the operator gets a warning, not a rewrite. Measured
+            // history is the one thing that does outrank a saved value (see the
+            // adoption effect below) — and when it does, the evidence line says
+            // so explicitly rather than just showing the new number.
+            const isPlaceholder = json.scopeLevel === "default";
+            const next: typeof prev = {};
+            for (const sl of serviceLines) {
+              next[sl] = prev[sl] ?? {
+                rateGrowthTargetPct: json.assumptions.rateGrowthTargetPct,
+                annualTurnoverPct: isPlaceholder
+                  ? defaultTurnoverFor(sl)
+                  : json.assumptions.annualTurnoverPct,
+              };
+            }
+            return next;
+          });
+        }
       }
       return json;
     },
@@ -3793,13 +3796,17 @@ export default function InhouseIncreases() {
           <div className="flex items-end text-xs text-muted-foreground sm:col-span-2">
             {assumptionsQuery.data && (
               <p>
-                Showing{" "}
-                <span className="font-medium text-foreground">
-                  {SCOPE_LEVEL_LABEL[assumptionsQuery.data.scopeLevel] ?? "saved assumptions"}
-                </span>
-                {serviceLines.length > 1
-                  ? ` (from ${firstLine}). Saving writes to all ${serviceLines.length} selected lines.`
-                  : ". Saving writes to the scope selected above."}
+                {serviceLines.length > 1 ? (
+                  <>Each selected service line shows its resolved source below. Saving writes to all {serviceLines.length} selected lines.</>
+                ) : (
+                  <>
+                    Showing{" "}
+                    <span className="font-medium text-foreground">
+                      {SCOPE_LEVEL_LABEL[assumptionsQuery.data.scopeLevel] ?? "saved assumptions"}
+                    </span>
+                    . Saving writes to the scope selected above.
+                  </>
+                )}
               </p>
             )}
           </div>
@@ -3848,7 +3855,7 @@ export default function InhouseIncreases() {
           {/* Rate growth target + Annual turnover: per-line when multiple SLs selected */}
           {serviceLines.length > 1 ? (
             <div className="space-y-2">
-              <div className="grid grid-cols-[5rem_minmax(8rem,12rem)_minmax(20rem,1fr)] gap-x-4 gap-y-0.5 text-xs font-medium text-muted-foreground">
+              <div className="grid grid-cols-[5rem_minmax(8rem,12rem)_minmax(9rem,14rem)_minmax(20rem,1fr)] gap-x-4 gap-y-0.5 text-xs font-medium text-muted-foreground">
                 <HeaderHelp
                   label="Service line"
                   explanation="The level of care being planned. Each selected service line is calculated independently using its own rates, residents, turnover, and competitive benchmark."
@@ -3858,18 +3865,29 @@ export default function InhouseIncreases() {
                   explanation="The year-over-year realized-rate goal for each quarter. Street Rate aims at this target, while resident increases solve the remaining gap."
                 />
                 <HeaderHelp
+                  label="Source"
+                  explanation="The scope that supplied this service line's resolved target. A campus-specific value takes precedence over campus-wide, portfolio service-line, portfolio-wide, and built-in defaults."
+                />
+                <HeaderHelp
                   label="Annual turnover"
                   explanation="The estimated percentage of occupied units replaced by new move-ins over one year. Turnover determines how quickly residents paying the proposed Street Rate affect projected realized-rate growth."
                 />
               </div>
               {serviceLines.map((sl) => {
+                const resolved = tierPoliciesQuery.data?.scopeKey === policyScopeKey
+                  ? tierPoliciesQuery.data.assumptionsByLine?.[sl]
+                  : undefined;
                 const vals = perLineTargets[sl] ?? {
-                  rateGrowthTargetPct: assumptions.rateGrowthTargetPct,
-                  annualTurnoverPct: assumptions.annualTurnoverPct,
+                  rateGrowthTargetPct:
+                    resolved?.assumptions.rateGrowthTargetPct ?? assumptions.rateGrowthTargetPct,
+                  annualTurnoverPct:
+                    resolved?.scopeLevel === "default"
+                      ? defaultTurnoverFor(sl)
+                      : resolved?.assumptions.annualTurnoverPct ?? assumptions.annualTurnoverPct,
                 };
                 const hist = turnoverBySl.get(sl);
                 return (
-                  <div key={sl} className="grid grid-cols-[5rem_minmax(8rem,12rem)_minmax(20rem,1fr)] items-baseline gap-x-4">
+                  <div key={sl} className="grid grid-cols-[5rem_minmax(8rem,12rem)_minmax(9rem,14rem)_minmax(20rem,1fr)] items-baseline gap-x-4">
                     <span className="pt-1.5 text-sm font-medium">{sl}</span>
                     <div className="flex items-center gap-1">
                       <CommitNumberInput
@@ -3880,6 +3898,14 @@ export default function InhouseIncreases() {
                       />
                       <span className="text-xs text-muted-foreground">%</span>
                     </div>
+                    <span
+                      className="pt-1.5 text-xs text-muted-foreground"
+                      data-testid={`target-source-${sl}`}
+                    >
+                      {resolved
+                        ? SCOPE_LEVEL_LABEL[resolved.scopeLevel] ?? "saved assumptions"
+                        : "Loading source…"}
+                    </span>
                     <div>
                       <div className="flex items-center gap-1">
                         <CommitNumberInput
