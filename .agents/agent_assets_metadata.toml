@@ -375,3 +375,31 @@ type = "audio"
 title = "British annual increase calculation tutorial"
 description = "Text-to-speech audio: Start with each campus’s current occupancy, in-house rates, and street rates. Moe-doo-low estimates annual turnover by service line from length-of-stay patterns. Retained reside…"
 logical_id = "28f53eed-ca88-4c83-b64d-ac9fc0fdb04b"
+
+[[outputs]]
+id = "WTMeCjTXSu0ms_KTCVKtf"
+uri = "file://client/public/media/modulo-pricing-intelligence.mp4"
+type = "video"
+title = "Modulo Product Overview — Branded Outro"
+description = "The About Us product overview with the new Modulo Revenue Management closing card."
+logical_id = "6cb21250-db42-4bed-9b3e-79a40ffdf611"
+content_hash = "sha256:8333414470d28e2da8b4b88bc1dff282822ffe2ac969b98a77b833b62daa61be"
+size = 1082574
+mtime_ms = 1789437378540
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/df422ed4-5c56-453a-bb14-5e88a5637ca9"
+storage_version_token = "1789437462248925"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "Ur26WeD5kn2hzwELT9qc0"
+uri = "file://client/public/media/modulo-annual-increase-process.mp4"
+type = "video"
+title = "Annual Increase Process — Branded Outro"
+description = "The About Us annual increase video with the new Modulo Revenue Management closing card."
+logical_id = "676c5d3a-1e57-40cb-921b-6b412c478e12"
+content_hash = "sha256:c9d448422ed3522417cf671c56aa3ee82e9c423fa8195171889e8ceef58daff2"
+size = 1322403
+mtime_ms = 1789437378554
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/19f38e46-e837-4eee-b76b-374be8a0251d"
+storage_version_token = "1789437463039255"
+content_type = "video/mp4"
