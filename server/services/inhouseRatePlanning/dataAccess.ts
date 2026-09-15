@@ -812,8 +812,15 @@ export async function fetchMonthlyRealizedRates(
   scope: ScopeFilter,
   fromMonth: string,
   unitMix?: Array<{ key: string; currentRateMonthly: number }>,
+  throughMonth?: string,
 ): Promise<MonthlyRealized[]> {
-  const { months } = await queryMonthlyRealized(scope, fromMonth, unitMix, undefined);
+  const { months } = await queryMonthlyRealized(
+    scope,
+    fromMonth,
+    unitMix,
+    undefined,
+    throughMonth,
+  );
   return months;
 }
 
@@ -858,6 +865,7 @@ async function queryMonthlyRealized(
   fromMonth: string,
   unitMix: Array<{ key: string; currentRateMonthly: number }> | undefined,
   cohortMonths: string[] | undefined,
+  throughMonth?: string,
 ): Promise<{ months: MonthlyRealized[]; cohortRooms: number; cohortMonthCount: number }> {
   const params: any[] = [scope.clientId, scope.serviceLine, fromMonth];
   let locSql = "";
@@ -902,6 +910,11 @@ async function queryMonthlyRealized(
         AND ${privatePaySql("rr.payor_type")}
         AND ${baseRateExclusionSql("rr.")}
         AND ${inHouseRateGate("rr.", alias)}${locSql}`;
+  let historyRangeSql = "AND rr.upload_month >= $3";
+  if (throughMonth) {
+    params.push(throughMonth);
+    historyRangeSql += ` AND rr.upload_month <= $${params.length}`;
+  }
 
   // A room joins the cohort only if it qualifies in every window month that
   // carried data, so the standardization divisor cannot move just because a
@@ -969,8 +982,8 @@ async function queryMonthlyRealized(
        ${join}
        ${unitMixJoin}
        ${cohortJoin}
-      WHERE ${qualifiesSql("rb")}
-        AND rr.upload_month >= $3
+       WHERE ${qualifiesSql("rb")}
+         ${historyRangeSql}
       GROUP BY rr.upload_month
       ORDER BY rr.upload_month`,
     params,

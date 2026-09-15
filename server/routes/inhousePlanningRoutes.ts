@@ -9,7 +9,7 @@
 import type { Express } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { and, desc, eq, isNotNull, like, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, like, or, sql } from "drizzle-orm";
 import { db, pool } from "../db";
 import { invalidateRefDataCache } from "../refDataCache";
 import {
@@ -331,6 +331,96 @@ async function resolveAssumptions(
   };
 }
 
+/**
+ * Resolve all selected service lines in one read. The single-line endpoint
+ * keeps the simple most-specific lookup above, but the editor loads every
+ * selected line together and should not pay for four sequential lookups per
+ * line.
+ */
+async function resolveAssumptionsBatch(
+  clientId: string,
+  locationId: string | null,
+  serviceLines: string[],
+): Promise<Record<string, Awaited<ReturnType<typeof resolveAssumptions>>>> {
+  const rows = await db
+    .select()
+    .from(inhousePlanningAssumptions)
+    .where(
+      and(
+        eq(inhousePlanningAssumptions.clientId, clientId),
+        locationId
+          ? or(
+              eq(inhousePlanningAssumptions.locationId, locationId),
+              sql`${inhousePlanningAssumptions.locationId} IS NULL`,
+            )
+          : sql`${inhousePlanningAssumptions.locationId} IS NULL`,
+        or(
+          inArray(inhousePlanningAssumptions.serviceLine, serviceLines),
+          sql`${inhousePlanningAssumptions.serviceLine} IS NULL`,
+        ),
+      ),
+    )
+    .orderBy(
+      desc(inhousePlanningAssumptions.updatedAt),
+      desc(inhousePlanningAssumptions.createdAt),
+    );
+
+  const newest = (
+    predicate: (row: typeof rows[number]) => boolean,
+  ): typeof rows[number] | undefined => rows.find(predicate);
+
+  const resolved: Record<string, Awaited<ReturnType<typeof resolveAssumptions>>> = {};
+  for (const serviceLine of serviceLines) {
+    const row =
+      (locationId
+        ? newest(
+            (candidate) =>
+              candidate.locationId === locationId &&
+              candidate.serviceLine === serviceLine,
+          )
+        : undefined) ??
+      (locationId
+        ? newest(
+            (candidate) =>
+              candidate.locationId === locationId &&
+              candidate.serviceLine === null,
+          )
+        : undefined) ??
+      newest(
+        (candidate) =>
+          candidate.locationId === null &&
+          candidate.serviceLine === serviceLine,
+      ) ??
+      newest(
+        (candidate) =>
+          candidate.locationId === null &&
+          candidate.serviceLine === null,
+      );
+
+    resolved[serviceLine] = row
+      ? {
+          assumptions: rowToAssumptions(row),
+          tierPolicy: rowToTierPolicy(row),
+          tierPolicyStored: tierPolicySchema.safeParse(row.occupancyTierPolicy).success,
+          scopeLevel:
+            locationId && row.locationId === locationId
+              ? row.serviceLine === serviceLine
+                ? "location+serviceLine"
+                : "location"
+              : row.serviceLine === serviceLine
+                ? "serviceLine"
+                : "global",
+        }
+      : {
+          assumptions: { ...DEFAULT_ASSUMPTIONS },
+          tierPolicy: defaultOccupancyTierPolicy(),
+          tierPolicyStored: false,
+          scopeLevel: "default",
+        };
+  }
+  return resolved;
+}
+
 /** Campus name for a location id, scoped to the caller's client. */
 async function resolveLocationName(
   clientId: string,
@@ -406,14 +496,9 @@ export function registerInhousePlanningRoutes(
       if (serviceLines.length === 0) {
         return res.status(400).json({ error: "At least one service line is required." });
       }
-      const resolvedEntries = await Promise.all(
-        serviceLines.map(async (serviceLine) => [
-          serviceLine,
-          await resolveAssumptions(clientId, locationId, serviceLine),
-        ] as const),
-      );
+      const policies = await resolveAssumptionsBatch(clientId, locationId, serviceLines);
       res.setHeader("Cache-Control", "no-store");
-      res.json({ policies: Object.fromEntries(resolvedEntries) });
+      res.json({ policies });
     } catch (error) {
       console.error("[inhouse-planning] assumptions batch fetch failed:", error);
       res.status(500).json({ error: "Failed to load planning assumptions" });

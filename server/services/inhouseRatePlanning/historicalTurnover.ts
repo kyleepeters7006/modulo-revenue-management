@@ -155,6 +155,24 @@ export interface HistoricalTurnoverResult {
   byServiceLine: ServiceLineTurnover[];
 }
 
+const HISTORICAL_TURNOVER_CACHE_TTL_MS = 5 * 60 * 1000;
+const historicalTurnoverCache = new Map<
+  string,
+  { expiresAt: number; value: HistoricalTurnoverResult | null }
+>();
+const historicalTurnoverInFlight = new Map<
+  string,
+  Promise<HistoricalTurnoverResult | null>
+>();
+
+function historicalTurnoverCacheKey(
+  clientId: string,
+  locationId: string | null,
+  locationName: string | null,
+): string {
+  return `${clientId}\x1f${locationId ?? ""}\x1f${locationName ?? ""}`;
+}
+
 /**
  * A turnover above this is reported but never auto-applied. Not a data-quality
  * judgement — short-stay rehab really does exceed it — but past 100% the
@@ -747,6 +765,33 @@ export function shouldInferMissingDeparture(
  * passing one silently mixes a scoped numerator with a portfolio denominator.
  */
 export async function computeHistoricalTurnover(
+  clientId: string,
+  locationId: string | null,
+  locationName: string | null,
+): Promise<HistoricalTurnoverResult | null> {
+  const key = historicalTurnoverCacheKey(clientId, locationId, locationName);
+  const cached = historicalTurnoverCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  const inFlight = historicalTurnoverInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  const request = computeHistoricalTurnoverUncached(clientId, locationId, locationName)
+    .then((value) => {
+      historicalTurnoverCache.set(key, {
+        expiresAt: Date.now() + HISTORICAL_TURNOVER_CACHE_TTL_MS,
+        value,
+      });
+      return value;
+    })
+    .finally(() => {
+      historicalTurnoverInFlight.delete(key);
+    });
+  historicalTurnoverInFlight.set(key, request);
+  return request;
+}
+
+async function computeHistoricalTurnoverUncached(
   clientId: string,
   locationId: string | null,
   locationName: string | null,

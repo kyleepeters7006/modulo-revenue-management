@@ -2175,11 +2175,12 @@ export default function InhouseIncreases() {
     // both requests together so a slow IndexedDB read cannot add latency to
     // the historical assumptions request.
     enabled: true,
-    // Paint the identity-scoped browser cache immediately, then refresh it
-    // while the independent IndexedDB plan restore continues.
-    staleTime: 0,
+    // The server coalesces and caches the same tenant/scope calculation for
+    // five minutes. Keep the browser equally fresh so remounting the page does
+    // not immediately start another expensive historical rent-roll request.
+    staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
-    refetchOnMount: true,
+    refetchOnMount: false,
     queryFn: async () => {
       const params = new URLSearchParams();
       if (scopeLocationId) params.set("locationId", scopeLocationId);

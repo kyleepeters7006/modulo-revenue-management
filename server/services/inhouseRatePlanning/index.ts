@@ -332,8 +332,12 @@ export async function preparePlan(
   // of the portfolio, and chain-linking adjacent months made every level
   // hostage to the worst month between it and today. Comparing two quarters
   // directly has neither weakness — see twoPointIndex.ts.
+  const historicalStart = [
+    addMonths(sourceMonth, -35),
+    expectedMonths(priorYearQuarters[0])[0],
+  ].sort()[0];
   const [monthly, recordedMonths] = await Promise.all([
-    fetchMonthlyRealizedRates(scope, "2000-01", unitMix),
+    fetchMonthlyRealizedRates(scope, historicalStart, unitMix, sourceMonth),
     fetchRecordedMonths(scope, priorYearQuarters.flatMap((q) => expectedMonths(q))),
   ]);
   const currentPlanningAverage = residentDayWeightedAverageRate(residents);
