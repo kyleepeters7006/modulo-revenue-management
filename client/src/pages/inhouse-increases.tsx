@@ -1686,9 +1686,14 @@ export default function InhouseIncreases() {
   });
   const [assumptions, setAssumptions] = useState<PlanningAssumptions>({ ...DEFAULT_ASSUMPTIONS });
   // Per-line overrides for the two fields that legitimately differ by service line.
-  const [perLineTargets, setPerLineTargets] = useState<
-    Record<string, { rateGrowthTargetPct: number; annualTurnoverPct: number }>
-  >({});
+  type PerLineTargets = Record<string, {
+    rateGrowthTargetPct: number;
+    annualTurnoverPct: number;
+  }>;
+  const [perLineTargetState, setPerLineTargetState] = useState<{
+    scopeKey: string;
+    values: PerLineTargets;
+  }>({ scopeKey: "", values: {} });
   /**
    * Per-line occupancy tier policies: two cutoffs and one guardrail set per
    * tier. Held beside perLineTargets rather than inside `assumptions` because
@@ -1774,6 +1779,26 @@ export default function InhouseIncreases() {
   const tierScopeKey = `${scopeLocationId ?? "all"}|${serviceLines.join(",")}`;
   // Policies are per campus; the service line is the record key inside them.
   const policyScopeKey = scopeLocationId ?? "all";
+  /**
+   * Per-line targets are also per campus. Keep the scope beside the values so
+   * a cached query for a revisited campus cannot be followed by a reset effect
+   * that clears the freshly seeded values, and a previous campus's values can
+   * never be read while the new scope is loading.
+   */
+  const perLineTargets =
+    perLineTargetState.scopeKey === policyScopeKey
+      ? perLineTargetState.values
+      : {};
+  const setPerLineTargets = (
+    update: PerLineTargets | ((previous: PerLineTargets) => PerLineTargets),
+  ) => {
+    setPerLineTargetState((previous) => {
+      const current =
+        previous.scopeKey === policyScopeKey ? previous.values : {};
+      const next = typeof update === "function" ? update(current) : update;
+      return { scopeKey: policyScopeKey, values: next };
+    });
+  };
   // Reading through the scope check is what makes a policy from another campus
   // unrepresentable rather than merely unlikely.
   const tierPolicies =
@@ -2204,21 +2229,11 @@ export default function InhouseIncreases() {
     !tierPoliciesQuery.isError;
   const tierPoliciesReady = serviceLines.every(tierLineLoaded);
 
-  /**
-   * Per-line overrides belong to the campus they were seeded from. Keeping
-   * them across a campus change leaves the previous campus's turnover sitting
-   * in the box for any line the new campus cannot measure — while the note
-   * underneath says the saved assumption is being used. Clear them and let
-   * both loaders reseed for the new scope.
-   */
+  // Tier policies and any grid built from them belong to the campus they were
+  // loaded for; a stale grid under a new campus reads as that campus's answer.
+  // Tier policies carry their own campus and are read through a scope check,
+  // so last campus's values can never be read as this one's.
   useEffect(() => {
-    setPerLineTargets({});
-    // Tier policies and any grid built from them belong to the campus they
-    // were loaded for; a stale grid under a new campus reads as that campus's
-    // answer.
-    // Tier policies need no reset here: they carry their own campus and are
-    // read through a scope check, so last campus's values can never be read
-    // as this one's regardless of which effect runs first.
     setTierGrid(null);
   }, [scopeLocationId]);
 
@@ -3859,6 +3874,7 @@ export default function InhouseIncreases() {
                     <div className="flex items-center gap-1">
                       <CommitNumberInput
                         className="h-8 text-sm"
+                        data-testid={`input-growth-target-${sl}`}
                         value={vals.rateGrowthTargetPct}
                         onCommit={(value) => updatePerLine(sl, "rateGrowthTargetPct", value)}
                       />
