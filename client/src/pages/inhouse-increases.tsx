@@ -14,6 +14,8 @@ import React, { useEffect, useMemo, useRef, useState, useTransition, type ReactN
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
+  Bar,
+  BarChart,
   Cell,
   CartesianGrid,
   Line,
@@ -1066,6 +1068,27 @@ function DateField({
 
 /** A PlanResult tagged with the service line it was calculated for. */
 interface PlanWithSl { sl: string; plan: PlanResult }
+
+export const RESIDENT_INCREASE_TIER_LABELS = ["<3%", "3%", "4%", "5%", "6%", "7%+"] as const;
+export type ResidentIncreaseTierLabel = typeof RESIDENT_INCREASE_TIER_LABELS[number];
+
+export function residentIncreaseTier(value: number): ResidentIncreaseTierLabel {
+  if (!Number.isFinite(value) || value < 3) return "<3%";
+  if (value >= 7) return "7%+";
+  return `${Math.floor(value)}%` as ResidentIncreaseTierLabel;
+}
+
+export function residentIncreaseTierCounts(
+  residents: ReadonlyArray<Pick<ResidentRecommendation, "increasePct">>,
+): Record<ResidentIncreaseTierLabel, number> {
+  const counts = Object.fromEntries(
+    RESIDENT_INCREASE_TIER_LABELS.map((label) => [label, 0]),
+  ) as Record<ResidentIncreaseTierLabel, number>;
+  for (const resident of residents) {
+    counts[residentIncreaseTier(resident.increasePct)] += 1;
+  }
+  return counts;
+}
 
 /**
  * Restore operations are asynchronous, so the previous scope can briefly
@@ -2584,7 +2607,6 @@ export default function InhouseIncreases() {
   useEffect(() => {
     if (
       !restoredPlanDetailsOmitted ||
-      scopeLocationId === null ||
       !tierInputsReady ||
       calculateTiers.isPending
     ) {
@@ -2596,7 +2618,6 @@ export default function InhouseIncreases() {
     calculateTiers.mutate();
   }, [
     restoredPlanDetailsOmitted,
-    scopeLocationId,
     storageIdentityKey,
     tierInputsKey,
     tierInputsReady,
@@ -3065,6 +3086,25 @@ export default function InhouseIncreases() {
     () => (plans ?? []).flatMap(({ sl, plan }) => plan.residents.map((r) => ({ ...r, _sl: sl }))),
     [plans],
   );
+
+  const residentIncreaseCharts = useMemo(() => {
+    const countsBySl = new Map<string, Record<ResidentIncreaseTierLabel, number>>();
+    for (const resident of allTaggedResidents) {
+      const counts = countsBySl.get(resident._sl) ?? residentIncreaseTierCounts([]);
+      counts[residentIncreaseTier(resident.increasePct)] += 1;
+      countsBySl.set(resident._sl, counts);
+    }
+    const visibleTiers = RESIDENT_INCREASE_TIER_LABELS.filter((tier) =>
+      [...countsBySl.values()].some((counts) => counts[tier] > 0),
+    );
+    return (plans ?? []).map(({ sl }) => ({
+      sl,
+      data: visibleTiers.map((tier) => ({
+        tier,
+        residents: countsBySl.get(sl)?.[tier] ?? 0,
+      })),
+    }));
+  }, [allTaggedResidents, plans]);
 
   const sortedResidents = useMemo(() => {
     const filtered = heldBackOnly
@@ -4951,6 +4991,63 @@ export default function InhouseIncreases() {
                 </div>
               </div>
             </CardHeader>
+             {allTaggedResidents.length > 0 && residentIncreaseCharts.some(({ data }) => data.length > 0) && (
+               <CardContent className="border-t px-4 py-4 sm:px-6">
+                 <div className="mb-3">
+                   <p className="text-sm font-medium">Resident in-house increases by tier</p>
+                   <p className="text-xs text-muted-foreground">
+                     Number of residents receiving each recommended in-house increase, shown separately by service line.
+                   </p>
+                 </div>
+                 <div className={cn(
+                   "grid gap-4",
+                   residentIncreaseCharts.length > 1 ? "sm:grid-cols-2 xl:grid-cols-3" : "grid-cols-1",
+                 )}>
+                   {residentIncreaseCharts.map(({ sl, data }) => (
+                     <div key={sl} className="rounded-lg border bg-muted/10 px-2 pt-2" data-testid={`resident-increase-chart-${sl}`}>
+                       <div className="mb-1 text-center text-sm font-medium">{sl}</div>
+                       <div className="h-44">
+                         <ResponsiveContainer width="100%" height="100%">
+                           <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                             <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
+                             <XAxis
+                               dataKey="tier"
+                               tick={{ fontSize: 10 }}
+                               tickLine={false}
+                               axisLine={false}
+                             />
+                             <YAxis
+                               allowDecimals={false}
+                               tick={{ fontSize: 10 }}
+                               tickLine={false}
+                               axisLine={false}
+                               width={38}
+                               label={{ value: "Residents", angle: -90, position: "insideLeft", fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                             />
+                             <RechartsTooltip
+                               formatter={(value: number) => [Number(value).toLocaleString(), "Residents"]}
+                               labelFormatter={(label) => `Increase tier: ${label}`}
+                               contentStyle={{
+                                 borderRadius: "6px",
+                                 borderColor: "hsl(var(--border))",
+                                 background: "hsl(var(--popover))",
+                                 color: "hsl(var(--popover-foreground))",
+                                 fontSize: "11px",
+                               }}
+                             />
+                             <Bar dataKey="residents" name="Residents" radius={[2, 2, 0, 0]} isAnimationActive={false}>
+                               {data.map((entry) => (
+                                 <Cell key={`${sl}-${entry.tier}`} fill="#0f9f9a" />
+                               ))}
+                             </Bar>
+                           </BarChart>
+                         </ResponsiveContainer>
+                       </div>
+                     </div>
+                   ))}
+                 </div>
+               </CardContent>
+             )}
             <CardContent className="p-0 sm:p-6 sm:pt-0">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[860px] text-sm">
