@@ -2047,6 +2047,10 @@ export default function InhouseIncreases() {
   const tierPoliciesQuery = useQuery<{
     scopeKey: string;
     policies: Record<string, OccupancyTierPolicy>;
+    assumptionsByLine: Record<string, {
+      assumptions: PlanningAssumptions;
+      scopeLevel: string;
+    }>;
   }>({
     // Shares the assumptions prefix deliberately: saving invalidates that
     // prefix, and this query has to go with it. A distinct key string looks
@@ -2094,7 +2098,21 @@ export default function InhouseIncreases() {
               };
           return [sl, seeded] as const;
         });
-        return { scopeKey, policies: Object.fromEntries(entries) };
+        const assumptionsByLine = Object.fromEntries(
+          serviceLines.map((sl) => {
+            const json = payload.policies?.[sl];
+            if (!json?.assumptions) throw new Error(`No saved assumptions response for ${sl}`);
+            return [sl, {
+              assumptions: json.assumptions as PlanningAssumptions,
+              scopeLevel: String(json.scopeLevel ?? "default"),
+            }] as const;
+          }),
+        );
+        return {
+          scopeKey,
+          policies: Object.fromEntries(entries),
+          assumptionsByLine,
+        };
       } catch (error) {
         if (controller.signal.aborted && !signal.aborted) {
           throw new Error("Saved occupancy tier settings took too long to load.");
@@ -2143,7 +2161,31 @@ export default function InhouseIncreases() {
       }
       return changed ? { ...base, policies, loaded } : prev;
     });
-  }, [tierPoliciesQuery.data, policyScopeKey]);
+    if (!assumptionsTouched) {
+      setPerLineTargets((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        for (const sl of serviceLines) {
+          const saved = data.assumptionsByLine?.[sl];
+          if (!saved) continue;
+          const nextValue = {
+            rateGrowthTargetPct: saved.assumptions.rateGrowthTargetPct,
+            annualTurnoverPct:
+              saved.scopeLevel === "default"
+                ? defaultTurnoverFor(sl)
+                : saved.assumptions.annualTurnoverPct,
+          };
+          if (
+            next[sl]?.rateGrowthTargetPct === nextValue.rateGrowthTargetPct &&
+            next[sl]?.annualTurnoverPct === nextValue.annualTurnoverPct
+          ) continue;
+          next[sl] = nextValue;
+          changed = true;
+        }
+        return changed ? next : prev;
+      });
+    }
+  }, [tierPoliciesQuery.data, policyScopeKey, assumptionsTouched, serviceLines]);
 
   /**
    * Until every selected line's stored policy is actually in state,
@@ -2768,23 +2810,50 @@ export default function InhouseIncreases() {
       const submitted: Record<string, OccupancyTierPolicy> = {};
       for (const sl of serviceLines) submitted[sl] = tierPolicyFor(sl);
       const responses = await Promise.all(
-        serviceLines.map((sl) =>
-          apiRequest("/api/inhouse-planning/assumptions", "POST", {
+        serviceLines.map(async (sl) => {
+          const response = await apiRequest("/api/inhouse-planning/assumptions", "POST", {
             locationId: scopeLocationId,
             serviceLine: sl,
             assumptions: assumptionsForLine(sl),
             tierPolicy: submitted[sl],
-          }).then((r) => r.json()),
-        ),
+          });
+          return { sl, json: await response.json() };
+        }),
       );
       return {
         scopeKey,
         submitted,
-        savedAssumptions: responses[0]?.assumptions as PlanningAssumptions | undefined,
+        savedAssumptions: responses[0]?.json.assumptions as PlanningAssumptions | undefined,
+        savedAssumptionsByLine: Object.fromEntries(
+          responses.map(({ sl, json }) => [
+            sl,
+            {
+              assumptions: json.assumptions as PlanningAssumptions,
+              scopeLevel: String(json.scopeLevel ?? "default"),
+            },
+          ]),
+        ),
       };
     },
-    onSuccess: ({ scopeKey, submitted, savedAssumptions }) => {
+    onSuccess: ({ scopeKey, submitted, savedAssumptions, savedAssumptionsByLine }) => {
       setAssumptionsTouched(false);
+      setPerLineTargets((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        for (const [sl, saved] of Object.entries(savedAssumptionsByLine)) {
+          const nextValue = {
+            rateGrowthTargetPct: saved.assumptions.rateGrowthTargetPct,
+            annualTurnoverPct: saved.assumptions.annualTurnoverPct,
+          };
+          if (
+            next[sl]?.rateGrowthTargetPct === nextValue.rateGrowthTargetPct &&
+            next[sl]?.annualTurnoverPct === nextValue.annualTurnoverPct
+          ) continue;
+          next[sl] = nextValue;
+          changed = true;
+        }
+        return changed ? next : prev;
+      });
       if (savedAssumptions) {
         // Apply the server acknowledgement immediately. The response is the
         // persisted row, not just the values that were submitted, so dates
@@ -2819,6 +2888,10 @@ export default function InhouseIncreases() {
       queryClient.setQueriesData<{
         scopeKey: string;
         policies: Record<string, OccupancyTierPolicy>;
+         assumptionsByLine: Record<string, {
+           assumptions: PlanningAssumptions;
+           scopeLevel: string;
+         }>;
       }>(
         {
           predicate: (q) =>
@@ -2827,7 +2900,16 @@ export default function InhouseIncreases() {
             q.queryKey[1] === "tier-policies" &&
             q.queryKey[2] === scopeKey,
         },
-        (old) => (old ? { ...old, policies: { ...old.policies, ...submitted } } : old),
+         (old) => old
+           ? {
+               ...old,
+               policies: { ...old.policies, ...submitted },
+               assumptionsByLine: {
+                 ...old.assumptionsByLine,
+                 ...savedAssumptionsByLine,
+               },
+             }
+           : old,
       );
       // Prefix-invalidates the per-line tier-policy query too, so returning to
       // this campus later reseeds from what was just saved.
