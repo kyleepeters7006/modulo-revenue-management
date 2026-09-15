@@ -110,6 +110,19 @@ export interface RateBaselineJoinOptions {
    * price level of its own month, not against a blend across the range.
    */
   monthIsArray?: boolean;
+  /**
+   * Additional restriction on the view's month column when the caller spans a
+   * range and still needs the row's own month for the join. This is important
+   * for historical queries: correlation to rr.upload_month alone does not let
+   * PostgreSQL push the outer history window into the view aggregation.
+   */
+  monthFilterSql?: string;
+  /**
+   * Optional service-line restriction for scope-specific queries. The view's
+   * portfolio branch otherwise aggregates every service line even when the
+   * outer query can only ever join one.
+   */
+  serviceLineFilterSql?: string;
   /** Alias for the joined view. Default `"rb"`. */
   alias?: string;
 }
@@ -122,16 +135,30 @@ export interface RateBaselineJoinOptions {
  * the gate permissive, never exclusionary — see the gate helpers).
  */
 export function buildRateBaselineJoin(opts: RateBaselineJoinOptions): string {
-  const { rr = "rr.", clientSql, monthSql, monthIsArray = false, alias = "rb" } = opts;
+  const {
+    rr = "rr.",
+    clientSql,
+    monthSql,
+    monthIsArray = false,
+    monthFilterSql,
+    serviceLineFilterSql,
+    alias = "rb",
+  } = opts;
   const monthPredicate = !monthSql
     ? `${alias}.upload_month = ${rr}upload_month`
     : monthIsArray
       ? `${alias}.upload_month = ANY(${monthSql})
    AND ${alias}.upload_month = ${rr}upload_month`
       : `${alias}.upload_month = ${monthSql}`;
+  const monthFilter = monthFilterSql ? `\n   AND ${monthFilterSql}` : "";
+  const serviceLineFilter = serviceLineFilterSql
+    ? `\n   AND ${serviceLineFilterSql}`
+    : "";
   return `LEFT JOIN ${RATE_BASELINE_VIEW} ${alias}
     ON ${alias}.client_id = ${clientSql}
    AND ${monthPredicate}
+   ${monthFilter}
+   ${serviceLineFilter}
    AND ${alias}.location = ${rr}location
    AND ${alias}.service_line IS NOT DISTINCT FROM ${rr}service_line`;
 }

@@ -124,3 +124,4 @@
 - [Overview loading concurrency](overview-loading-concurrency.md) — start independent chart requests with KPI loading; never globally prefetch unrelated pages from Overview.
 - [Playwright browser on Nix](playwright-nix-browser.md) — use a system Chromium executable when the bundled headless shell lacks shared libraries.
 - [Analytics endpoint test harness](analytics-endpoint-test-harness.md) — await route readiness and exit after closing the ephemeral listener; startup schedulers outlive standalone tests.
+- [In-house baseline query pushdown](inhouse-baseline-query-pushdown.md) — scoped planning joins must constrain rate baselines by service line and month range or medians scan the whole tenant history.

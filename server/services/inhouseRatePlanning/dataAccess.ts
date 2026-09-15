@@ -286,7 +286,12 @@ export async function fetchResidentRows(
     locSql = ` AND rr.location = $${params.length}`;
   }
 
-  const join = buildRateBaselineJoin({ rr: "rr.", clientSql: "$1", monthSql: "$2" });
+  const join = buildRateBaselineJoin({
+    rr: "rr.",
+    clientSql: "$1",
+    monthSql: "$2",
+    serviceLineFilterSql: "rb.service_line = $3",
+  });
   const res = await pool.query<RawResidentRow>(
     `SELECT rr.location,
             rr.service_line,
@@ -637,7 +642,12 @@ export async function fetchCurrentStreetRate(
     params.push(scope.location);
     locSql = ` AND rr.location = $${params.length}`;
   }
-  const join = buildRateBaselineJoin({ rr: "rr.", clientSql: "$1", monthSql: "$2" });
+  const join = buildRateBaselineJoin({
+    rr: "rr.",
+    clientSql: "$1",
+    monthSql: "$2",
+    serviceLineFilterSql: "rb.service_line = $3",
+  });
   const res = await pool.query<{ avg_rate: string | null }>(
     `WITH current_room_rates AS (
        SELECT rr.location,
@@ -706,7 +716,12 @@ export async function fetchMixStandardizedStreetComparison(
     SELECT rr.location, rr.service_line, rr.room_number,
            AVG(${monthlyRateExpr("rr.street_rate")}) AS rate
       FROM rent_roll_data rr
-      ${buildRateBaselineJoin({ clientSql: "$1", monthSql, alias })}
+      ${buildRateBaselineJoin({
+        clientSql: "$1",
+        monthSql,
+        serviceLineFilterSql: `${alias}.service_line = $3`,
+        alias,
+      })}
      WHERE rr.client_id = $1
        AND rr.upload_month = ${monthSql}
        AND rr.service_line = $3
@@ -897,10 +912,6 @@ async function queryMonthlyRealized(
     currentMixRevenueSql = `SUM(mix.current_rate_monthly * (${observationWeight}))`;
   }
 
-  // The baseline join correlates on the row's own month: this query spans
-  // every month of history for the client, so there is no single month to
-  // push down.
-  const join = buildRateBaselineJoin({ rr: "rr.", clientSql: "$1" });
   const unitKeySql = `(COALESCE(rr.location, '') || E'\\x1f' || COALESCE(rr.room_number, ''))`;
   /** The row-level predicate that decides whether a room counts in a month. */
   const qualifiesSql = (alias: string) => `rr.client_id = $1
@@ -911,10 +922,26 @@ async function queryMonthlyRealized(
         AND ${baseRateExclusionSql("rr.")}
         AND ${inHouseRateGate("rr.", alias)}${locSql}`;
   let historyRangeSql = "AND rr.upload_month >= $3";
+  let throughMonthParam: number | null = null;
   if (throughMonth) {
     params.push(throughMonth);
-    historyRangeSql += ` AND rr.upload_month <= $${params.length}`;
+    throughMonthParam = params.length;
+    historyRangeSql += ` AND rr.upload_month <= $${throughMonthParam}`;
   }
+
+  // The baseline join correlates on the row's own month. That correlation alone
+  // does not push the historical range into the view, so explicitly constrain
+  // the view to the same window. Without this, PostgreSQL computes medians for
+  // every month of the client before the outer query filters the rent roll.
+  const baselineMonthFilter = throughMonthParam
+    ? `rb.upload_month >= $3 AND rb.upload_month <= $${throughMonthParam}`
+    : "rb.upload_month >= $3";
+  const join = buildRateBaselineJoin({
+    rr: "rr.",
+    clientSql: "$1",
+    monthFilterSql: baselineMonthFilter,
+    serviceLineFilterSql: "rb.service_line = $2",
+  });
 
   // A room joins the cohort only if it qualifies in every window month that
   // carried data, so the standardization divisor cannot move just because a
@@ -1126,7 +1153,14 @@ export async function fetchQuarterRoomRates(
         AND NULLIF(TRIM(rr.room_number), '') IS NOT NULL${locSql}`;
 
   const gateJoin = options.adjudicate
-    ? buildRateBaselineJoin({ rr: "rr.", clientSql: "$1", alias: "rb" })
+    ? buildRateBaselineJoin({
+        rr: "rr.",
+        clientSql: "$1",
+        monthSql: "$3",
+        monthIsArray: true,
+        serviceLineFilterSql: "rb.service_line = $2",
+        alias: "rb",
+      })
     : "";
   const gateSql = options.adjudicate
     ? `AND ${privatePaySql("rr.payor_type")}
