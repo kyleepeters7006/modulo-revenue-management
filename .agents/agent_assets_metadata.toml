@@ -342,14 +342,14 @@ logical_id = "4df82b76-bde8-4bc0-b725-0fa095354672"
 id = "5krNMcaUhjtDUhNyPyzVi"
 uri = "file://attached_assets/generated_videos/annual-increase/modulo-annual-increase-process.mp4"
 type = "video"
-title = "Annual In-House Rate Plan — Narration-Aligned Cut"
-description = "Updated 30-second British-voice tutorial with no spoken brand name and scene changes aligned to each narration topic."
+title = "Annual In-House Rate Plan — Title Case"
+description = "Updated 30-second tutorial with all main scene titles capitalized in title case."
 logical_id = "0ac3eb9c-7a36-4b2d-88e8-5a5261a2d7c1"
-content_hash = "sha256:45b463810900283e777b8a830fed4c6248657a9ffff2ed922070f8aa204e25f4"
-size = 1128967
-mtime_ms = 1789435227827
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/0ac3eb9c-7a36-4b2d-88e8-5a5261a2d7c1/c5947750-cd47-4894-80f6-5b7d2dfcb15f"
-storage_version_token = "1789435238874172"
+content_hash = "sha256:8608b5c74ff2996b2884ff2f21932891e66cc7da115c5ac441f7b2c69ae84712"
+size = 1128891
+mtime_ms = 1789435491802
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/0ac3eb9c-7a36-4b2d-88e8-5a5261a2d7c1/b2fe1e34-4eaf-43f6-8f6f-441847b8381a"
+storage_version_token = "1789435508210277"
 content_type = "video/mp4"
 
 [[outputs]]

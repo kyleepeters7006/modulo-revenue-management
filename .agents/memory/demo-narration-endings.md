@@ -79,4 +79,5 @@ spoken brand rather than risk an awkward pronunciation or spacing.
 
 **How to apply:** preserve the British voice when revising this tutorial. Keep
 “Modulo” as one word where it appears visually, and align each screen change to
-the narration topic instead of holding a separate introduction screen.
+the narration topic instead of holding a separate introduction screen. Format
+the main scene headings in title case.

@@ -90,7 +90,7 @@ const scenes = [
   {
     duration: 3.75,
     kicker: "01  READ THE OPERATING INPUTS",
-    title: "Start with occupancy and current rates",
+    title: "Start With Occupancy and Current Rates",
     subtitle: "Each campus and service line contributes occupancy, in-house rates, and Street Rates.",
     images: [
       "attached_assets/generated_videos/annual-increase/occupancy-service-lines-compact-sparklines.png",
@@ -100,28 +100,28 @@ const scenes = [
   {
     duration: 4,
     kicker: "02  ESTIMATE TURNOVER AND BLEND",
-    title: "Estimate annual turnover by service line",
+    title: "Estimate Annual Turnover by Service Line",
     subtitle: "Length-of-stay patterns determine how much of the resident population is expected to turn over.",
     images: ["attached_assets/image_1789425964403.png"],
   },
   {
     duration: 5,
     kicker: "03  SEPARATE THE TWO RATE PATHS",
-    title: "Separate retained residents from move-ins",
+    title: "Separate Retained Residents From Move-Ins",
     subtitle: "Retained residents follow the in-house increase; expected move-ins enter at the new Street Rate.",
     images: ["attached_assets/image_1789425964403.png"],
   },
   {
     duration: 6.75,
     kicker: "04  SOLVE QUARTER BY QUARTER",
-    title: "Review every campus calculation",
+    title: "Review Every Campus Calculation",
     subtitle: "Each dot is one campus and service line, coloured by service line.",
     images: ["attached_assets/generated_videos/annual-increase/all-campus-scatter.png"],
   },
   {
     duration: 5.25,
     kicker: "05  REVIEW EVERY SCENARIO",
-    title: "Check each campus and occupancy tier",
+    title: "Check Each Campus and Occupancy Tier",
     subtitle: "Compare rate recommendations and annualized revenue before approval.",
     images: ["attached_assets/image_1789425216455.png"],
   },

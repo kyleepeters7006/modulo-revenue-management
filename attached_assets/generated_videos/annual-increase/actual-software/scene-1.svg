@@ -14,7 +14,7 @@
     <text x="56" y="40" fill="#35d3c8" font-family="Arial, sans-serif"
       font-size="17" font-weight="700" letter-spacing="2">01  READ THE OPERATING INPUTS</text>
     <text x="56" y="84" fill="#ffffff" font-family="Arial, sans-serif"
-      font-size="34" font-weight="700">Start with occupancy and current rates</text>
+      font-size="34" font-weight="700">Start With Occupancy and Current Rates</text>
     <text x="56" y="119" fill="#b9cbd1" font-family="Arial, sans-serif"
       font-size="18">Each campus and service line contributes occupancy, in-house rates, and Street Rates.</text>
     <g filter="url(#shadow)">
