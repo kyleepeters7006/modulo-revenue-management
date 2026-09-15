@@ -7,7 +7,7 @@ channel = "stable-24_05"
 packages = ["freetype", "geos", "glibcLocales", "gumbo", "harfbuzz", "jbig2dec", "jq", "libGL", "libGLU", "libjpeg_turbo", "mupdf", "openjpeg", "swig", "xcbuild"]
 
 [deployment]
-deploymentTarget = "autoscale"
+deploymentTarget = "gce"
 build = ["npm", "run", "build"]
 run = ["npm", "run", "start"]
 
