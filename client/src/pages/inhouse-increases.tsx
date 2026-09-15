@@ -1389,6 +1389,9 @@ interface CalculateRequest {
   locationId: string | null;
   serviceLines: string[];
   assumptionsByLine: Record<string, PlanningAssumptions>;
+  tierPoliciesByLine: Record<string, OccupancyTierPolicy>;
+  /** Detail hydration must not replace the saved snapshot or its timestamp. */
+  restoreDetails?: boolean;
 }
 
 /** One service line's three tier plans, as returned by /calculate-tiers. */
@@ -2373,6 +2376,7 @@ export default function InhouseIncreases() {
         lines: request.serviceLines.map((sl) => ({
           serviceLine: sl,
           assumptions: request.assumptionsByLine[sl],
+          tierPolicy: request.tierPoliciesByLine[sl],
         })),
       });
       const payload = (await res.json()) as {
@@ -2393,9 +2397,41 @@ export default function InhouseIncreases() {
             : "No service lines were selected.",
         );
       }
-      return { identityKey: request.identityKey, scopeKey: requestedScopeKey, results, skipped };
+      return {
+        identityKey: request.identityKey,
+        scopeKey: requestedScopeKey,
+        results,
+        skipped,
+        restoreDetails: request.restoreDetails === true,
+      };
     },
-    onSuccess: async ({ identityKey, scopeKey, results, skipped }) => {
+    onSuccess: async ({ identityKey, scopeKey, results, skipped, restoreDetails }) => {
+      // Browser and annual-report snapshots intentionally omit resident rows.
+      // Rehydrate only the current plans, not the three-tier what-if grid. The
+      // compact tier grid already on screen remains valid and this avoids
+      // repeating 3x the solver work (plus the portfolio report fan-out).
+      if (restoreDetails) {
+        if (
+          identityKey !== currentStorageIdentity.current ||
+          scopeKey !== calculatedPlanScopeKey(scopeLocationId, serviceLines)
+        ) return;
+        setPlans(results);
+        setRestoredPlanDetailsOmitted(false);
+        setVisibleCount(50);
+        setExpandedResident(null);
+        const first = results.find((r) => r.plan.feasible) ?? results[0];
+        setExpandedQuarter(first?.plan.bindingQuarterLabel
+          ? `${first.sl}-${first.plan.bindingQuarterLabel}`
+          : null);
+        if (skipped.length > 0) {
+          toast({
+            title: `${skipped.length} service line${skipped.length === 1 ? "" : "s"} skipped`,
+            description: skipped.map(({ sl, message }) => `${sl}: ${message}`).join(" "),
+          });
+        }
+        return;
+      }
+
       // Persist the completed request even if the operator switched filters
       // while it was running. Save both the exact selection and each line so
       // any later filter combination can restore the last available plans.
@@ -2702,7 +2738,7 @@ export default function InhouseIncreases() {
     if (
       !restoredPlanDetailsOmitted ||
       !tierInputsReady ||
-      calculateTiers.isPending
+      calculate.isPending
     ) {
       return;
     }
@@ -2710,10 +2746,14 @@ export default function InhouseIncreases() {
     if (autoDetailReloadScope.current === scope) return;
     autoDetailReloadScope.current = scope;
     setRestoringPlanDetails(true);
-    calculateTiers.mutate(undefined, {
+    calculate.mutate({
+      ...currentCalculateRequest(),
+      restoreDetails: true,
+    }, {
       onSettled: () => setRestoringPlanDetails(false),
     });
   }, [
+    calculate.isPending,
     restoredPlanDetailsOmitted,
     storageIdentityKey,
     tierInputsKey,
@@ -3093,6 +3133,9 @@ export default function InhouseIncreases() {
       serviceLines: selectedLines,
       assumptionsByLine: Object.fromEntries(
         selectedLines.map((sl) => [sl, { ...assumptionsForLine(sl) }]),
+      ),
+      tierPoliciesByLine: Object.fromEntries(
+        selectedLines.map((sl) => [sl, tierPolicyFor(sl)]),
       ),
     };
   }
