@@ -176,6 +176,17 @@ made the high setting appear ineffective on live plans.
 above the minimum; only apply the high-mode spread fallback at the binding
 minimum, and keep the behavior covered by an allocation regression.
 
+The same limitation applies at the upper edge: if the required average equals
+the tier maximum, every resident must receive that maximum to meet the target.
+
+**Why:** a weighted average at an individual hard ceiling leaves no allocation
+room for a lower recommendation to offset a higher one. The planner must not
+silently raise the ceiling or miss the growth target to create cosmetic chart
+variation.
+
+**How to apply:** surface the binding maximum in the chart and direct the
+operator to raise that tier maximum when a high-equalization line is uniform.
+
 ### Explain YoY growth as a bridge, not as the sum of two increases
 
 Every quarterly explanation must distinguish the prior-year realized rate,

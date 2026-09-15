@@ -1126,13 +1126,17 @@ export const RESIDENT_INCREASE_TIER_LABELS = [
   "5.5%",
   "6.0%",
   "6.5%",
-  "7%+",
+  "7.0%",
+  "7.5%",
+  "8.0%",
+  "8.5%",
+  "9.0%+",
 ] as const;
 export type ResidentIncreaseTierLabel = typeof RESIDENT_INCREASE_TIER_LABELS[number];
 
 export function residentIncreaseTier(value: number): ResidentIncreaseTierLabel {
   if (!Number.isFinite(value) || value < 3) return "<3%";
-  if (value >= 7) return "7%+";
+  if (value >= 9) return "9.0%+";
   const halfPoint = Math.floor(value * 2 + 1e-9) / 2;
   return `${halfPoint.toFixed(1)}%` as ResidentIncreaseTierLabel;
 }
@@ -3153,16 +3157,65 @@ export default function InhouseIncreases() {
       counts[residentIncreaseTier(resident.increasePct)] += 1;
       countsBySl.set(resident._sl, counts);
     }
-    const visibleTiers = RESIDENT_INCREASE_TIER_LABELS.filter((tier) =>
-      [...countsBySl.values()].some((counts) => counts[tier] > 0),
+    const populatedIndexes = RESIDENT_INCREASE_TIER_LABELS
+      .map((tier, index) => ({
+        index,
+        populated: [...countsBySl.values()].some((counts) => counts[tier] > 0),
+      }))
+      .filter(({ populated }) => populated)
+      .map(({ index }) => index);
+    const firstVisibleIndex = populatedIndexes.length ? Math.min(...populatedIndexes) : 0;
+    const lastPopulatedIndex = populatedIndexes.length
+      ? Math.max(...populatedIndexes)
+      : RESIDENT_INCREASE_TIER_LABELS.length - 1;
+    const configuredMaxPct = Math.max(
+      ...(plans ?? []).map(({ plan }) => plan.assumptions.maxInhouseIncreasePct),
+      0,
     );
-    return (plans ?? []).map(({ sl }) => ({
-      sl,
-      data: visibleTiers.map((tier) => ({
-        tier,
-        residents: countsBySl.get(sl)?.[tier] ?? 0,
-      })),
-    }));
+    const configuredMaxIndex = RESIDENT_INCREASE_TIER_LABELS.reduce(
+      (lastIndex, tier, index) => {
+        const tierPct = tier === "<3%" ? 0 : Number.parseFloat(tier);
+        return tierPct <= configuredMaxPct + 1e-9 ? index : lastIndex;
+      },
+      0,
+    );
+    const lastVisibleIndex = Math.max(lastPopulatedIndex, configuredMaxIndex);
+    // Keep empty intermediate buckets so the horizontal scale represents the
+    // actual range rather than jumping from the first populated bar to 9%+.
+    const visibleTiers = RESIDENT_INCREASE_TIER_LABELS.slice(
+      firstVisibleIndex,
+      lastVisibleIndex + 1,
+    );
+    return (plans ?? []).map(({ sl, plan }) => {
+      const increaseValues = plan.residents
+        .map((resident) => resident.increasePct)
+        .filter(Number.isFinite);
+      const uniformIncrease =
+        increaseValues.length > 1 &&
+        Math.max(...increaseValues) - Math.min(...increaseValues) < 1e-6;
+      const summaryMin = plan.summary?.minIncreasePct ?? Math.min(...increaseValues);
+      const summaryMax = plan.summary?.maxIncreasePct ?? Math.max(...increaseValues);
+      const pinnedToMinimum =
+        Math.abs(summaryMin - plan.assumptions.minInhouseIncreasePct) < 1e-6;
+      const pinnedToMaximum =
+        Math.abs(summaryMax - plan.assumptions.maxInhouseIncreasePct) < 1e-6;
+      const highTierPinned =
+        plan.assumptions.equalizationStrength === "high" &&
+        (pinnedToMinimum || pinnedToMaximum);
+      return {
+        sl,
+        data: visibleTiers.map((tier) => ({
+          tier,
+          residents: countsBySl.get(sl)?.[tier] ?? 0,
+        })),
+        uniformReason:
+          uniformIncrease && highTierPinned && pinnedToMaximum
+            ? `High equalization is selected, but the growth target is using the full ${formatPct(plan.assumptions.maxInhouseIncreasePct, 1)} tier maximum. Raise this tier maximum to create a spread.`
+            : uniformIncrease && highTierPinned
+              ? `High equalization is selected, but the growth target is pinned to the ${formatPct(plan.assumptions.minInhouseIncreasePct, 1)} tier minimum. Lower the minimum or raise the target to create a spread.`
+            : null,
+      };
+    });
   }, [allTaggedResidents, plans]);
 
   const sortedResidents = useMemo(() => {
@@ -5062,12 +5115,17 @@ export default function InhouseIncreases() {
                    "grid gap-4",
                    residentIncreaseCharts.length > 1 ? "sm:grid-cols-2 xl:grid-cols-3" : "grid-cols-1",
                  )}>
-                   {residentIncreaseCharts.map(({ sl, data }) => (
+                   {residentIncreaseCharts.map(({ sl, data, uniformReason }) => (
                      <div key={sl} className="rounded-lg border bg-muted/10 px-2 pt-2" data-testid={`resident-increase-chart-${sl}`}>
                        <div className="mb-1 text-center text-sm font-medium">{sl}</div>
+                       {uniformReason && (
+                         <p className="mb-1 px-1 text-center text-[10px] leading-tight text-muted-foreground">
+                           {uniformReason}
+                         </p>
+                       )}
                        <div className="h-44">
                          <ResponsiveContainer width="100%" height="100%">
-                           <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                            <BarChart data={data} margin={{ top: 8, right: 8, left: 16, bottom: 2 }}>
                              <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
                              <XAxis
                                dataKey="tier"
@@ -5080,8 +5138,8 @@ export default function InhouseIncreases() {
                                tick={{ fontSize: 10 }}
                                tickLine={false}
                                axisLine={false}
-                               width={38}
-                               label={{ value: "Residents", angle: -90, position: "insideLeft", fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                               width={42}
+                               label={{ value: "Residents", angle: -90, position: "left", offset: 8, fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                              />
                              <RechartsTooltip
                                formatter={(value: number) => [Number(value).toLocaleString(), "Residents"]}
