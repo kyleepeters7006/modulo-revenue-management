@@ -59,6 +59,16 @@ export const EQUALIZATION_EXPONENT: Record<EqualizationStrength, number> = {
   high: 1.5,
 };
 
+/**
+ * High equalization is meant to produce a visible catch-up curve, not merely
+ * select the configured minimum when turnover makes that minimum sufficient
+ * to clear the growth target. Use only a quarter of the remaining range in
+ * that specific case; the tier maximum remains the hard ceiling and normal
+ * target-fitting behavior is unchanged when the required average is above the
+ * minimum.
+ */
+export const HIGH_EQUALIZATION_SPREAD_SHARE = 0.25;
+
 // ───────────────────────────────────────────────────────────── projection ──
 
 export interface ProjectionInput {
@@ -308,6 +318,8 @@ export interface AllocationResult {
   maxAvgIncrease: number;
   /** True when the achieved average could not reach the requested one. */
   clipped: boolean;
+  /** True when high equalization intentionally moved off a binding minimum. */
+  equalizationSpreadApplied: boolean;
 }
 
 interface ResidentBounds {
@@ -396,8 +408,18 @@ export function allocateIncreases(input: AllocationInput): AllocationResult {
   const minAvg = weightedAverage(bounds, (b) => b.minEffective);
   const maxAvg = weightedAverage(bounds, (b) => b.maxEffective);
 
-  const target = Math.min(Math.max(input.targetAvgIncrease, minAvg), maxAvg);
-  const clipped = Math.abs(target - input.targetAvgIncrease) > 1e-9;
+  const boundedRequestedTarget = Math.min(
+    Math.max(input.targetAvgIncrease, minAvg),
+    maxAvg,
+  );
+  const equalizationSpreadApplied =
+    input.strength === "high" &&
+    maxAvg > minAvg + 1e-12 &&
+    boundedRequestedTarget <= minAvg + 1e-9;
+  const target = equalizationSpreadApplied
+    ? minAvg + (maxAvg - minAvg) * HIGH_EQUALIZATION_SPREAD_SHARE
+    : boundedRequestedTarget;
+  const clipped = Math.abs(boundedRequestedTarget - input.targetAvgIncrease) > 1e-9;
 
   const avgAt = (lambda: number) =>
     weightedAverage(bounds, (b) => clamp(lambda * b.shape, b.minEffective, b.maxEffective));
@@ -438,6 +460,7 @@ export function allocateIncreases(input: AllocationInput): AllocationResult {
     minAvgIncrease: minAvg,
     maxAvgIncrease: maxAvg,
     clipped,
+    equalizationSpreadApplied,
   };
 }
 
@@ -1210,6 +1233,9 @@ export function solvePlan(input: SolveInput): SolveOutput {
   const maxAllowedAvg = maxAvgAt(streetIncrease);
   if (finalAllocation.clipped || maxAllowedAvg < ctx.max - 1e-6) {
     optimizationDrivers.push("resident increase guardrails");
+  }
+  if (finalAllocation.equalizationSpreadApplied) {
+    optimizationDrivers.push("high equalization catch-up spread");
   }
   if (configuredMinimum > 0 && Math.abs(streetIncrease - configuredMinimum) < 1e-6) {
     optimizationDrivers.push("the configured Street minimum");

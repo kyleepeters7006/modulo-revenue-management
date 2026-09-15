@@ -162,6 +162,20 @@ product-matched Street gap, then calibrates one scalar so those resident
 increases reconcile exactly to the service-line revenue-weighted target. Low is
 flat; high favors the deepest discounts more aggressively.
 
+When high equalization is selected but the required average is pinned exactly
+to the tier minimum, use a controlled portion of the remaining min-to-max
+range for the catch-up curve rather than collapsing every resident to the
+minimum. The configured maximum remains a hard individual ceiling.
+
+**Why:** turnover can make the minimum resident increase sufficient to clear
+the growth target. A strict minimum floor then leaves no mathematical room for
+high equalization to give residents below Street Rate a larger increase, which
+made the high setting appear ineffective on live plans.
+
+**How to apply:** preserve exact target fitting when the required average is
+above the minimum; only apply the high-mode spread fallback at the binding
+minimum, and keep the behavior covered by an allocation regression.
+
 ### Explain YoY growth as a bridge, not as the sum of two increases
 
 Every quarterly explanation must distinguish the prior-year realized rate,

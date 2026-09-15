@@ -444,6 +444,32 @@ console.log("\n-- 4. A resident exactly at street may still receive an increase 
   near("the mixed cohort still reaches the requested weighted average", result.achievedAvgIncrease, 0.05, 1e-9);
 }
 
+// ── 4a. High equalization escapes a binding minimum ─────────────────────────
+console.log("\n-- 4a. High equalization creates catch-up spread at the minimum --");
+{
+  const result = allocateIncreases({
+    residents: [
+      resident("AT", 5000, 5000),
+      resident("BELOW", 3500, 5000),
+      resident("FAR_BELOW", 2500, 5000),
+    ],
+    targetAvgIncrease: 0.06,
+    minIncrease: 0.06,
+    maxIncrease: 0.09,
+    strength: "high",
+    allowAboveStreet: true,
+    streetMultiplier: 1,
+  });
+  const at = result.allocations.find((a) => a.resident.key === "AT")!;
+  const below = result.allocations.find((a) => a.resident.key === "BELOW")!;
+  const farBelow = result.allocations.find((a) => a.resident.key === "FAR_BELOW")!;
+  ok("high equalization reports that its catch-up spread was applied", result.equalizationSpreadApplied);
+  ok("the resident at Street Rate stays at the floor", Math.abs(at.increase - 0.06) < 1e-9);
+  ok("a resident below Street Rate receives more than the floor", below.increase > at.increase);
+  ok("the resident furthest below Street Rate receives the largest increase", farBelow.increase > below.increase);
+  ok("high equalization stays within the configured maximum", farBelow.increase <= 0.09 + 1e-9);
+}
+
 // ── 5. Resident ABOVE street ───────────────────────────────────────────────
 console.log("\n-- 5. A resident above street may still receive an increase --");
 {
