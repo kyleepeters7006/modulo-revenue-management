@@ -408,9 +408,9 @@ input[type="range"]::-moz-range-thumb {
 .report-data-table--standard th:nth-child(1), .report-data-table--standard td:nth-child(1) { width: 13%; }
 .report-data-table--standard th:nth-child(2), .report-data-table--standard td:nth-child(2),
 .report-data-table--standard th:nth-child(3), .report-data-table--standard td:nth-child(3),
+.report-data-table--standard th:nth-child(5), .report-data-table--standard td:nth-child(5),
+.report-data-table--standard th:nth-child(6), .report-data-table--standard td:nth-child(6) { width: 9%; }
 .report-data-table--standard th:nth-child(4), .report-data-table--standard td:nth-child(4),
-.report-data-table--standard th:nth-child(5), .report-data-table--standard td:nth-child(5) { width: 9%; }
-.report-data-table--standard th:nth-child(6), .report-data-table--standard td:nth-child(6),
 .report-data-table--standard th:nth-child(7), .report-data-table--standard td:nth-child(7),
 .report-data-table--standard th:nth-child(8), .report-data-table--standard td:nth-child(8),
 .report-data-table--standard th:nth-child(10), .report-data-table--standard td:nth-child(10),
@@ -425,10 +425,11 @@ input[type="range"]::-moz-range-thumb {
 .report-data-table--bridge th:nth-child(7), .report-data-table--bridge td:nth-child(7),
 .report-data-table--bridge th:nth-child(8), .report-data-table--bridge td:nth-child(8),
 .report-data-table--bridge th:nth-child(9), .report-data-table--bridge td:nth-child(9),
-.report-data-table--bridge th:nth-child(10), .report-data-table--bridge td:nth-child(10) { width: 7%; }
-.report-data-table--bridge th:nth-child(11), .report-data-table--bridge td:nth-child(11) { width: 10%; }
-.report-data-table--bridge th:nth-child(12), .report-data-table--bridge td:nth-child(12),
-.report-data-table--bridge th:nth-child(13), .report-data-table--bridge td:nth-child(13) { width: 9%; }
+.report-data-table--bridge th:nth-child(10), .report-data-table--bridge td:nth-child(10),
+.report-data-table--bridge th:nth-child(11), .report-data-table--bridge td:nth-child(11) { width: 6.5%; }
+.report-data-table--bridge th:nth-child(12), .report-data-table--bridge td:nth-child(12) { width: 10%; }
+.report-data-table--bridge th:nth-child(13), .report-data-table--bridge td:nth-child(13),
+.report-data-table--bridge th:nth-child(14), .report-data-table--bridge td:nth-child(14) { width: 8%; }
 .tier-block { border: 1px solid hsl(213 22% 63%); }
 .tier-block--tier1 .report-section-band { background: #f5f4ed; color: #202020; border-bottom: 1px solid #a8afb8; }
 .tier-block--tier2 .report-section-band { background: #101010; color: #ffffff; }

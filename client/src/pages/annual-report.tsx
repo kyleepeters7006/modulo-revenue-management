@@ -450,11 +450,11 @@ function WorkbookReportBlock({
               <th>Service line</th>
               <th>Current IH<br />rate</th>
               <th>New IH<br />rate</th>
+              <th>IH Increase<br />%</th>
               <th>Current Street<br />Rate</th>
               <th>New Street<br />Rate</th>
               <th>Street avg<br />increase</th>
               <th>New Street<br />over new IH</th>
-              {tier && <th>Resident annual<br />increase</th>}
               {!tier && <th>Prior-period<br />increase</th>}
               {!tier && <th>Plan<br />increase</th>}
               {!tier && <th>Total<br />YoY</th>}
@@ -469,11 +469,11 @@ function WorkbookReportBlock({
                 <td className="font-semibold">{row.sl}</td>
                 <td className="mono">{workbookRate(row.currentInhouse, row.plan.rateBasis)}</td>
                 <td className="mono">{workbookRate(row.proposedInhouse, row.plan.rateBasis)}</td>
+                <td className="mono increase-pct" style={{ color: increaseTextColor(row.inhouseIncrease, inhouseIncreaseValues) }}>{pct(row.inhouseIncrease)}</td>
                 <td className="mono">{workbookRate(row.currentStreet, row.plan.rateBasis)}</td>
                 <td className="mono">{workbookRate(row.proposedStreet, row.plan.rateBasis)}</td>
                 <td className="mono increase-pct" style={{ color: increaseTextColor(row.streetIncrease, streetIncreaseValues) }}>{pct(row.streetIncrease)}</td>
                 <td className="mono">{pct(row.position)}</td>
-                {tier && <td className="mono increase-pct" style={{ color: increaseTextColor(row.inhouseIncrease, inhouseIncreaseValues) }}>{pct(row.inhouseIncrease)}</td>}
                 {!tier && <td className="mono">{pct(row.growthBridge?.priorPeriodIncreasePct)}</td>}
                 {!tier && <td className="mono increase-pct" style={{ color: increaseTextColor(row.inhouseIncrease, inhouseIncreaseValues) }}>{pct(row.growthBridge?.planIncreasePct)}</td>}
                 {!tier && <td className="mono font-semibold">{pct(row.growthBridge?.fullYearYoyPct)}</td>}
@@ -486,11 +486,11 @@ function WorkbookReportBlock({
               <td>Total</td>
               <td>—</td>
               <td>—</td>
+              <td className="mono increase-pct" style={{ color: increaseTextColor(weightedInhouse, inhouseIncreaseValues) }}>{pct(weightedInhouse)}</td>
               <td>—</td>
               <td>—</td>
               <td className="mono increase-pct" style={{ color: increaseTextColor(weightedStreet, streetIncreaseValues) }}>{pct(weightedStreet)}</td>
               <td className="mono">{pct(weighted("position"))}</td>
-              {tier && <td className="mono increase-pct" style={{ color: increaseTextColor(weightedInhouse, inhouseIncreaseValues) }}>{pct(weightedInhouse)}</td>}
               {!tier && <td className="mono">{bridgeResidents > 0 ? pct(combinedPriorPeriodIncrease) : "—"}</td>}
               {!tier && <td className="mono increase-pct" style={{ color: increaseTextColor(weightedInhouse, inhouseIncreaseValues) }}>{bridgeResidents > 0 ? pct(weightedInhouse) : "—"}</td>}
               {!tier && <td className="mono">{bridgeResidents > 0 ? pct(combinedFullYearYoy) : "—"}</td>}

@@ -121,15 +121,15 @@ const scenes = [
     duration: 5.25,
     kicker: "05  REVIEW EVERY SCENARIO",
     title: "Check Each Campus and Occupancy Tier",
-    subtitle: "Compare rate recommendations and annualized revenue before approval.",
-    images: ["attached_assets/image_1789425216455.png"],
+    subtitle: "Compare rate recommendations and Total YoY revenue growth before approval.",
+    images: ["attached_assets/generated_videos/annual-increase/current-annual-report.png"],
   },
   {
     duration: 5.25,
     kicker: "06  CREATE THE OPERATING RECORD",
     title: "Generate the Annual In-House Rate Plan",
-    subtitle: "Save the combined recommendation, tier scenarios, and annualized revenue for approval.",
-    images: ["attached_assets/image_1789425216455.png"],
+    subtitle: "Save the combined recommendation, tier scenarios, and Total YoY revenue growth for approval.",
+    images: ["attached_assets/generated_videos/annual-increase/current-annual-report.png"],
   },
 ];
 

@@ -69,16 +69,16 @@ If the film gets longer than the music, a 2-4% `atempo` stretch is inaudible on 
 background bed at low level and avoids the loop seam you would otherwise have to
 hide.
 
-## Annual In-House Rate Plan tutorial voice
+## Product-video brand pronunciation
 
-Use the warm British male narration style for this video, but do not speak the
-brand name.
+Use a warm British male narration style. When the brand is spoken, pronounce
+“Modulo” as “MOE-doh-low.”
 
-**Why:** the product owner restored the British voice, then chose to remove the
-spoken brand rather than risk an awkward pronunciation or spacing.
+**Why:** the product owner explicitly chose this pronunciation for the About Us
+videos and does not want the phonetic guide displayed to viewers.
 
-**How to apply:** preserve the British voice when revising this tutorial. Keep
-“Modulo” as one word where it appears visually, and align each screen change to
-the narration topic instead of holding a separate introduction screen. Format
-the main scene headings in title case, and keep the transparent Modulo mark in
-the lower-right corner of every scene.
+**How to apply:** use phonetic spelling only inside speech-generation input.
+Keep “Modulo” spelled normally in captions, titles, logos, and all other visual
+content. Align each screen change to the narration topic, format annual-video
+scene headings in title case, and keep its transparent Modulo mark in the
+lower-right corner.

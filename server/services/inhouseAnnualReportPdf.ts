@@ -464,6 +464,7 @@ function drawWorkbookBlock(
     { label: "Service line", weight: includeGrowthBridge ? 0.9 : 1.3, align: "left" as const },
     { label: "Current\nIH rate", weight: includeGrowthBridge ? 0.7 : 0.9, align: "center" as const },
     { label: "New\nIH rate", weight: includeGrowthBridge ? 0.7 : 0.9, align: "center" as const },
+    { label: "IH Increase\n%", weight: includeGrowthBridge ? 0.65 : 0.8, align: "center" as const },
     { label: "Current\nStreet Rate", weight: includeGrowthBridge ? 0.7 : 0.9, align: "center" as const },
     { label: "New\nStreet Rate", weight: includeGrowthBridge ? 0.7 : 0.9, align: "center" as const },
     { label: "Street avg\nincrease", weight: includeGrowthBridge ? 0.7 : 0.8, align: "center" as const },
@@ -472,9 +473,7 @@ function drawWorkbookBlock(
       { label: "Prior-period\nincrease", weight: 0.7, align: "center" as const },
       { label: "Plan\nincrease", weight: 0.7, align: "center" as const },
       { label: "Total\nYoY", weight: 0.7, align: "center" as const },
-    ] : [
-      { label: "Resident annual\nincrease", weight: 0.8, align: "center" as const },
-    ]),
+    ] : []),
     {
       label: includeGrowthBridge ? "Total YoY\nrevenue growth" : "Plan annualized\nrevenue growth",
       weight: includeGrowthBridge ? 1 : 1.1,
@@ -487,7 +486,7 @@ function drawWorkbookBlock(
   const widths = columns.map((column) => width * column.weight / totalWeight);
   const inhouseIncreaseColumn = columns.findIndex(
     (column) =>
-      column.label === "Resident annual\nincrease" ||
+      column.label === "IH Increase\n%" ||
       column.label === "Plan\nincrease",
   );
   const streetIncreaseColumn = columns.findIndex(
@@ -522,6 +521,7 @@ function drawWorkbookBlock(
       row.line,
       valueOrDash(row.currentInhouse, money),
       valueOrDash(row.proposedInhouse, money),
+      valueOrDash(row.inhouseIncrease, pct),
       valueOrDash(row.currentStreet, money),
       valueOrDash(row.proposedStreet, money),
       valueOrDash(row.streetIncrease, pct),
@@ -530,9 +530,7 @@ function drawWorkbookBlock(
         valueOrDash(row.growthBridge?.priorPeriodIncreasePct, pct),
         valueOrDash(row.growthBridge?.planIncreasePct, pct),
         valueOrDash(row.growthBridge?.fullYearYoyPct, pct),
-      ] : [
-        valueOrDash(row.inhouseIncrease, pct),
-      ]),
+      ] : []),
       valueOrDash(row.annualizedRevenue, money),
       row.residents == null ? "—" : row.residents.toLocaleString("en-US"),
       valueOrDash(row.portfolioShare, pct),
@@ -588,6 +586,7 @@ function drawWorkbookBlock(
     "Total",
     "—",
     "—",
+    valueOrDash(totalPlanIncrease, pct),
     "—",
     "—",
     valueOrDash(weighted("streetIncrease"), pct),
@@ -596,9 +595,7 @@ function drawWorkbookBlock(
       valueOrDash(totalPriorPeriodIncrease, pct),
       valueOrDash(totalPlanIncrease, pct),
       valueOrDash(totalFullYearYoy, pct),
-    ] : [
-      valueOrDash(totalPlanIncrease, pct),
-    ]),
+    ] : []),
     valueOrDash(rows.reduce((sum, row) => sum + (row.annualizedRevenue ?? 0), 0), money),
     residentTotal.toLocaleString("en-US"),
     residentTotal ? "100.0%" : "—",

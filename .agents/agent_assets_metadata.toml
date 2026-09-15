@@ -380,26 +380,42 @@ logical_id = "28f53eed-ca88-4c83-b64d-ac9fc0fdb04b"
 id = "WTMeCjTXSu0ms_KTCVKtf"
 uri = "file://client/public/media/modulo-pricing-intelligence.mp4"
 type = "video"
-title = "Modulo Product Overview — Branded Outro"
-description = "The About Us product overview with the new Modulo Revenue Management closing card."
+title = "Modulo Product Overview — Corrected Pronunciation"
+description = "Product overview with Modulo pronounced MOE-doh-low in audio, standard on-screen spelling, and the revised full-frame logo outro."
 logical_id = "6cb21250-db42-4bed-9b3e-79a40ffdf611"
-content_hash = "sha256:8333414470d28e2da8b4b88bc1dff282822ffe2ac969b98a77b833b62daa61be"
-size = 1082574
-mtime_ms = 1789437378540
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/df422ed4-5c56-453a-bb14-5e88a5637ca9"
-storage_version_token = "1789437462248925"
+content_hash = "sha256:685a117200f64acf61606ea50cacfb8b841af066e7a4afc524146f3aa9431460"
+size = 1049293
+mtime_ms = 1789438606806
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/94b4c777-35e2-4aa8-b2f1-5aa617f2ed3b"
+storage_version_token = "1789438669169880"
 content_type = "video/mp4"
 
 [[outputs]]
 id = "Ur26WeD5kn2hzwELT9qc0"
 uri = "file://client/public/media/modulo-annual-increase-process.mp4"
 type = "video"
-title = "Annual Increase Process — Branded Outro"
-description = "The About Us annual increase video with the new Modulo Revenue Management closing card."
+title = "Annual Increase Process — Updated Report and Pronunciation"
+description = "Annual increase video with the current report layout, corrected spoken pronunciation, standard on-screen spelling, and the revised logo outro."
 logical_id = "676c5d3a-1e57-40cb-921b-6b412c478e12"
-content_hash = "sha256:c9d448422ed3522417cf671c56aa3ee82e9c423fa8195171889e8ceef58daff2"
-size = 1322403
-mtime_ms = 1789437378554
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/19f38e46-e837-4eee-b76b-374be8a0251d"
-storage_version_token = "1789437463039255"
+content_hash = "sha256:13452047422b6234c6e571dc69fcddec31f12de73030a7274c1f5c52a00c8dad"
+size = 1253226
+mtime_ms = 1789438606826
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/4b80df14-233c-43bd-9089-1e74b3a441e3"
+storage_version_token = "1789438669905714"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "DmvXyfTLMm1EfOiWOf4BJ"
+uri = "file://attached_assets/generated_audio/modulo-overview-moe-doh-low.mp3"
+type = "audio"
+title = "Modulo overview corrected pronunciation"
+description = "Text-to-speech audio: Moe-doh-low decomposes millions of portfolio data points into usable signals. AI ranks the changes most likely to reach the revenue goal, informed by elasticity and operating hi…"
+logical_id = "10ca7f26-686e-441a-8bf3-bfe083527a87"
+
+[[outputs]]
+id = "YQSeHFg7NlnZ5oBXR5jN-"
+uri = "file://attached_assets/generated_audio/modulo-annual-increase-moe-doh-low.mp3"
+type = "audio"
+title = "Modulo annual increase corrected pronunciation"
+description = "Text-to-speech audio: Moe-doh-low's advanced annual increase methodology starts with length-of-stay estimates to predict turnover by service line. As residents transition, the model blends new Street…"
+logical_id = "ef7491e3-a2c2-4363-bd0c-78915a5b81b3"
