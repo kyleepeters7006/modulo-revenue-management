@@ -17,7 +17,10 @@ import {
   type OccupancyTierPlanCell,
   type PlanResult,
 } from "@shared/inhousePlanning";
-import { annualRateGrowthBridge } from "@shared/inhouseAnnualReportSnapshot";
+import {
+  annualRateGrowthBridge,
+  annualRateGrowthRevenue,
+} from "@shared/inhouseAnnualReportSnapshot";
 
 type IncreaseDistribution = { label: string; count: number };
 type ReportPlan = PlanResult & { increaseDistribution?: IncreaseDistribution[] };
@@ -79,17 +82,6 @@ function variance(current: number, street: number) {
   return { dollars, pct };
 }
 
-function currentYearImpact(plan: PlanResult, generatedAt: string) {
-  const effective = new Date(`${plan.assumptions.inhouseEffectiveDate}T00:00:00`);
-  const generated = new Date(generatedAt);
-  if (Number.isNaN(effective.getTime())) return plan.summary.totalAnnualIncreaseDollars;
-  const start = effective > generated ? effective : generated;
-  const end = new Date(start.getFullYear() + 1, 0, 1);
-  if (start >= end) return 0;
-  return plan.summary.totalAnnualIncreaseDollars *
-    ((end.getTime() - start.getTime()) / (365 * 24 * 60 * 60 * 1000));
-}
-
 function Kpi({ label, value, note, accent = false }: { label: string; value: string; note?: string; accent?: boolean }) {
   return (
     <div className={`rounded-lg border p-3 ${accent ? "border-primary/30 bg-primary/10" : "bg-background/60"}`}>
@@ -103,10 +95,18 @@ function Kpi({ label, value, note, accent = false }: { label: string; value: str
 function ReportBody({ report, history }: { report: AnnualReport; history: RateGrowthSeries[] }) {
   const measuredPlans = report.tierGrid.lines.map((line) => line.currentPlan).filter(Boolean);
   const totals = measuredPlans.reduce((sum, plan) => ({
-    annual: sum.annual + (plan.summary.totalAnnualIncreaseDollars || 0),
-    monthly: sum.monthly + (plan.summary.totalMonthlyIncreaseDollars || 0),
+    annual: sum.annual + (
+      annualRateGrowthRevenue(
+        annualRateGrowthBridge(
+          plan.quarters,
+          plan.rateBasis,
+          plan.summary.weightedAvgIncreasePct,
+        ),
+        plan.summary.residentCount,
+      ) ?? 0
+    ),
     residents: sum.residents + (plan.summary.residentCount || 0),
-  }), { annual: 0, monthly: 0, residents: 0 });
+  }), { annual: 0, residents: 0 });
   const location = report.plans[0]?.plan.scope.location || (report.locationId ? `Campus ${report.locationId}` : "Portfolio");
   const basis = measuredPlans[0]?.rateBasis ?? "monthly";
   const totalCurrentRevenue = measuredPlans.reduce(
@@ -129,10 +129,6 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
     ? measuredPlans.reduce((sum, plan) => sum + plan.assumptions.rateGrowthTargetPct, 0) /
       measuredPlans.length
     : 0;
-  const currentYear = measuredPlans.reduce(
-    (sum, plan) => sum + currentYearImpact(plan, report.generatedAt),
-    0,
-  );
   const planYear = measuredPlans[0]?.assumptions.inhouseEffectiveDate?.slice(0, 4) || "—";
   const effectiveDates = Array.from(new Set(
     measuredPlans.map((plan) => plan.assumptions.inhouseEffectiveDate).filter(Boolean),
@@ -224,7 +220,7 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi label="Recommended average increase" value={pct(weightedIncrease)} note="Revenue-weighted measured-tier plan" accent />
-        <Kpi label="Annualized revenue impact" value={signedMoney(totals.annual)} note={`${signedMoney(currentYear)} current-year impact`} />
+        <Kpi label="Total YoY revenue growth" value={signedMoney(totals.annual)} note="Prior-period increases plus plan increases" />
         <Kpi label="Current occupancy" value={pct(weightedOccupancy)} note={`${totals.residents.toLocaleString()} residents modeled`} />
         <Kpi label="Revenue growth target" value={pct(target)} note={basis === "daily" ? "Includes daily-rate service lines" : "Quarterly YoY target"} />
       </section>
@@ -394,7 +390,9 @@ function WorkbookReportBlock({
       streetIncrease,
       position,
       growthBridge,
-      annualizedRevenue: scenario
+      annualizedRevenue: growthBridge
+        ? annualRateGrowthRevenue(growthBridge, plan.summary.residentCount)
+        : scenario
         ? currentInhouse * plan.summary.residentCount * ((inhouseIncrease ?? 0) / 100) * 12
         : plan.summary.totalAnnualIncreaseDollars,
       portfolioShare: totalResidents ? plan.summary.residentCount / totalResidents * 100 : null,
@@ -442,7 +440,7 @@ function WorkbookReportBlock({
       <div className="report-section-band flex items-center justify-between gap-3">
         <span>{title}</span>
         <span className="font-sans text-[10px] font-medium tracking-normal">
-          {tier ? "Scenario rates use this tier’s calculated increases" : `${signedMoney(annualImpact)} annualized impact`}
+          {tier ? "Scenario rates use this tier’s calculated increases" : `${signedMoney(annualImpact)} total YoY revenue growth`}
         </span>
       </div>
       <div className="overflow-x-auto">
@@ -460,7 +458,7 @@ function WorkbookReportBlock({
               {!tier && <th>Prior-period<br />increase</th>}
               {!tier && <th>Plan<br />increase</th>}
               {!tier && <th>Total<br />YoY</th>}
-              <th>Annualized<br />revenue</th>
+              <th>{tier ? "Plan annualized" : "Total YoY"}<br />revenue growth</th>
               <th>Resident count</th>
               <th>Portfolio %</th>
             </tr>

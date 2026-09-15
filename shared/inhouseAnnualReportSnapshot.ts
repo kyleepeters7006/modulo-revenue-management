@@ -50,6 +50,21 @@ export interface AnnualRateGrowthBridge {
   fullYearYoyPct: number;
 }
 
+export function annualRateGrowthRevenue(
+  bridge: AnnualRateGrowthBridge | null,
+  residentCount: number,
+): number | null {
+  if (
+    !bridge ||
+    !Number.isFinite(residentCount) ||
+    residentCount < 0
+  ) return null;
+  return (
+    bridge.projectedPlanYearAverageRateMonthly -
+    bridge.priorYearAverageRateMonthly
+  ) * residentCount * 12;
+}
+
 /**
  * Splits projected full-year YoY into the annual-plan increase shown in the
  * report and the remaining increase carried from prior pricing periods.

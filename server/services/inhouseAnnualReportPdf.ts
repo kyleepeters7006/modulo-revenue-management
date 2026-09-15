@@ -1,5 +1,9 @@
 import PDFDocument from "pdfkit";
-import { annualRateGrowthBridge, type AnnualRateGrowthBridge } from "@shared/inhouseAnnualReportSnapshot";
+import {
+  annualRateGrowthBridge,
+  annualRateGrowthRevenue,
+  type AnnualRateGrowthBridge,
+} from "@shared/inhouseAnnualReportSnapshot";
 
 type JsonObject = Record<string, any>;
 
@@ -432,7 +436,9 @@ function workbookRows(plans: JsonObject[], grid: unknown, tier?: string): Workbo
       variance: proposedInhouse
         ? ((proposedStreet ?? 0) - proposedInhouse) / proposedInhouse * 100
         : null,
-      annualizedRevenue: scenario
+      annualizedRevenue: growthBridge
+        ? annualRateGrowthRevenue(growthBridge, residents ?? 0)
+        : scenario
         ? (
             currentInhouse != null && residents != null && inhouseIncrease != null
               ? currentInhouse * residents * (inhouseIncrease / 100) * 12
@@ -469,7 +475,11 @@ function drawWorkbookBlock(
     ] : [
       { label: "Resident annual\nincrease", weight: 0.8, align: "center" as const },
     ]),
-    { label: "Annualized\nrevenue", weight: includeGrowthBridge ? 1 : 1.1, align: "center" as const },
+    {
+      label: includeGrowthBridge ? "Total YoY\nrevenue growth" : "Plan annualized\nrevenue growth",
+      weight: includeGrowthBridge ? 1 : 1.1,
+      align: "center" as const,
+    },
     { label: "Resident\ncount", weight: includeGrowthBridge ? 0.9 : 0.8, align: "center" as const },
     { label: "Portfolio\n%", weight: includeGrowthBridge ? 0.9 : 0.8, align: "center" as const },
   ];

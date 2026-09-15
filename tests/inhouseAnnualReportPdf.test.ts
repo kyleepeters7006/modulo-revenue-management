@@ -9,7 +9,10 @@
  */
 import assert from "node:assert/strict";
 import { generateAnnualInhouseReportPdf } from "../server/services/inhouseAnnualReportPdf";
-import { annualRateGrowthBridge } from "../shared/inhouseAnnualReportSnapshot";
+import {
+  annualRateGrowthBridge,
+  annualRateGrowthRevenue,
+} from "../shared/inhouseAnnualReportSnapshot";
 
 (async () => {
 const bridge = annualRateGrowthBridge(
@@ -33,6 +36,7 @@ assert.ok(bridge, "annual growth bridge is available");
 assert.ok(Math.abs(bridge.priorPeriodIncreasePct - 3) < 1e-9);
 assert.ok(Math.abs(bridge.planIncreasePct - 4) < 1e-9);
 assert.ok(Math.abs(bridge.fullYearYoyPct - 7) < 1e-9);
+assert.equal(annualRateGrowthRevenue(bridge, 10), 840);
 
 const serviceLines = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
 const buffer = await generateAnnualInhouseReportPdf({
