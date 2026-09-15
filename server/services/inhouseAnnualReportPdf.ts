@@ -619,7 +619,7 @@ function drawWorkbookScatterplots(
       const value = point[field] ?? 0;
       const px = plotX + (point.occupancy - xMin) / (xMax - xMin) * plotWidth;
       const py = plotY + plotHeight - (value - yMin) / (yMax - yMin) * plotHeight;
-      const labelWidth = Math.max(8, point.line.length * 3.2);
+      const labelWidth = Math.max(10, point.line.length * 4.2);
       const candidates = [
         { x: px + 4, y: py - 2, align: "left" as const },
         { x: px - labelWidth - 4, y: py - 2, align: "left" as const },
@@ -633,7 +633,7 @@ function drawWorkbookScatterplots(
           left: candidate.x,
           top: candidate.y,
           right: candidate.x + labelWidth,
-          bottom: candidate.y + 7,
+          bottom: candidate.y + 9,
         };
         const withinPlot =
           box.left >= plotX &&
@@ -652,24 +652,24 @@ function drawWorkbookScatterplots(
       }) ?? candidates[0];
       return { point, px, py, labelWidth, ...placement };
     });
-    line(doc, chartX, top, chartWidth, title, { size: 6.4, bold: true });
+    line(doc, chartX, top, chartWidth, title, { size: 7.4, bold: true });
     doc.moveTo(plotX, plotY).lineTo(plotX, plotY + plotHeight).lineTo(plotX + plotWidth, plotY + plotHeight)
       .lineWidth(0.5).strokeColor("#657789").stroke();
     Array.from({ length: 5 }, (_, index) => index / 4).forEach((step) => {
       const yy = plotY + plotHeight * (1 - step);
       doc.moveTo(plotX, yy).lineTo(plotX + plotWidth, yy).lineWidth(0.25).strokeColor("#D9DEE5").stroke();
-      line(doc, chartX, yy - 2, 24, `${(yMin + (yMax - yMin) * step).toFixed(1)}%`, { size: 4.8, align: "right" });
+      line(doc, chartX, yy - 3, 24, `${(yMin + (yMax - yMin) * step).toFixed(1)}%`, { size: 5.8, align: "right" });
     });
     const xTickCount = Math.round((xMax - xMin) / 2.5);
     Array.from({ length: xTickCount + 1 }, (_, index) => xMin + index * 2.5).forEach((value) => {
       const xx = plotX + (value - xMin) / (xMax - xMin) * plotWidth;
       doc.moveTo(xx, plotY).lineTo(xx, plotY + plotHeight).lineWidth(0.25).strokeColor("#D9DEE5").stroke();
-      line(doc, xx - 14, plotY + plotHeight + 3, 28, `${value.toFixed(1).replace(".0", "")}%`, { size: 4.8, align: "center" });
+      line(doc, xx - 14, plotY + plotHeight + 3, 28, `${value.toFixed(1).replace(".0", "")}%`, { size: 5.8, align: "center" });
     });
-    line(doc, plotX + plotWidth - 55, plotY + plotHeight + 3, 55, "occupancy", { size: 4.8, align: "right" });
+    line(doc, plotX, plotY + plotHeight + 12, plotWidth, "Occupancy", { size: 6, bold: true, align: "center" });
     labelPlacements.forEach(({ point, px, py, x: labelX, y: labelY, labelWidth }) => {
-      doc.circle(px, py, 2.5).fill(colors[point.line] ?? "#44546A");
-      line(doc, labelX, labelY, labelWidth, point.line, { size: 4.8, bold: true });
+      doc.circle(px, py, 3.2).fill(colors[point.line] ?? "#44546A");
+      line(doc, labelX, labelY, labelWidth, point.line, { size: 6.4, bold: true });
     });
   };
   draw("inhouseIncrease", "In-House increase", x);

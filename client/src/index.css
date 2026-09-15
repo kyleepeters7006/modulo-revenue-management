@@ -423,12 +423,12 @@ input[type="range"]::-moz-range-thumb {
 .tier-block--tier3 .report-section-band { background: #388194; color: #ffffff; }
 .report-kicker { font-family: 'Source Sans 3', sans-serif; font-size: 9px; text-transform: uppercase; letter-spacing: .12em; color: hsl(214 16% 43%); }
 .report-scatter-section { border: 1px solid hsl(213 22% 63%); background: hsl(42 38% 98%); break-inside: avoid; }
-.report-scatter-heading { padding: 4px 8px; border-bottom: 1px solid hsl(213 22% 73%); color: hsl(214 29% 22%); font-size: 13px; font-weight: 700; }
+.report-scatter-heading { padding: 5px 8px; border-bottom: 1px solid hsl(213 22% 73%); color: hsl(214 29% 22%); font-size: 14px; font-weight: 700; }
 .report-scatter-grid-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 4px 8px 2px; }
-.report-scatter-title { margin-bottom: -2px; color: hsl(214 29% 22%); font-size: 11px; font-weight: 700; }
-.report-scatter svg { display: block; width: 100%; height: 105px; overflow: visible; }
-.report-scatter text { fill: hsl(214 20% 30%); font-family: 'EB Garamond', Georgia, serif; font-size: 9px; }
-.report-scatter .report-scatter-label { font-size: 9px; font-weight: 700; }
+.report-scatter-title { margin-bottom: -2px; color: hsl(214 29% 22%); font-size: 13px; font-weight: 700; }
+.report-scatter svg { display: block; width: 100%; height: 168px; overflow: visible; }
+.report-scatter text { fill: hsl(214 20% 30%); font-family: 'EB Garamond', Georgia, serif; font-size: 12px; }
+.report-scatter .report-scatter-label { font-size: 12px; font-weight: 700; }
 .report-scatter-axis { stroke: hsl(213 22% 45%); stroke-width: 1; }
 .report-scatter-grid { stroke: hsl(213 22% 82%); stroke-width: .75; }
 

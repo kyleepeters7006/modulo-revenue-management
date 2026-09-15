@@ -524,7 +524,7 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
   const chart = (field: "inhouse" | "street", title: string) => {
     const width = 430;
     const height = 168;
-    const pad = { left: 38, right: 12, top: 18, bottom: 29 };
+    const pad = { left: 44, right: 14, top: 18, bottom: 31 };
     const xValues = points.map((point) => point.occupancy);
     const yValues = points.map((point) => point[field]);
     const xMin = Math.floor(Math.min(...xValues) / 2.5) * 2.5;
@@ -542,7 +542,7 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
     const labelPlacements = points.map((point) => {
       const px = sx(point.occupancy);
       const py = sy(point[field]);
-      const labelWidth = Math.max(12, point.sl.length * 5.5);
+      const labelWidth = Math.max(15, point.sl.length * 7);
       const candidates = [
         { x: px + 6, y: py + 3, anchor: "start" as const },
         { x: px - 6, y: py + 3, anchor: "end" as const },
@@ -557,7 +557,7 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
           : candidate.anchor === "end"
             ? candidate.x - labelWidth
             : candidate.x - labelWidth / 2;
-        const box = { left, top: candidate.y - 8, right: left + labelWidth, bottom: candidate.y + 2 };
+        const box = { left, top: candidate.y - 10, right: left + labelWidth, bottom: candidate.y + 3 };
         const withinPlot =
           box.left >= pad.left &&
           box.right <= width - pad.right &&
@@ -592,7 +592,7 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
           })}
           {labelPlacements.map(({ point, px, py, x, y, anchor }) => (
             <g key={`${field}-${point.sl}`}>
-              <circle cx={px} cy={py} r="4.2" fill={REPORT_SCATTER_COLORS[point.sl] ?? "#44546A"} />
+              <circle cx={px} cy={py} r="5.2" fill={REPORT_SCATTER_COLORS[point.sl] ?? "#44546A"} />
               <text x={x} y={y} textAnchor={anchor} className="report-scatter-label">{point.sl}</text>
             </g>
           ))}
