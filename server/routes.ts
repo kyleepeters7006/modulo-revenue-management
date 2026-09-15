@@ -10064,11 +10064,15 @@ export async function registerRoutes(
       
       console.log('Rate breakdown: Fetching months:', monthsToFetch);
       
-      const allData: any[] = [];
-      for (const month of monthsToFetch) {
-        const monthData = await storage.getRentRollDataByMonth(month, clientId);
-        allData.push(...monthData.map((u: any) => ({ ...u, fetchedMonth: month })));
-      }
+      const monthResults = await Promise.all(
+        monthsToFetch.map(async (month) => ({
+          month,
+          data: await storage.getRentRollDataByMonth(month, clientId),
+        })),
+      );
+      const allData = monthResults.flatMap(({ month, data }) =>
+        data.map((unit: any) => ({ ...unit, fetchedMonth: month })),
+      );
       
       // Helper to calculate average rate for a filter
       const calcAvgRate = (units: any[]) => {

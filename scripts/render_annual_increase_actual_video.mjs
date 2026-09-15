@@ -9,7 +9,7 @@ const finalVideo = join(outDir, "modulo-annual-increase-process.mp4");
 const oldVideo = join(outDir, "modulo-annual-increase-process.previous.mp4");
 const narration = join(
   root,
-  "attached_assets/generated_audio/annual-increase-process-tutorial-british.mp3",
+  "attached_assets/generated_audio/annual-increase-process-tutorial-british-no-brand.mp3",
 );
 const music = join(root, "attached_assets/generated_audio/dynamic-pricing-demo-music.mp3");
 
@@ -54,7 +54,7 @@ function imageFrame({ kicker, title, subtitle, images, index }) {
           fill="#ffffff" stroke="#284753" stroke-width="2"/>
         <image href="${dataUri(src)}" x="${box.x + 8}" y="${box.y + 8}"
           width="${box.w - 16}" height="${box.h - 16}" preserveAspectRatio="xMidYMid meet"/>
-      `;
+`;
     })
     .join("\n");
 
@@ -88,14 +88,7 @@ function imageFrame({ kicker, title, subtitle, images, index }) {
 
 const scenes = [
   {
-    duration: 4.5,
-    kicker: "ANNUAL IN-HOUSE RATE PLAN",
-    title: "Build the annual rate path in Modulo",
-    subtitle: "A fast tutorial from operating inputs to an approval-ready plan.",
-    images: ["attached_assets/image_1789425817617.png"],
-  },
-  {
-    duration: 5,
+    duration: 3.75,
     kicker: "01  READ THE OPERATING INPUTS",
     title: "Start with occupancy and current rates",
     subtitle: "Each campus and service line contributes occupancy, in-house rates, and Street Rates.",
@@ -105,29 +98,36 @@ const scenes = [
     ],
   },
   {
-    duration: 5,
+    duration: 4,
     kicker: "02  ESTIMATE TURNOVER AND BLEND",
+    title: "Estimate annual turnover by service line",
+    subtitle: "Length-of-stay patterns determine how much of the resident population is expected to turn over.",
+    images: ["attached_assets/image_1789425964403.png"],
+  },
+  {
+    duration: 5,
+    kicker: "03  SEPARATE THE TWO RATE PATHS",
     title: "Separate retained residents from move-ins",
     subtitle: "Retained residents follow the in-house increase; expected move-ins enter at the new Street Rate.",
     images: ["attached_assets/image_1789425964403.png"],
   },
   {
-    duration: 5,
-    kicker: "03  SOLVE QUARTER BY QUARTER",
+    duration: 6.75,
+    kicker: "04  SOLVE QUARTER BY QUARTER",
     title: "Review every campus calculation",
     subtitle: "Each dot is one campus and service line, coloured by service line.",
     images: ["attached_assets/generated_videos/annual-increase/all-campus-scatter.png"],
   },
   {
-    duration: 5.5,
-    kicker: "04  REVIEW EVERY SCENARIO",
+    duration: 5.25,
+    kicker: "05  REVIEW EVERY SCENARIO",
     title: "Check each campus and occupancy tier",
     subtitle: "Compare rate recommendations and annualized revenue before approval.",
     images: ["attached_assets/image_1789425216455.png"],
   },
   {
-    duration: 5,
-    kicker: "05  CREATE THE OPERATING RECORD",
+    duration: 5.25,
+    kicker: "06  CREATE THE OPERATING RECORD",
     title: "Generate the Annual In-House Rate Plan",
     subtitle: "Save the combined recommendation, tier scenarios, and annualized revenue for approval.",
     images: ["attached_assets/image_1789425216455.png"],

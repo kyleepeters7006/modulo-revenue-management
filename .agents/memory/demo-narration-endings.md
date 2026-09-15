@@ -71,12 +71,12 @@ hide.
 
 ## Annual In-House Rate Plan tutorial voice
 
-Use the warm British male narration style for this video and pronounce the brand
-as “Moe-doo-low.”
+Use the warm British male narration style for this video, but do not speak the
+brand name.
 
-**Why:** the product owner explicitly restored the British voice and corrected
-the brand pronunciation after reviewing the American-voice version.
+**Why:** the product owner restored the British voice, then chose to remove the
+spoken brand rather than risk an awkward pronunciation or spacing.
 
-**How to apply:** preserve the British voice when revising this tutorial. Write
-the spoken brand phonetically in the TTS input, while keeping “Modulo” in all
-visible titles and captions.
+**How to apply:** preserve the British voice when revising this tutorial. Keep
+“Modulo” as one word where it appears visually, and align each screen change to
+the narration topic instead of holding a separate introduction screen.

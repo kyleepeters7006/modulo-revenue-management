@@ -213,7 +213,7 @@ export function Analytics() {
   
   // Fetch vacancy scatter data with caching
   const { data: vacancyData, isLoading: isLoadingVacancy, isFetching: isFetchingVacancy } = useQuery({
-    queryKey: ['/api/analytics/vacancy-scatter', debouncedFilters.region, debouncedFilters.division, debouncedFilters.serviceLine],
+    queryKey: ['/api/analytics/vacancy-scatter', debouncedFilters.serviceLine],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (debouncedFilters.serviceLine !== 'all') params.append('serviceLine', debouncedFilters.serviceLine);
