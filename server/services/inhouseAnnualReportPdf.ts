@@ -129,6 +129,20 @@ function line(doc: PDFKit.PDFDocument, x: number, y: number, width: number, valu
     .text(value, x, y, { width, height: options.size ?? 7, lineBreak: false, align: options.align });
 }
 
+function wrappedHeader(doc: PDFKit.PDFDocument, x: number, y: number, width: number, value: string): void {
+  doc
+    .font("Times-Bold")
+    .fontSize(5.3)
+    .fillColor("#404040")
+    .text(value, x + 2, y + 4, {
+      width: width - 4,
+      height: 24,
+      align: "center",
+      lineGap: 0,
+      lineBreak: true,
+    });
+}
+
 function heading(doc: PDFKit.PDFDocument, x: number, y: number, width: number, value: string): void {
   line(doc, x, y, width, value.toUpperCase(), { size: 8, color: BLUE, bold: true });
   doc.moveTo(x, y + 11).lineTo(x + width, y + 11).lineWidth(0.5).strokeColor(BORDER).stroke();
@@ -407,7 +421,9 @@ function workbookRows(plans: JsonObject[], grid: unknown, tier?: string): Workbo
       currentStreet,
       proposedStreet,
       streetIncrease,
-      variance: proposedStreet ? ((proposedInhouse ?? 0) - proposedStreet) / proposedStreet * 100 : null,
+      variance: proposedInhouse
+        ? ((proposedStreet ?? 0) - proposedInhouse) / proposedInhouse * 100
+        : null,
       annualizedRevenue: scenario
         ? (
             currentInhouse != null && residents != null && inhouseIncrease != null
@@ -430,18 +446,18 @@ function drawWorkbookBlock(
   accent: string,
 ): void {
   const columns = [
-    { label: "Service line", weight: 1.25, align: "left" as const },
-    { label: "Count", weight: 0.58, align: "right" as const },
-    { label: "Current IH", weight: 0.76, align: "right" as const },
-    { label: "New IH", weight: 0.76, align: "right" as const },
-    { label: "IH avg inc.", weight: 0.68, align: "right" as const },
-    { label: "Current street", weight: 0.84, align: "right" as const },
-    { label: "New street", weight: 0.79, align: "right" as const },
-    { label: "Street inc.", weight: 0.68, align: "right" as const },
-    { label: "Street to IH", weight: 0.72, align: "right" as const },
-    { label: "Annualized revenue", weight: 0.9, align: "right" as const },
-    { label: "Residents", weight: 0.67, align: "right" as const },
-    { label: "Portfolio %", weight: 0.67, align: "right" as const },
+    { label: "Service line", weight: 1.34, align: "left" as const },
+    { label: "Count", weight: 0.56, align: "center" as const },
+    { label: "Current\nIH rate", weight: 0.76, align: "center" as const },
+    { label: "New\nIH rate", weight: 0.76, align: "center" as const },
+    { label: "IH avg\nincrease", weight: 0.72, align: "center" as const },
+    { label: "Current\nStreet Rate", weight: 0.9, align: "center" as const },
+    { label: "New\nStreet Rate", weight: 0.84, align: "center" as const },
+    { label: "Street avg\nincrease", weight: 0.72, align: "center" as const },
+    { label: "New Street\nover new IH", weight: 0.78, align: "center" as const },
+    { label: "Annualized\nrevenue", weight: 1.02, align: "center" as const },
+    { label: "Resident\ncount", weight: 0.72, align: "center" as const },
+    { label: "Portfolio\n%", weight: 0.68, align: "center" as const },
   ];
   const totalWeight = columns.reduce((sum, column) => sum + column.weight, 0);
   const widths = columns.map((column) => width * column.weight / totalWeight);
@@ -459,21 +475,16 @@ function drawWorkbookBlock(
     color: darkBand ? "#FFFFFF" : NAVY,
   });
   const headerY = y + 24;
-  doc.rect(x, headerY, width, 28).fill("#D6DCE4");
+  doc.rect(x, headerY, width, 31).fill("#D6DCE4");
   columns.forEach((column, index) => {
-    line(doc, positions[index] + 3, headerY + 8, widths[index] - 6, column.label, {
-      size: 5.3,
-      bold: true,
-      color: "#404040",
-      align: column.align,
-    });
+    wrappedHeader(doc, positions[index], headerY, widths[index], column.label);
   });
 
   const rowHeight = 15;
   const inhouseValues = rows.map((row) => row.inhouseIncrease);
   const streetValues = rows.map((row) => row.streetIncrease);
   rows.forEach((row, index) => {
-    const rowY = headerY + 28 + index * rowHeight;
+    const rowY = headerY + 31 + index * rowHeight;
     if (index % 2) doc.rect(x, rowY, width, rowHeight).fill("#F6F8FA");
     const values = [
       row.line,
@@ -505,7 +516,7 @@ function drawWorkbookBlock(
       .lineWidth(0.25).strokeColor("#D9DEE5").stroke();
   });
 
-  const totalY = headerY + 28 + rows.length * rowHeight;
+  const totalY = headerY + 31 + rows.length * rowHeight;
   const residentTotal = rows.reduce((sum, row) => sum + (row.residents ?? 0), 0);
   const weighted = (field: "inhouseIncrease" | "streetIncrease" | "variance") => {
     const denominator = rows.reduce(
@@ -593,13 +604,16 @@ function drawWorkbookScatterplots(
     const plotX = chartX + 28;
     const plotY = top + 11;
     const plotWidth = chartWidth - 38;
-    const plotHeight = 53;
+    const plotHeight = 99;
     const xValues = points.map((point) => point.occupancy);
     const yValues = points.map((point) => point[field] ?? 0);
-    const xMin = Math.floor(Math.min(...xValues) / 5) * 5;
-    const xMax = Math.max(xMin + 5, Math.ceil(Math.max(...xValues) / 5) * 5);
-    const yMin = Math.min(0, Math.floor(Math.min(...yValues)));
-    const yMax = Math.max(yMin + 1, Math.ceil(Math.max(...yValues)));
+    const xMin = Math.floor(Math.min(...xValues) / 2.5) * 2.5;
+    const xMax = Math.max(xMin + 2.5, Math.ceil(Math.max(...xValues) / 2.5) * 2.5);
+    const rawYMin = Math.min(...yValues);
+    const rawYMax = Math.max(...yValues);
+    const yPadding = Math.max(0.15, (rawYMax - rawYMin) * 0.1);
+    const yMin = rawYMin - yPadding;
+    const yMax = rawYMax + yPadding;
     const occupiedLabels: Array<{ left: number; top: number; right: number; bottom: number }> = [];
     const labelPlacements = points.map((point) => {
       const value = point[field] ?? 0;
@@ -641,13 +655,18 @@ function drawWorkbookScatterplots(
     line(doc, chartX, top, chartWidth, title, { size: 6.4, bold: true });
     doc.moveTo(plotX, plotY).lineTo(plotX, plotY + plotHeight).lineTo(plotX + plotWidth, plotY + plotHeight)
       .lineWidth(0.5).strokeColor("#657789").stroke();
-    [0, 0.5, 1].forEach((step) => {
+    Array.from({ length: 5 }, (_, index) => index / 4).forEach((step) => {
       const yy = plotY + plotHeight * (1 - step);
       doc.moveTo(plotX, yy).lineTo(plotX + plotWidth, yy).lineWidth(0.25).strokeColor("#D9DEE5").stroke();
-      line(doc, chartX, yy - 2, 24, `${(yMin + (yMax - yMin) * step).toFixed(0)}%`, { size: 4.8, align: "right" });
+      line(doc, chartX, yy - 2, 24, `${(yMin + (yMax - yMin) * step).toFixed(1)}%`, { size: 4.8, align: "right" });
     });
-    line(doc, plotX, plotY + plotHeight + 3, 35, `${xMin}%`, { size: 4.8 });
-    line(doc, plotX + plotWidth - 55, plotY + plotHeight + 3, 55, `${xMax}% occupancy`, { size: 4.8, align: "right" });
+    const xTickCount = Math.round((xMax - xMin) / 2.5);
+    Array.from({ length: xTickCount + 1 }, (_, index) => xMin + index * 2.5).forEach((value) => {
+      const xx = plotX + (value - xMin) / (xMax - xMin) * plotWidth;
+      doc.moveTo(xx, plotY).lineTo(xx, plotY + plotHeight).lineWidth(0.25).strokeColor("#D9DEE5").stroke();
+      line(doc, xx - 14, plotY + plotHeight + 3, 28, `${value.toFixed(1).replace(".0", "")}%`, { size: 4.8, align: "center" });
+    });
+    line(doc, plotX + plotWidth - 55, plotY + plotHeight + 3, 55, "occupancy", { size: 4.8, align: "right" });
     labelPlacements.forEach(({ point, px, py, x: labelX, y: labelY, labelWidth }) => {
       doc.circle(px, py, 2.5).fill(colors[point.line] ?? "#44546A");
       line(doc, labelX, labelY, labelWidth, point.line, { size: 4.8, bold: true });

@@ -65,6 +65,7 @@ export const users = pgTable("users", {
   mfaEnrolledAt: timestamp("mfa_enrolled_at"),
   mfaLastUsedStep: integer("mfa_last_used_step"),
   clientId: varchar("client_id").references(() => clients.id),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

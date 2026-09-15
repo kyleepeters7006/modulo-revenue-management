@@ -623,7 +623,8 @@ async function ensureSecuritySchema(): Promise<void> {
       ADD COLUMN IF NOT EXISTS mfa_pending_secret_encrypted text,
       ADD COLUMN IF NOT EXISTS mfa_enabled boolean NOT NULL DEFAULT false,
       ADD COLUMN IF NOT EXISTS mfa_enrolled_at timestamptz,
-      ADD COLUMN IF NOT EXISTS mfa_last_used_step integer
+      ADD COLUMN IF NOT EXISTS mfa_last_used_step integer,
+      ADD COLUMN IF NOT EXISTS deleted_at timestamptz
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
@@ -2522,7 +2523,9 @@ export async function registerRoutes(
     const result = await pool.query(
       `SELECT id, username, email, first_name, last_name, role, account_status,
               mfa_enabled, created_at, updated_at
-         FROM users WHERE client_id = $1 ORDER BY lower(username), id`,
+          FROM users
+         WHERE client_id = $1 AND deleted_at IS NULL
+         ORDER BY lower(username), id`,
       [req.session.clientId],
     );
     res.json({ users: result.rows });
@@ -2628,7 +2631,9 @@ export async function registerRoutes(
       await client.query("BEGIN");
       const currentResult = await client.query(
         `SELECT id, username, email, role, account_status
-           FROM users WHERE id = $1 AND client_id = $2 FOR UPDATE`,
+            FROM users
+           WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL
+           FOR UPDATE`,
         [req.params.id, req.session.clientId],
       );
       const current = currentResult.rows[0];
@@ -2695,9 +2700,116 @@ export async function registerRoutes(
     }
   });
 
+  app.delete('/api/admin/users/:id', async (req: any, res) => {
+    const targetUserId = String(req.params.id || "");
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const targetResult = await client.query(
+        `SELECT id, username, role, account_status
+           FROM users
+          WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL
+          FOR UPDATE`,
+        [targetUserId, req.session.clientId],
+      );
+      const target = targetResult.rows[0];
+      if (!target) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "User not found in this tenant." });
+      }
+      if (target.id === req.session.userId) {
+        await client.query("ROLLBACK");
+        await writeSecurityAudit(req, "user_delete_blocked", false, {
+          targetUserId: target.id,
+          reason: "self_delete",
+        });
+        return res.status(409).json({ error: "You cannot delete your own account." });
+      }
+      const actorRole = String(req.session.role || "");
+      if (target.role === "security_admin" && actorRole !== "security_admin") {
+        await client.query("ROLLBACK");
+        await writeSecurityAudit(req, "user_delete_blocked", false, {
+          targetUserId: target.id,
+          reason: "security_admin_role",
+        });
+        return res.status(403).json({
+          error: "Only a security administrator can delete a security administrator.",
+        });
+      }
+      if (
+        target.account_status === "active" &&
+        ["admin", "security_admin"].includes(String(target.role))
+      ) {
+        await client.query(
+          `SELECT id FROM users
+            WHERE client_id = $1
+              AND deleted_at IS NULL
+              AND account_status = 'active'
+              AND role IN ('admin', 'security_admin')
+            FOR UPDATE`,
+          [req.session.clientId],
+        );
+        const count = await client.query(
+          `SELECT count(*)::int AS count FROM users
+            WHERE client_id = $1
+              AND deleted_at IS NULL
+              AND account_status = 'active'
+              AND role IN ('admin', 'security_admin')`,
+          [req.session.clientId],
+        );
+        if (Number(count.rows[0]?.count || 0) <= 1) {
+          await client.query("ROLLBACK");
+          await writeSecurityAudit(req, "user_delete_blocked", false, {
+            targetUserId: target.id,
+            reason: "last_active_admin",
+          });
+          return res.status(409).json({
+            error: "The last active administrator cannot be deleted.",
+          });
+        }
+      }
+      await revokeUserSessions(client, target.id);
+      await client.query(
+        `UPDATE password_reset_tokens
+            SET consumed_at = now()
+          WHERE user_id = $1 AND consumed_at IS NULL`,
+        [target.id],
+      );
+      await client.query(`DELETE FROM mfa_recovery_codes WHERE user_id = $1`, [target.id]);
+      await client.query(
+        `UPDATE users
+            SET account_status = 'disabled',
+                password_hash = NULL,
+                mfa_secret_encrypted = NULL,
+                mfa_pending_secret_encrypted = NULL,
+                mfa_enabled = false,
+                mfa_enrolled_at = NULL,
+                mfa_last_used_step = NULL,
+                deleted_at = now(),
+                updated_at = now()
+          WHERE id = $1 AND client_id = $2`,
+        [target.id, req.session.clientId],
+      );
+      await client.query("COMMIT");
+      await writeSecurityAudit(req, "user_deleted", true, {
+        targetUserId: target.id,
+        targetRole: target.role,
+      });
+      return res.json({ success: true });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      console.error("[security] user deletion failed:", error);
+      return res.status(500).json({ error: "User could not be deleted." });
+    } finally {
+      client.release();
+    }
+  });
+
   app.post('/api/admin/users/:id/send-reset', async (req: any, res) => {
     const target = await pool.query(
-      `SELECT id, email FROM users WHERE id = $1 AND client_id = $2 LIMIT 1`,
+      `SELECT id, email FROM users
+        WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL
+        LIMIT 1`,
       [req.params.id, req.session.clientId],
     );
     if (!target.rows[0]?.email) return res.status(404).json({ error: "User not found or has no email address." });
@@ -2733,7 +2845,9 @@ export async function registerRoutes(
     try {
       await client.query("BEGIN");
       const target = await client.query(
-        `SELECT id FROM users WHERE id = $1 AND client_id = $2 FOR UPDATE`,
+        `SELECT id FROM users
+          WHERE id = $1 AND client_id = $2 AND deleted_at IS NULL
+          FOR UPDATE`,
         [req.params.id, req.session.clientId],
       );
       if (!target.rows[0]) {

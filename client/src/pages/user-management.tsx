@@ -40,6 +40,8 @@ const activityLabels: Record<string, string> = {
   admin_password_reset_requested: "Admin sent a password reset",
   user_created: "User account created",
   user_updated: "User account updated",
+  user_deleted: "User account deleted",
+  user_delete_blocked: "User deletion blocked",
   admin_mfa_reset: "Admin reset MFA",
   session_revoked: "Session ended",
   csrf_rejected: "Unverified request blocked",
@@ -104,6 +106,15 @@ export default function UserManagement() {
     onSuccess: async () => { setMessage("MFA was reset."); await refresh(); },
     onError: (error: Error) => setMessage(error.message),
   });
+  const deleteUser = useMutation({
+    mutationFn: (id: string) => request(`/api/admin/users/${id}`, "DELETE"),
+    onSuccess: async () => {
+      setEditing(null);
+      setMessage("User deleted. Their access and active sessions have been removed.");
+      await refresh();
+    },
+    onError: (error: Error) => setMessage(error.message),
+  });
 
   useEffect(() => {
     if (editing) setForm({
@@ -165,7 +176,10 @@ export default function UserManagement() {
           <CardHeader><CardTitle>Tenant users</CardTitle></CardHeader>
           <CardContent className="overflow-x-auto p-0">
             <table className="w-full text-left text-sm"><thead className="border-b bg-gray-50"><tr><th className="p-3">Username</th><th className="p-3">Email</th><th className="p-3">Role</th><th className="p-3">Status</th><th className="p-3">Actions</th></tr></thead>
-              <tbody>{(usersQuery.data?.users || []).map((user) => <tr key={user.id} className="border-b last:border-0"><td className="p-3 font-medium">{user.username}</td><td className="p-3">{user.email}</td><td className="p-3">{user.role}</td><td className="p-3">{user.account_status}</td><td className="flex flex-wrap gap-2 p-3"><Button size="sm" variant="outline" data-testid={`button-edit-user-${user.id}`} onClick={() => setEditing(user)}>Edit</Button><Button size="sm" variant="outline" data-testid={`button-send-reset-${user.id}`} onClick={() => sendReset.mutate(user.id)}>Send reset</Button><Button size="sm" variant="outline" data-testid={`button-reset-mfa-${user.id}`} onClick={() => { if (window.confirm("Reset this user's MFA? They will enroll again at next login.")) resetMfa.mutate(user.id); }}>Reset MFA</Button></td></tr>)}</tbody>
+              <tbody>{(usersQuery.data?.users || []).map((managedUser) => {
+                const isCurrentUser = managedUser.id === user?.id;
+                return <tr key={managedUser.id} className="border-b last:border-0"><td className="p-3 font-medium">{managedUser.username}</td><td className="p-3">{managedUser.email}</td><td className="p-3">{managedUser.role}</td><td className="p-3">{managedUser.account_status}</td><td className="flex flex-wrap gap-2 p-3"><Button size="sm" variant="outline" data-testid={`button-edit-user-${managedUser.id}`} onClick={() => setEditing(managedUser)}>Edit</Button><Button size="sm" variant="outline" data-testid={`button-send-reset-${managedUser.id}`} onClick={() => sendReset.mutate(managedUser.id)}>Send reset</Button><Button size="sm" variant="outline" data-testid={`button-reset-mfa-${managedUser.id}`} onClick={() => { if (window.confirm("Reset this user's MFA? They will enroll again at next login.")) resetMfa.mutate(managedUser.id); }}>Reset MFA</Button><Button size="sm" variant="destructive" data-testid={`button-delete-user-${managedUser.id}`} disabled={isCurrentUser || deleteUser.isPending} title={isCurrentUser ? "You cannot delete your own account." : "Delete this user"} onClick={() => { if (window.confirm(`Delete ${managedUser.username}? This permanently removes their access, active sessions, password reset links, and MFA enrollment. Historical audit records will be retained.`)) deleteUser.mutate(managedUser.id); }}>Delete</Button></td></tr>;
+              })}</tbody>
             </table>
           </CardContent>
         </Card>

@@ -1006,10 +1006,14 @@ export function registerInhousePlanningRoutes(
 
       const report = normalizedAnnualReport(row);
       const buffer = await generateAnnualInhouseReportPdf(report);
+      const generatedDate = new Date(row.generatedAt ?? row.createdAt ?? Date.now());
+      const datePart = Number.isNaN(generatedDate.getTime())
+        ? new Date().toISOString().slice(0, 10)
+        : generatedDate.toISOString().slice(0, 10);
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="annual-inhouse-increase-report_${row.id}.pdf"`,
+        `attachment; filename="Annual_In-House_Rate_Plan_${datePart}.pdf"`,
       );
       res.setHeader("Content-Length", String(buffer.length));
       res.setHeader("Cache-Control", "no-store");

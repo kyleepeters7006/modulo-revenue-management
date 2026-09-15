@@ -292,7 +292,7 @@ input[type="range"]::-moz-range-thumb {
      date / title / URL / page-number headers and footers.
      Visual padding is applied to #modulo-print-root instead so the
      content still has breathing room on the printed page. */
-  @page { margin: 0; size: portrait; }
+  @page { margin: 0; size: landscape; }
 
   /* Preserve all background colours, images, and shadows everywhere */
   *, *::before, *::after {
@@ -371,10 +371,11 @@ input[type="range"]::-moz-range-thumb {
 }
 
 @media print {
-  @page { size: landscape; margin: 0.75in 0.25in; }
+  @page { size: landscape; margin: 0.35in 0.3in; }
   body { background: #eef2f5 !important; }
   .report-toolbar { display: none !important; }
   .annual-report-sheet { max-width: none !important; width: 100% !important; }
+  .report-data-table { min-width: 0 !important; width: 100% !important; }
   .report-page { box-sizing: border-box; width: 100%; min-height: 6.95in; margin: 0 !important; break-after: page; page-break-after: always; }
   .report-page:last-child { break-after: auto; page-break-after: auto; }
   .report-panel { break-inside: avoid; box-shadow: none !important; }
@@ -397,13 +398,25 @@ input[type="range"]::-moz-range-thumb {
 .annual-report-sheet .report-panel table { border-collapse: collapse; }
 .annual-report-sheet .report-panel thead { background: hsl(204 47% 84%); }
 .annual-report-sheet .report-panel th { border-bottom: 1px solid hsl(213 22% 63%); }
-.report-data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.report-data-table th { background: hsl(204 47% 84%); color: hsl(214 29% 22%); border: 1px solid hsl(213 22% 63%); padding: 5px 6px; font-weight: 700; text-align: right; }
+.report-data-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+.report-data-table th { background: hsl(204 47% 84%); color: hsl(214 29% 22%); border: 1px solid hsl(213 22% 63%); padding: 6px 5px; font-weight: 700; text-align: center; vertical-align: middle; line-height: 1.08; overflow-wrap: anywhere; }
 .report-data-table th:first-child, .report-data-table td:first-child { text-align: left; }
-.report-data-table td { border: 1px solid hsl(213 22% 73%); padding: 5px 6px; text-align: right; vertical-align: top; }
+.report-data-table td { border: 1px solid hsl(213 22% 73%); padding: 6px 5px; text-align: center; vertical-align: middle; line-height: 1.15; overflow-wrap: anywhere; }
 .report-data-table tbody tr:nth-child(even) { background: hsl(204 35% 95%); }
 .report-data-table .mono { font-family: 'EB Garamond', Georgia, serif; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .report-data-table .increase-pct { font-weight: 700; }
+.report-data-table th:nth-child(1), .report-data-table td:nth-child(1) { width: 13%; }
+.report-data-table th:nth-child(2), .report-data-table td:nth-child(2) { width: 6%; }
+.report-data-table th:nth-child(3), .report-data-table td:nth-child(3),
+.report-data-table th:nth-child(4), .report-data-table td:nth-child(4) { width: 8%; }
+.report-data-table th:nth-child(5), .report-data-table td:nth-child(5),
+.report-data-table th:nth-child(8), .report-data-table td:nth-child(8) { width: 8%; }
+.report-data-table th:nth-child(6), .report-data-table td:nth-child(6),
+.report-data-table th:nth-child(7), .report-data-table td:nth-child(7) { width: 10%; }
+.report-data-table th:nth-child(9), .report-data-table td:nth-child(9) { width: 9%; }
+.report-data-table th:nth-child(10), .report-data-table td:nth-child(10) { width: 11%; }
+.report-data-table th:nth-child(11), .report-data-table td:nth-child(11) { width: 7%; }
+.report-data-table th:nth-child(12), .report-data-table td:nth-child(12) { width: 8%; }
 .tier-block { border: 1px solid hsl(213 22% 63%); }
 .tier-block--tier1 .report-section-band { background: #f5f4ed; color: #202020; border-bottom: 1px solid #a8afb8; }
 .tier-block--tier2 .report-section-band { background: #101010; color: #ffffff; }

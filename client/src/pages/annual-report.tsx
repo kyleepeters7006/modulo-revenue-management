@@ -375,8 +375,8 @@ function WorkbookReportBlock({
     const proposedStreet = scenario
       ? currentStreet * (1 + (streetIncrease ?? 0) / 100)
       : plan.recommendedStreetRateMonthly;
-    const position = proposedStreet
-      ? ((proposedInhouse - proposedStreet) / proposedStreet) * 100
+    const position = proposedInhouse
+      ? ((proposedStreet - proposedInhouse) / proposedInhouse) * 100
       : null;
     return {
       sl,
@@ -420,19 +420,19 @@ function WorkbookReportBlock({
         </span>
       </div>
       <div className="overflow-x-auto">
-        <table className="report-data-table min-w-[1060px]">
+          <table className="report-data-table min-w-[1060px]">
           <thead>
             <tr>
               <th>Service line</th>
               <th>Count</th>
-              <th>Current IH rate</th>
-              <th>New IH rate</th>
-              <th>IH avg increase</th>
-              <th>Current Street Rate</th>
-              <th>New Street Rate</th>
-              <th>Street avg increase</th>
-              <th>Street to in-house</th>
-              <th>Annualized revenue</th>
+              <th>Current IH<br />rate</th>
+              <th>New IH<br />rate</th>
+              <th>IH avg<br />increase</th>
+              <th>Current Street<br />Rate</th>
+              <th>New Street<br />Rate</th>
+              <th>Street avg<br />increase</th>
+              <th>New Street<br />over new IH</th>
+              <th>Annualized<br />revenue</th>
               <th>Resident count</th>
               <th>Portfolio %</th>
             </tr>
@@ -523,14 +523,17 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
 
   const chart = (field: "inhouse" | "street", title: string) => {
     const width = 430;
-    const height = 105;
-    const pad = { left: 34, right: 12, top: 18, bottom: 24 };
+    const height = 168;
+    const pad = { left: 38, right: 12, top: 18, bottom: 29 };
     const xValues = points.map((point) => point.occupancy);
     const yValues = points.map((point) => point[field]);
-    const xMin = Math.floor(Math.min(...xValues) / 5) * 5;
-    const xMax = Math.max(xMin + 5, Math.ceil(Math.max(...xValues) / 5) * 5);
-    const yMin = Math.min(0, Math.floor(Math.min(...yValues)));
-    const yMax = Math.max(yMin + 1, Math.ceil(Math.max(...yValues)));
+    const xMin = Math.floor(Math.min(...xValues) / 2.5) * 2.5;
+    const xMax = Math.max(xMin + 2.5, Math.ceil(Math.max(...xValues) / 2.5) * 2.5);
+    const rawYMin = Math.min(...yValues);
+    const rawYMax = Math.max(...yValues);
+    const yPadding = Math.max(0.15, (rawYMax - rawYMin) * 0.1);
+    const yMin = rawYMin - yPadding;
+    const yMax = rawYMax + yPadding;
     const plotWidth = width - pad.left - pad.right;
     const plotHeight = height - pad.top - pad.bottom;
     const sx = (value: number) => pad.left + (value - xMin) / (xMax - xMin) * plotWidth;
@@ -578,13 +581,15 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
         <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title}: occupancy against increase percentage`}>
           <line x1={pad.left} y1={pad.top + plotHeight} x2={width - pad.right} y2={pad.top + plotHeight} className="report-scatter-axis" />
           <line x1={pad.left} y1={pad.top} x2={pad.left} y2={pad.top + plotHeight} className="report-scatter-axis" />
-          {[0, 0.5, 1].map((step) => {
+          {Array.from({ length: 5 }, (_, index) => index / 4).map((step) => {
             const y = pad.top + plotHeight * (1 - step);
             const value = yMin + (yMax - yMin) * step;
-            return <g key={step}><line x1={pad.left} y1={y} x2={width - pad.right} y2={y} className="report-scatter-grid" /><text x={pad.left - 5} y={y + 3} textAnchor="end">{value.toFixed(0)}%</text></g>;
+            return <g key={step}><line x1={pad.left} y1={y} x2={width - pad.right} y2={y} className="report-scatter-grid" /><text x={pad.left - 5} y={y + 3} textAnchor="end">{value.toFixed(1)}%</text></g>;
           })}
-          <text x={pad.left} y={height - 5}>{xMin}%</text>
-          <text x={width - pad.right} y={height - 5} textAnchor="end">{xMax}% occupancy</text>
+          {Array.from({ length: Math.round((xMax - xMin) / 2.5) + 1 }, (_, index) => xMin + index * 2.5).map((value) => {
+            const x = sx(value);
+            return <g key={value}><line x1={x} y1={pad.top} x2={x} y2={pad.top + plotHeight} className="report-scatter-grid" /><text x={x} y={height - 7} textAnchor="middle">{value.toFixed(1).replace(".0", "")}%</text></g>;
+          })}
           {labelPlacements.map(({ point, px, py, x, y, anchor }) => (
             <g key={`${field}-${point.sl}`}>
               <circle cx={px} cy={py} r="4.2" fill={REPORT_SCATTER_COLORS[point.sl] ?? "#44546A"} />
@@ -645,7 +650,11 @@ export default function AnnualReportPage() {
     if (!report) return;
     const res = await fetch(`/api/inhouse-planning/annual-report-runs/${encodeURIComponent(report.id)}/pdf`, { credentials: "include" });
     if (!res.ok) throw new Error("PDF export failed.");
-    const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `modulo-annual-report-${report.id}.pdf`; a.click(); URL.revokeObjectURL(url);
+    const generatedDate = new Date(report.generatedAt);
+    const datePart = Number.isNaN(generatedDate.getTime())
+      ? new Date().toISOString().slice(0, 10)
+      : generatedDate.toISOString().slice(0, 10);
+    const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `Annual_In-House_Rate_Plan_${datePart}.pdf`; a.click(); URL.revokeObjectURL(url);
   };
   return <div className="min-h-[100dvh] bg-[var(--dashboard-bg)] px-4 py-5 sm:px-8 lg:px-12">
     <div className="report-toolbar mx-auto mb-5 flex max-w-[1480px] flex-wrap items-center justify-between gap-2">
