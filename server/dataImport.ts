@@ -17,6 +17,7 @@ import {
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import { normalizeRoomType } from '@shared/roomTypes';
 import { isMalformedMoveInDate } from './services/inhouseRatePlanning/historicalTurnover';
+import { invalidateLatestRentRollCache } from './latestRentRollCache';
 
 function parseSourceDaysVacant(raw: unknown): { value: number | null; provided: boolean } {
   const text = raw == null ? '' : String(raw).trim();
@@ -1819,7 +1820,7 @@ export async function importMatrixCareRentRollCSV(
 }
 
 export async function syncHistoryToCurrentRentRoll(uploadMonth: string, clientId?: string): Promise<{ synced: number }> {
-  return await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const historyRecords = await tx
       .select()
       .from(rentRollHistory)
@@ -1888,4 +1889,6 @@ export async function syncHistoryToCurrentRentRoll(uploadMonth: string, clientId
 
     return { synced };
   });
+  invalidateLatestRentRollCache(clientId);
+  return result;
 }

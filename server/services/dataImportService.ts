@@ -22,6 +22,7 @@ import {
 import { IMPORT_DATASETS, getDataset, type DatasetDefinition, type RegistryField } from "@shared/importRegistry";
 import { normalizeRoomType } from "@shared/roomTypes";
 import { invalidateLatestSurveyMonthCache } from "./competitorRateMatching";
+import { invalidateLatestRentRollCache } from "../latestRentRollCache";
 
 // Infer a service-line family string from a raw room-type name prefix
 // ("AL Companion" → "AL", "HC Companion" → "HC").  Mirrors the same helper in
@@ -717,6 +718,9 @@ export async function executeImport(params: ImportParams): Promise<ImportRun> {
       `${params.fileName}: ${inserted} rows imported${period ? ` — period ${period} ${deleted > 0 ? `replaced (${deleted} prior rows removed)` : "added"}` : deleted > 0 ? ` (${deleted} existing records updated)` : ""}${validation.errorRows > 0 ? `; ${validation.errorRows} rows had errors and were skipped` : ""}${zeroPersistenceWarnings.length > 0 ? ` ${zeroPersistenceWarnings.join(" ")}` : ""}.`,
     );
 
+    if (datasetId === "rent_roll") {
+      invalidateLatestRentRollCache(clientId);
+    }
     return updated;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -9490,12 +9490,11 @@ export async function registerRoutes(
         return res.json(cached);
       }
       
-      // Dynamically resolve the most recent month that has data for this client
-      const mostRecentMonthRow = await db
-        .select({ month: sql<string>`MAX(${rentRollData.uploadMonth})` })
-        .from(rentRollData)
-        .where(eq(rentRollData.clientId, clientId));
-      const currentMonth = mostRecentMonthRow[0]?.month || (() => {
+      // Campus metrics and vacancy scatter share this tenant-scoped snapshot.
+      // The storage loader coalesces concurrent cold requests so only one
+      // latest-month rent-roll scan runs when Analytics opens.
+      const latestRentRoll = await storage.getLatestRentRollData(clientId);
+      const currentMonth = latestRentRoll.uploadMonth || (() => {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       })();
@@ -9503,7 +9502,7 @@ export async function registerRoutes(
       // max-rate position calculation; loadStudioCompBenchmark (below) now supplies
       // competitor rates, so they are no longer read.
       const [campusRentRoll, campusData, streetBaselines] = await Promise.all([
-        storage.getRentRollDataByMonth(currentMonth, clientId),  // Only get current month data
+        Promise.resolve(latestRentRoll.rows),  // Shared latest-month snapshot
         storage.getAllCampuses(clientId),
         // Outlier baselines from the shared view, so the price-position maths
         // below judges rates exactly as the SQL rate surfaces do.
@@ -9880,8 +9879,14 @@ export async function registerRoutes(
         summary
       };
       
-      // Cache the result for 5 minutes
-      setCachedAnalytics(cacheKey, result);
+      // An import can invalidate the source while this expensive calculation
+      // is running. Do not let that pre-import result repopulate the derived
+      // cache; the next request will load the new snapshot.
+      if (storage.isLatestRentRollDataCurrent(clientId, latestRentRoll.generation)) {
+        setCachedAnalytics(cacheKey, result);
+      } else {
+        console.log(`Analytics: Skipping stale cache write for ${cacheKey}`);
+      }
       
       res.json(result);
     } catch (error) {
@@ -9904,23 +9909,18 @@ export async function registerRoutes(
         return res.json(cached);
       }
       
-      // Get the most recent month's data from the database (filtered by clientId)
-      const mostRecentMonthResult = await db
-        .select({ month: sql<string>`MAX(${rentRollData.uploadMonth})` })
-        .from(rentRollData)
-        .where(eq(rentRollData.clientId, clientId));
-      const uploadMonth = mostRecentMonthResult[0]?.month || '2025-11';
+      // Reuse the same tenant/month-scoped snapshot as campus metrics.
+      const latestRentRoll = await storage.getLatestRentRollData(clientId);
+      const uploadMonth = latestRentRoll.uploadMonth || '2025-11';
       
       console.log('Vacancy analysis using upload month:', uploadMonth);
       
-      // Get all rent roll data - getRentRollDataFiltered expects month as first param, filters as second
-      const filters: any = { clientId };
+      // Apply endpoint filters after loading the shared snapshot. Keep the
+      // response shape and filtering semantics unchanged.
+      let allRentRollData = latestRentRoll.rows;
       if (location) {
-        filters.locations = [location as string];
+        allRentRollData = allRentRollData.filter(unit => unit.location === location);
       }
-      // Note: getRentRollDataFiltered doesn't support serviceLine filter directly
-      // We'll filter by serviceLine in memory after fetching
-      let allRentRollData = await storage.getRentRollDataFiltered(uploadMonth, filters);
       
       // Filter by service line if provided
       if (serviceLine) {
@@ -9998,8 +9998,13 @@ export async function registerRoutes(
         }
       };
       
-      // Cache the result for 5 minutes
-      setCachedAnalytics(cacheKey, result);
+      // An import can invalidate the source while this calculation is running.
+      // Skip caching a pre-import result so the next request uses fresh rows.
+      if (storage.isLatestRentRollDataCurrent(clientId, latestRentRoll.generation)) {
+        setCachedAnalytics(cacheKey, result);
+      } else {
+        console.log(`Vacancy: Skipping stale cache write for ${cacheKey}`);
+      }
       
       res.json(result);
     } catch (error) {
@@ -11829,15 +11834,8 @@ ${campusOccLines.join('\n')}
       // this client so the next request for the Competitive Position scatter chart,
       // Vacancy scatter, and Overview tiles returns fresh DB data instead of the
       // previously-cached (potentially stale / $0-rate) result.
-      const analyticsRentRollPrefixes = [
-        `comp-position-studio:${clientId}:`,
-        `vacancy-scatter:${clientId}:`,
-        `overview_${clientId}`,
-      ];
-      for (const key of Array.from(analyticsCache.keys())) {
-        if (analyticsRentRollPrefixes.some(p => key.startsWith(p))) analyticsCache.delete(key);
-      }
-      console.log(`[upload/rent-roll] analytics cache cleared for client ${clientId} (comp-position-studio, vacancy-scatter, overview)`);
+      purgeCompPositionCaches(clientId);
+      console.log(`[upload/rent-roll] analytics cache cleared for client ${clientId} (campus-metrics, vacancy-scatter, comp-position-studio, overview)`);
 
       // Auto-trigger competitor rate matching using the job-based system
       // This is resumable and won't be interrupted by server restarts.

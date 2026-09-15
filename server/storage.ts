@@ -94,6 +94,14 @@ import { eq, and, asc, desc, sql, isNull, inArray, or } from "drizzle-orm";
 import { calculateAttributedPrice, ensureCacheInitialized } from "./pricingOrchestrator";
 import type { PricingInputs } from "./moduloPricingAlgorithm";
 import { calculateDistance } from "./geocoding";
+import {
+  getLatestRentRollSnapshot,
+  getLatestRentRollSnapshotInFlight,
+  setLatestRentRollSnapshot,
+  setLatestRentRollSnapshotInFlight,
+  getLatestRentRollCacheGeneration,
+  invalidateLatestRentRollCache,
+} from "./latestRentRollCache";
 
 // Interface for storage operations
 export interface IStorage {
@@ -114,6 +122,9 @@ export interface IStorage {
   getRentRollData(clientId?: string): Promise<RentRollData[]>;
   getTotalUnits(): Promise<number>;
   getRentRollDataByMonth(uploadMonth: string, clientId?: string): Promise<RentRollData[]>;
+  getLatestRentRollData(clientId: string): Promise<{ uploadMonth: string | null; rows: RentRollData[]; generation: number }>;
+  isLatestRentRollDataCurrent(clientId: string, generation: number): boolean;
+  invalidateLatestRentRollCache(clientId?: string): void;
   getRentRollDataFiltered(month: string, filters: {
     regions?: string[];
     divisions?: string[];
@@ -306,6 +317,7 @@ export class DatabaseStorage implements IStorage {
   // Clear all data
   async clearAllData(): Promise<void> {
     await db.delete(rentRollData);
+    invalidateLatestRentRollCache();
     await db.delete(rateCard);
     await db.delete(uploadHistory);
     await db.delete(competitors);
@@ -497,6 +509,39 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(rentRollData).where(and(...conditions));
   }
 
+  async getLatestRentRollData(clientId: string): Promise<{ uploadMonth: string | null; rows: RentRollData[]; generation: number }> {
+    const cached = getLatestRentRollSnapshot(clientId);
+    if (cached) return cached;
+
+    const pending = getLatestRentRollSnapshotInFlight(clientId);
+    if (pending) return pending;
+
+    const generation = getLatestRentRollCacheGeneration(clientId);
+    const load = (async () => {
+      const [latest] = await db
+        .select({ uploadMonth: sql<string>`MAX(${rentRollData.uploadMonth})` })
+        .from(rentRollData)
+        .where(eq(rentRollData.clientId, clientId));
+      const uploadMonth = latest?.uploadMonth ?? null;
+      const rows = uploadMonth
+        ? await this.getRentRollDataByMonth(uploadMonth, clientId)
+        : [];
+      const snapshot = { uploadMonth, rows, generation };
+      setLatestRentRollSnapshot(clientId, snapshot, generation);
+      return snapshot;
+    })();
+    setLatestRentRollSnapshotInFlight(clientId, load);
+    return load;
+  }
+
+  isLatestRentRollDataCurrent(clientId: string, generation: number): boolean {
+    return getLatestRentRollCacheGeneration(clientId) === generation;
+  }
+
+  invalidateLatestRentRollCache(clientId?: string): void {
+    invalidateLatestRentRollCache(clientId);
+  }
+
   async getRentRollDataFiltered(month: string, filters: {
     regions?: string[];
     divisions?: string[];
@@ -624,20 +669,26 @@ export class DatabaseStorage implements IStorage {
 
   async createRentRollData(data: InsertRentRollData): Promise<RentRollData> {
     const [rentRoll] = await db.insert(rentRollData).values(data).returning();
+    invalidateLatestRentRollCache(data.clientId ?? undefined);
     return rentRoll;
   }
 
   async bulkInsertRentRollData(data: any[]): Promise<void> {
     if (data.length === 0) return;
     await db.insert(rentRollData).values(data);
+    const clientIds = new Set(data.map((row) => row.clientId).filter(Boolean));
+    if (clientIds.size === 0) invalidateLatestRentRollCache();
+    else clientIds.forEach((clientId) => invalidateLatestRentRollCache(clientId));
   }
 
   async clearRentRollData(): Promise<void> {
     await db.delete(rentRollData);
+    invalidateLatestRentRollCache();
   }
 
   async clearRentRollDataByLocation(location: string): Promise<void> {
     await db.delete(rentRollData).where(eq(rentRollData.location, location));
+    invalidateLatestRentRollCache();
   }
 
   async uploadRentRollData(month: string, data: any[], clientId: string): Promise<void> {
@@ -695,6 +746,7 @@ export class DatabaseStorage implements IStorage {
         await db.insert(rentRollData).values(batch);
       }
     }
+    invalidateLatestRentRollCache(clientId);
   }
 
   // Rate card operations

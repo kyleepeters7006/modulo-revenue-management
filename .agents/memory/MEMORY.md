@@ -75,6 +75,7 @@
 - [Test runner conventions](test-runner-conventions.md) — *.vitest.ts = vitest, *.test.ts = standalone tsx scripts; mixing them made npm test always fail.
 - [Display fallback ≠ identity](display-fallback-not-identity.md) — null→"Other" must stay in the display layer; as a group/React key it merges distinct partitions and undercounts.
 - [Async result & loaded-value provenance](async-result-provenance.md) — slow results snapshot scope+inputs; populated ≠ loaded; invalidation doesn't evict.
+- [Latest tenant source cache](latest-tenant-source-cache.md) — shared latest-month rent-roll data must evict derived responses and stale in-flight loads on import.
 - [Browser-cached planning results](browser-cached-plans.md) — identity-scope resident-level cached results, purge on logout, and block approval when assumptions drift.
 - [Base-rate basis](base-rate-basis.md) — rates = single occupant, standard stay; HC/HC-MC needs a room-type arm beyond B-beds; COALESCE every column or the JS/SQL twins diverge on NULLs.
 - [Derived rate formulas](derived-rate-formulas.md) — six non-base products derived from the base rate; outputs only, round once, whole-set saves on a pinned connection, session-scoped mutations.
