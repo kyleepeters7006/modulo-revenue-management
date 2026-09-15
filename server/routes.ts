@@ -13450,9 +13450,24 @@ ${campusOccLines.join('\n')}
         .where(eq(rentRollData.clientId, clientId));
       const mostRecentMonth = mostRecentMonthResult[0]?.month || '2025-11';
       
-      // Filter to most recent month only for this client
+      // Filter to most recent month only for this client. This endpoint only
+      // needs the fields below; selecting the full rent-roll row made the
+      // 19k-row cold Overview query spend most of its time transferring and
+      // decoding unrelated resident/import metadata.
       const allRentRollData = await db
-        .select()
+        .select({
+          location: rentRollData.location,
+          roomNumber: rentRollData.roomNumber,
+          roomType: rentRollData.roomType,
+          serviceLine: rentRollData.serviceLine,
+          occupiedYN: rentRollData.occupiedYN,
+          streetRate: rentRollData.streetRate,
+          inHouseRate: rentRollData.inHouseRate,
+          careRate: rentRollData.careRate,
+          competitorFinalRate: rentRollData.competitorFinalRate,
+          moduloSuggestedRate: rentRollData.moduloSuggestedRate,
+          payorType: rentRollData.payorType,
+        })
         .from(rentRollData)
         .where(and(
           sql`${rentRollData.uploadMonth} = ${mostRecentMonth}`,
