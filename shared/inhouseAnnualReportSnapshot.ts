@@ -45,20 +45,19 @@ export interface AnnualReportPlanSnapshot {
 export interface AnnualRateGrowthBridge {
   priorYearAverageRateMonthly: number;
   projectedPlanYearAverageRateMonthly: number;
-  priorPeriodCarryoverPct: number;
-  planYearContributionPct: number;
+  priorPeriodIncreasePct: number;
+  planIncreasePct: number;
   fullYearYoyPct: number;
 }
 
 /**
- * Bridges the prior-year average to today's rate and then to the projected
- * plan-year average. The two percentage-point contributions add exactly to
- * full-year YoY growth.
+ * Splits projected full-year YoY into the annual-plan increase shown in the
+ * report and the remaining increase carried from prior pricing periods.
  */
 export function annualRateGrowthBridge(
   quarters: AnnualReportQuarterSnapshot[],
   rateBasis: PlanResult["rateBasis"],
-  currentRateMonthly: number,
+  planIncreasePct: number,
 ): AnnualRateGrowthBridge | null {
   let priorWeighted = 0;
   let projectedWeighted = 0;
@@ -91,19 +90,17 @@ export function annualRateGrowthBridge(
     projectedWeight += periodWeight;
   }
 
-  if (priorWeight <= 0 || projectedWeight <= 0 || currentRateMonthly <= 0) return null;
+  if (priorWeight <= 0 || projectedWeight <= 0 || !Number.isFinite(planIncreasePct)) return null;
   const priorYearAverageRateMonthly = priorWeighted / priorWeight;
   const projectedPlanYearAverageRateMonthly = projectedWeighted / projectedWeight;
   if (priorYearAverageRateMonthly <= 0) return null;
-  const priorPeriodCarryoverPct =
-    (currentRateMonthly / priorYearAverageRateMonthly - 1) * 100;
   const fullYearYoyPct =
     (projectedPlanYearAverageRateMonthly / priorYearAverageRateMonthly - 1) * 100;
   return {
     priorYearAverageRateMonthly,
     projectedPlanYearAverageRateMonthly,
-    priorPeriodCarryoverPct,
-    planYearContributionPct: fullYearYoyPct - priorPeriodCarryoverPct,
+    priorPeriodIncreasePct: fullYearYoyPct - planIncreasePct,
+    planIncreasePct,
     fullYearYoyPct,
   };
 }

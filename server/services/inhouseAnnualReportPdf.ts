@@ -416,8 +416,8 @@ function workbookRows(plans: JsonObject[], grid: unknown, tier?: string): Workbo
       : measuredStreet;
     const rateBasis = first(plan, ["rateBasis"]) === "daily" ? "daily" : "monthly";
     const quarters = objects(first(plan, ["quarters"]));
-    const growthBridge = !tier && currentInhouse != null
-      ? annualRateGrowthBridge(quarters as any, rateBasis, currentInhouse)
+    const growthBridge = !tier && inhouseIncrease != null
+      ? annualRateGrowthBridge(quarters as any, rateBasis, inhouseIncrease)
       : null;
     return {
       line: lineName,
@@ -458,24 +458,27 @@ function drawWorkbookBlock(
     { label: "Service line", weight: includeGrowthBridge ? 0.9 : 1.3, align: "left" as const },
     { label: "Current\nIH rate", weight: includeGrowthBridge ? 0.7 : 0.9, align: "center" as const },
     { label: "New\nIH rate", weight: includeGrowthBridge ? 0.7 : 0.9, align: "center" as const },
-    { label: "Resident annual\nincrease", weight: includeGrowthBridge ? 0.65 : 0.8, align: "center" as const },
+    { label: "Current\nStreet Rate", weight: includeGrowthBridge ? 0.7 : 0.9, align: "center" as const },
+    { label: "New\nStreet Rate", weight: includeGrowthBridge ? 0.7 : 0.9, align: "center" as const },
+    { label: "Street avg\nincrease", weight: includeGrowthBridge ? 0.7 : 0.8, align: "center" as const },
+    { label: "New Street\nover new IH", weight: includeGrowthBridge ? 0.7 : 0.8, align: "center" as const },
     ...(includeGrowthBridge ? [
-      { label: "Prior-period\ncarryover", weight: 0.65, align: "center" as const },
-      { label: "Plan-year\ncontribution", weight: 0.65, align: "center" as const },
-      { label: "Full-year\nYoY", weight: 0.65, align: "center" as const },
-    ] : []),
-    { label: "Current\nStreet Rate", weight: 0.9, align: "center" as const },
-    { label: "New\nStreet Rate", weight: 0.84, align: "center" as const },
-    { label: "Street avg\nincrease", weight: 0.72, align: "center" as const },
-    { label: "New Street\nover new IH", weight: 0.78, align: "center" as const },
-    { label: "Annualized\nrevenue", weight: 1.02, align: "center" as const },
-    { label: "Resident\ncount", weight: 0.72, align: "center" as const },
-    { label: "Portfolio\n%", weight: 0.68, align: "center" as const },
+      { label: "Prior-period\nincrease", weight: 0.7, align: "center" as const },
+      { label: "Plan\nincrease", weight: 0.7, align: "center" as const },
+      { label: "Total\nYoY", weight: 0.7, align: "center" as const },
+    ] : [
+      { label: "Resident annual\nincrease", weight: 0.8, align: "center" as const },
+    ]),
+    { label: "Annualized\nrevenue", weight: includeGrowthBridge ? 1 : 1.1, align: "center" as const },
+    { label: "Resident\ncount", weight: includeGrowthBridge ? 0.9 : 0.8, align: "center" as const },
+    { label: "Portfolio\n%", weight: includeGrowthBridge ? 0.9 : 0.8, align: "center" as const },
   ];
   const totalWeight = columns.reduce((sum, column) => sum + column.weight, 0);
   const widths = columns.map((column) => width * column.weight / totalWeight);
   const inhouseIncreaseColumn = columns.findIndex(
-    (column) => column.label === "Resident annual\nincrease",
+    (column) =>
+      column.label === "Resident annual\nincrease" ||
+      column.label === "Plan\nincrease",
   );
   const streetIncreaseColumn = columns.findIndex(
     (column) => column.label === "Street avg\nincrease",
@@ -509,16 +512,17 @@ function drawWorkbookBlock(
       row.line,
       valueOrDash(row.currentInhouse, money),
       valueOrDash(row.proposedInhouse, money),
-      valueOrDash(row.inhouseIncrease, pct),
-      ...(includeGrowthBridge ? [
-        valueOrDash(row.growthBridge?.priorPeriodCarryoverPct, pct),
-        valueOrDash(row.growthBridge?.planYearContributionPct, pct),
-        valueOrDash(row.growthBridge?.fullYearYoyPct, pct),
-      ] : []),
       valueOrDash(row.currentStreet, money),
       valueOrDash(row.proposedStreet, money),
       valueOrDash(row.streetIncrease, pct),
       valueOrDash(row.variance, pct),
+      ...(includeGrowthBridge ? [
+        valueOrDash(row.growthBridge?.priorPeriodIncreasePct, pct),
+        valueOrDash(row.growthBridge?.planIncreasePct, pct),
+        valueOrDash(row.growthBridge?.fullYearYoyPct, pct),
+      ] : [
+        valueOrDash(row.inhouseIncrease, pct),
+      ]),
       valueOrDash(row.annualizedRevenue, money),
       row.residents == null ? "—" : row.residents.toLocaleString("en-US"),
       valueOrDash(row.portfolioShare, pct),
@@ -558,36 +562,33 @@ function drawWorkbookBlock(
       sum + row.growthBridge!.priorYearAverageRateMonthly * row.residents!,
     0,
   );
-  const bridgeCurrent = bridgeRows.reduce(
-    (sum, row) => sum + (row.currentInhouse ?? 0) * row.residents!,
-    0,
-  );
   const bridgeProjected = bridgeRows.reduce(
     (sum, row) =>
       sum + row.growthBridge!.projectedPlanYearAverageRateMonthly * row.residents!,
     0,
   );
-  const totalCarryover = bridgePrior > 0 ? (bridgeCurrent / bridgePrior - 1) * 100 : null;
   const totalFullYearYoy = bridgePrior > 0 ? (bridgeProjected / bridgePrior - 1) * 100 : null;
-  const totalPlanYearContribution =
-    totalCarryover != null && totalFullYearYoy != null
-      ? totalFullYearYoy - totalCarryover
+  const totalPlanIncrease = weighted("inhouseIncrease");
+  const totalPriorPeriodIncrease =
+    totalFullYearYoy != null && totalPlanIncrease != null
+      ? totalFullYearYoy - totalPlanIncrease
       : null;
   doc.rect(x, totalY, width, 17).fill("#E9EDF2");
   const totals = [
     "Total",
     "—",
     "—",
-    valueOrDash(weighted("inhouseIncrease"), pct),
-    ...(includeGrowthBridge ? [
-      valueOrDash(totalCarryover, pct),
-      valueOrDash(totalPlanYearContribution, pct),
-      valueOrDash(totalFullYearYoy, pct),
-    ] : []),
     "—",
     "—",
     valueOrDash(weighted("streetIncrease"), pct),
     valueOrDash(weighted("variance"), pct),
+    ...(includeGrowthBridge ? [
+      valueOrDash(totalPriorPeriodIncrease, pct),
+      valueOrDash(totalPlanIncrease, pct),
+      valueOrDash(totalFullYearYoy, pct),
+    ] : [
+      valueOrDash(totalPlanIncrease, pct),
+    ]),
     valueOrDash(rows.reduce((sum, row) => sum + (row.annualizedRevenue ?? 0), 0), money),
     residentTotal.toLocaleString("en-US"),
     residentTotal ? "100.0%" : "—",

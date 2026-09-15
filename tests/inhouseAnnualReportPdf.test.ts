@@ -27,11 +27,11 @@ const bridge = annualRateGrowthBridge(
     },
   })) as any,
   "monthly",
-  103,
+  4,
 );
 assert.ok(bridge, "annual growth bridge is available");
-assert.ok(Math.abs(bridge.priorPeriodCarryoverPct - 3) < 1e-9);
-assert.ok(Math.abs(bridge.planYearContributionPct - 4) < 1e-9);
+assert.ok(Math.abs(bridge.priorPeriodIncreasePct - 3) < 1e-9);
+assert.ok(Math.abs(bridge.planIncreasePct - 4) < 1e-9);
 assert.ok(Math.abs(bridge.fullYearYoyPct - 7) < 1e-9);
 
 const serviceLines = ["AL", "AL/MC", "HC", "HC/MC", "SL", "VIL"];
@@ -45,8 +45,11 @@ const buffer = await generateAnnualInhouseReportPdf({
       scope: { serviceLine: sl },
       feasible: true,
       rateBasis: sl.startsWith("HC") ? "daily" : "monthly",
+      currentStreetRateMonthly: 2_000 + index * 100,
+      recommendedStreetRateMonthly: 2_100 + index * 100,
       currentStreetRateDisplay: 2_000 + index * 100,
       recommendedStreetRateDisplay: 2_100 + index * 100,
+      streetIncreasePct: 5,
       summary: {
         totalMonthlyIncreaseDollars: 1_000 + index * 100,
         totalAnnualIncreaseDollars: 12_000 + index * 1_200,
@@ -54,8 +57,23 @@ const buffer = await generateAnnualInhouseReportPdf({
         residentCount: 12 + index,
         minIncreasePct: 2,
         maxIncreasePct: 5,
+        currentAvgInhouseRateMonthly: 1_800 + index * 100,
         newAvgInhouseRateMonthly: 1_900 + index * 100,
+        weightedAvgIncreasePct: 4,
       },
+      quarters: [1, 2, 3, 4].map((quarter) => ({
+        year: 2027,
+        quarter,
+        label: `Q${quarter} 2027`,
+        passes: true,
+        projectedRateMonthly: (1_700 + index * 100) * 1.07,
+        yoyGrowthPct: 7,
+        priorYear: {
+          year: 2026,
+          quarter,
+          realizedRateMonthly: 1_700 + index * 100,
+        },
+      })),
       monthlyRateProjection: [{
         month: "Q1 2026",
         projectedRateMonthly: 1_900 + index * 100,
