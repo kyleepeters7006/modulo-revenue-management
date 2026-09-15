@@ -649,8 +649,9 @@ function Explanation({
   exportPending: boolean;
   onExport: () => void;
 }) {
-  const [verificationRate, setVerificationRate] = useState<"inhouse" | "street" | null>(null);
-  const verificationTitle = "Resident rate averages";
+  const [verificationRate, setVerificationRate] = useState<"inhouse" | "street" | "yoy" | null>(null);
+  const verificationTitle =
+    verificationRate === "yoy" ? "YoY growth evidence" : "Resident rate averages";
   if (!explanation) {
     return (
       <p className="text-sm text-muted-foreground" data-testid="calculation-explanation-unavailable">
@@ -669,6 +670,8 @@ function Explanation({
                 ? "inhouse"
                 : step.label.startsWith("Street Rate · current")
                   ? "street"
+                    : step.label.startsWith("Growth target")
+                      ? "yoy"
                   : null;
             const [currentValue, recommendedValue] = rateKind
               ? step.value.split(/\s+→\s+/, 2)
@@ -685,7 +688,13 @@ function Explanation({
                         type="button"
                         className="rounded-sm bg-amber-200 px-0.5 text-slate-950 underline decoration-dotted underline-offset-2 hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         onClick={() => setVerificationRate(rateKind)}
-                        aria-label={`Verify ${rateKind === "inhouse" ? "current In-House" : "current Street"} rate`}
+                         aria-label={`Verify ${
+                           rateKind === "inhouse"
+                             ? "current In-House"
+                             : rateKind === "street"
+                               ? "current Street"
+                               : "YoY growth"
+                         }`}
                       >
                         {currentValue}
                       </button>
@@ -713,11 +722,48 @@ function Explanation({
           <DialogHeader>
             <DialogTitle>{verificationTitle} · {serviceLine}</DialogTitle>
             <DialogDescription>
-              Weighted averages for the resident rows included in this calculation.
+               {verificationRate === "yoy"
+                 ? "The plan's modeled YoY result is assembled from these resident and room-level projections, with future turnover represented as a modeled replacement share."
+                 : "Weighted averages for the resident rows included in this calculation."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+            {verificationRate === "yoy" ? (
+              <>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border bg-muted/30 p-4">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      YoY target
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold">
+                      {formatPct(plan.assumptions.rateGrowthTargetPct, 2)}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border bg-muted/30 p-4">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Modeled full-year YoY
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold">
+                      {formatPct(fullYearYoyFromQuarters(plan.quarters, plan.rateBasis).growthPct, 2)}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border bg-muted/30 p-4">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Binding quarter
+                    </div>
+                    <div className="mt-1 text-lg font-semibold">
+                      {plan.bindingQuarterLabel ?? "None"}
+                    </div>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  The download adds planned in-house rate, in-house growth, recommended Street growth,
+                  and each quarter&apos;s projected resident rate and YoY growth against the prior-year
+                  scope baseline. This shows how the target is achieved without inventing future resident identities.
+                </p>
+              </>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-lg border bg-muted/30 p-4">
                 <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Current In-House
@@ -734,7 +780,8 @@ function Explanation({
                   {formatMoney(plan.currentStreetRateMonthly)}
                 </div>
               </div>
-            </div>
+              </div>
+            )}
             <div className="text-sm text-muted-foreground">
               {plan.summary.residentCount.toLocaleString()} resident rows · rent roll month{" "}
               {formatMonth(plan.scope.sourceMonth)}
@@ -1069,13 +1116,25 @@ function DateField({
 /** A PlanResult tagged with the service line it was calculated for. */
 interface PlanWithSl { sl: string; plan: PlanResult }
 
-export const RESIDENT_INCREASE_TIER_LABELS = ["<3%", "3%", "4%", "5%", "6%", "7%+"] as const;
+export const RESIDENT_INCREASE_TIER_LABELS = [
+  "<3%",
+  "3.0%",
+  "3.5%",
+  "4.0%",
+  "4.5%",
+  "5.0%",
+  "5.5%",
+  "6.0%",
+  "6.5%",
+  "7%+",
+] as const;
 export type ResidentIncreaseTierLabel = typeof RESIDENT_INCREASE_TIER_LABELS[number];
 
 export function residentIncreaseTier(value: number): ResidentIncreaseTierLabel {
   if (!Number.isFinite(value) || value < 3) return "<3%";
   if (value >= 7) return "7%+";
-  return `${Math.floor(value)}%` as ResidentIncreaseTierLabel;
+  const halfPoint = Math.floor(value * 2 + 1e-9) / 2;
+  return `${halfPoint.toFixed(1)}%` as ResidentIncreaseTierLabel;
 }
 
 export function residentIncreaseTierCounts(

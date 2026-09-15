@@ -498,6 +498,34 @@ async function checkScope(scope: { clientId: string; serviceLine: string; label:
     "matched Street weighted average ties to the plan",
     Math.abs(Number(streetAverage.result) - plan.currentStreetRateMonthly) < EPS,
   );
+  const exportHeaders = new Map<string, number>();
+  verificationDetail.getRow(5).eachCell((cell, column) => {
+    exportHeaders.set(String(cell.value ?? ""), column);
+  });
+  const firstAuditResident = audit.residents[0];
+  const firstRecommendation = plan.residents.find((resident) => resident.key === firstAuditResident.key);
+  const firstExportRow = 6;
+  const plannedInhouseColumn = exportHeaders.get("Planned In-House rate (monthly)");
+  const inhouseGrowthColumn = exportHeaders.get("In-House growth");
+  const firstQuarterYoyColumn = exportHeaders.get(
+    `${plan.quarters[0]?.label} YoY growth\nvs prior-year scope rate`,
+  );
+  ok(
+    "resident detail includes planned In-House and growth evidence",
+    plannedInhouseColumn != null &&
+      inhouseGrowthColumn != null &&
+      firstRecommendation != null &&
+      Math.abs(Number(verificationDetail.getCell(firstExportRow, plannedInhouseColumn).value) - firstRecommendation.newRateMonthly) < EPS &&
+      Math.abs(Number(verificationDetail.getCell(firstExportRow, inhouseGrowthColumn).value) - firstRecommendation.increasePct / 100) < EPS,
+  );
+  ok(
+    "resident detail includes a modeled YoY column for each projected quarter",
+    firstQuarterYoyColumn != null &&
+      plan.quarters.every((quarter) =>
+        exportHeaders.has(`${quarter.label} projected rate`) &&
+        exportHeaders.has(`${quarter.label} YoY growth\nvs prior-year scope rate`),
+      ),
+  );
   return;
   const summary = wb.getWorksheet("Plan summary")!;
   ok(

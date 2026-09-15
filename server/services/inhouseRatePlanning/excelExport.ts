@@ -257,6 +257,18 @@ function buildVerificationDetailSheet(
   audit: PlanAudit,
   daily: boolean,
 ): void {
+  const quarterColumns = plan.quarters.flatMap((quarter, index) => [
+    {
+      header: `${quarter.label} projected rate`,
+      key: `q${index}Projected`,
+      width: 19,
+    },
+    {
+      header: `${quarter.label} YoY growth\nvs prior-year scope rate`,
+      key: `q${index}Yoy`,
+      width: 20,
+    },
+  ]);
   const columns = [
     { header: "Campus", key: "campus", width: 26 },
     { header: "Room", key: "room", width: 11 },
@@ -269,14 +281,22 @@ function buildVerificationDetailSheet(
     { header: daily ? "Current rate (monthly equivalent)" : "Current In-House rate (monthly)", key: "current", width: 24 },
     { header: daily ? "Matched Street Rate (monthly equivalent)" : "Matched Street Rate (monthly)", key: "street", width: 25 },
     { header: "Street Rate basis", key: "basis", width: 24 },
+    { header: "Planned In-House rate (monthly)", key: "plannedInhouse", width: 25 },
+    { header: "In-House growth", key: "inhouseGrowth", width: 17 },
+    { header: "In-House increase ($ / month)", key: "inhouseDollars", width: 24 },
+    { header: "Recommended Street Rate (monthly)", key: "recommendedStreet", width: 29 },
+    { header: "Street growth", key: "streetGrowth", width: 16 },
+    ...quarterColumns,
   ];
   ws.columns = columns;
-  ws.mergeCells("A1:K1");
+  const lastColumn = colLetter(columns.length);
+  ws.mergeCells(`A1:${lastColumn}1`);
   ws.getCell("A1").value = "Resident rate verification";
   ws.getCell("A1").font = { bold: true, size: 16, color: { argb: "FF1F3864" } };
-  ws.mergeCells("A2:K2");
+  ws.mergeCells(`A2:${lastColumn}2`);
   ws.getCell("A2").value =
-    `${plan.scope.location ?? "All campuses"} · ${plan.scope.serviceLine} · rent roll ${plan.scope.sourceMonth} · ${audit.residents.length.toLocaleString()} residents`;
+    `${plan.scope.location ?? "All campuses"} · ${plan.scope.serviceLine} · rent roll ${plan.scope.sourceMonth} · ${audit.residents.length.toLocaleString()} residents. ` +
+    "Projected YoY columns are room-level modeled rates; the prior-year comparison is the scope baseline used by the plan.";
   ws.getCell("A2").font = { italic: true, color: { argb: "FF666666" } };
 
   ws.getCell("A3").value = "Average current In-House rate";
@@ -288,6 +308,12 @@ function buildVerificationDetailSheet(
     ws.getCell(address).font = { bold: true, color: { argb: "FF0F766E" } };
     ws.getCell(address).numFmt = FMT_MONEY;
   }
+  ws.getCell("G3").value = "YoY growth target";
+  ws.getCell("H3").value = plan.assumptions.rateGrowthTargetPct / 100;
+  ws.getCell("J3").value = "Binding quarter";
+  ws.getCell("K3").value = plan.bindingQuarterLabel ?? "—";
+  for (const address of ["G3", "J3"]) ws.getCell(address).font = { bold: true };
+  ws.getCell("H3").numFmt = FMT_PCT2;
 
   const headerRow = 5;
   const hr = ws.getRow(headerRow);
@@ -298,25 +324,57 @@ function buildVerificationDetailSheet(
   styleHeaderRow(hr);
 
   const firstDataRow = headerRow + 1;
+  const recommendationByKey = new Map(plan.residents.map((resident) => [resident.key, resident]));
+  const roomDetailsByQuarter = plan.quarters.map(
+    (quarter) => new Map((quarter.roomDetails ?? []).map((room) => [room.key, room])),
+  );
+  const columnIndex = (key: string) => columns.findIndex((column) => column.key === key) + 1;
+  const setValue = (row: ExcelJS.Row, key: string, value: ExcelJS.CellValue) => {
+    row.getCell(columnIndex(key)).value = value;
+  };
   audit.residents.forEach((resident, index) => {
     const row = ws.getRow(firstDataRow + index);
-    row.values = [
-      resident.location,
-      resident.roomNumber,
-      resident.roomType ?? "",
-      resident.careLevel ?? "",
-      resident.payorType ?? "",
-      resident.moveInDate ? new Date(`${resident.moveInDate}T00:00:00Z`) : "",
-      resident.isCompanionBed ? "Yes" : "",
-      resident.weight,
-      resident.currentRateMonthly,
-      resident.streetRateMonthly,
-      streetBasisLabel(resident),
-    ];
+    const recommendation = recommendationByKey.get(resident.key);
+    setValue(row, "campus", resident.location);
+    setValue(row, "room", resident.roomNumber);
+    setValue(row, "roomType", resident.roomType ?? "");
+    setValue(row, "care", resident.careLevel ?? "");
+    setValue(row, "payor", resident.payorType ?? "");
+    setValue(row, "moveIn", resident.moveInDate ? new Date(`${resident.moveInDate}T00:00:00Z`) : "");
+    setValue(row, "companion", resident.isCompanionBed ? "Yes" : "");
+    setValue(row, "weight", resident.weight);
+    setValue(row, "current", resident.currentRateMonthly);
+    setValue(row, "street", resident.streetRateMonthly);
+    setValue(row, "basis", streetBasisLabel(resident));
+    setValue(row, "plannedInhouse", recommendation?.newRateMonthly ?? resident.currentRateMonthly);
+    setValue(row, "inhouseGrowth", recommendation ? recommendation.increasePct / 100 : 0);
+    setValue(row, "inhouseDollars", recommendation?.increaseDollarsMonthly ?? 0);
+    setValue(row, "recommendedStreet", plan.recommendedStreetRateMonthly);
+    setValue(row, "streetGrowth", plan.streetIncreasePct / 100);
+    plan.quarters.forEach((quarter, quarterIndex) => {
+      const room = roomDetailsByQuarter[quarterIndex].get(resident.key);
+      const projected = room?.projectedRateMonthly;
+      const prior = quarter.priorYear.realizedRateMonthly;
+      setValue(row, `q${quarterIndex}Projected`, projected ?? "");
+      setValue(
+        row,
+        `q${quarterIndex}Yoy`,
+        projected != null && prior != null && prior > 0 ? projected / prior - 1 : "",
+      );
+    });
     row.getCell(6).numFmt = FMT_DATE;
     row.getCell(8).numFmt = FMT_NUM2;
     row.getCell(9).numFmt = FMT_MONEY;
     row.getCell(10).numFmt = FMT_MONEY;
+    row.getCell(columnIndex("plannedInhouse")).numFmt = FMT_MONEY;
+    row.getCell(columnIndex("inhouseGrowth")).numFmt = FMT_PCT2;
+    row.getCell(columnIndex("inhouseDollars")).numFmt = FMT_DELTA;
+    row.getCell(columnIndex("recommendedStreet")).numFmt = FMT_MONEY;
+    row.getCell(columnIndex("streetGrowth")).numFmt = FMT_PCT2;
+    quarterColumns.forEach((column) => {
+      if (column.key.endsWith("Projected")) row.getCell(columnIndex(column.key)).numFmt = FMT_MONEY;
+      if (column.key.endsWith("Yoy")) row.getCell(columnIndex(column.key)).numFmt = FMT_PCT2;
+    });
     if (index % 2 === 1) {
       row.eachCell({ includeEmpty: true }, (cell) => {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BAND_FILL } };
@@ -340,6 +398,43 @@ function buildVerificationDetailSheet(
     formula: `SUMPRODUCT(H${firstDataRow}:H${lastDataRow},J${firstDataRow}:J${lastDataRow})/SUM(H${firstDataRow}:H${lastDataRow})`,
     result: plan.currentStreetRateMonthly,
   } as ExcelJS.CellFormulaValue;
+  const totalFormula = (key: string, formula: string, result: number) => {
+    total.getCell(columnIndex(key)).value = { formula, result } as ExcelJS.CellFormulaValue;
+  };
+  const weightRange = `H${firstDataRow}:H${lastDataRow}`;
+  totalFormula(
+    "plannedInhouse",
+    `SUMPRODUCT(${weightRange},${colLetter(columnIndex("plannedInhouse"))}${firstDataRow}:${colLetter(columnIndex("plannedInhouse"))}${lastDataRow})/SUM(${weightRange})`,
+    plan.summary.newAvgInhouseRateMonthly,
+  );
+  totalFormula(
+    "inhouseGrowth",
+    `SUMPRODUCT(${weightRange},${colLetter(columnIndex("inhouseGrowth"))}${firstDataRow}:${colLetter(columnIndex("inhouseGrowth"))}${lastDataRow})/SUM(${weightRange})`,
+    plan.summary.weightedAvgIncreasePct / 100,
+  );
+  totalFormula(
+    "inhouseDollars",
+    `SUMPRODUCT(${weightRange},${colLetter(columnIndex("inhouseDollars"))}${firstDataRow}:${colLetter(columnIndex("inhouseDollars"))}${lastDataRow})/SUM(${weightRange})`,
+    plan.summary.totalMonthlyIncreaseDollars / Math.max(1, audit.residents.reduce((sum, resident) => sum + resident.weight, 0)),
+  );
+  totalFormula("recommendedStreet", `AVERAGE(${colLetter(columnIndex("recommendedStreet"))}${firstDataRow}:${colLetter(columnIndex("recommendedStreet"))}${lastDataRow})`, plan.recommendedStreetRateMonthly);
+  totalFormula("streetGrowth", `AVERAGE(${colLetter(columnIndex("streetGrowth"))}${firstDataRow}:${colLetter(columnIndex("streetGrowth"))}${lastDataRow})`, plan.streetIncreasePct / 100);
+  plan.quarters.forEach((quarter, quarterIndex) => {
+    const projectedKey = `q${quarterIndex}Projected`;
+    const yoyKey = `q${quarterIndex}Yoy`;
+    const projectedResult = quarter.roomDetailProjectedRateMonthly ?? quarter.projectedRateMonthly;
+    const prior = quarter.priorYear.realizedRateMonthly;
+    totalFormula(
+      projectedKey,
+      `SUMPRODUCT(${weightRange},${colLetter(columnIndex(projectedKey))}${firstDataRow}:${colLetter(columnIndex(projectedKey))}${lastDataRow})/SUM(${weightRange})`,
+      projectedResult,
+    );
+    totalFormula(
+      yoyKey,
+      `IF(${colLetter(columnIndex(projectedKey))}${totalRow.number}=0,"",${colLetter(columnIndex(projectedKey))}${totalRow.number}/${prior && prior > 0 ? prior : 1}-1)`,
+      prior && prior > 0 ? projectedResult / prior - 1 : 0,
+    );
+  });
   total.eachCell({ includeEmpty: true }, (cell) => {
     cell.font = { bold: true };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TOTAL_FILL } };
@@ -348,6 +443,15 @@ function buildVerificationDetailSheet(
   total.getCell(8).numFmt = FMT_NUM2;
   total.getCell(9).numFmt = FMT_MONEY;
   total.getCell(10).numFmt = FMT_MONEY;
+  total.getCell(columnIndex("plannedInhouse")).numFmt = FMT_MONEY;
+  total.getCell(columnIndex("inhouseGrowth")).numFmt = FMT_PCT2;
+  total.getCell(columnIndex("inhouseDollars")).numFmt = FMT_DELTA;
+  total.getCell(columnIndex("recommendedStreet")).numFmt = FMT_MONEY;
+  total.getCell(columnIndex("streetGrowth")).numFmt = FMT_PCT2;
+  quarterColumns.forEach((column) => {
+    if (column.key.endsWith("Projected")) total.getCell(columnIndex(column.key)).numFmt = FMT_MONEY;
+    if (column.key.endsWith("Yoy")) total.getCell(columnIndex(column.key)).numFmt = FMT_PCT2;
+  });
   ws.views = [{ state: "frozen", xSplit: 2, ySplit: headerRow, topLeftCell: `C${firstDataRow}` }];
   ws.autoFilter = {
     from: { row: headerRow, column: 1 },
