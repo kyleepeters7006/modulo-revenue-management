@@ -650,6 +650,16 @@ async function ensureSecuritySchema(): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS security_audit_events_client_created_idx
       ON security_audit_events(client_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS auth_rate_limits (
+      scope varchar(32) NOT NULL,
+      key_hash varchar(64) NOT NULL,
+      attempt_count integer NOT NULL,
+      window_started_at timestamptz NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (scope, key_hash)
+    );
+    CREATE INDEX IF NOT EXISTS auth_rate_limits_updated_idx
+      ON auth_rate_limits(updated_at);
     CREATE TABLE IF NOT EXISTS auth_sessions (
       id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -781,15 +791,21 @@ async function writeSecurityAudit(
   eventType: string,
   success = true,
   metadata: Record<string, unknown> = {},
+  subject: {
+    userId?: string | null;
+    clientId?: string | null;
+    queryClient?: { query: (text: string, params?: unknown[]) => Promise<unknown> };
+  } = {},
 ): Promise<void> {
   const session = req.session as any;
-  await pool.query(
+  const queryClient = subject.queryClient || pool;
+  await queryClient.query(
     `INSERT INTO security_audit_events
       (client_id, user_id, event_type, success, ip_address, user_agent, metadata)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [
-      session?.clientId || req.clientId || null,
-      session?.userId || null,
+      subject.clientId !== undefined ? subject.clientId : (session?.clientId || req.clientId || null),
+      subject.userId !== undefined ? subject.userId : (session?.userId || null),
       eventType,
       success,
       req.ip || null,
@@ -797,6 +813,57 @@ async function writeSecurityAudit(
       JSON.stringify(metadata),
     ],
   );
+}
+
+function authRateLimitKey(scope: string, value: string): string {
+  return crypto.createHash("sha256").update(`${scope}\0${value}`).digest("hex");
+}
+
+async function consumeAuthRateLimit(
+  scope: string,
+  value: string,
+  limit: number,
+  windowMinutes = 15,
+): Promise<boolean> {
+  const result = await pool.query(
+    `INSERT INTO auth_rate_limits
+       (scope, key_hash, attempt_count, window_started_at, updated_at)
+     VALUES ($1, $2, 1, now(), now())
+     ON CONFLICT (scope, key_hash) DO UPDATE SET
+       attempt_count = CASE
+         WHEN auth_rate_limits.window_started_at < now() - ($3::int * interval '1 minute')
+           THEN 1
+         ELSE auth_rate_limits.attempt_count + 1
+       END,
+       window_started_at = CASE
+         WHEN auth_rate_limits.window_started_at < now() - ($3::int * interval '1 minute')
+           THEN now()
+         ELSE auth_rate_limits.window_started_at
+       END,
+       updated_at = now()
+     RETURNING attempt_count`,
+    [scope, authRateLimitKey(scope, value), windowMinutes],
+  );
+  return Number(result.rows[0]?.attempt_count || 0) <= limit;
+}
+
+async function clearAuthRateLimit(scope: string, value: string): Promise<void> {
+  await pool.query(
+    `DELETE FROM auth_rate_limits WHERE scope = $1 AND key_hash = $2`,
+    [scope, authRateLimitKey(scope, value)],
+  );
+}
+
+async function cleanupExpiredAuthRateLimits(): Promise<void> {
+  await pool.query(`
+    WITH expired AS (
+      SELECT ctid FROM auth_rate_limits
+       WHERE updated_at < now() - interval '24 hours'
+       LIMIT 100
+    )
+    DELETE FROM auth_rate_limits
+     WHERE ctid IN (SELECT ctid FROM expired)
+  `);
 }
 
 function requestOriginIsSameSite(req: any): boolean {
@@ -919,6 +986,7 @@ async function securityRequestGate(req: any, res: any, next: any): Promise<void>
     "/auth/login",
     "/auth/forgot-password",
     "/auth/password-reset",
+    "/auth/password-reset/mfa",
     "/auth/mfa/setup",
     "/auth/mfa/setup/confirm",
     "/auth/mfa/challenge",
@@ -2192,6 +2260,133 @@ export async function registerRoutes(
       console.error("[security] forgot-password failed:", error);
     }
     return res.json({ message: GENERIC_RESET_RESPONSE });
+  });
+
+  // Self-service recovery for users who still control their enrolled
+  // authenticator. This intentionally does not create an authenticated session
+  // or accept recovery codes, and it returns an account-enumeration-safe
+  // response for every syntactically valid attempt.
+  app.post('/api/auth/password-reset/mfa', async (req: any, res) => {
+    const username = String(req.body?.username || "").trim();
+    const code = String(req.body?.code || "").replace(/\s/g, "");
+    const newPassword = String(req.body?.password || "");
+    const normalizedUsername = username.toLowerCase();
+    const requestIp = String(req.ip || "unknown");
+    const genericResponse = {
+      message: "If the account and verification code are valid, the password has been reset.",
+    };
+
+    res.set("Cache-Control", "no-store");
+    if (!requestOriginIsSameSite(req)) {
+      await writeSecurityAudit(req, "password_reset_mfa", false, {}, { userId: null, clientId: null });
+      return res.status(403).json({ error: "Request could not be verified." });
+    }
+    const ipAllowed = await consumeAuthRateLimit("mfa-reset-ip", requestIp, 20);
+    if (!ipAllowed) return res.json(genericResponse);
+    const accountAllowed = await consumeAuthRateLimit("mfa-reset-account", normalizedUsername, 5);
+    if (!accountAllowed) return res.json(genericResponse);
+    if (!validPassword(newPassword)) {
+      await writeSecurityAudit(
+        req,
+        "password_reset_mfa",
+        false,
+        { reason: "password_policy" },
+        { userId: null, clientId: null },
+      );
+      return res.status(400).json({
+        error: "Choose a password with at least 12 characters, including a letter and a number.",
+      });
+    }
+    if (!username || !/^\d{6}$/.test(code)) {
+      await writeSecurityAudit(req, "password_reset_mfa", false, {}, { userId: null, clientId: null });
+      return res.json(genericResponse);
+    }
+
+    const client = await pool.connect();
+    let completed = false;
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        `SELECT id, client_id, mfa_secret_encrypted, mfa_last_used_step
+           FROM users
+          WHERE lower(username) = lower($1)
+            AND account_status = 'active'
+            AND mfa_enabled = true
+            AND mfa_secret_encrypted IS NOT NULL
+          LIMIT 1
+          FOR UPDATE`,
+        [username],
+      );
+      const user = result.rows[0];
+      let step: number | null = null;
+      if (user?.mfa_secret_encrypted) {
+        try {
+          step = verifyTotp(
+            decryptSecret(user.mfa_secret_encrypted),
+            code,
+            user.mfa_last_used_step,
+          );
+        } catch {
+          step = null;
+        }
+      }
+      if (!user || step === null) {
+        await client.query("ROLLBACK");
+      } else {
+        const passwordHash = await bcrypt.hash(newPassword, 12);
+        const updated = await client.query(
+          `UPDATE users
+              SET password_hash = $1,
+                  mfa_last_used_step = $2,
+                  updated_at = now()
+            WHERE id = $3
+              AND (mfa_last_used_step IS NULL OR mfa_last_used_step < $2)
+            RETURNING id`,
+          [passwordHash, step, user.id],
+        );
+        if (updated.rows.length !== 1) {
+          await client.query("ROLLBACK");
+        } else {
+          await revokeUserSessions(client, user.id);
+          await client.query(
+            `UPDATE password_reset_tokens
+                SET consumed_at = now()
+              WHERE user_id = $1 AND consumed_at IS NULL`,
+            [user.id],
+          );
+          await writeSecurityAudit(
+            req,
+            "password_reset_mfa",
+            true,
+            {},
+            {
+              userId: user.id,
+              clientId: user.client_id,
+              queryClient: client,
+            },
+          );
+          await client.query("COMMIT");
+          completed = true;
+        }
+      }
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      console.error("[security] MFA password reset failed:", error);
+    } finally {
+      client.release();
+    }
+
+    if (completed) {
+      await clearAuthRateLimit("mfa-reset-account", normalizedUsername);
+    } else {
+      await writeSecurityAudit(req, "password_reset_mfa", false, {}, { userId: null, clientId: null });
+    }
+    if (Math.random() < 0.01) {
+      cleanupExpiredAuthRateLimits().catch((error) => {
+        console.error("[security] rate-limit cleanup failed:", error);
+      });
+    }
+    return res.json(genericResponse);
   });
 
   app.get('/api/auth/password-reset/:token', async (req: any, res) => {

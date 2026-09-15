@@ -1680,6 +1680,17 @@ export const securityAuditEvents = pgTable("security_audit_events", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const authRateLimits = pgTable("auth_rate_limits", {
+  scope: varchar("scope", { length: 32 }).notNull(),
+  keyHash: varchar("key_hash", { length: 64 }).notNull(),
+  attemptCount: integer("attempt_count").notNull(),
+  windowStartedAt: timestamp("window_started_at").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.scope, table.keyHash] }),
+  updatedIdx: index("auth_rate_limits_updated_idx").on(table.updatedAt),
+}));
+
 export const authSessions = pgTable("auth_sessions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
