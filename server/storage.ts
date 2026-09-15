@@ -102,6 +102,10 @@ import {
   getLatestRentRollCacheGeneration,
   invalidateLatestRentRollCache,
 } from "./latestRentRollCache";
+import {
+  recordLatestRentRollSourceLoadFinished,
+  recordLatestRentRollSourceLoadStarted,
+} from "./commentaryCache";
 
 // Interface for storage operations
 export interface IStorage {
@@ -517,6 +521,8 @@ export class DatabaseStorage implements IStorage {
     if (pending) return pending;
 
     const generation = getLatestRentRollCacheGeneration(clientId);
+    const loadStartedAt = Date.now();
+    recordLatestRentRollSourceLoadStarted(clientId);
     const load = (async () => {
       const [latest] = await db
         .select({ uploadMonth: sql<string>`MAX(${rentRollData.uploadMonth})` })
@@ -530,6 +536,10 @@ export class DatabaseStorage implements IStorage {
       setLatestRentRollSnapshot(clientId, snapshot, generation);
       return snapshot;
     })();
+    load.then(
+      () => recordLatestRentRollSourceLoadFinished(clientId, Date.now() - loadStartedAt, false),
+      () => recordLatestRentRollSourceLoadFinished(clientId, Date.now() - loadStartedAt, true),
+    );
     setLatestRentRollSnapshotInFlight(clientId, load);
     return load;
   }

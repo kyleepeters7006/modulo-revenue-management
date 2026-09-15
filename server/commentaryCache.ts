@@ -53,6 +53,122 @@ export const commentaryGeneration = new Map<string, number>();
  */
 export const commentaryLastPurgeTime = new Map<string, number>();
 
+export interface PricingAnalyticsCacheDiagnostics {
+  latestRentRoll: {
+    cacheHits: number;
+    sourceLoads: number;
+    coalescedRequests: number;
+    loadFailures: number;
+    loadDurationMs: {
+      count: number;
+      total: number;
+      average: number;
+      max: number;
+      last: number | null;
+    };
+  };
+  responseCache: {
+    campusMetricsHits: number;
+    vacancyScatterHits: number;
+  };
+}
+
+interface PricingAnalyticsCacheCounters {
+  latestRentRollCacheHits: number;
+  latestRentRollSourceLoads: number;
+  latestRentRollCoalescedRequests: number;
+  latestRentRollLoadFailures: number;
+  latestRentRollLoadDurationCount: number;
+  latestRentRollLoadDurationTotal: number;
+  latestRentRollLoadDurationMax: number;
+  latestRentRollLastLoadDuration: number | null;
+  campusMetricsResponseCacheHits: number;
+  vacancyScatterResponseCacheHits: number;
+}
+
+const pricingAnalyticsCacheCounters = new Map<string, PricingAnalyticsCacheCounters>();
+
+function getPricingAnalyticsCacheCounters(clientId: string): PricingAnalyticsCacheCounters {
+  let counters = pricingAnalyticsCacheCounters.get(clientId);
+  if (!counters) {
+    counters = {
+      latestRentRollCacheHits: 0,
+      latestRentRollSourceLoads: 0,
+      latestRentRollCoalescedRequests: 0,
+      latestRentRollLoadFailures: 0,
+      latestRentRollLoadDurationCount: 0,
+      latestRentRollLoadDurationTotal: 0,
+      latestRentRollLoadDurationMax: 0,
+      latestRentRollLastLoadDuration: null,
+      campusMetricsResponseCacheHits: 0,
+      vacancyScatterResponseCacheHits: 0,
+    };
+    pricingAnalyticsCacheCounters.set(clientId, counters);
+  }
+  return counters;
+}
+
+export function recordLatestRentRollCacheHit(clientId: string): void {
+  getPricingAnalyticsCacheCounters(clientId).latestRentRollCacheHits++;
+}
+
+export function recordLatestRentRollCoalescedRequest(clientId: string): void {
+  getPricingAnalyticsCacheCounters(clientId).latestRentRollCoalescedRequests++;
+}
+
+export function recordLatestRentRollSourceLoadStarted(clientId: string): void {
+  getPricingAnalyticsCacheCounters(clientId).latestRentRollSourceLoads++;
+}
+
+export function recordLatestRentRollSourceLoadFinished(
+  clientId: string,
+  durationMs: number,
+  failed: boolean,
+): void {
+  const counters = getPricingAnalyticsCacheCounters(clientId);
+  const duration = Math.max(0, Math.round(durationMs));
+  counters.latestRentRollLoadDurationCount++;
+  counters.latestRentRollLoadDurationTotal += duration;
+  counters.latestRentRollLoadDurationMax = Math.max(counters.latestRentRollLoadDurationMax, duration);
+  counters.latestRentRollLastLoadDuration = duration;
+  if (failed) counters.latestRentRollLoadFailures++;
+}
+
+export function recordPricingAnalyticsResponseCacheHit(
+  clientId: string,
+  response: "campusMetrics" | "vacancyScatter",
+): void {
+  const counters = getPricingAnalyticsCacheCounters(clientId);
+  if (response === "campusMetrics") counters.campusMetricsResponseCacheHits++;
+  else counters.vacancyScatterResponseCacheHits++;
+}
+
+export function getPricingAnalyticsCacheDiagnostics(clientId: string): PricingAnalyticsCacheDiagnostics {
+  const counters = getPricingAnalyticsCacheCounters(clientId);
+  const durationCount = counters.latestRentRollLoadDurationCount;
+  return {
+    latestRentRoll: {
+      cacheHits: counters.latestRentRollCacheHits,
+      sourceLoads: counters.latestRentRollSourceLoads,
+      coalescedRequests: counters.latestRentRollCoalescedRequests,
+      loadFailures: counters.latestRentRollLoadFailures,
+      loadDurationMs: {
+        count: durationCount,
+        total: counters.latestRentRollLoadDurationTotal,
+        average: durationCount > 0
+          ? Math.round(counters.latestRentRollLoadDurationTotal / durationCount)
+          : 0,
+        max: counters.latestRentRollLoadDurationMax,
+        last: counters.latestRentRollLastLoadDuration,
+      },
+    },
+    responseCache: {
+      campusMetricsHits: counters.campusMetricsResponseCacheHits,
+      vacancyScatterHits: counters.vacancyScatterResponseCacheHits,
+    },
+  };
+}
+
 /**
  * Purge every `pc-commentary:<clientId>:…` entry from:
  *   1. the in-memory analyticsCache

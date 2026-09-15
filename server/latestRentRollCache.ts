@@ -1,5 +1,9 @@
 import type { RentRollData } from "@shared/schema";
-import { analyticsCache } from "./commentaryCache";
+import {
+  analyticsCache,
+  recordLatestRentRollCacheHit,
+  recordLatestRentRollCoalescedRequest,
+} from "./commentaryCache";
 
 export interface LatestRentRollSnapshot {
   uploadMonth: string | null;
@@ -41,11 +45,14 @@ export function getLatestRentRollSnapshot(clientId: string): LatestRentRollSnaps
     cache.delete(clientId);
     return null;
   }
+  recordLatestRentRollCacheHit(clientId);
   return entry.snapshot;
 }
 
 export function getLatestRentRollSnapshotInFlight(clientId: string): Promise<LatestRentRollSnapshot> | null {
-  return inFlight.get(clientId) ?? null;
+  const promise = inFlight.get(clientId) ?? null;
+  if (promise) recordLatestRentRollCoalescedRequest(clientId);
+  return promise;
 }
 
 export function setLatestRentRollSnapshot(

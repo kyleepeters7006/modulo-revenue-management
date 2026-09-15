@@ -522,6 +522,8 @@ import {
   commentaryInflight,
   commentaryGeneration,
   commentaryLastPurgeTime,
+  getPricingAnalyticsCacheDiagnostics,
+  recordPricingAnalyticsResponseCacheHit,
 } from './commentaryCache';
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -5034,6 +5036,7 @@ export async function registerRoutes(
       res.json({
         starting_revenue: startingRevenue,
         occupancy,
+        pricingAnalyticsCache: getPricingAnalyticsCacheDiagnostics(clientId),
         assumptions: assumptions ? {
           start_period: assumptions.startPeriod,
           months: assumptions.months,
@@ -9600,6 +9603,7 @@ export async function registerRoutes(
       const cacheKey = `campus-metrics:${clientId}:${region || 'all'}:${division || 'all'}:${serviceLine || 'all'}`;
       const cached = getCachedAnalytics(cacheKey);
       if (cached) {
+        recordPricingAnalyticsResponseCacheHit(clientId, "campusMetrics");
         console.log(`Analytics: Serving cached result for ${cacheKey}`);
         return res.json(cached);
       }
@@ -10019,6 +10023,7 @@ export async function registerRoutes(
       const cacheKey = `vacancy-scatter:${clientId}:${location || 'all'}:${serviceLine || 'all'}`;
       const cached = getCachedAnalytics(cacheKey);
       if (cached) {
+        recordPricingAnalyticsResponseCacheHit(clientId, "vacancyScatter");
         console.log(`Vacancy: Serving cached result for ${cacheKey}`);
         return res.json(cached);
       }
