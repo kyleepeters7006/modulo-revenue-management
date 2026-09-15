@@ -344,6 +344,27 @@ function workbookRate(value: number | null | undefined, basis: PlanResult["rateB
   return formatMoney(display);
 }
 
+function occupancyTierRangeText(report: AnnualReport, tier: OccupancyTierId): string | null {
+  const labels = Array.from(new Set(
+    report.tierGrid.lines
+      .flatMap((line) => line.cells)
+      .filter((cell) => cell.tier === tier)
+      .map((cell) => cell.rangeLabel)
+      .filter((label): label is string => typeof label === "string" && label.length > 0),
+  ));
+  if (labels.length === 0) return null;
+  return labels.length === 1 ? labels[0] : labels.join(" · ");
+}
+
+function occupancyTierTitle(
+  report: AnnualReport,
+  tier: OccupancyTierId,
+  label: string,
+): string {
+  const range = occupancyTierRangeText(report, tier);
+  return range ? `${label} · ${range}` : label;
+}
+
 function WorkbookReportBlock({
   title,
   accent,
@@ -652,9 +673,9 @@ function WorkbookReportBody({ report }: { report: AnnualReport }) {
       </article>
       <article className="report-page space-y-4">
         <WorkbookPageHeader report={report} page={2} />
-        <WorkbookReportBlock title="Occupancy Tier 1 · High occupancy" accent="tier1" report={report} tier="high" />
-        <WorkbookReportBlock title="Occupancy Tier 2 · Target occupancy" accent="tier2" report={report} tier="target" />
-        <WorkbookReportBlock title="Occupancy Tier 3 · Low occupancy" accent="tier3" report={report} tier="low" />
+        <WorkbookReportBlock title={occupancyTierTitle(report, "high", "Occupancy Tier 1 · High occupancy")} accent="tier1" report={report} tier="high" />
+        <WorkbookReportBlock title={occupancyTierTitle(report, "target", "Occupancy Tier 2 · Target occupancy")} accent="tier2" report={report} tier="target" />
+        <WorkbookReportBlock title={occupancyTierTitle(report, "low", "Occupancy Tier 3 · Low occupancy")} accent="tier3" report={report} tier="low" />
         <p className="text-[10px] text-muted-foreground">
           Generated from the saved Modulo calculation. Scenario rates apply each occupancy tier’s calculated percentage to the same current-rate and resident-count basis.
         </p>

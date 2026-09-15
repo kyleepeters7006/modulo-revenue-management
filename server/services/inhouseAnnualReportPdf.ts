@@ -213,6 +213,22 @@ function tierCells(grid: unknown): JsonObject[] {
   return objects(grid);
 }
 
+function occupancyTierRangeText(grid: unknown, tier: string): string | null {
+  const labels = Array.from(new Set(
+    tierCells(grid)
+      .filter((cell) => text(first(cell, ["tier"])) === tier)
+      .map((cell) => text(first(cell, ["rangeLabel", "range", "occupancyRange"])))
+      .filter((label): label is string => Boolean(label)),
+  ));
+  if (labels.length === 0) return null;
+  return labels.length === 1 ? labels[0] : labels.join(" · ");
+}
+
+function occupancyTierTitle(grid: unknown, tier: string, label: string): string {
+  const range = occupancyTierRangeText(grid, tier);
+  return range ? `${label}  •  ${range}` : label;
+}
+
 function drawPlanTable(doc: PDFKit.PDFDocument, plans: JsonObject[], x: number, y: number, width: number): void {
   heading(doc, x, y, width, "Plans by service line");
   const top = y + 17;
@@ -764,9 +780,9 @@ export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): P
 
     doc.addPage();
     drawWorkbookPageHeader(doc, report, stamp, 2);
-    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "high"), pageX, 54, pageWidth, "Occupancy Tier 1  •  High occupancy", "#F5F4ED");
-    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "target"), pageX, 218, pageWidth, "Occupancy Tier 2  •  Target occupancy", "#101010");
-    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "low"), pageX, 382, pageWidth, "Occupancy Tier 3  •  Low occupancy", "#388194");
+    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "high"), pageX, 54, pageWidth, occupancyTierTitle(report.tierGrid, "high", "Occupancy Tier 1  •  High occupancy"), "#F5F4ED");
+    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "target"), pageX, 218, pageWidth, occupancyTierTitle(report.tierGrid, "target", "Occupancy Tier 2  •  Target occupancy"), "#101010");
+    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "low"), pageX, 382, pageWidth, occupancyTierTitle(report.tierGrid, "low", "Occupancy Tier 3  •  Low occupancy"), "#388194");
 
     const pages = doc.bufferedPageRange();
     if (pages.count !== 2) {
