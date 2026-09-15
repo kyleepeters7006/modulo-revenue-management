@@ -123,3 +123,4 @@
 - [Portfolio-to-campus planning](portfolio-campus-planning.md) — portfolio runs create independent campus reports from portfolio inputs; later campus saves override only that campus.
 - [Overview loading concurrency](overview-loading-concurrency.md) — start independent chart requests with KPI loading; never globally prefetch unrelated pages from Overview.
 - [Playwright browser on Nix](playwright-nix-browser.md) — use a system Chromium executable when the bundled headless shell lacks shared libraries.
+- [Analytics endpoint test harness](analytics-endpoint-test-harness.md) — await route readiness and exit after closing the ephemeral listener; startup schedulers outlive standalone tests.
