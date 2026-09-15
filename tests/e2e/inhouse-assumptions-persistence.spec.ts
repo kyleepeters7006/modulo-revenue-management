@@ -14,6 +14,7 @@ import { expect, Page, Route, test } from "@playwright/test";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:5000";
 const TARGET = 6.5;
+const CAMPUS_AL_TARGET = 5.75;
 
 const baseAssumptions = {
   rateGrowthTargetPct: 4.25,
@@ -67,10 +68,17 @@ const tierPolicy = {
 
 type Scope = { locationId: string | null; name: string };
 
-function assumptionsFor(scope: Scope, serviceLine: string, saved: Map<string, Record<string, unknown>>) {
+function assumptionsFor(
+  scope: Scope,
+  serviceLine: string,
+  saved: Map<string, Record<string, unknown>>,
+  seededCampus: Map<string, Record<string, unknown>>,
+) {
   const key = `${scope.locationId ?? "all"}:${serviceLine}`;
   const current = saved.get(key);
   if (current) return current;
+  const campusSeed = scope.locationId ? seededCampus.get(key) : undefined;
+  if (campusSeed) return campusSeed;
   return {
     ...baseAssumptions,
     rateGrowthTargetPct: serviceLine === "HC" ? 7.5 : baseAssumptions.rateGrowthTargetPct,
@@ -87,8 +95,25 @@ function json(route: Route, body: unknown, status = 200) {
 
 async function stubPlanningApis(page: Page) {
   const saved = new Map<string, Record<string, unknown>>();
+  // Campus A has an explicit AL target, but HC must resolve from its
+  // service-line-specific portfolio target. This is the fallback boundary the
+  // editor must preserve when only AL is overridden.
+  const seededCampus = new Map<string, Record<string, unknown>>([
+    [
+      "campus-a:AL",
+      {
+        ...baseAssumptions,
+        rateGrowthTargetPct: CAMPUS_AL_TARGET,
+      },
+    ],
+  ]);
   const posts: Array<{ locationId: string | null; serviceLine: string; assumptions: Record<string, unknown> }> = [];
-  const batchReads: Array<{ locationId: string | null; serviceLines: string[]; targets: Record<string, unknown> }> = [];
+  const batchReads: Array<{
+    locationId: string | null;
+    serviceLines: string[];
+    targets: Record<string, unknown>;
+    scopeLevels: Record<string, string>;
+  }> = [];
 
   await page.route("**/api/auth/user", (route) =>
     json(route, {
@@ -123,8 +148,12 @@ async function stubPlanningApis(page: Page) {
               { locationId, name: locationId ? "Campus A" : "All campuses" },
               serviceLine,
               saved,
+              seededCampus,
             ),
-            scopeLevel: "global",
+            scopeLevel:
+              locationId && (saved.has(`${locationId}:${serviceLine}`) || seededCampus.has(`${locationId}:${serviceLine}`))
+                ? "location+serviceLine"
+                : "serviceLine",
             tierPolicyStored: true,
             tierPolicy,
           },
@@ -137,6 +166,12 @@ async function stubPlanningApis(page: Page) {
           serviceLines.map((serviceLine) => [
             serviceLine,
             (policies[serviceLine] as { assumptions: Record<string, unknown> }).assumptions.rateGrowthTargetPct,
+          ]),
+        ),
+        scopeLevels: Object.fromEntries(
+          serviceLines.map((serviceLine) => [
+            serviceLine,
+            (policies[serviceLine] as { scopeLevel: string }).scopeLevel,
           ]),
         ),
       });
@@ -172,8 +207,12 @@ async function stubPlanningApis(page: Page) {
         { locationId, name: locationId ? "Campus A" : "All campuses" },
         serviceLine,
         saved,
+        seededCampus,
       ),
-      scopeLevel: "global",
+      scopeLevel:
+        locationId && (saved.has(`${locationId}:${serviceLine}`) || seededCampus.has(`${locationId}:${serviceLine}`))
+          ? "location+serviceLine"
+          : "serviceLine",
     });
   });
   await page.route("**/api/inhouse-planning/historical-turnover**", (route) =>
@@ -251,25 +290,38 @@ test.describe("In-house assumptions persistence", () => {
   test("keeps every selected line's acknowledged decimal target after campus reload", async ({ page }) => {
     const planning = await stubPlanningApis(page);
     await page.goto(`${BASE_URL}/inhouse-increases?locationId=campus-a&serviceLine=AL`);
-    await selectSecondServiceLine(page);
     await openAssumptions(page);
 
     const alInput = page.getByTestId("input-growth-target-AL");
-    const hcInput = page.getByTestId("input-growth-target-HC");
-    await expect(alInput).toHaveValue("4.25");
-    await expect(hcInput).toHaveValue("7.5");
+    await expect(alInput).toHaveValue(String(CAMPUS_AL_TARGET));
 
     await alInput.fill(String(TARGET));
     await alInput.press("Enter");
+    // Saving a single selected line must not create a campus HC row.
     await page.getByTestId("button-save-assumptions").click();
     await expect(page.getByText("Assumptions saved")).toBeVisible();
 
-    await expect.poll(() => planning.posts.length).toBe(2);
+    await expect.poll(() => planning.posts.length).toBe(1);
     expect(new Set(planning.posts.map((post) => post.locationId))).toEqual(new Set(["campus-a"]));
     expect(Object.fromEntries(planning.posts.map((post) => [post.serviceLine, post.assumptions.rateGrowthTargetPct]))).toEqual({
       AL: TARGET,
-      HC: 7.5,
     });
+
+    // Add HC only after the AL campus override is persisted. HC must still
+    // resolve from its service-line-specific portfolio row.
+    await selectSecondServiceLine(page);
+    await openAssumptions(page);
+    await expect(page.getByTestId("input-growth-target-AL")).toHaveValue(String(TARGET));
+    await expect(page.getByTestId("input-growth-target-HC")).toHaveValue("7.5");
+    await expect.poll(() =>
+      planning.batchReads.some((read) =>
+        read.locationId === "campus-a" &&
+        read.targets.AL === TARGET &&
+        read.targets.HC === 7.5 &&
+        read.scopeLevels.AL === "location+serviceLine" &&
+        read.scopeLevels.HC === "serviceLine",
+      ),
+    ).toBe(true);
 
     // Leave and revisit the portfolio/campus scope boundary before reloading
     // so the next batch read cannot be satisfied by the current editor state.
@@ -281,7 +333,10 @@ test.describe("In-house assumptions persistence", () => {
         read.locationId === "campus-a" &&
         read.serviceLines.includes("AL") &&
         read.serviceLines.includes("HC") &&
-        read.targets.AL === TARGET,
+        read.targets.AL === TARGET &&
+        read.targets.HC === 7.5 &&
+        read.scopeLevels.AL === "location+serviceLine" &&
+        read.scopeLevels.HC === "serviceLine",
       ),
     ).toBe(true);
     await expect(page.getByTestId("input-growth-target-AL")).toHaveValue(String(TARGET));
