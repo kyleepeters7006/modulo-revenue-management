@@ -23,8 +23,10 @@ CURSOR="$ROOT/attached_assets/generated_videos/mouse-cursor.png"
 
 OVERVIEW="$ROOT/screenshots/slide-overview.jpg"
 CONTROLS="$ROOT/screenshots/slide-pricing-controls.jpg"
-AI_INSIGHTS="$ROOT/screenshots/slide-ai-insights.jpg"
+RATE_CARD="$ROOT/screenshots/slide-rate-card.jpg"
+COMPETITORS="$ROOT/screenshots/slide-competitors.jpg"
 ANALYTICS="$ROOT/screenshots/formatted-analytics.jpg"
+LOGO="$ROOT/attached_assets/modulo_flat_blue_1786491120146.png"
 
 rm -f "$TMP_DIR"/*.mp4 "$TMP_DIR"/concat.txt
 
@@ -83,42 +85,39 @@ format=yuv420p[v]" \
 render_closing() {
   local out="$1"
   ffmpeg -hide_banner -loglevel error -y \
-    -f lavfi -i "color=c=$BG:s=${W}x${H}:r=$FPS:d=4.2" \
-    -vf "format=rgba,\
-drawbox=x=120:y=130:w=1040:h=2:color=${TEAL}@0.75:t=fill,\
-drawbox=x='120+min(t/2.2,1)*1040':y=130:w=2:h=2:color=${GOLD}:t=fill,\
-drawtext=fontfile=${SANS}:text='THE CORE PHILOSOPHY':fontcolor=${TEAL}:fontsize=17:x=120:y=177,\
-drawtext=fontfile=${SERIF}:text='AI finds the opportunity.':fontcolor=${INK}:fontsize=52:x=120:y=235,\
-drawtext=fontfile=${SERIF}:text='Operators own the decision.':fontcolor=${GOLD}:fontsize=52:x=120:y=305,\
-drawtext=fontfile=${SANS}:text='Elasticity informs the action. Outcomes improve the next recommendation.':fontcolor=${MUTED}:fontsize=18:x=120:y=420,\
-drawtext=fontfile=${SANS}:text='MODULO  /  REVENUE MANAGEMENT':fontcolor=${MUTED}:fontsize=15:x=120:y=650,\
-fade=t=in:st=0:d=0.4:alpha=1,fade=t=out:st=3.7:d=0.5:alpha=1" \
-    -an -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p "$out"
+    -loop 1 -i "$LOGO" \
+    -vf "scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H},\
+fade=t=in:st=0:d=0.5,fade=t=out:st=6.9:d=0.5,format=yuv420p" \
+    -an -t 7.4 -r "$FPS" -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p "$out"
 }
 
 # Screen chapters: titles are deliberately concise so the page itself stays readable.
 render_title "$TMP_DIR/01-title.mp4"
 render_ui_scene "$TMP_DIR/02-signal.mp4" "$OVERVIEW" \
   "01  /  DECOMPOSE" "Turn scale into signal" "OCCUPANCY  •  RATES  •  DEMAND  •  MARKET POSITION" \
-  35 455 1210 125 "PORTFOLIO SIGNAL" 5.8 470 630 835 635
-render_ui_scene "$TMP_DIR/03-ai.mp4" "$AI_INSIGHTS" \
+  35 455 1210 125 "PORTFOLIO SIGNAL" 4.5 470 630 835 635
+render_ui_scene "$TMP_DIR/03-ai.mp4" "$CONTROLS" \
   "02  /  PRIORITIZE" "Surface the highest-impact moves" "REVENUE GOAL  •  ELASTICITY  •  MACHINE LEARNING" \
-  35 330 1210 220 "AI PRIORITIZATION" 5.8 470 615 790 625
-render_ui_scene "$TMP_DIR/04-decision.mp4" "$CONTROLS" \
-  "03  /  CONTROL" "Make the logic reviewable" "TARGETS  •  GUARDRAILS  •  OPERATOR APPROVAL" \
-  35 430 1210 130 "TARGET + GUARDRAIL" 5.8 470 615 790 625
-render_ui_scene "$TMP_DIR/05-impact.mp4" "$ANALYTICS" \
-  "04  /  LEARN" "Measure the outcome" "RATE GROWTH  •  OCCUPANCY  •  REVENUE  •  NEXT DECISION" \
-  35 305 1210 245 "MEASURE THE EFFECT" 5.8 820 515 925 455
-render_closing "$TMP_DIR/06-close.mp4"
+  35 330 1210 220 "AI PRIORITIZATION" 4.5 470 615 790 625
+render_ui_scene "$TMP_DIR/04-rates.mp4" "$RATE_CARD" \
+  "03  /  APPLY" "Review every proposed rate" "CURRENT RATE  •  RULES RATE  •  OVERRIDES  •  EXPORT" \
+  35 430 1210 130 "RATE REVIEW" 4.5 470 615 790 625
+render_ui_scene "$TMP_DIR/05-market.mp4" "$COMPETITORS" \
+  "04  /  BENCHMARK" "See the local market" "NEARBY COMMUNITIES  •  CARE-ADJUSTED RATES  •  POSITION" \
+  35 305 1210 245 "MARKET CONTEXT" 4.5 820 515 925 455
+render_ui_scene "$TMP_DIR/06-impact.mp4" "$ANALYTICS" \
+  "05  /  LEARN" "Measure the outcome" "RATE GROWTH  •  OCCUPANCY  •  REVENUE  •  NEXT DECISION" \
+  35 305 1210 245 "MEASURE THE EFFECT" 4.5 820 515 925 455
+render_closing "$TMP_DIR/07-close.mp4"
 
 cat > "$TMP_DIR/concat.txt" <<EOF
 file '01-title.mp4'
 file '02-signal.mp4'
 file '03-ai.mp4'
-file '04-decision.mp4'
-file '05-impact.mp4'
-file '06-close.mp4'
+file '04-rates.mp4'
+file '05-market.mp4'
+file '06-impact.mp4'
+file '07-close.mp4'
 EOF
 
 ffmpeg -hide_banner -loglevel error -y \
@@ -126,31 +125,27 @@ ffmpeg -hide_banner -loglevel error -y \
   -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p \
   "$TMP_DIR/visual.mp4"
 
-DATA_VO="$ROOT/attached_assets/generated_audio/modulo-philosophy-data.mp3"
-AI_VO="$ROOT/attached_assets/generated_audio/modulo-philosophy-ai.mp3"
-CONTROL_VO="$ROOT/attached_assets/generated_audio/modulo-philosophy-control.mp3"
-LEARNING_VO="$ROOT/attached_assets/generated_audio/modulo-philosophy-learning.mp3"
+VOICEOVER="$ROOT/attached_assets/generated_audio/modulo-overview-moe-doh-low.mp3"
 MUSIC="$ROOT/attached_assets/generated_audio/dynamic-pricing-demo-music.mp3"
 FINAL="$OUT_DIR/modulo-pricing-intelligence-professional.mp4"
-CAPTION_SRT="$TMP_DIR/dynamic-pricing-demo-signal-decision-impact-captioned.srt"
-CAPTION_ASS="$TMP_DIR/dynamic-pricing-demo-signal-decision-impact-captioned.ass"
+PUBLIC_VIDEO="$ROOT/client/public/media/modulo-pricing-intelligence.mp4"
+POSTER="$ROOT/client/public/media/modulo-pricing-intelligence-poster.jpg"
 
 ffmpeg -hide_banner -loglevel error -y \
   -i "$TMP_DIR/visual.mp4" \
-  -i "$DATA_VO" \
-  -i "$AI_VO" \
-  -i "$CONTROL_VO" \
-  -i "$LEARNING_VO" \
+  -i "$VOICEOVER" \
   -stream_loop -1 -i "$MUSIC" \
   -filter_complex "\
-[1:a]aresample=48000,volume=0.95,adelay=3100|3100[data];\
-[2:a]aresample=48000,volume=0.95,adelay=8900|8900[ai];\
-[3:a]aresample=48000,volume=0.95,adelay=14700|14700[control];\
-[4:a]aresample=48000,volume=0.95,adelay=20500|20500[learning];\
-[5:a]aresample=48000,volume=0.10,afade=t=out:st=28.0:d=2.0[music];\
-[data][ai][control][learning][music]amix=inputs=5:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95:attack=5:release=80[a]" \
-  -map 0:v -map "[a]" -t 30 \
+[1:a]aresample=48000,volume=0.95,adelay=3100|3100[voiceover];\
+[2:a]aresample=48000,volume=0.10,afade=t=out:st=30.5:d=2.0[music];\
+[voiceover][music]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95:attack=5:release=80[a]" \
+  -map 0:v -map "[a]" -t 32.5 \
   -c:v copy -c:a aac -b:a 192k -ar 48000 -movflags +faststart "$FINAL"
 
-echo "Rendered: $FINAL"
+cp "$FINAL" "$PUBLIC_VIDEO"
+ffmpeg -hide_banner -loglevel error -y -ss 3.6 -i "$FINAL" -frames:v 1 -q:v 2 "$POSTER"
+
+echo "Rendered source: $FINAL"
+echo "Updated public video: $PUBLIC_VIDEO"
+echo "Updated poster: $POSTER"
 ffprobe -v error -show_entries format=duration:stream=width,height,codec_name -of default=nw=1 "$FINAL"
