@@ -9,7 +9,7 @@ const finalVideo = join(outDir, "modulo-annual-increase-process.mp4");
 const oldVideo = join(outDir, "modulo-annual-increase-process.previous.mp4");
 const narration = join(
   root,
-  "attached_assets/generated_audio/annual-increase-process-tutorial.mp3",
+  "attached_assets/generated_audio/annual-increase-process-tutorial-british.mp3",
 );
 const music = join(root, "attached_assets/generated_audio/dynamic-pricing-demo-music.mp3");
 
@@ -114,9 +114,9 @@ const scenes = [
   {
     duration: 5,
     kicker: "03  SOLVE QUARTER BY QUARTER",
-    title: "Reconcile both levers to the target",
-    subtitle: "The model weights the two groups by quarter and stays within the selected guardrails.",
-    images: ["attached_assets/image_1789426244961.png"],
+    title: "Review every campus calculation",
+    subtitle: "Each dot is one campus and service line, coloured by service line.",
+    images: ["attached_assets/generated_videos/annual-increase/all-campus-scatter.png"],
   },
   {
     duration: 5.5,
@@ -187,7 +187,7 @@ run([
   "-i",
   music,
   "-filter_complex",
-  "[1:a]aresample=48000,atempo=1.18,volume=1.0,adelay=250|250[voice];[2:a]aresample=48000,volume=0.07,afade=t=out:st=28:d=2[music];[voice][music]amix=inputs=2:duration=first:normalize=0,apad,alimiter=limit=0.95[a]",
+  "[1:a]aresample=48000,atempo=1.27,volume=1.0,adelay=250|250[voice];[2:a]aresample=48000,volume=0.07,afade=t=out:st=28:d=2[music];[voice][music]amix=inputs=2:duration=first:normalize=0,apad,alimiter=limit=0.95[a]",
   "-map",
   "0:v:0",
   "-map",

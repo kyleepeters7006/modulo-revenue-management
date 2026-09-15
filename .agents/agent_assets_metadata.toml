@@ -342,14 +342,14 @@ logical_id = "4df82b76-bde8-4bc0-b725-0fa095354672"
 id = "5krNMcaUhjtDUhNyPyzVi"
 uri = "file://attached_assets/generated_videos/annual-increase/modulo-annual-increase-process.mp4"
 type = "video"
-title = "Annual In-House Rate Plan — Fast Calculation Tutorial"
-description = "Revised 30-second product tutorial with grammatically reviewed narration, a clearer calculation walkthrough, stable software screens, and no zoom-induced shaking."
+title = "Annual In-House Rate Plan — British Voice"
+description = "Updated 30-second tutorial with British narration, Moe-doo-low pronunciation, and a 156-point all-campus scatterplot."
 logical_id = "0ac3eb9c-7a36-4b2d-88e8-5a5261a2d7c1"
-content_hash = "sha256:897e75f95fb09b346f31946d6b814677abeb68006b421c75a73a23b999f7132e"
-size = 1152900
-mtime_ms = 1789428621584
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/0ac3eb9c-7a36-4b2d-88e8-5a5261a2d7c1/92ee8faa-380f-4bdd-9239-45c805a323a4"
-storage_version_token = "1789428722911386"
+content_hash = "sha256:72def91ef4282bd74d734a0e2d2f842c19dc6e5afe0499d30789447abba4ef3e"
+size = 1138217
+mtime_ms = 1789434434484
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/0ac3eb9c-7a36-4b2d-88e8-5a5261a2d7c1/d37990e9-865d-47bf-9af0-77e1972a2068"
+storage_version_token = "1789434500216425"
 content_type = "video/mp4"
 
 [[outputs]]
@@ -367,3 +367,11 @@ type = "audio"
 title = "annual increase calculation tutorial"
 description = "Text-to-speech audio: Start with each campus’s current occupancy, in-house rates, and street rates. Modulo estimates annual turnover by service line from length-of-stay patterns. Retained residents r…"
 logical_id = "25c091a2-1122-4e0b-babb-17dbf847349f"
+
+[[outputs]]
+id = "J5uGpVOQOyyCapzyEiI_a"
+uri = "file://attached_assets/generated_audio/annual-increase-process-tutorial-british.mp3"
+type = "audio"
+title = "British annual increase calculation tutorial"
+description = "Text-to-speech audio: Start with each campus’s current occupancy, in-house rates, and street rates. Moe-doo-low estimates annual turnover by service line from length-of-stay patterns. Retained reside…"
+logical_id = "28f53eed-ca88-4c83-b64d-ac9fc0fdb04b"

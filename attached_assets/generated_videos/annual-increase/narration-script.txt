@@ -1,5 +1,5 @@
 Start with each campus’s current occupancy, in-house rates, and street rates.
-Modulo estimates annual turnover by service line from length-of-stay patterns.
+Moe-doo-low estimates annual turnover by service line from length-of-stay patterns.
 Retained residents receive the planned in-house increase; expected move-ins enter at the recommended street rate.
 The model weights those two groups quarter by quarter, then adjusts both rate levers within the selected guardrails to approach the annual growth target.
 Review every campus and occupancy tier, confirm the revenue impact, and generate the Annual In-House Rate Plan.

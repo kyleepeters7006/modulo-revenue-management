@@ -68,3 +68,15 @@ masked moment available.
 If the film gets longer than the music, a 2-4% `atempo` stretch is inaudible on a
 background bed at low level and avoids the loop seam you would otherwise have to
 hide.
+
+## Annual In-House Rate Plan tutorial voice
+
+Use the warm British male narration style for this video and pronounce the brand
+as “Moe-doo-low.”
+
+**Why:** the product owner explicitly restored the British voice and corrected
+the brand pronunciation after reviewing the American-voice version.
+
+**How to apply:** preserve the British voice when revising this tutorial. Write
+the spoken brand phonetically in the TTS input, while keeping “Modulo” in all
+visible titles and captions.
