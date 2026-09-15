@@ -55,8 +55,15 @@ const PASS_EPSILON = 1e-6;
  */
 export const EQUALIZATION_EXPONENT: Record<EqualizationStrength, number> = {
   low: 0,
-  medium: 1,
-  high: 1.5,
+  // Medium now has a visible, centered spread too, so existing saved
+  // service-line policies do not stay uniform just because they predate the
+  // wider default. Low remains the explicit flat-allocation option.
+  medium: 1.5,
+  // The default policy uses high equalization so the resident increases have
+  // a wider, still deterministic spread around the solved average. The
+  // exponent only changes distribution; the calibration step below still
+  // reconciles the weighted average exactly.
+  high: 2,
 };
 
 /**

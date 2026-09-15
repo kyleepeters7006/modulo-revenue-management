@@ -774,7 +774,7 @@ app.use((req, res, next) => {
         annual_turnover_pct         real    NOT NULL DEFAULT 35,
         min_inhouse_increase_pct    real    NOT NULL DEFAULT 0,
         max_inhouse_increase_pct    real    NOT NULL DEFAULT 8,
-        equalization_strength       text    NOT NULL DEFAULT 'medium',
+        equalization_strength       text    NOT NULL DEFAULT 'high',
         allow_inhouse_above_street  boolean NOT NULL DEFAULT false,
         max_street_increase_pct     real    NOT NULL DEFAULT 15,
         max_yoy_street_increase_pct real    NOT NULL DEFAULT 15,

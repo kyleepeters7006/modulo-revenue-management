@@ -705,7 +705,7 @@ export const inhousePlanningAssumptions = pgTable("inhouse_planning_assumptions"
   annualTurnoverPct: real("annual_turnover_pct").notNull().default(35),
   minInhouseIncreasePct: real("min_inhouse_increase_pct").notNull().default(0),
   maxInhouseIncreasePct: real("max_inhouse_increase_pct").notNull().default(8),
-  equalizationStrength: text("equalization_strength").notNull().default("medium"), // low | medium | high
+  equalizationStrength: text("equalization_strength").notNull().default("high"), // low | medium | high
   allowInhouseAboveStreet: boolean("allow_inhouse_above_street").notNull().default(false),
   maxStreetIncreasePct: real("max_street_increase_pct").notNull().default(15),
   minStreetIncreasePct: real("min_street_increase_pct").notNull().default(0),

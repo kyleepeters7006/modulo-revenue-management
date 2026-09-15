@@ -1486,8 +1486,8 @@ console.log("\n-- 12. Resident allocation reconciles back to the required aggreg
   );
   const closedShares = proportional.map((a) => a.increase / a.headroom);
   ok(
-    "medium equalization closes one common share of each resident's Street gap",
-    Math.max(...closedShares) - Math.min(...closedShares) < 1e-9,
+    "medium equalization varies the share of each resident's Street gap",
+    Math.max(...closedShares) - Math.min(...closedShares) > 1e-6,
   );
 
   // Equalization strength must actually change the spread.

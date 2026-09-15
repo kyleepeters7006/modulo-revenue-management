@@ -122,7 +122,7 @@ export const DEFAULT_ASSUMPTIONS: PlanningAssumptions = {
   annualTurnoverPct: 35,
   minInhouseIncreasePct: 0,
   maxInhouseIncreasePct: 8,
-  equalizationStrength: "medium",
+  equalizationStrength: "high",
   allowInhouseAboveStreet: true,
   maxStreetIncreasePct: 15,
   minStreetIncreasePct: 0,
@@ -253,7 +253,7 @@ export const DEFAULT_OCCUPANCY_TIER_POLICY: OccupancyTierPolicy = {
       maxStreetIncreasePct: 8,
       maxYoYStreetIncreasePct: 8,
       desiredVarianceToTopCompetitorPct: -3,
-      equalizationStrength: "medium",
+      equalizationStrength: "high",
     },
     target: {
       minInhouseIncreasePct: 0,
@@ -262,7 +262,7 @@ export const DEFAULT_OCCUPANCY_TIER_POLICY: OccupancyTierPolicy = {
       maxStreetIncreasePct: 12,
       maxYoYStreetIncreasePct: 12,
       desiredVarianceToTopCompetitorPct: 0,
-      equalizationStrength: "medium",
+      equalizationStrength: "high",
     },
     high: {
       minInhouseIncreasePct: 2,
@@ -271,7 +271,7 @@ export const DEFAULT_OCCUPANCY_TIER_POLICY: OccupancyTierPolicy = {
       maxStreetIncreasePct: 15,
       maxYoYStreetIncreasePct: 15,
       desiredVarianceToTopCompetitorPct: 3,
-      equalizationStrength: "medium",
+      equalizationStrength: "high",
     },
   },
 };
