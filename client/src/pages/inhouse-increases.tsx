@@ -10,7 +10,7 @@
  * unreachable target is shown as unreachable with the smallest change that
  * would fix it — never quietly rounded down to something achievable.
  */
-import React, { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import React, { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
@@ -1728,7 +1728,6 @@ export default function InhouseIncreases() {
   const [tierGrid, setTierGrid] = useState<TierGridResult | null>(null);
   const [mobileTier, setMobileTier] = useState<OccupancyTierId>("target");
   const [assumptionsTouched, setAssumptionsTouched] = useState(false);
-  const [, startAssumptionTransition] = useTransition();
   const [plans, setPlans] = useState<PlanWithSl[] | null>(null);
   // Persisted separately from PlanResult because the server normalizes empty
   // dates and applies the measured tier's guardrails before returning a plan.
@@ -3030,19 +3029,18 @@ export default function InhouseIncreases() {
 
   function updatePerLine(sl: string, field: "rateGrowthTargetPct" | "annualTurnoverPct", value: number) {
     setAssumptionsTouched(true);
-    // A committed assumption invalidates summaries, charts, and thousands of
-    // resident rows. Keep focus/typing urgent and render that derived work at
-    // transition priority so moving between fields remains immediate.
-    startAssumptionTransition(() => {
-      setPerLineTargets((prev) => ({
-        ...prev,
-        [sl]: {
-          rateGrowthTargetPct: prev[sl]?.rateGrowthTargetPct ?? assumptions.rateGrowthTargetPct,
-          annualTurnoverPct: prev[sl]?.annualTurnoverPct ?? assumptions.annualTurnoverPct,
-          [field]: value,
-        },
-      }));
-    });
+    // This is called once when the number input commits, not on every
+    // keystroke. Keep the state write synchronous: Save assumptions may be
+    // clicked immediately after the input blurs, and a deferred transition
+    // could otherwise serialize the previous target.
+    setPerLineTargets((prev) => ({
+      ...prev,
+      [sl]: {
+        rateGrowthTargetPct: prev[sl]?.rateGrowthTargetPct ?? assumptions.rateGrowthTargetPct,
+        annualTurnoverPct: prev[sl]?.annualTurnoverPct ?? assumptions.annualTurnoverPct,
+        [field]: value,
+      },
+    }));
   }
 
   /** Merge shared assumptions with a service line's per-line overrides. */
@@ -3083,18 +3081,16 @@ export default function InhouseIncreases() {
     // have the real one skipped as "already edited".
     if (!tierLineLoaded(sl)) return;
     setAssumptionsTouched(true);
-    startAssumptionTransition(() => {
-      setTierState((prev) => {
-        if (prev.scopeKey !== policyScopeKey || !prev.loaded[sl]) return prev;
-        return {
-          ...prev,
-          policies: {
-            ...prev.policies,
-            [sl]: change(prev.policies[sl] ?? defaultOccupancyTierPolicy()),
-          },
-          edited: { ...prev.edited, [sl]: true },
-        };
-      });
+    setTierState((prev) => {
+      if (prev.scopeKey !== policyScopeKey || !prev.loaded[sl]) return prev;
+      return {
+        ...prev,
+        policies: {
+          ...prev.policies,
+          [sl]: change(prev.policies[sl] ?? defaultOccupancyTierPolicy()),
+        },
+        edited: { ...prev.edited, [sl]: true },
+      };
     });
   }
 

@@ -23,3 +23,5 @@ individually valid.
   of that key first — the change converts a latent no-op into a live divergence.
 - Cover it end-to-end, not with unit tests: type a distinctive value, run the engine, and assert
   the engine echoes that exact value back. "The field accepts input" proves nothing.
+- Persisted form commits must also update the winning store synchronously; a deferred transition
+  can let an immediate Save action serialize the previous value.
