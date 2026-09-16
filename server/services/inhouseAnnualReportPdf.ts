@@ -25,8 +25,8 @@ const MUTED = "#637381";
 const PALE = "#EEF3F7";
 const BORDER = "#C9D4DE";
 const GREEN = "#18723A";
-const WORKBOOK_HEADER_FONT_SIZE = 6.2;
-const WORKBOOK_CELL_FONT_SIZE = 7.2;
+const WORKBOOK_HEADER_FONT_SIZE = 7.2;
+const WORKBOOK_CELL_FONT_SIZE = 8.2;
 
 function objects(value: unknown): JsonObject[] {
   if (Array.isArray(value)) return value.filter((v): v is JsonObject => !!v && typeof v === "object");
