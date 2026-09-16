@@ -686,8 +686,11 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
       const px = sx(point.occupancy);
       const py = sy(point[field]);
       const label = annualReportServiceLineLabel(point.sl);
-      const labelWidth = Math.max(15, label.length * 7);
-      const candidates = [-20, -10, 3, 16, 29].flatMap((offset) => [
+      // EB Garamond's rendered width is wider than a character-count estimate
+      // at this chart's 14px label size. Over-reserve the box so labels that
+      // look separate to the layout engine do not touch on screen.
+      const labelWidth = Math.max(24, label.length * 8.5 + 4);
+      const candidates = [-36, -24, -12, 2, 16, 30, 44].flatMap((offset) => [
         { x: px + 6, y: py + offset, anchor: "start" as const },
         { x: px - 6, y: py + offset, anchor: "end" as const },
         { x: px, y: py + offset, anchor: "middle" as const },
@@ -713,8 +716,41 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
         if (!withinPlot || overlaps) return false;
         occupiedLabels.push(box);
         return true;
-      }) ?? candidates[0];
-      return { point, label, px, py, ...placement };
+      });
+      const finalPlacement = placement ?? candidates
+        .map((candidate) => {
+          const left = candidate.anchor === "start"
+            ? candidate.x
+            : candidate.anchor === "end"
+              ? candidate.x - labelWidth
+              : candidate.x - labelWidth / 2;
+          const box = {
+            left,
+            top: candidate.y - 10,
+            right: left + labelWidth,
+            bottom: candidate.y + 3,
+          };
+          const overlapCount = occupiedLabels.filter((used) =>
+            box.left < used.right + 2 &&
+            box.right > used.left - 2 &&
+            box.top < used.bottom + 2 &&
+            box.bottom > used.top - 2,
+          ).length;
+          return { candidate, box, overlapCount };
+        })
+        .sort((a, b) => a.overlapCount - b.overlapCount)[0].candidate;
+      const finalLeft = finalPlacement.anchor === "start"
+        ? finalPlacement.x
+        : finalPlacement.anchor === "end"
+          ? finalPlacement.x - labelWidth
+          : finalPlacement.x - labelWidth / 2;
+      occupiedLabels.push({
+        left: finalLeft,
+        top: finalPlacement.y - 10,
+        right: finalLeft + labelWidth,
+        bottom: finalPlacement.y + 3,
+      });
+      return { point, label, px, py, ...finalPlacement };
     });
     return (
       <div className="report-scatter">

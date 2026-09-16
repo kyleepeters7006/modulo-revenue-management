@@ -567,6 +567,17 @@ function planningScopeKey(
     : `${locationId ?? "all"}|${lines.join(",")}`;
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 async function savePlanDetailSnapshot(input: {
   clientId: string;
   scopeKey: string;
@@ -1070,6 +1081,7 @@ export function registerInhousePlanningRoutes(
                       plans: compactPlans,
                       tierGrid,
                       generatedAt,
+                      detailGeneratedAt: generatedAt,
                     } as any,
                     setWhere: sql`${inhouseAnnualReportRuns.generatedAt} <= ${generatedAt}`,
                   }),
@@ -1859,6 +1871,7 @@ export function registerInhousePlanningRoutes(
             plans: body.data.plans,
             tierGrid: body.data.tierGrid,
             generatedAt,
+            detailGeneratedAt: detailSnapshot?.generatedAt ?? null,
           } as any,
         })
         .returning();
@@ -2043,11 +2056,12 @@ export function registerInhousePlanningRoutes(
         .limit(1);
       if (!row) return res.status(404).json({ error: "Annual report not found" });
 
-      const [savedDetail, latestDetail] = await Promise.all([
+      const [savedDetail, latestDetail, newestDetail] = await Promise.all([
         db
           .select({
             plans: inhousePlanDetailSnapshots.plans,
             generatedAt: inhousePlanDetailSnapshots.generatedAt,
+            inputSnapshot: inhousePlanDetailSnapshots.inputSnapshot,
           })
           .from(inhousePlanDetailSnapshots)
           .where(and(
@@ -2059,6 +2073,7 @@ export function registerInhousePlanningRoutes(
           .select({
             plans: inhousePlanDetailSnapshots.plans,
             generatedAt: inhousePlanDetailSnapshots.generatedAt,
+            inputSnapshot: inhousePlanDetailSnapshots.inputSnapshot,
           })
           .from(inhousePlanDetailSnapshots)
           .where(and(
@@ -2070,8 +2085,26 @@ export function registerInhousePlanningRoutes(
           ),
           ))
           .limit(1),
+        db
+          .select({
+            plans: inhousePlanDetailSnapshots.plans,
+            generatedAt: inhousePlanDetailSnapshots.generatedAt,
+            inputSnapshot: inhousePlanDetailSnapshots.inputSnapshot,
+          })
+          .from(inhousePlanDetailSnapshots)
+          .where(and(
+            eq(inhousePlanDetailSnapshots.clientId, clientId),
+            eq(inhousePlanDetailSnapshots.scopeKey, row.scopeKey),
+          ))
+          .orderBy(desc(inhousePlanDetailSnapshots.generatedAt))
+          .limit(1),
       ]);
-      const detail = savedDetail[0] ?? latestDetail[0];
+      const expectedInputs = (row.tierGrid as any)?.inputSnapshot;
+      const matchingNewerDetail = newestDetail[0] &&
+        stableJson(newestDetail[0].inputSnapshot) === stableJson(expectedInputs)
+        ? newestDetail[0]
+        : undefined;
+      const detail = savedDetail[0] ?? latestDetail[0] ?? matchingNewerDetail;
       const detailPlans = Array.isArray(detail?.plans)
         ? detail.plans
         : [];
