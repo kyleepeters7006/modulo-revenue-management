@@ -25,6 +25,8 @@ const MUTED = "#637381";
 const PALE = "#EEF3F7";
 const BORDER = "#C9D4DE";
 const GREEN = "#18723A";
+const WORKBOOK_HEADER_FONT_SIZE = 6.2;
+const WORKBOOK_CELL_FONT_SIZE = 7.2;
 
 function objects(value: unknown): JsonObject[] {
   if (Array.isArray(value)) return value.filter((v): v is JsonObject => !!v && typeof v === "object");
@@ -138,7 +140,7 @@ function line(doc: PDFKit.PDFDocument, x: number, y: number, width: number, valu
 function wrappedHeader(doc: PDFKit.PDFDocument, x: number, y: number, width: number, value: string): void {
   doc
     .font("Times-Bold")
-    .fontSize(5.3)
+    .fontSize(WORKBOOK_HEADER_FONT_SIZE)
     .fillColor("#404040")
     .text(value, x + 2, y + 4, {
       width: width - 4,
@@ -648,7 +650,7 @@ function drawWorkbookBlock(
     ];
     values.forEach((value, columnIndex) => {
       line(doc, positions[columnIndex] + 3, rowY + 4, widths[columnIndex] - 6, value, {
-        size: 6.4,
+        size: WORKBOOK_CELL_FONT_SIZE,
         bold: columnIndex === 0,
         color: columnIndex === inhouseIncreaseColumn
           ? increaseColor(row.inhouseIncrease, inhouseValues)
@@ -713,7 +715,7 @@ function drawWorkbookBlock(
   ];
   totals.forEach((value, columnIndex) => {
     line(doc, positions[columnIndex] + 3, totalY + 5, widths[columnIndex] - 6, value, {
-      size: 6.4,
+      size: WORKBOOK_CELL_FONT_SIZE,
       bold: true,
       color: columnIndex === inhouseIncreaseColumn
         ? increaseColor(weighted("inhouseIncrease"), inhouseValues)
