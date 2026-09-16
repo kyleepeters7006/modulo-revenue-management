@@ -21,6 +21,7 @@ import {
 import {
   annualRateGrowthBridge,
   annualRateGrowthRevenue,
+  annualReportServiceLineLabel,
   type AnnualReportResidentScatterPoint,
   RESIDENT_INCREASE_TIER_LABELS,
 } from "@shared/inhouseAnnualReportSnapshot";
@@ -91,6 +92,9 @@ function variance(current: number, street: number) {
   const pct = street ? (dollars / street) * 100 : null;
   return { dollars, pct };
 }
+function finiteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
 
 function Kpi({ label, value, note, accent = false }: { label: string; value: string; note?: string; accent?: boolean }) {
   return (
@@ -130,11 +134,23 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
         0,
       ) / totalCurrentRevenue
     : 0;
-  const weightedOccupancy = report.tierGrid.lines.reduce(
-    (sum, line) => sum + (line.occupancyPct ?? 0) *
-      (line.currentPlan?.summary.residentCount ?? 0),
+  const occupancyLines = report.tierGrid.lines.filter(
+    (line) =>
+      line.occupancyPct != null &&
+      Number.isFinite(line.occupancyPct) &&
+      (line.currentPlan?.summary.residentCount ?? 0) > 0,
+  );
+  const occupancyResidents = occupancyLines.reduce(
+    (sum, line) => sum + (line.currentPlan?.summary.residentCount ?? 0),
     0,
-  ) / Math.max(1, totals.residents);
+  );
+  const weightedOccupancy = occupancyResidents > 0
+    ? occupancyLines.reduce(
+        (sum, line) => sum + line.occupancyPct! *
+          (line.currentPlan?.summary.residentCount ?? 0),
+        0,
+      ) / occupancyResidents
+    : null;
   const target = measuredPlans.length
     ? measuredPlans.reduce((sum, plan) => sum + plan.assumptions.rateGrowthTargetPct, 0) /
       measuredPlans.length
@@ -161,7 +177,7 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
       }
       return {
         key: plan.scope.serviceLine,
-        label: plan.scope.serviceLine,
+        label: annualReportServiceLineLabel(plan.scope.serviceLine),
         rateBasis: plan.rateBasis,
         points: Array.from(points.values()).sort((a, b) => a.month.localeCompare(b.month)),
       };
@@ -214,7 +230,7 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
           </div>
           <h1 className="font-serif text-4xl font-semibold tracking-[-0.04em] text-foreground sm:text-5xl">Annual In-House Increase Plan</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {location} · {report.serviceLines.join(" · ")} · Plan year {planYear} · Effective {effectiveDates.join(", ") || "—"}
+            {location} · {report.serviceLines.map(annualReportServiceLineLabel).join(" · ")} · Plan year {planYear} · Effective {effectiveDates.join(", ") || "—"}
           </p>
         </div>
         <div className="text-left sm:text-right">
@@ -266,7 +282,7 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
               {measuredPlans.map((plan) => {
                 const v = variance(plan.summary.newAvgInhouseRateMonthly, plan.recommendedStreetRateMonthly);
                 return <tr key={plan.scope.serviceLine} className="border-t">
-                  <td className="px-4 py-3 font-semibold">{plan.scope.serviceLine}<div className="text-[10px] font-normal text-muted-foreground">{plan.feasible ? "Target status: clears" : "Target status: constrained"}</div></td>
+                  <td className="px-4 py-3 font-semibold">{annualReportServiceLineLabel(plan.scope.serviceLine)}<div className="text-[10px] font-normal text-muted-foreground">{plan.feasible ? "Target status: clears" : "Target status: constrained"}</div></td>
                   <td className="px-3 py-3 text-right font-mono">{rate(plan.currentStreetRateDisplay, plan.rateBasis)}</td>
                   <td className="px-3 py-3 text-right font-mono font-semibold">{rate(plan.recommendedStreetRateDisplay, plan.rateBasis)}<div className="text-[10px] font-normal text-primary">+{formatPct(plan.streetIncreasePct, 1)}</div></td>
                   <td className="px-3 py-3 text-right font-mono">{rate(plan.summary.currentAvgInhouseRateMonthly, "monthly")}</td>
@@ -288,7 +304,7 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
         <div className="overflow-x-auto">
           <table className="w-full min-w-[700px] text-xs">
             <thead className="text-[10px] uppercase tracking-wider text-muted-foreground"><tr><th className="px-3 py-2 text-left">Service line</th>{(measuredPlans[0]?.monthlyRateProjection ?? []).map((point) => <th key={point.month} className="px-2 py-2 text-right">{point.month}</th>)}</tr></thead>
-            <tbody>{measuredPlans.map((plan) => <tr key={plan.scope.serviceLine} className="border-t"><td className="px-3 py-2 font-semibold">{plan.scope.serviceLine}<div className="text-[10px] font-normal text-muted-foreground">in-house / street · normalized monthly</div></td>{(plan.monthlyRateProjection ?? []).map((point) => <td key={point.month} className="px-2 py-2 text-right font-mono">{rate(point.projectedRateMonthly, "monthly")}<div className="text-[10px] font-normal text-muted-foreground">{rate(point.streetRateMonthly, "monthly")}</div></td>)}</tr>)}</tbody>
+            <tbody>{measuredPlans.map((plan) => <tr key={plan.scope.serviceLine} className="border-t"><td className="px-3 py-2 font-semibold">{annualReportServiceLineLabel(plan.scope.serviceLine)}<div className="text-[10px] font-normal text-muted-foreground">in-house / street · normalized monthly</div></td>{(plan.monthlyRateProjection ?? []).map((point) => <td key={point.month} className="px-2 py-2 text-right font-mono">{rate(point.projectedRateMonthly, "monthly")}<div className="text-[10px] font-normal text-muted-foreground">{rate(point.streetRateMonthly, "monthly")}</div></td>)}</tr>)}</tbody>
           </table>
         </div>
       </section>
@@ -297,7 +313,7 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
         <div className="mb-3 flex items-end justify-between"><div><h2 className="text-sm font-semibold">Occupancy scenarios</h2><p className="mt-1 text-xs text-muted-foreground">Low, Target, and High show how the recommendation changes with occupancy.</p></div><span className="text-[10px] uppercase tracking-wider text-muted-foreground">Current tier highlighted</span></div>
         <div className="grid gap-3 md:grid-cols-3">
           {report.tierGrid.lines.map((line) => <div key={line.serviceLine} className="overflow-hidden rounded-lg border">
-            <div className="flex items-center justify-between border-b bg-muted/25 px-3 py-2"><span className="text-xs font-semibold">{line.serviceLine}</span><span className="font-mono text-[11px] text-muted-foreground">{line.occupancyPct == null ? "No occupancy" : `${line.occupancyPct.toFixed(1)}%`}</span></div>
+            <div className="flex items-center justify-between border-b bg-muted/25 px-3 py-2"><span className="text-xs font-semibold">{annualReportServiceLineLabel(line.serviceLine)}</span><span className="font-mono text-[11px] text-muted-foreground">{line.occupancyPct == null ? "No occupancy" : `${line.occupancyPct.toFixed(1)}%`}</span></div>
             <div className="divide-y">{OCCUPANCY_TIER_IDS.map((tier) => { const cell = line.cells.find((c) => c.tier === tier); const current = line.currentTier === tier; return <div key={tier} className={`flex items-center justify-between px-3 py-2 text-xs ${current ? "bg-primary/10" : ""}`}><span className={current ? "font-semibold text-primary" : "text-muted-foreground"}>{OCCUPANCY_TIER_LABELS[tier]} {current && "· measured"}</span><span className="font-mono">{cell?.error ? "Unavailable" : `${pct(cell?.inhouseIncreasePct)} / ${pct(cell?.streetIncreasePct)}`}<span className="ml-1 text-[10px] text-muted-foreground">in-house / street</span></span></div>; })}</div>
           </div>)}
         </div>
@@ -333,7 +349,7 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
               const post = variance(plan.summary.newAvgInhouseRateMonthly, plan.recommendedStreetRateMonthly);
               return (
                 <p key={plan.scope.serviceLine}>
-                  <span className="font-semibold text-foreground">{plan.scope.serviceLine}:</span>{" "}
+                  <span className="font-semibold text-foreground">{annualReportServiceLineLabel(plan.scope.serviceLine)}:</span>{" "}
                   Current in-house is {pct(current.pct)} versus Street. The {pct(plan.summary.weightedAvgIncreasePct)} measured-tier increase generates {signedMoney(plan.summary.totalAnnualIncreaseDollars)} annualized while leaving post-increase in-house {pct(post.pct)} versus projected Street.
                 </p>
               );
@@ -391,22 +407,36 @@ function WorkbookReportBlock({
   const rows = report.plans.map(({ sl, plan }) => {
     const line = report.tierGrid.lines.find((entry) => entry.serviceLine === sl);
     const scenario = tier ? line?.cells.find((cell) => cell.tier === tier) : undefined;
-    const inhouseIncrease = scenario?.inhouseIncreasePct ?? plan.summary.weightedAvgIncreasePct;
-    const streetIncrease = scenario?.streetIncreasePct ?? plan.streetIncreasePct;
+    const scenarioAvailable = !tier || (
+      scenario != null &&
+      finiteNumber(scenario.inhouseIncreasePct) &&
+      finiteNumber(scenario.streetIncreasePct) &&
+      finiteNumber(scenario.newAvgInhouseRateMonthly) &&
+      finiteNumber(scenario.recommendedStreetRateMonthly) &&
+      finiteNumber(scenario.totalAnnualIncreaseDollars)
+    );
+    const inhouseIncrease = tier
+      ? scenarioAvailable ? scenario!.inhouseIncreasePct : null
+      : plan.summary.weightedAvgIncreasePct;
+    const streetIncrease = tier
+      ? scenarioAvailable ? scenario!.streetIncreasePct : null
+      : plan.streetIncreasePct;
     const currentInhouse = plan.summary.currentAvgInhouseRateMonthly;
-    const proposedInhouse = scenario
-      ? currentInhouse * (1 + (inhouseIncrease ?? 0) / 100)
+    const proposedInhouse = tier
+      ? scenarioAvailable ? scenario!.newAvgInhouseRateMonthly : null
       : plan.summary.newAvgInhouseRateMonthly;
     const currentStreet = plan.currentStreetRateMonthly;
-    const proposedStreet = scenario
-      ? currentStreet * (1 + (streetIncrease ?? 0) / 100)
+    const proposedStreet = tier
+      ? scenarioAvailable ? scenario!.recommendedStreetRateMonthly : null
       : plan.recommendedStreetRateMonthly;
-    const position = proposedInhouse
+    const position = proposedInhouse && proposedStreet != null
       ? ((proposedStreet - proposedInhouse) / proposedInhouse) * 100
       : null;
     const growthBridge = tier
       ? null
-      : annualRateGrowthBridge(plan.quarters, plan.rateBasis, inhouseIncrease);
+      : inhouseIncrease == null
+        ? null
+        : annualRateGrowthBridge(plan.quarters, plan.rateBasis, inhouseIncrease);
     return {
       sl,
       plan,
@@ -419,19 +449,42 @@ function WorkbookReportBlock({
       streetIncrease,
       position,
       growthBridge,
-      annualizedRevenue: growthBridge
-        ? annualRateGrowthRevenue(growthBridge, plan.summary.residentCount)
-        : scenario
-        ? currentInhouse * plan.summary.residentCount * ((inhouseIncrease ?? 0) / 100) * 12
-        : plan.summary.totalAnnualIncreaseDollars,
+      scenarioAvailable,
+      annualizedRevenue: tier
+        ? scenarioAvailable ? scenario!.totalAnnualIncreaseDollars : null
+        : growthBridge
+          ? annualRateGrowthRevenue(growthBridge, plan.summary.residentCount)
+          : plan.summary.totalAnnualIncreaseDollars,
       portfolioShare: totalResidents ? plan.summary.residentCount / totalResidents * 100 : null,
     };
   });
   const weighted = (field: "inhouseIncrease" | "streetIncrease" | "position") => {
     const eligible = rows.filter((row) => row[field] != null && Number.isFinite(row[field]));
-    const denominator = eligible.reduce((sum, row) => sum + row.residents, 0);
-    return denominator
-      ? eligible.reduce((sum, row) => sum + Number(row[field]) * row.residents, 0) / denominator
+    if (eligible.length === 0) return null;
+    if (field === "position") {
+      const denominator = eligible.reduce(
+        (sum, row) => sum + (
+          row.proposedInhouse != null && row.proposedInhouse > 0
+            ? row.proposedInhouse * row.residents
+            : 0
+        ),
+        0,
+      );
+      const numerator = eligible.reduce(
+        (sum, row) => sum + (row.proposedStreet ?? 0) * row.residents,
+        0,
+      );
+      return denominator > 0 ? (numerator / denominator - 1) * 100 : null;
+    }
+    const denominator = eligible.reduce((sum, row) => {
+      const rate = field === "inhouseIncrease" ? row.currentInhouse : row.currentStreet;
+      return sum + (rate > 0 ? rate * row.residents : 0);
+    }, 0);
+    return denominator > 0
+      ? eligible.reduce((sum, row) => {
+          const rate = field === "inhouseIncrease" ? row.currentInhouse : row.currentStreet;
+          return sum + Number(row[field]) * rate * row.residents;
+        }, 0) / denominator
       : null;
   };
   const annualImpact = rows.reduce(
@@ -442,6 +495,7 @@ function WorkbookReportBlock({
   const streetIncreaseValues = rows.map((row) => row.streetIncrease);
   const weightedInhouse = weighted("inhouseIncrease");
   const weightedStreet = weighted("streetIncrease");
+  const scenarioComplete = !tier || rows.every((row) => row.scenarioAvailable);
   const bridgeResidents = rows.reduce(
     (sum, row) => sum + (row.growthBridge ? row.residents : 0),
     0,
@@ -469,7 +523,11 @@ function WorkbookReportBlock({
       <div className="report-section-band flex items-center justify-between gap-3">
         <span>{title}</span>
         <span className="font-sans text-[10px] font-medium tracking-normal">
-          {tier ? "Scenario rates use this tier’s calculated increases" : `${signedMoney(annualImpact)} total YoY revenue growth`}
+          {tier
+            ? scenarioComplete
+              ? "Scenario rates use this tier’s calculated increases"
+              : "Scenario unavailable for one or more service lines"
+            : `${signedMoney(annualImpact)} total YoY revenue growth`}
         </span>
       </div>
       <div className="overflow-x-auto">
@@ -495,18 +553,18 @@ function WorkbookReportBlock({
           <tbody>
             {rows.map((row) => (
               <tr key={row.sl}>
-                <td className="font-semibold">{row.sl}</td>
+               <td className="font-semibold">{annualReportServiceLineLabel(row.sl)}</td>
                 <td className="mono">{workbookRate(row.currentInhouse, row.plan.rateBasis)}</td>
-                <td className="mono">{workbookRate(row.proposedInhouse, row.plan.rateBasis)}</td>
-                <td className="mono increase-pct" style={{ color: increaseTextColor(row.inhouseIncrease, inhouseIncreaseValues) }}>{pct(row.inhouseIncrease)}</td>
+                <td className="mono">{tier && !row.scenarioAvailable ? "Unavailable" : workbookRate(row.proposedInhouse, row.plan.rateBasis)}</td>
+                <td className="mono increase-pct" style={{ color: increaseTextColor(row.inhouseIncrease, inhouseIncreaseValues) }}>{tier && !row.scenarioAvailable ? "Unavailable" : pct(row.inhouseIncrease)}</td>
                 <td className="mono">{workbookRate(row.currentStreet, row.plan.rateBasis)}</td>
-                <td className="mono">{workbookRate(row.proposedStreet, row.plan.rateBasis)}</td>
-                <td className="mono increase-pct" style={{ color: increaseTextColor(row.streetIncrease, streetIncreaseValues) }}>{pct(row.streetIncrease)}</td>
-                <td className="mono">{pct(row.position)}</td>
+                <td className="mono">{tier && !row.scenarioAvailable ? "Unavailable" : workbookRate(row.proposedStreet, row.plan.rateBasis)}</td>
+                <td className="mono increase-pct" style={{ color: increaseTextColor(row.streetIncrease, streetIncreaseValues) }}>{tier && !row.scenarioAvailable ? "Unavailable" : pct(row.streetIncrease)}</td>
+                <td className="mono">{tier && !row.scenarioAvailable ? "Unavailable" : pct(row.position)}</td>
                 {!tier && <td className="mono">{pct(row.growthBridge?.priorPeriodIncreasePct)}</td>}
                 {!tier && <td className="mono increase-pct" style={{ color: increaseTextColor(row.inhouseIncrease, inhouseIncreaseValues) }}>{pct(row.growthBridge?.planIncreasePct)}</td>}
                 {!tier && <td className="mono font-semibold">{pct(row.growthBridge?.fullYearYoyPct)}</td>}
-                <td className="mono font-semibold">{signedMoney(row.annualizedRevenue)}</td>
+                <td className="mono font-semibold">{tier && !row.scenarioAvailable ? "Unavailable" : signedMoney(row.annualizedRevenue)}</td>
                 <td className="mono">{row.residents.toLocaleString()}</td>
                 <td className="mono">{pct(row.portfolioShare)}</td>
               </tr>
@@ -515,15 +573,15 @@ function WorkbookReportBlock({
               <td>Total</td>
               <td>—</td>
               <td>—</td>
-              <td className="mono increase-pct" style={{ color: increaseTextColor(weightedInhouse, inhouseIncreaseValues) }}>{pct(weightedInhouse)}</td>
+              <td className="mono increase-pct" style={{ color: increaseTextColor(weightedInhouse, inhouseIncreaseValues) }}>{scenarioComplete ? pct(weightedInhouse) : "Unavailable"}</td>
               <td>—</td>
               <td>—</td>
-              <td className="mono increase-pct" style={{ color: increaseTextColor(weightedStreet, streetIncreaseValues) }}>{pct(weightedStreet)}</td>
-              <td className="mono">{pct(weighted("position"))}</td>
+              <td className="mono increase-pct" style={{ color: increaseTextColor(weightedStreet, streetIncreaseValues) }}>{scenarioComplete ? pct(weightedStreet) : "Unavailable"}</td>
+              <td className="mono">{scenarioComplete ? pct(weighted("position")) : "Unavailable"}</td>
               {!tier && <td className="mono">{bridgeResidents > 0 ? pct(combinedPriorPeriodIncrease) : "—"}</td>}
               {!tier && <td className="mono increase-pct" style={{ color: increaseTextColor(weightedInhouse, inhouseIncreaseValues) }}>{bridgeResidents > 0 ? pct(weightedInhouse) : "—"}</td>}
               {!tier && <td className="mono">{bridgeResidents > 0 ? pct(combinedFullYearYoy) : "—"}</td>}
-              <td className="mono">{signedMoney(rows.reduce((sum, row) => sum + (row.annualizedRevenue ?? 0), 0))}</td>
+              <td className="mono">{scenarioComplete ? signedMoney(rows.reduce((sum, row) => sum + (row.annualizedRevenue ?? 0), 0)) : "Unavailable"}</td>
               <td className="mono">{totalResidents.toLocaleString()}</td>
               <td className="mono">{totalResidents ? "100.0%" : "—"}</td>
             </tr>
@@ -548,7 +606,7 @@ function WorkbookPageHeader({
         <p className="report-kicker">Modulo annual rate planning</p>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight">Annual In-House Rate Plan</h1>
         <p className="mt-1 text-xs text-muted-foreground">
-          {location} · {report.serviceLines.join(" · ")}
+           {location} · {report.serviceLines.map(annualReportServiceLineLabel).join(" · ")}
         </p>
       </div>
       <div className="text-right text-xs">
@@ -652,7 +710,7 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
           {labelPlacements.map(({ point, px, py, x, y, anchor }) => (
             <g key={`${field}-${point.sl}`}>
               <circle cx={px} cy={py} r="5.2" fill={REPORT_SCATTER_COLORS[point.sl] ?? "#44546A"} />
-              <text x={x} y={y} textAnchor={anchor} className="report-scatter-label">{point.sl}</text>
+               <text x={x} y={y} textAnchor={anchor} className="report-scatter-label">{annualReportServiceLineLabel(point.sl)}</text>
             </g>
           ))}
         </svg>
@@ -700,7 +758,7 @@ function ResidentIncreaseCharts({ plans }: { plans: ReportPlan[] }) {
           const barWidth = Math.max(3, slotWidth * 0.68);
           return (
             <div key={plan.scope.serviceLine} className="report-resident-chart">
-              <p className="report-resident-title">{plan.scope.serviceLine}</p>
+               <p className="report-resident-title">{annualReportServiceLineLabel(plan.scope.serviceLine)}</p>
               <svg
                 viewBox={`0 0 ${width} ${height}`}
                 role="img"
@@ -842,7 +900,7 @@ function ResidentIncreaseScatter({
                   }}
                   aria-pressed={isSelected}
                 >
-                  {serviceLine}
+                  {annualReportServiceLineLabel(serviceLine)}
                 </button>
               );
             })}
@@ -895,7 +953,7 @@ function ResidentIncreaseScatter({
                     stroke={hovered?.id === point.id ? "#172B4D" : "none"}
                     strokeWidth="1.5"
                     tabIndex={0}
-                    aria-label={`${point.campus}, ${point.serviceLine}, ${point.increasePct.toFixed(1)} percent increase`}
+                    aria-label={`${point.campus}, ${annualReportServiceLineLabel(point.serviceLine)}, ${point.increasePct.toFixed(1)} percent increase`}
                     onMouseEnter={() => setHovered(point)}
                     onMouseLeave={() => setHovered((current) => current?.id === point.id ? null : current)}
                     onFocus={() => setHovered(point)}
@@ -908,7 +966,7 @@ function ResidentIncreaseScatter({
             </svg>
             {hovered && (
               <div className="pointer-events-none absolute right-4 top-4 w-64 rounded-md border border-[#9EADBB] bg-[#FFFEFA] p-3 text-xs shadow-lg">
-                <div className="font-semibold text-foreground">{hovered.campus || "Unknown campus"} · {hovered.serviceLine}</div>
+                <div className="font-semibold text-foreground">{hovered.campus || "Unknown campus"} · {annualReportServiceLineLabel(hovered.serviceLine)}</div>
                 <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-muted-foreground">
                   <span>Occupancy</span><strong className="text-foreground">{hovered.occupancyPct.toFixed(1)}%</strong>
                   <span>Increase</span><strong className="text-foreground">{hovered.increasePct.toFixed(1)}%</strong>

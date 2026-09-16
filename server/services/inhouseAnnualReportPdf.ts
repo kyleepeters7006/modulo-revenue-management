@@ -2,6 +2,7 @@ import PDFDocument from "pdfkit";
 import {
   annualRateGrowthBridge,
   annualRateGrowthRevenue,
+  annualReportServiceLineLabel,
   RESIDENT_INCREASE_TIER_LABELS,
   type AnnualRateGrowthBridge,
   type AnnualReportResidentScatterPoint,
@@ -29,6 +30,7 @@ const BORDER = "#C9D4DE";
 const GREEN = "#18723A";
 const WORKBOOK_HEADER_FONT_SIZE = 7.2;
 const WORKBOOK_CELL_FONT_SIZE = 8.2;
+const PRESENTATION_FONT_SCALE = 1.22;
 
 function objects(value: unknown): JsonObject[] {
   if (Array.isArray(value)) return value.filter((v): v is JsonObject => !!v && typeof v === "object");
@@ -92,7 +94,7 @@ function scalar(value: unknown): string | null {
 }
 
 function serviceLine(plan: JsonObject): string {
-  return text(first(plan, ["serviceLine", "scope.serviceLine", "name"])) ?? "Service line";
+  return annualReportServiceLineLabel(text(first(plan, ["serviceLine", "scope.serviceLine", "name"])) ?? "Service line");
 }
 
 function rateUnit(line: string): string {
@@ -132,17 +134,18 @@ function planStatus(plans: JsonObject[]): string {
 function line(doc: PDFKit.PDFDocument, x: number, y: number, width: number, value: string, options: {
   size?: number; color?: string; bold?: boolean; align?: "left" | "right" | "center";
 } = {}): void {
+  const size = (options.size ?? 7) * PRESENTATION_FONT_SCALE;
   doc
     .font(options.bold ? "Times-Bold" : "Times-Roman")
-    .fontSize(options.size ?? 7)
+    .fontSize(size)
     .fillColor(options.color ?? NAVY)
-    .text(value, x, y, { width, height: options.size ?? 7, lineBreak: false, align: options.align });
+    .text(value, x, y, { width, height: size, lineBreak: false, align: options.align });
 }
 
 function wrappedHeader(doc: PDFKit.PDFDocument, x: number, y: number, width: number, value: string): void {
   doc
     .font("Times-Bold")
-    .fontSize(WORKBOOK_HEADER_FONT_SIZE)
+    .fontSize(WORKBOOK_HEADER_FONT_SIZE * PRESENTATION_FONT_SCALE)
     .fillColor("#404040")
     .text(value, x + 2, y + 4, {
       width: width - 4,
@@ -540,6 +543,7 @@ type WorkbookRow = {
   variance: number | null;
   annualizedRevenue: number | null;
   portfolioShare: number | null;
+  scenarioAvailable: boolean;
 };
 
 function workbookRows(plans: JsonObject[], grid: unknown, tier?: string): WorkbookRow[] {
@@ -562,17 +566,25 @@ function workbookRows(plans: JsonObject[], grid: unknown, tier?: string): Workbo
           serviceLine(cell) === lineName &&
           String(first(cell, ["tier", "tierLabel"]) ?? "").toLowerCase() === tier.toLowerCase())
       : undefined;
-    const inhouseIncrease = scenario
-      ? number(first(scenario, ["inhouseIncreasePct"]))
+    const scenarioAvailable = !tier || (
+      scenario != null &&
+      number(first(scenario, ["inhouseIncreasePct"])) != null &&
+      number(first(scenario, ["streetIncreasePct"])) != null &&
+      number(first(scenario, ["newAvgInhouseRateMonthly"])) != null &&
+      number(first(scenario, ["recommendedStreetRateMonthly"])) != null &&
+      number(first(scenario, ["totalAnnualIncreaseDollars"])) != null
+    );
+    const inhouseIncrease = tier
+      ? scenarioAvailable ? number(first(scenario!, ["inhouseIncreasePct"])) : null
       : number(first(summary, ["weightedAvgIncreasePct"]));
-    const streetIncrease = scenario
-      ? number(first(scenario, ["streetIncreasePct"]))
+    const streetIncrease = tier
+      ? scenarioAvailable ? number(first(scenario!, ["streetIncreasePct"])) : null
       : number(first(plan, ["streetIncreasePct"]));
-    const proposedInhouse = scenario && currentInhouse != null && inhouseIncrease != null
-      ? currentInhouse * (1 + inhouseIncrease / 100)
+    const proposedInhouse = tier
+      ? scenarioAvailable ? number(first(scenario!, ["newAvgInhouseRateMonthly"])) : null
       : measuredInhouse;
-    const proposedStreet = scenario && currentStreet != null && streetIncrease != null
-      ? currentStreet * (1 + streetIncrease / 100)
+    const proposedStreet = tier
+      ? scenarioAvailable ? number(first(scenario!, ["recommendedStreetRateMonthly"])) : null
       : measuredStreet;
     const rateBasis = first(plan, ["rateBasis"]) === "daily" ? "daily" : "monthly";
     const quarters = objects(first(plan, ["quarters"]));
@@ -594,14 +606,11 @@ function workbookRows(plans: JsonObject[], grid: unknown, tier?: string): Workbo
         : null,
       annualizedRevenue: growthBridge
         ? annualRateGrowthRevenue(growthBridge, residents ?? 0)
-        : scenario
-        ? (
-            currentInhouse != null && residents != null && inhouseIncrease != null
-              ? currentInhouse * residents * (inhouseIncrease / 100) * 12
-              : null
-          )
-        : number(first(summary, ["totalAnnualIncreaseDollars"])),
+        : tier
+          ? scenarioAvailable ? number(first(scenario!, ["totalAnnualIncreaseDollars"])) : null
+          : number(first(summary, ["totalAnnualIncreaseDollars"])),
       portfolioShare: residents != null && totalResidents > 0 ? residents / totalResidents * 100 : null,
+      scenarioAvailable,
     };
   });
 }
@@ -667,7 +676,7 @@ function drawWorkbookBlock(
     wrappedHeader(doc, positions[index], headerY, widths[index], column.label);
   });
 
-  const rowHeight = 15;
+  const rowHeight = 18;
   const inhouseValues = rows.map((row) => row.inhouseIncrease);
   const streetValues = rows.map((row) => row.streetIncrease);
   rows.forEach((row, index) => {
@@ -676,18 +685,18 @@ function drawWorkbookBlock(
     const values = [
       row.line,
       valueOrDash(row.currentInhouse, money),
-      valueOrDash(row.proposedInhouse, money),
-      valueOrDash(row.inhouseIncrease, pct),
+      row.scenarioAvailable ? valueOrDash(row.proposedInhouse, money) : "Unavailable",
+      row.scenarioAvailable ? valueOrDash(row.inhouseIncrease, pct) : "Unavailable",
       valueOrDash(row.currentStreet, money),
-      valueOrDash(row.proposedStreet, money),
-      valueOrDash(row.streetIncrease, pct),
-      valueOrDash(row.variance, pct),
+      row.scenarioAvailable ? valueOrDash(row.proposedStreet, money) : "Unavailable",
+      row.scenarioAvailable ? valueOrDash(row.streetIncrease, pct) : "Unavailable",
+      row.scenarioAvailable ? valueOrDash(row.variance, pct) : "Unavailable",
       ...(includeGrowthBridge ? [
         valueOrDash(row.growthBridge?.priorPeriodIncreasePct, pct),
         valueOrDash(row.growthBridge?.planIncreasePct, pct),
         valueOrDash(row.growthBridge?.fullYearYoyPct, pct),
       ] : []),
-      valueOrDash(row.annualizedRevenue, money),
+      row.scenarioAvailable ? valueOrDash(row.annualizedRevenue, money) : "Unavailable",
       row.residents == null ? "—" : row.residents.toLocaleString("en-US"),
       valueOrDash(row.portfolioShare, pct),
     ];
@@ -711,11 +720,28 @@ function drawWorkbookBlock(
   const residentTotal = rows.reduce((sum, row) => sum + (row.residents ?? 0), 0);
   const weighted = (field: "inhouseIncrease" | "streetIncrease" | "variance") => {
     const denominator = rows.reduce(
-      (sum, row) => sum + (row[field] == null ? 0 : row.residents ?? 0),
+      (sum, row) => {
+        if (row[field] == null || row.residents == null) return sum;
+        const rate = field === "inhouseIncrease"
+          ? row.currentInhouse
+          : field === "streetIncrease"
+            ? row.currentStreet
+            : row.proposedInhouse;
+        return sum + (rate != null && rate > 0 ? rate * row.residents : row.residents);
+      },
       0,
     );
     return denominator
-      ? rows.reduce((sum, row) => sum + (row[field] ?? 0) * (row.residents ?? 0), 0) / denominator
+      ? rows.reduce((sum, row) => {
+          if (row[field] == null || row.residents == null) return sum;
+          const rate = field === "inhouseIncrease"
+            ? row.currentInhouse
+            : field === "streetIncrease"
+              ? row.currentStreet
+              : row.proposedInhouse;
+          const weight = rate != null && rate > 0 ? rate * row.residents : row.residents;
+          return sum + row[field]! * weight;
+        }, 0) / denominator
       : null;
   };
   const bridgeRows = rows.filter(
@@ -733,6 +759,7 @@ function drawWorkbookBlock(
   );
   const totalFullYearYoy = bridgePrior > 0 ? (bridgeProjected / bridgePrior - 1) * 100 : null;
   const totalPlanIncrease = weighted("inhouseIncrease");
+  const scenariosComplete = rows.every((row) => row.scenarioAvailable);
   const totalPriorPeriodIncrease =
     totalFullYearYoy != null && totalPlanIncrease != null
       ? totalFullYearYoy - totalPlanIncrease
@@ -742,17 +769,19 @@ function drawWorkbookBlock(
     "Total",
     "—",
     "—",
-    valueOrDash(totalPlanIncrease, pct),
+     scenariosComplete ? valueOrDash(totalPlanIncrease, pct) : "Unavailable",
     "—",
     "—",
-    valueOrDash(weighted("streetIncrease"), pct),
-    valueOrDash(weighted("variance"), pct),
+     scenariosComplete ? valueOrDash(weighted("streetIncrease"), pct) : "Unavailable",
+     scenariosComplete ? valueOrDash(weighted("variance"), pct) : "Unavailable",
     ...(includeGrowthBridge ? [
       valueOrDash(totalPriorPeriodIncrease, pct),
       valueOrDash(totalPlanIncrease, pct),
       valueOrDash(totalFullYearYoy, pct),
     ] : []),
-    valueOrDash(rows.reduce((sum, row) => sum + (row.annualizedRevenue ?? 0), 0), money),
+     scenariosComplete
+       ? valueOrDash(rows.reduce((sum, row) => sum + (row.annualizedRevenue ?? 0), 0), money)
+       : "Unavailable",
     residentTotal.toLocaleString("en-US"),
     residentTotal ? "100.0%" : "—",
   ];
@@ -777,12 +806,12 @@ function drawWorkbookPageHeader(
   pageNumber: number,
 ): void {
   const width = doc.page.width - 36;
-  line(doc, 18, 14, width * 0.65, "ANNUAL IN-HOUSE RATE PLAN", { size: 12, bold: true });
-  line(doc, 18, 30, width * 0.65, `Scope: ${report.scopeKey}`, { size: 6.3, color: MUTED });
-  line(doc, 18 + width * 0.65, 15, width * 0.35, `Page ${pageNumber} of 3`, {
-    size: 6.5, bold: true, color: BLUE, align: "right",
+  line(doc, 18, 12, width * 0.65, "ANNUAL IN-HOUSE RATE PLAN", { size: 14, bold: true });
+  line(doc, 18, 31, width * 0.65, `Scope: ${report.scopeKey}`, { size: 7.2, color: MUTED });
+  line(doc, 18 + width * 0.65, 15, width * 0.35, `Page ${pageNumber} of 4`, {
+    size: 7.4, bold: true, color: BLUE, align: "right",
   });
-  line(doc, 18 + width * 0.65, 30, width * 0.35, stamp, { size: 5.8, color: MUTED, align: "right" });
+  line(doc, 18 + width * 0.65, 31, width * 0.35, stamp, { size: 6.8, color: MUTED, align: "right" });
 }
 
 function drawWorkbookScatterplots(
@@ -804,7 +833,7 @@ function drawWorkbookScatterplots(
     return xValue == null ? [] : [{ ...row, occupancy: xValue }];
   });
   if (!points.length) return;
-  line(doc, x, y, width, "PRICING POSITION BY SERVICE LINE", { size: 7.5, bold: true });
+  line(doc, x, y, width, "PRICING POSITION BY SERVICE LINE", { size: 9, bold: true });
   doc.moveTo(x, y + 11).lineTo(x + width, y + 11).lineWidth(0.5).strokeColor(BORDER).stroke();
 
   const gap = 20;
@@ -906,7 +935,7 @@ function drawResidentIncreaseScatter(
   top: number,
   width: number,
 ): void {
-  line(doc, x, top, width, "Resident increase scattergram", { size: 8, color: BLUE, bold: true });
+  line(doc, x, top, width, "Resident increase scattergram", { size: 10, color: BLUE, bold: true });
   doc.moveTo(x, top + 11).lineTo(x + width, top + 11).lineWidth(0.5).strokeColor(BORDER).stroke();
   line(
     doc,
@@ -961,7 +990,7 @@ function drawResidentIncreaseScatter(
   let legendX = x;
   const legendY = plotY + plotHeight + 30;
   for (const [serviceLine, count] of counts) {
-    const label = `${serviceLine} (${count.toLocaleString("en-US")})`;
+    const label = `${annualReportServiceLineLabel(serviceLine)} (${count.toLocaleString("en-US")})`;
     const labelWidth = Math.max(58, label.length * 4.5 + 14);
     if (legendX + labelWidth > x + width) {
       legendX = x;
@@ -1004,8 +1033,8 @@ export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): P
     doc.addPage();
     drawWorkbookPageHeader(doc, report, stamp, 2);
     drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "high"), pageX, 54, pageWidth, occupancyTierTitle(report.tierGrid, "high", "Occupancy Tier 1  •  High occupancy"), "#F5F4ED");
-    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "target"), pageX, 218, pageWidth, occupancyTierTitle(report.tierGrid, "target", "Occupancy Tier 2  •  Target occupancy"), "#101010");
-    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "low"), pageX, 382, pageWidth, occupancyTierTitle(report.tierGrid, "low", "Occupancy Tier 3  •  Low occupancy"), "#388194");
+    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "target"), pageX, 234, pageWidth, occupancyTierTitle(report.tierGrid, "target", "Occupancy Tier 2  •  Target occupancy"), "#101010");
+    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "low"), pageX, 414, pageWidth, occupancyTierTitle(report.tierGrid, "low", "Occupancy Tier 3  •  Low occupancy"), "#388194");
 
     doc.addPage();
     drawWorkbookPageHeader(doc, report, stamp, 3);

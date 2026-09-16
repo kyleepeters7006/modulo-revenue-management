@@ -381,8 +381,8 @@ input[type="range"]::-moz-range-thumb {
   .report-panel { break-inside: avoid; box-shadow: none !important; }
   .annual-report-sheet h1 { font-size: 25px !important; }
   .annual-report-sheet { gap: 8px !important; }
-  .annual-report-sheet table th, .annual-report-sheet table td { padding: 4px 5px !important; font-size: 9.5px !important; line-height: 1.15 !important; }
-  .report-section-band { padding: 4px 7px !important; }
+  .annual-report-sheet table th, .annual-report-sheet table td { padding: 7px 6px !important; font-size: 12px !important; line-height: 1.2 !important; }
+  .report-section-band { padding: 6px 9px !important; }
   .report-page-header { margin-bottom: 7px !important; padding-bottom: 5px !important; }
 }
 
@@ -398,12 +398,12 @@ input[type="range"]::-moz-range-thumb {
 .annual-report-sheet .report-panel table { border-collapse: collapse; }
 .annual-report-sheet .report-panel thead { background: hsl(204 47% 84%); }
 .annual-report-sheet .report-panel th { border-bottom: 1px solid hsl(213 22% 63%); }
-.report-data-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 14.5px; }
-.report-data-table th { background: hsl(204 47% 84%); color: hsl(214 29% 22%); border: 1px solid hsl(213 22% 63%); padding: 8px 6px; font-size: 12.5px; font-weight: 700; text-align: center; vertical-align: middle; line-height: 1.15; overflow-wrap: anywhere; }
+.report-data-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 17px; }
+.report-data-table th { background: hsl(204 47% 84%); color: hsl(214 29% 22%); border: 1px solid hsl(213 22% 63%); padding: 10px 7px; font-size: 14.5px; font-weight: 700; text-align: center; vertical-align: middle; line-height: 1.15; overflow-wrap: anywhere; }
 .report-data-table th:first-child, .report-data-table td:first-child { text-align: left; }
-.report-data-table td { border: 1px solid hsl(213 22% 73%); padding: 8px 6px; font-size: 14.5px; text-align: center; vertical-align: middle; line-height: 1.22; overflow-wrap: anywhere; }
+.report-data-table td { border: 1px solid hsl(213 22% 73%); padding: 10px 7px; font-size: 17px; text-align: center; vertical-align: middle; line-height: 1.22; overflow-wrap: anywhere; }
 .report-data-table tbody tr:nth-child(even) { background: hsl(204 35% 95%); }
-.report-data-table .mono { font-family: 'EB Garamond', Georgia, serif; font-size: 14.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.report-data-table .mono { font-family: 'EB Garamond', Georgia, serif; font-size: 17px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .report-data-table .increase-pct { font-weight: 700; }
 .report-data-table--standard th:nth-child(1), .report-data-table--standard td:nth-child(1) { width: 13%; }
 .report-data-table--standard th:nth-child(2), .report-data-table--standard td:nth-child(2),
@@ -434,11 +434,11 @@ input[type="range"]::-moz-range-thumb {
 .tier-block--tier1 .report-section-band { background: #f5f4ed; color: #202020; border-bottom: 1px solid #a8afb8; }
 .tier-block--tier2 .report-section-band { background: #101010; color: #ffffff; }
 .tier-block--tier3 .report-section-band { background: #388194; color: #ffffff; }
-.report-kicker { font-family: 'Source Sans 3', sans-serif; font-size: 9px; text-transform: uppercase; letter-spacing: .12em; color: hsl(214 16% 43%); }
+.report-kicker { font-family: 'Source Sans 3', sans-serif; font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: hsl(214 16% 43%); }
 .report-scatter-section { border: 1px solid hsl(213 22% 63%); background: hsl(42 38% 98%); break-inside: avoid; }
-.report-scatter-heading { padding: 7px 9px; border-bottom: 1px solid hsl(213 22% 73%); color: hsl(214 29% 22%); font-size: 16px; font-weight: 700; }
+.report-scatter-heading { padding: 9px 11px; border-bottom: 1px solid hsl(213 22% 73%); color: hsl(214 29% 22%); font-size: 19px; font-weight: 700; }
 .report-scatter-grid-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 8px 10px 5px; }
-.report-scatter-title { margin-bottom: 0; color: hsl(214 29% 22%); font-size: 15px; font-weight: 700; }
+.report-scatter-title { margin-bottom: 0; color: hsl(214 29% 22%); font-size: 18px; font-weight: 700; }
 .report-scatter svg { display: block; width: 100%; height: 188px; overflow: visible; }
 .report-scatter text { fill: hsl(214 20% 30%); font-family: 'EB Garamond', Georgia, serif; font-size: 14px; }
 .report-scatter .report-scatter-label { font-size: 14px; font-weight: 700; }

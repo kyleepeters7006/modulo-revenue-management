@@ -867,7 +867,8 @@ app.use((req, res, next) => {
         ADD COLUMN IF NOT EXISTS plans jsonb,
         ADD COLUMN IF NOT EXISTS tier_grid jsonb,
         ADD COLUMN IF NOT EXISTS created_at timestamp DEFAULT now(),
-        ADD COLUMN IF NOT EXISTS generated_at timestamp DEFAULT now()`));
+         ADD COLUMN IF NOT EXISTS generated_at timestamp DEFAULT now(),
+         ADD COLUMN IF NOT EXISTS detail_generated_at timestamp`));
     await db.execute(sql.raw(`
       CREATE UNIQUE INDEX IF NOT EXISTS inhouse_annual_report_runs_scope_uniq
         ON inhouse_annual_report_runs (client_id, scope_key)`));

@@ -766,6 +766,7 @@ export const inhouseAnnualReportRuns = pgTable("inhouse_annual_report_runs", {
   tierGrid: jsonb("tier_grid").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   generatedAt: timestamp("generated_at").defaultNow().notNull(),
+  detailGeneratedAt: timestamp("detail_generated_at"),
 }, (table) => ({
   scopeUnique: uniqueIndex("inhouse_annual_report_runs_scope_uniq")
     .on(table.clientId, table.scopeKey),

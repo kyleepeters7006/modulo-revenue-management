@@ -97,7 +97,14 @@ campusBPlan.scope.location = "Campus B";
 
 const detailPlans = [
   { sl: "AL", plan: alPlan },
-  { sl: "HC", plan: makePlan("HC", 7000, 1) },
+  { sl: "HC", plan: (() => {
+    const plan = makePlan("HC", 7000, 1);
+    plan.summary.weightedAvgIncreasePct = 9;
+    plan.residents[0].increasePct = 9;
+    plan.residents[0].increaseDollarsMonthly = 630;
+    plan.residents[0].newRateMonthly = 7630;
+    return plan;
+  })() },
 ];
 
 const reportPlans = detailPlans.map(({ sl, plan }) => ({
@@ -165,6 +172,18 @@ assert.equal(detail.getCell("AE5").value, 3920);
 assert.equal(detail.getCell("AE6").value, 5880);
 assert.equal(detail.getCell("AF5").value, 4240);
 assert.equal(detail.getCell("AF6").value, 6360);
+assert.equal(detail.getCell("AH5").value, 0.06);
+assert.equal(detail.getCell("AH7").value, 0.09);
+assert.equal(
+  (detail.getCell("AA5").value as ExcelJS.CellFormulaValue).formula,
+  "=$AH5",
+  "resident Plan % must link to the resident's saved service-line plan percentage",
+);
+assert.equal(
+  (detail.getCell("AA7").value as ExcelJS.CellFormulaValue).formula,
+  "=$AH7",
+  "resident Plan % must not use a running cross-line average",
+);
 
 const residentFormulaColumns = ["M", "P", "Q", "R", "S", "T", "W", "X", "Y", "Z", "AA", "AB"];
 for (const column of residentFormulaColumns) {

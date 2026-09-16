@@ -9,7 +9,7 @@
 import type { Express } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { and, desc, eq, inArray, isNotNull, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, like, lte, or, sql } from "drizzle-orm";
 import { db, pool } from "../db";
 import { invalidateRefDataCache } from "../refDataCache";
 import {
@@ -1039,28 +1039,40 @@ export function registerInhousePlanningRoutes(
                 // a more-specific override without changing the portfolio row.
                 inputSnapshot: reportLines,
               };
-              await db
-                .insert(inhouseAnnualReportRuns)
-                .values({
+              await Promise.all([
+                savePlanDetailSnapshot({
                   clientId,
                   scopeKey,
-                  locationId: campus.id,
-                  serviceLines,
-                  plans: compactPlans,
-                  tierGrid,
+                  plans: campusResult.lines.map((line) => ({
+                    sl: line.serviceLine,
+                    plan: line.currentPlan,
+                  })),
+                  inputSnapshot: reportLines,
                   generatedAt,
-                } as any)
-                .onConflictDoUpdate({
-                  target: [inhouseAnnualReportRuns.clientId, inhouseAnnualReportRuns.scopeKey],
-                  set: {
+                }),
+                db
+                  .insert(inhouseAnnualReportRuns)
+                  .values({
+                    clientId,
+                    scopeKey,
                     locationId: campus.id,
                     serviceLines,
                     plans: compactPlans,
                     tierGrid,
                     generatedAt,
-                  } as any,
-                  setWhere: sql`${inhouseAnnualReportRuns.generatedAt} <= ${generatedAt}`,
-                });
+                  } as any)
+                  .onConflictDoUpdate({
+                    target: [inhouseAnnualReportRuns.clientId, inhouseAnnualReportRuns.scopeKey],
+                    set: {
+                      locationId: campus.id,
+                      serviceLines,
+                      plans: compactPlans,
+                      tierGrid,
+                      generatedAt,
+                    } as any,
+                    setWhere: sql`${inhouseAnnualReportRuns.generatedAt} <= ${generatedAt}`,
+                  }),
+              ]);
             },
             onError: (campus, error) => {
               console.error(
@@ -1396,28 +1408,28 @@ export function registerInhousePlanningRoutes(
       ).map((template: any) => {
         const matching = plans.flatMap((plan) =>
           (Array.isArray(plan.quarters) ? plan.quarters : [])
-            .filter((quarter: any) => quarter.year === template.year && quarter.quarter === template.quarter),
+            .filter((quarter: any) => quarter.year === template.year && quarter.quarter === template.quarter)
+            .map((quarter: any) => ({
+              quarter,
+              residentCount: Math.max(0, Number(plan.summary?.residentCount) || 0),
+            })),
         );
-        const priorRate = weightedAverage(matching.map((quarter: any) => ({
-          summary: { residentCount: plans.find((plan) =>
-            plan.quarters?.some((quarter: any) =>
-              quarter.year === template.year && quarter.quarter === template.quarter,
-            ),
-          )?.summary?.residentCount ?? 0 },
-          priorYear: quarter.priorYear,
-        })), (value: any) => value.priorYear?.realizedRateMonthly);
-        const projectedRate = weightedAverage(
-          matching.map((quarter: any) => ({
-            summary: {
-              residentCount: plans.find((plan) =>
-                plan.quarters?.some((candidate: any) =>
-                  candidate.year === template.year && candidate.quarter === template.quarter,
-                ),
-              )?.summary?.residentCount ?? 0,
-            },
-            projectedRateMonthly: quarter.projectedRateMonthly,
-          })),
-          (value: any) => value.projectedRateMonthly,
+        const weightedQuarterRate = (selector: (quarter: any) => unknown): number => {
+          let total = 0;
+          let weight = 0;
+          for (const entry of matching) {
+            const value = Number(selector(entry.quarter));
+            if (!Number.isFinite(value) || entry.residentCount <= 0) continue;
+            total += value * entry.residentCount;
+            weight += entry.residentCount;
+          }
+          return weight > 0 ? total / weight : 0;
+        };
+        const priorRate = weightedQuarterRate(
+          (quarter) => quarter.priorYear?.realizedRateMonthly,
+        );
+        const projectedRate = weightedQuarterRate(
+          (quarter) => quarter.projectedRateMonthly,
         );
         const yoyGrowthPct = priorRate > 0 ? (projectedRate / priorRate - 1) * 100 : 0;
         return {
@@ -1512,35 +1524,124 @@ export function registerInhousePlanningRoutes(
         .filter((value) => value.tierLine);
       const aggregate = plans.find((entry) => entry.sl === serviceLine)?.plan;
       if (!aggregate || values.length === 0) return [];
-      const currentTier = values
+      const currentTiers = values
         .map((value) => value.tierLine.currentTier)
-        .filter(Boolean)[0] ?? null;
+        .filter(Boolean);
+      const currentTier = currentTiers.length > 0 &&
+        currentTiers.every((tier: string) => tier === currentTiers[0])
+        ? currentTiers[0]
+        : null;
       const cells = ["low", "target", "high"].map((tier) => {
         const matching = values
-          .map((value) => value.tierLine.cells?.find((cell: any) => cell.tier === tier))
-          .filter(Boolean);
+          .map((value) => ({
+            cell: value.tierLine.cells?.find((cell: any) => cell.tier === tier),
+            plan: value.plan,
+          }))
+          .filter((value) => value.cell);
+        const complete = matching.length === values.length &&
+          matching.every(({ cell }) =>
+            Number.isFinite(Number(cell.inhouseIncreasePct)) &&
+            Number.isFinite(Number(cell.streetIncreasePct)) &&
+            Number.isFinite(Number(cell.currentAvgInhouseRateMonthly)) &&
+            Number.isFinite(Number(cell.newAvgInhouseRateMonthly)) &&
+            Number.isFinite(Number(cell.currentStreetRateMonthly)) &&
+            Number.isFinite(Number(cell.recommendedStreetRateMonthly)) &&
+            Number.isFinite(Number(cell.totalAnnualIncreaseDollars)),
+          );
+        const weightedCellRate = (
+          rateField: "currentAvgInhouseRateMonthly" | "currentStreetRateMonthly",
+          increaseField: "inhouseIncreasePct" | "streetIncreasePct",
+        ): number | null => {
+          let numerator = 0;
+          let denominator = 0;
+          for (const { cell, plan } of matching) {
+            const rate = Number(cell[rateField]);
+            const increase = Number(cell[increaseField]);
+            const residents = Math.max(0, Number(plan.summary?.residentCount) || 0);
+            if (!Number.isFinite(rate) || !Number.isFinite(increase) || residents <= 0) continue;
+            numerator += rate * residents * (1 + increase / 100);
+            denominator += rate * residents;
+          }
+          return denominator > 0 ? (numerator / denominator - 1) * 100 : null;
+        };
+        const totalAnnualIncrease = matching.reduce(
+          (sum: number, { cell }) => sum + (Number(cell.totalAnnualIncreaseDollars) || 0),
+          0,
+        );
+        const residentTotal = matching.reduce(
+          (sum: number, { plan }) => sum + (Math.max(0, Number(plan.summary?.residentCount) || 0)),
+          0,
+        );
+        const newInhouse = matching.reduce(
+          (sum: number, { cell, plan }) =>
+            sum + (Number(cell.newAvgInhouseRateMonthly) || 0) *
+              Math.max(0, Number(plan.summary?.residentCount) || 0),
+          0,
+        );
+        const newStreet = matching.reduce(
+          (sum: number, { cell, plan }) =>
+            sum + (Number(cell.recommendedStreetRateMonthly) || 0) *
+              Math.max(0, Number(plan.summary?.residentCount) || 0),
+          0,
+        );
         return {
           serviceLine,
           tier,
-          rangeLabel: matching[0]?.rangeLabel ?? tier,
+          rangeLabel: matching[0]?.cell.rangeLabel ?? tier,
           isCurrent: tier === currentTier,
-          inhouseIncreasePct: matching.length
-            ? matching.reduce((total: number, cell: any) => total + (Number(cell.inhouseIncreasePct) || 0), 0) / matching.length
+          inhouseIncreasePct: complete ? weightedCellRate("currentAvgInhouseRateMonthly", "inhouseIncreasePct") : null,
+          streetIncreasePct: complete ? weightedCellRate("currentStreetRateMonthly", "streetIncreasePct") : null,
+          feasible: complete ? matching.every(({ cell }) => cell.feasible !== false) : null,
+          currentAvgInhouseRateMonthly: complete && residentTotal > 0
+            ? matching.reduce(
+                (sum: number, { cell, plan }) =>
+                  sum + (Number(cell.currentAvgInhouseRateMonthly) || 0) *
+                    Math.max(0, Number(plan.summary?.residentCount) || 0),
+                0,
+              ) / residentTotal
             : null,
-          streetIncreasePct: matching.length
-            ? matching.reduce((total: number, cell: any) => total + (Number(cell.streetIncreasePct) || 0), 0) / matching.length
+          newAvgInhouseRateMonthly: complete && residentTotal > 0 ? newInhouse / residentTotal : null,
+          currentStreetRateMonthly: complete
+            ? weightedAverage(
+                matching.map(({ cell, plan }) => ({
+                  summary: { residentCount: plan.summary?.residentCount },
+                  currentStreetRateMonthly: cell.currentStreetRateMonthly,
+                })),
+                (value: any) => value.currentStreetRateMonthly,
+              )
             : null,
-          feasible: matching.length ? matching.every((cell: any) => cell.feasible !== false) : null,
+          recommendedStreetRateMonthly: complete && residentTotal > 0 ? newStreet / residentTotal : null,
+          totalAnnualIncreaseDollars: complete ? totalAnnualIncrease : null,
         };
       });
+      const occupancyValues = values
+        .map((value) => ({
+          occupancy: Number(value.tierLine.occupancyPct),
+          residents: Math.max(0, Number(value.plan.summary?.residentCount) || 0),
+        }))
+        .filter((value) => Number.isFinite(value.occupancy) && value.residents > 0);
+      const occupancyWeight = occupancyValues.reduce((sum, value) => sum + value.residents, 0);
+      const occupancyPct = occupancyWeight > 0
+        ? occupancyValues.reduce((sum, value) => sum + value.occupancy * value.residents, 0) / occupancyWeight
+        : null;
+      const occupancyMonths = uniqueStrings(values.map((value) => value.tierLine.occupancyMonth));
+      const occupancySources = uniqueStrings(values.map((value) => value.tierLine.occupancySource));
       return [{
         serviceLine,
-        occupancyPct: values.reduce((total, value) => total + (Number(value.tierLine.occupancyPct) || 0), 0) / values.length,
-        occupancyMonth: values[0].tierLine.occupancyMonth ?? null,
-        occupancySource: values[0].tierLine.occupancySource ?? null,
+        occupancyPct,
+        occupancyMonth: occupancyMonths.length === 1 ? occupancyMonths[0] : null,
+        occupancySource: occupancySources.length === 1 ? occupancySources[0] : null,
         currentTier,
         cells,
-        warnings: uniqueStrings(values.flatMap((value) => value.tierLine.warnings ?? [])),
+        warnings: uniqueStrings([
+          ...values.flatMap((value) => value.tierLine.warnings ?? []),
+          ...(occupancyValues.length < values.length
+            ? ["Some campus occupancy readings were unavailable and were excluded from the division occupancy average."]
+            : []),
+          ...(currentTier == null && currentTiers.length > 0
+            ? ["Campuses are in different occupancy tiers; no single current tier is marked."]
+            : []),
+        ]),
         currentPlan: aggregate,
       }];
     });
@@ -1658,6 +1759,18 @@ export function registerInhousePlanningRoutes(
       // clientId is deliberately taken only from tenant middleware. Unknown
       // request fields are stripped by the schema and never reach this insert.
       const generatedAt = new Date();
+      const [detailSnapshot] = await db
+        .select({
+          plans: inhousePlanDetailSnapshots.plans,
+          inputSnapshot: inhousePlanDetailSnapshots.inputSnapshot,
+          generatedAt: inhousePlanDetailSnapshots.generatedAt,
+        })
+        .from(inhousePlanDetailSnapshots)
+        .where(and(
+          eq(inhousePlanDetailSnapshots.clientId, clientId),
+          eq(inhousePlanDetailSnapshots.scopeKey, body.data.scopeKey),
+        ))
+        .limit(1);
       const values = {
         clientId,
         scopeKey: body.data.scopeKey,
@@ -1666,6 +1779,7 @@ export function registerInhousePlanningRoutes(
         plans: body.data.plans,
         tierGrid: body.data.tierGrid,
         generatedAt,
+        detailGeneratedAt: detailSnapshot?.generatedAt ?? null,
       };
       const [row] = await db
         .insert(inhouseAnnualReportRuns)
@@ -1687,18 +1801,6 @@ export function registerInhousePlanningRoutes(
       // when the operator recalculates; an audit export must remain tied to
       // the report the operator saved.
       try {
-        const [detailSnapshot] = await db
-          .select({
-            plans: inhousePlanDetailSnapshots.plans,
-            inputSnapshot: inhousePlanDetailSnapshots.inputSnapshot,
-            generatedAt: inhousePlanDetailSnapshots.generatedAt,
-          })
-          .from(inhousePlanDetailSnapshots)
-          .where(and(
-            eq(inhousePlanDetailSnapshots.clientId, clientId),
-            eq(inhousePlanDetailSnapshots.scopeKey, body.data.scopeKey),
-          ))
-          .limit(1);
         if (detailSnapshot && row) {
           await savePlanDetailSnapshot({
             clientId,
@@ -1754,6 +1856,8 @@ export function registerInhousePlanningRoutes(
           id: inhouseAnnualReportRuns.id,
           scopeKey: inhouseAnnualReportRuns.scopeKey,
           tierGrid: inhouseAnnualReportRuns.tierGrid,
+          generatedAt: inhouseAnnualReportRuns.generatedAt,
+          detailGeneratedAt: inhouseAnnualReportRuns.detailGeneratedAt,
         })
         .from(inhouseAnnualReportRuns)
         .where(and(
@@ -1778,12 +1882,16 @@ export function registerInhousePlanningRoutes(
           .where(and(
             eq(inhousePlanDetailSnapshots.clientId, clientId),
             eq(inhousePlanDetailSnapshots.scopeKey, report.scopeKey),
+             lte(
+               inhousePlanDetailSnapshots.generatedAt,
+               report.detailGeneratedAt ?? report.generatedAt,
+             ),
           ))
           .limit(1),
       ]);
       // Legacy reports may predate the immutable report-specific detail copy.
-      // The exact report snapshot wins; the scope snapshot keeps those reports
-      // usable without changing the compact report itself.
+      // The exact report snapshot wins; a mutable scope snapshot is only a
+      // safe fallback when it predates the report and cannot be newer data.
       const detail = savedDetail[0] ?? latestDetail[0];
       const points = detail
         ? annualReportResidentScatterPoints(detail.plans, report.tierGrid)
@@ -1825,6 +1933,10 @@ export function registerInhousePlanningRoutes(
           .where(and(
             eq(inhousePlanDetailSnapshots.clientId, clientId),
             eq(inhousePlanDetailSnapshots.scopeKey, row.scopeKey),
+             lte(
+               inhousePlanDetailSnapshots.generatedAt,
+               row.detailGeneratedAt ?? row.generatedAt,
+             ),
           ))
           .limit(1),
       ]);
@@ -1885,6 +1997,10 @@ export function registerInhousePlanningRoutes(
           .where(and(
             eq(inhousePlanDetailSnapshots.clientId, clientId),
             eq(inhousePlanDetailSnapshots.scopeKey, row.scopeKey),
+          lte(
+            inhousePlanDetailSnapshots.generatedAt,
+            row.detailGeneratedAt ?? row.generatedAt,
+          ),
           ))
           .limit(1),
       ]);

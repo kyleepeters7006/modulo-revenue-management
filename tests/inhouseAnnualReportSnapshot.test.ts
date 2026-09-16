@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   annualReportResidentScatterPoints,
+  annualReportServiceLineLabel,
   compactPlanForAnnualReport,
   hydrateAnnualReportPlanSnapshot,
 } from "../shared/inhouseAnnualReportSnapshot";
@@ -118,6 +119,16 @@ assert.deepEqual(
     increaseDollarsMonthly: 225,
   },
 );
+assert.equal(
+  annualReportResidentScatterPoints(
+    [{ sl: "AL", plan: { scope: { serviceLine: "AL" }, residents: [] } }],
+    { lines: [{ serviceLine: "AL", occupancyPct: null }] },
+  ).length,
+  0,
+  "scatter must not turn missing occupancy into a 0% point",
+);
+assert.equal(annualReportServiceLineLabel("VIL"), "Patio Homes");
+assert.equal(annualReportServiceLineLabel("AL/MC"), "AL/MC");
 
 const rolledUpPlan = {
   ...plan,

@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import {
   annualRateGrowthBridge,
   annualRateGrowthRevenue,
+  annualReportServiceLineLabel,
   type AnnualReportPlanSnapshot,
 } from "@shared/inhouseAnnualReportSnapshot";
 import type { PlanResult } from "@shared/inhousePlanning";
@@ -272,7 +273,7 @@ function buildReportTotals(
     const plannedInhouse = number(plan.summary?.newAvgInhouseRateMonthly);
     const currentStreet = number(plan.currentStreetRateMonthly);
     const plannedStreet = number(plan.recommendedStreetRateMonthly);
-    ws.getCell(rowNumber, 1).value = entry.sl;
+    ws.getCell(rowNumber, 1).value = annualReportServiceLineLabel(entry.sl);
     formula(ws.getCell(rowNumber, 2), residentWeightedFormula("K", rowNumber, detailBounds.first, detailBounds.last), currentInhouse);
     formula(ws.getCell(rowNumber, 3), residentWeightedFormula("R", rowNumber, detailBounds.first, detailBounds.last), plannedInhouse);
     formula(ws.getCell(rowNumber, 4), `=IFERROR(C${rowNumber}/B${rowNumber}-1,0)`, percent(planIncrease));
@@ -360,7 +361,7 @@ function buildPriorPeriodSheet(
     const bridge = annualRateGrowthBridge(plan.quarters, plan.rateBasis, planIncrease);
     const detail = detailByLine.get(entry.sl);
     const yoy = detail?.standardization?.yearOverYear;
-    ws.getCell(row, 1).value = entry.sl;
+    ws.getCell(row, 1).value = annualReportServiceLineLabel(entry.sl);
     ws.getCell(row, 2).value = bridge?.priorYearAverageRateMonthly ?? null;
     ws.getCell(row, 3).value = bridge?.projectedPlanYearAverageRateMonthly ?? null;
     ws.getCell(row, 4).value = percent(bridge?.fullYearYoyPct);
@@ -496,7 +497,7 @@ function buildResidentDetailSheet(
         ? number(resident.streetRateMonthly) / DAYS_PER_MONTH
         : number(resident.streetRateMonthly);
       row.values = [
-        entry.sl,
+        annualReportServiceLineLabel(entry.sl),
         resident.location,
         resident.roomNumber,
         resident.roomType ?? "",
@@ -547,7 +548,7 @@ function buildResidentDetailSheet(
       formula(ws.getCell(rowNumber, 26), `=$AG${rowNumber}`, rowPriorPeriod);
       formula(
         ws.getCell(rowNumber, 27),
-        `=IFERROR(SUMPRODUCT($P$${first}:$P$${currentRow - 1},$J$${first}:$J$${currentRow - 1})/SUM($J$${first}:$J$${currentRow - 1}),0)`,
+        `=$AH${rowNumber}`,
         rowPlanPercent,
       );
       formula(ws.getCell(rowNumber, 28), `=($Y${rowNumber}-$X${rowNumber})*12`, rowRevenueGrowth);
@@ -612,7 +613,7 @@ function buildQuarterDetailSheet(
       for (const room of roomDetails) {
         const row = ws.getRow(currentRow++);
         row.values = [
-          entry.sl,
+          annualReportServiceLineLabel(entry.sl),
           quarter.label,
           room.location,
           room.roomNumber,
@@ -673,7 +674,7 @@ function buildHistoricalComparisonsSheet(
     for (const comparison of entry.plan.standardization?.comparisons ?? []) {
       const row = ws.getRow(currentRow++);
       row.values = [
-        entry.sl,
+          annualReportServiceLineLabel(entry.sl),
         `${comparison.baseQuarterLabel} → ${comparison.endingQuarterLabel}`,
         percent(comparison.rawChangePct),
         percent(comparison.rateEffectPct),

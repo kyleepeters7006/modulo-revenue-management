@@ -1,5 +1,11 @@
 import type { PlanResult, QuarterResult } from "./inhousePlanning";
 
+/** Presentation label for annual reports; the underlying service-line code stays stable. */
+export function annualReportServiceLineLabel(value: unknown): string {
+  const label = String(value ?? "").trim();
+  return label.toUpperCase() === "VIL" ? "Patio Homes" : label;
+}
+
 export interface IncreaseDistributionBand {
   label: string;
   count: number;
@@ -36,7 +42,11 @@ export function annualReportResidentScatterPoints(
     : [];
   const occupancyByLine = new Map(
     lines
-      .filter((line) => typeof line.serviceLine === "string")
+      .filter((line) => {
+        if (typeof line.serviceLine !== "string") return false;
+        if (line.occupancyPct == null || line.occupancyPct === "") return false;
+        return Number.isFinite(Number(line.occupancyPct));
+      })
       .map((line) => [line.serviceLine as string, Number(line.occupancyPct)]),
   );
   const points: AnnualReportResidentScatterPoint[] = [];

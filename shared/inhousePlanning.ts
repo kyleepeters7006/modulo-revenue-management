@@ -368,6 +368,12 @@ export interface OccupancyTierPlanCell {
   streetIncreasePct: number | null;
   /** Whether the plan clears its growth target in every testable quarter. */
   feasible: boolean | null;
+  /** Exact solver outputs for this what-if plan, retained for report parity. */
+  currentAvgInhouseRateMonthly?: number | null;
+  newAvgInhouseRateMonthly?: number | null;
+  currentStreetRateMonthly?: number | null;
+  recommendedStreetRateMonthly?: number | null;
+  totalAnnualIncreaseDollars?: number | null;
   /** Set when this cell could not be solved at all. */
   error?: string;
 }

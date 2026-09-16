@@ -1119,6 +1119,11 @@ function solvePreparedPlanTiers(
         inhouseIncreasePct: plan.summary.weightedAvgIncreasePct,
         streetIncreasePct: plan.streetIncreasePct,
         feasible: plan.feasible,
+        currentAvgInhouseRateMonthly: plan.summary.currentAvgInhouseRateMonthly,
+        newAvgInhouseRateMonthly: plan.summary.newAvgInhouseRateMonthly,
+        currentStreetRateMonthly: plan.currentStreetRateMonthly,
+        recommendedStreetRateMonthly: plan.recommendedStreetRateMonthly,
+        totalAnnualIncreaseDollars: plan.summary.totalAnnualIncreaseDollars,
       };
     } catch (err) {
       return {
