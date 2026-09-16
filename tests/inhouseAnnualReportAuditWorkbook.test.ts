@@ -133,6 +133,24 @@ assert.equal(detail.getCell("X4").value, "Prior-year realized avg / mo");
 assert.equal(detail.getCell("Y4").value, "Plan-year projected avg / mo");
 assert.equal(detail.getCell("AB4").value, "Total YoY revenue growth");
 
+const residentFormulaColumns = ["M", "P", "Q", "R", "S", "T", "W", "X", "Y", "Z", "AA", "AB"];
+for (const column of residentFormulaColumns) {
+  const value = detail.getCell(`${column}5`).value as ExcelJS.CellFormulaValue;
+  assert.equal(typeof value, "object", `Resident detail ${column}5 should be a formula`);
+  assert.equal("formula" in value, true, `Resident detail ${column}5 should expose its formula`);
+}
+assert.match(
+  String((detail.getCell("Q5").value as ExcelJS.CellFormulaValue).formula),
+  /K5.*P5/,
+  "resident increase dollars should derive from starting rate and plan increase",
+);
+assert.match(
+  String((detail.getCell("AB5").value as ExcelJS.CellFormulaValue).formula),
+  /Y5.*X5/,
+  "resident annualized growth should derive from plan-year and prior-year rates",
+);
+assert.equal(detail.getColumn(29).hidden, true, "solver helper columns should stay hidden");
+
 const totalRow = totals.getRow(7);
 for (const column of formulaColumns) {
   const value = totalRow.getCell(column).value as ExcelJS.CellFormulaValue;

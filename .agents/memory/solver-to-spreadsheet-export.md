@@ -27,6 +27,12 @@ walk every non-formula cell and ask "does editing this change anything?" If no,
 it is a snapshot, not an input. Assert this in a test: snapshot cells must not be
 formulas *and* must carry the snapshot fill.
 
+For resident-detail audit sheets, keep the visible derived columns as formulas even when the solver allocation or annual bridge cannot be reconstructed from the visible rent-roll row. Put those irreducible server results in hidden, clearly labelled snapshot helper columns and have the visible formulas reference them.
+
+**Why:** The row's rent-roll fields do not contain enough information to reproduce an iterative resident allocation or the plan-year bridge. Hardcoding the visible outputs makes the sheet look editable while silently breaking its audit trail; pretending a literal constant is a formula is worse.
+
+**How to apply:** Use hidden helper snapshots only for the irreducible solver bases; calculate display conversions, dollar changes, planned rates, gaps, percentages, and revenue changes from visible inputs and those helpers. Add a workbook test that asserts the visible derived columns are formulas and the helper columns remain hidden.
+
 ## What genuinely cannot be a formula
 
 Only two things, in practice:

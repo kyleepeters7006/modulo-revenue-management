@@ -362,7 +362,7 @@ function buildResidentDetailSheet(
   ws: ExcelJS.Worksheet,
   detailPlans: Array<{ sl: string; plan: DetailPlan }>,
 ) {
-  const columns = [
+  const visibleColumns = [
     "Service line", "Campus", "Room", "Room type", "Care level", "Payor", "Move-in date",
     "Companion bed", "Rate basis", "Resident-day weight", "Starting IH / mo",
     "Used Street / mo", "Used Street / display", "Street product", "Street rate source",
@@ -371,16 +371,35 @@ function buildResidentDetailSheet(
     "Prior-year realized avg / mo", "Plan-year projected avg / mo", "Prior-period %",
     "Plan %", "Total YoY revenue growth",
   ];
+  // These are server-calculated bases that cannot be reconstructed from the
+  // visible rent-roll fields alone: the solver's resident allocation and the
+  // plan-wide annual bridge. Keep them hidden and labelled rather than
+  // disguising snapshots as formulas. All visible calculated columns below
+  // reference these cells or calculate directly from the source fields.
+  const helperColumns = [
+    "Solver snapshot · resident plan increase %",
+    "Solver snapshot · planned Street / mo",
+    "Solver snapshot · prior-year realized avg / mo",
+    "Solver snapshot · plan-year projected avg / mo",
+    "Solver snapshot · prior-period %",
+    "Solver snapshot · plan %",
+  ];
+  const columns = [...visibleColumns, ...helperColumns];
   ws.columns = columns.map((header, index) => ({
     header,
     key: `c${index + 1}`,
-    width: [15, 25, 11, 18, 14, 17, 14, 14, 12, 18, 18, 18, 21, 18, 22, 15, 17, 18, 20, 18, 18, 16, 18, 24, 25, 14, 11, 24][index],
+    width: index < visibleColumns.length
+      ? [15, 25, 11, 18, 14, 17, 14, 14, 12, 18, 18, 18, 21, 18, 22, 15, 17, 18, 20, 18, 18, 16, 18, 24, 25, 14, 11, 24][index]
+      : 18,
   }));
+  for (let column = visibleColumns.length + 1; column <= columns.length; column++) {
+    ws.getColumn(column).hidden = true;
+  }
   styleTitle(ws, "Resident and room detail — starting rates and planned increases", columns.length);
   styleNote(
     ws,
     2,
-    "Each row is a private-pay occupied rent-roll room included in the planning population after the documented rate and product gates. Used Street is the product-matched rate actually used for that row's ceiling; it may be the unit rate, a campus/service-line product median, or a derived formula.",
+    "Each row is a private-pay occupied rent-roll room included in the planning population after the documented rate and product gates. Rent-roll/cohort source fields remain inputs; visible calculated fields are Excel formulas. Hidden helper columns retain solver snapshots that cannot be reconstructed from this row alone.",
     columns.length,
   );
   const headerRow = AUDIT_HEADER_ROW;
@@ -433,6 +452,32 @@ function buildResidentDetailSheet(
         planPercent,
         perResidentRevenueGrowth,
       ];
+      const helperStart = visibleColumns.length + 1;
+      ws.getCell(currentRow - 1, helperStart).value = percent(number(resident.increasePct));
+      ws.getCell(currentRow - 1, helperStart + 1).value = number(plan.recommendedStreetRateMonthly);
+      ws.getCell(currentRow - 1, helperStart + 2).value = priorYear;
+      ws.getCell(currentRow - 1, helperStart + 3).value = projectedYear;
+      ws.getCell(currentRow - 1, helperStart + 4).value = priorPeriod;
+      ws.getCell(currentRow - 1, helperStart + 5).value = planPercent;
+
+      const rowNumber = currentRow - 1;
+      const divisor = `IF($I${rowNumber}="daily",365/12,1)`;
+      formula(ws.getCell(rowNumber, 13), `=IFERROR($L${rowNumber}/${divisor},0)`, displayStreet);
+      formula(ws.getCell(rowNumber, 16), `=$AC${rowNumber}`, percent(number(resident.increasePct)));
+      formula(ws.getCell(rowNumber, 17), `=$K${rowNumber}*$P${rowNumber}`, number(resident.increaseDollarsMonthly));
+      formula(ws.getCell(rowNumber, 18), `=$K${rowNumber}+$Q${rowNumber}`, number(resident.newRateMonthly));
+      formula(ws.getCell(rowNumber, 19), `=IFERROR($R${rowNumber}/${divisor},0)`, number(resident.newRateDisplay));
+      formula(ws.getCell(rowNumber, 20), `=IFERROR($W${rowNumber}/$R${rowNumber}-1,0)`, percent(number(resident.newGapToStreetPct)));
+      formula(ws.getCell(rowNumber, 23), `=$AD${rowNumber}`, number(plan.recommendedStreetRateMonthly));
+      formula(ws.getCell(rowNumber, 24), `=$AE${rowNumber}`, priorYear);
+      formula(ws.getCell(rowNumber, 25), `=$AF${rowNumber}`, projectedYear);
+      formula(ws.getCell(rowNumber, 26), `=$AG${rowNumber}`, priorPeriod);
+      formula(
+        ws.getCell(rowNumber, 27),
+        `=IFERROR(SUMPRODUCT($P$${first}:$P$${currentRow - 1},$J$${first}:$J$${currentRow - 1})/SUM($J$${first}:$J$${currentRow - 1}),0)`,
+        planPercent,
+      );
+      formula(ws.getCell(rowNumber, 28), `=($Y${rowNumber}-$X${rowNumber})*12`, perResidentRevenueGrowth);
     }
   }
   const total = currentRow;
@@ -444,6 +489,13 @@ function buildResidentDetailSheet(
     formula(ws.getCell(total, 16), `=SUMPRODUCT(P${first}:P${currentRow - 1},J${first}:J${currentRow - 1})/SUM(J${first}:J${currentRow - 1})`, 0);
     formula(ws.getCell(total, 17), `=SUM(Q${first}:Q${currentRow - 1})`, 0);
     formula(ws.getCell(total, 18), `=SUMPRODUCT(R${first}:R${currentRow - 1},J${first}:J${currentRow - 1})/SUM(J${first}:J${currentRow - 1})`, 0);
+    formula(ws.getCell(total, 20), `=IFERROR(W${total}/R${total}-1,0)`, 0);
+    formula(ws.getCell(total, 23), `=SUMPRODUCT(W${first}:W${currentRow - 1},J${first}:J${currentRow - 1})/SUM(J${first}:J${currentRow - 1})`, 0);
+    formula(ws.getCell(total, 24), `=SUMPRODUCT(X${first}:X${currentRow - 1},J${first}:J${currentRow - 1})/SUM(J${first}:J${currentRow - 1})`, 0);
+    formula(ws.getCell(total, 25), `=SUMPRODUCT(Y${first}:Y${currentRow - 1},J${first}:J${currentRow - 1})/SUM(J${first}:J${currentRow - 1})`, 0);
+    formula(ws.getCell(total, 26), `=SUMPRODUCT(Z${first}:Z${currentRow - 1},J${first}:J${currentRow - 1})/SUM(J${first}:J${currentRow - 1})`, 0);
+    formula(ws.getCell(total, 27), `=SUMPRODUCT(AA${first}:AA${currentRow - 1},J${first}:J${currentRow - 1})/SUM(J${first}:J${currentRow - 1})`, 0);
+    formula(ws.getCell(total, 28), `=SUM(AB${first}:AB${currentRow - 1})`, 0);
   }
   styleTotal(ws.getRow(total));
   applyNumberFormats(ws, first, total, [11, 12, 13, 17, 18, 23, 24, 25, 28], MONEY);
