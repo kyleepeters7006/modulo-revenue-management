@@ -6,7 +6,7 @@ import { describeCondition, zeroReasonLabel, zeroReasonDetail } from "@/lib/rule
 import { useLocation } from "wouter";
 import { useQuery, useMutation, keepPreviousData } from "@tanstack/react-query";
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from "recharts";
-import { ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, Minimize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3, FileBarChart, Info, Building2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, X, Loader2, Save, HeartPulse, Sparkles, RefreshCw, TrendingUp, TrendingDown, Zap, Maximize2, Minimize2, ArrowUpRight, ArrowDownRight, Minus, CircleDot, Target, BarChart3, FileBarChart, Info, Building2 } from "lucide-react";
 import Navigation from "@/components/navigation";
 import { RuleDesigner, type RuleDesignerHelpers } from "@/components/dashboard/rule-designer";
 import { StrategyReportModal } from "@/components/dashboard/pricing-reports";
@@ -50,6 +50,8 @@ export default function PricingControls() {
   const urlLocation = urlParams.get('location');
   const urlServiceLine = urlParams.get('serviceLine');
   const referenceFocusGroup = urlParams.get('focusGroup');
+  const referenceFocusRoomType = urlParams.get('roomType');
+  const returnTo = urlParams.get('returnTo');
   const restoreReferencePosition = urlParams.get('restorePosition') === 'reference-data';
   
   const savedFilters = loadFiltersFromStorage();
@@ -217,6 +219,17 @@ export default function PricingControls() {
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+            {returnTo && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLocation(returnTo)}
+                className="gap-1.5 border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-teal-700 hover:border-teal-300"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back to Annual Report
+              </Button>
+            )}
             <Button
               size="sm"
               onClick={() => {
@@ -531,6 +544,7 @@ export default function PricingControls() {
             selectedLocations={selectedLocations}
             onRuleCreated={() => designerHelpersRef.current?.refreshRules()}
             focusGroup={referenceFocusGroup}
+            focusRoomType={referenceFocusRoomType}
             selectedLocationId={selectedLocationId}
             restorePosition={restoreReferencePosition}
           />

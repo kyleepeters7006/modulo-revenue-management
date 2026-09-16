@@ -6,6 +6,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { formatNumber, formatCurrency, formatPercentage } from "@/lib/formatters";
 import { TileDetailDialog } from "./tile-detail-dialog";
 import RateGrowthDrilldown from "./rate-growth-drilldown";
+import { useAuth } from "@/hooks/useAuth";
+import { readOverviewCache, writeOverviewCache } from "@/lib/overviewCache";
 
 interface ServiceLineData {
   serviceLine: string;
@@ -43,6 +45,8 @@ interface OverviewData {
     avgCompetitorRate?: number;
     avgModuloRate?: number;
     monthlyRemainder?: number;
+    occupancyTrend?: number[];
+    occupancyTrendDelta?: number | null;
   }[];
   currentAnnualRevenue: number;
   potentialAnnualRevenue: number;
@@ -118,13 +122,27 @@ function OccupancySparkline({ values = [], delta }: { values?: number[]; delta?:
 }
 
 export default function OverviewTiles() {
+  const { clientId } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogContent, setDialogContent] = useState<{ type: string; calculation: string } | null>(null);
   const [expandedRoomTypes, setExpandedRoomTypes] = useState<Set<string>>(new Set());
   const [tileDetailOpen, setTileDetailOpen] = useState(false);
   const [selectedTile, setSelectedTile] = useState<{ type: 'units' | 'occupancy' | 'current-revenue' | 'potential-revenue'; title: string } | null>(null);
+  const overviewCache = readOverviewCache<OverviewData>(clientId, "overview");
   const { data: overviewData, isLoading } = useQuery<OverviewData>({
-    queryKey: ["/api/overview"],
+    queryKey: ["/api/overview", clientId],
+    queryFn: async () => {
+      const response = await fetch("/api/overview", { credentials: "include" });
+      if (!response.ok) throw new Error("Unable to load overview");
+      const data = await response.json() as OverviewData;
+      writeOverviewCache(clientId, "overview", data);
+      return data;
+    },
+    initialData: overviewCache?.data,
+    initialDataUpdatedAt: overviewCache?.updatedAt,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: true,
   });
 
   const toggleRoomTypeExpanded = (roomType: string) => {

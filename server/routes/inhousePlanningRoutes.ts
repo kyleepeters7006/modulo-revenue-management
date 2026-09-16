@@ -45,7 +45,10 @@ import {
   planStatus as annualReportPlanStatus,
 } from "../services/inhouseAnnualReportPdf";
 import { generateCampusAnnualReports } from "../services/inhouseAnnualReportGeneration";
-import { compactPlanForAnnualReport } from "@shared/inhouseAnnualReportSnapshot";
+import {
+  annualReportResidentScatterPoints,
+  compactPlanForAnnualReport,
+} from "@shared/inhouseAnnualReportSnapshot";
 import { computeHistoricalTurnover } from "../services/inhouseRatePlanning/historicalTurnover";
 import {
   fetchOccupancyByCampus,
@@ -1743,6 +1746,41 @@ export function registerInhousePlanningRoutes(
     }
   });
 
+  app.get("/api/inhouse-planning/annual-report-runs/:id/resident-increase-scatter", requireAuth, async (req: any, res) => {
+    try {
+      const clientId = req.clientId || "demo";
+      const [report] = await db
+        .select({
+          id: inhouseAnnualReportRuns.id,
+          tierGrid: inhouseAnnualReportRuns.tierGrid,
+        })
+        .from(inhouseAnnualReportRuns)
+        .where(and(
+          eq(inhouseAnnualReportRuns.id, String(req.params.id)),
+          eq(inhouseAnnualReportRuns.clientId, clientId),
+        ))
+        .limit(1);
+      if (!report) return res.status(404).json({ error: "Annual report not found" });
+
+      const [detail] = await db
+        .select({ plans: inhousePlanDetailSnapshots.plans })
+        .from(inhousePlanDetailSnapshots)
+        .where(and(
+          eq(inhousePlanDetailSnapshots.clientId, clientId),
+          eq(inhousePlanDetailSnapshots.scopeKey, `annual-report:${report.id}`),
+        ))
+        .limit(1);
+      const points = detail
+        ? annualReportResidentScatterPoints(detail.plans, report.tierGrid)
+        : [];
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({ points, available: Boolean(detail) });
+    } catch (error) {
+      console.error("[inhouse-planning] annual report scatter fetch failed:", error);
+      return res.status(500).json({ error: "Failed to load resident increase scatter data" });
+    }
+  });
+
   app.get("/api/inhouse-planning/annual-report-runs/:id/pdf", requireAuth, async (req: any, res) => {
     try {
       const clientId = req.clientId || "demo";
@@ -1757,7 +1795,18 @@ export function registerInhousePlanningRoutes(
       if (!row) return res.status(404).json({ error: "Annual report not found" });
 
       const report = normalizedAnnualReport(row);
-      const buffer = await generateAnnualInhouseReportPdf(report);
+      const [detail] = await db
+        .select({ plans: inhousePlanDetailSnapshots.plans })
+        .from(inhousePlanDetailSnapshots)
+        .where(and(
+          eq(inhousePlanDetailSnapshots.clientId, clientId),
+          eq(inhousePlanDetailSnapshots.scopeKey, `annual-report:${row.id}`),
+        ))
+        .limit(1);
+      const residentScatterPoints = detail
+        ? annualReportResidentScatterPoints(detail.plans, row.tierGrid)
+        : [];
+      const buffer = await generateAnnualInhouseReportPdf({ ...report, residentScatterPoints });
       const generatedDate = new Date(row.generatedAt ?? row.createdAt ?? Date.now());
       const datePart = Number.isNaN(generatedDate.getTime())
         ? new Date().toISOString().slice(0, 10)

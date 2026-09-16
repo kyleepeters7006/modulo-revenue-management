@@ -1,3 +1,8 @@
+- The default Overview, revenue history, and portfolio rate-growth responses may use a tenant-scoped browser snapshot from the last successful request. Those snapshots are aggregate-only, render as initial data, and still refresh against the live endpoint when stale.
+
+**Why:** the first page visit after a reload otherwise makes every section wait on its own cold request, even though the operator's last successful dashboard state is safe and useful as an immediate default.
+
+**How to apply:** key browser snapshots by client identity and endpoint variant; never persist resident-level or cross-tenant planning data in this cache.
 ---
 name: Overview loading concurrency
 description: Rules for keeping the Overview dashboard and its rate charts responsive.

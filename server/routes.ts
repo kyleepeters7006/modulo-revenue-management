@@ -13440,6 +13440,7 @@ ${campusOccLines.join('\n')}
       const cacheKey = `overview_${clientId}_${serviceLineFilter || 'all'}`;
       const cached = getCachedAnalytics(cacheKey);
       if (cached) {
+        res.setHeader('Cache-Control', 'private, max-age=300, stale-while-revalidate=900');
         return res.json(cached);
       }
       
@@ -14002,6 +14003,7 @@ ${campusOccLines.join('\n')}
       
       // Cache the result for 5 minutes
       setCachedAnalytics(cacheKey, result);
+      res.setHeader('Cache-Control', 'private, max-age=300, stale-while-revalidate=900');
       res.json(result);
 
     } catch (error) {

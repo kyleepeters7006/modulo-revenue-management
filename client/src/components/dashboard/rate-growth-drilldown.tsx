@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   CartesianGrid,
@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/tooltip";
 import { formatCurrency } from "@/lib/formatters";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { readOverviewCache, writeOverviewCache } from "@/lib/overviewCache";
 
 type DrillLevel = "group" | "serviceLine" | "campus" | "room";
 type Selection = { group?: string; serviceLine?: string; campus?: string; room?: string };
@@ -299,6 +301,7 @@ export function RateChart({
 
 export default function RateGrowthDrilldown() {
   const { toast } = useToast();
+  const { clientId } = useAuth();
   const [selection, setSelection] = useState<Selection>({});
   const [history, setHistory] = useState<Selection[]>([]);
   const [showNicMap, setShowNicMap] = useState(false);
@@ -307,9 +310,13 @@ export default function RateGrowthDrilldown() {
     SNF: "all",
     "Senior Housing": "all",
   });
+  const defaultRateGrowthCache = readOverviewCache<RateGrowthResponse>(
+    clientId,
+    "rate-growth-default",
+  );
 
   const query = useQuery<RateGrowthResponse, RateGrowthError>({
-    queryKey: ["/api/overview/rate-growth", selection],
+    queryKey: ["/api/overview/rate-growth", clientId, selection],
     queryFn: async () => {
       const params = new URLSearchParams();
       Object.entries(selection).forEach(([key, value]) => value && params.set(key, value));
@@ -326,10 +333,22 @@ export default function RateGrowthDrilldown() {
       }
       return response.json();
     },
+    initialData: Object.keys(selection).length === 0 ? defaultRateGrowthCache?.data : undefined,
+    initialDataUpdatedAt: Object.keys(selection).length === 0
+      ? defaultRateGrowthCache?.updatedAt
+      : undefined,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: true,
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
   });
+  useEffect(() => {
+    if (Object.keys(selection).length === 0 && query.data) {
+      writeOverviewCache(clientId, "rate-growth-default", query.data);
+    }
+  }, [clientId, query.data, selection]);
   const snfServiceLines = useQuery<RateGrowthResponse, RateGrowthError>({
-    queryKey: ["/api/overview/rate-growth", "service-line-selector", "SNF"],
+    queryKey: ["/api/overview/rate-growth", clientId, "service-line-selector", "SNF"],
     queryFn: async () => {
       const response = await fetch("/api/overview/rate-growth?group=SNF", {
         credentials: "include",
@@ -345,7 +364,7 @@ export default function RateGrowthDrilldown() {
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
   });
   const seniorHousingServiceLines = useQuery<RateGrowthResponse, RateGrowthError>({
-    queryKey: ["/api/overview/rate-growth", "service-line-selector", "Senior Housing"],
+    queryKey: ["/api/overview/rate-growth", clientId, "service-line-selector", "Senior Housing"],
     queryFn: async () => {
       const response = await fetch("/api/overview/rate-growth?group=Senior%20Housing", {
         credentials: "include",

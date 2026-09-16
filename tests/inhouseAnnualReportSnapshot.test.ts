@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  annualReportResidentScatterPoints,
   compactPlanForAnnualReport,
   hydrateAnnualReportPlanSnapshot,
-} from "../client/src/lib/inhouseAnnualReportSnapshot";
+} from "../shared/inhouseAnnualReportSnapshot";
 import {
   CalculationDetailToggle,
   QuarterlySummaryRow,
@@ -75,6 +76,48 @@ if ("streetRateRecommendations" in compact.summary) {
 }
 if (count !== residents.length) throw new Error(`distribution lost residents: ${count}`);
 if (bytes >= 100_000) throw new Error(`snapshot is still too large: ${bytes} bytes`);
+
+const scatterPoints = annualReportResidentScatterPoints(
+  [{
+    sl: "AL",
+    plan: {
+      scope: { serviceLine: "AL" },
+      residents: [
+        {
+          key: "resident-1",
+          location: "Campus A",
+          roomNumber: "101",
+          roomType: "Studio",
+          increasePct: 4.5,
+          increaseDollarsMonthly: 225,
+        },
+        {
+          key: "resident-2",
+          location: "Campus A",
+          roomNumber: "102",
+          roomType: "One Bedroom",
+          increasePct: 0,
+          increaseDollarsMonthly: 0,
+        },
+      ],
+    },
+  }],
+  { lines: [{ serviceLine: "AL", occupancyPct: 87.5 }] },
+);
+assert.equal(scatterPoints.length, 2, "scatter projection should keep one point per resident");
+assert.deepEqual(
+  scatterPoints[0],
+  {
+    id: "AL|resident-1",
+    campus: "Campus A",
+    serviceLine: "AL",
+    roomNumber: "101",
+    roomType: "Studio",
+    occupancyPct: 87.5,
+    increasePct: 4.5,
+    increaseDollarsMonthly: 225,
+  },
+);
 
 const rolledUpPlan = {
   ...plan,

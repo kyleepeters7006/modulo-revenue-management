@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { ArrowLeft, Download, FileSpreadsheet, Maximize2, Printer, TrendingUp } from "lucide-react";
@@ -21,6 +21,7 @@ import {
 import {
   annualRateGrowthBridge,
   annualRateGrowthRevenue,
+  type AnnualReportResidentScatterPoint,
   RESIDENT_INCREASE_TIER_LABELS,
 } from "@shared/inhouseAnnualReportSnapshot";
 
@@ -51,6 +52,10 @@ type AnnualReport = {
   status?: string;
 };
 type ApiResponse = { report: AnnualReport | null };
+type ScatterApiResponse = {
+  points: AnnualReportResidentScatterPoint[];
+  available: boolean;
+};
 
 const DAYS_PER_MONTH = 365 / 12;
 
@@ -547,7 +552,7 @@ function WorkbookPageHeader({
         </p>
       </div>
       <div className="text-right text-xs">
-        <p className="font-semibold text-[#44546A]">Page {page} of 3</p>
+       <p className="font-semibold text-[#44546A]">Page {page} of 4</p>
         <p className="mt-1 text-muted-foreground">Last run {dateTime(report.generatedAt)}</p>
       </div>
     </header>
@@ -745,7 +750,195 @@ function ResidentIncreaseCharts({ plans }: { plans: ReportPlan[] }) {
   );
 }
 
-function WorkbookReportBody({ report }: { report: AnnualReport }) {
+function ResidentIncreaseScatter({
+  report,
+  points,
+  loading,
+  available,
+}: {
+  report: AnnualReport;
+  points: AnnualReportResidentScatterPoint[];
+  loading: boolean;
+  available: boolean;
+}) {
+  const serviceLines = Array.from(new Set(points.map((point) => point.serviceLine)));
+  const [selectedServiceLines, setSelectedServiceLines] = useState<Set<string> | null>(null);
+  const [hovered, setHovered] = useState<AnnualReportResidentScatterPoint | null>(null);
+
+  useEffect(() => {
+    setSelectedServiceLines((previous) => {
+      if (previous == null) return null;
+      return new Set(serviceLines.filter((serviceLine) => previous.has(serviceLine)));
+    });
+  }, [points]);
+
+  const chartWidth = 820;
+  const chartHeight = 430;
+  const pad = { left: 66, right: 24, top: 24, bottom: 58 };
+  const plotWidth = chartWidth - pad.left - pad.right;
+  const plotHeight = chartHeight - pad.top - pad.bottom;
+  const xValues = points.map((point) => point.occupancyPct);
+  const yValues = points.map((point) => point.increasePct);
+  const xMin = xValues.length ? Math.max(0, Math.floor(Math.min(...xValues) / 5) * 5 - 5) : 0;
+  const xMax = xValues.length
+    ? Math.min(100, Math.max(xMin + 10, Math.ceil(Math.max(...xValues) / 5) * 5 + 5))
+    : 100;
+  const rawYMin = yValues.length ? Math.min(...yValues) : 0;
+  const rawYMax = yValues.length ? Math.max(...yValues) : 10;
+  const yPadding = Math.max(0.5, (rawYMax - rawYMin) * 0.08);
+  const yMin = rawYMin - yPadding;
+  const yMax = rawYMax + yPadding;
+  const sx = (value: number) => pad.left + (value - xMin) / Math.max(1, xMax - xMin) * plotWidth;
+  const sy = (value: number) => pad.top + plotHeight - (value - yMin) / Math.max(0.01, yMax - yMin) * plotHeight;
+  const active = selectedServiceLines ?? new Set(serviceLines);
+  const returnTo = `/inhouse-increases/annual-report?scopeKey=${encodeURIComponent(report.scopeKey)}#annual-resident-scatter`;
+  const referenceLink = (point: AnnualReportResidentScatterPoint) => {
+    const params = new URLSearchParams({
+      location: point.campus,
+      serviceLine: point.serviceLine,
+      focusGroup: "ihCalculated",
+      scrollTo: "reference-data",
+      returnTo,
+    });
+    if (point.roomType) params.set("roomType", point.roomType);
+    return `/pricing-controls?${params.toString()}`;
+  };
+
+  return (
+    <section id="annual-resident-scatter" className="report-resident-section scroll-mt-4">
+      <div className="report-scatter-heading">Resident increase scattergram</div>
+      <p className="report-resident-description">
+        Each dot is one resident. Service-line occupancy is on the horizontal axis and the recommended resident increase is on the vertical axis.
+        Hover a dot for its campus, service line, increase, and Reference Data edit link.
+      </p>
+      {loading ? (
+        <div className="rounded border border-dashed border-[#B9C6D2] p-8 text-center text-sm text-muted-foreground">
+          Loading resident-level detail…
+        </div>
+      ) : !available || points.length === 0 ? (
+        <div className="rounded border border-dashed border-[#B9C6D2] p-8 text-center text-sm text-muted-foreground">
+          Resident-level detail is unavailable for this saved report.
+        </div>
+      ) : (
+        <>
+          <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-xs font-semibold text-muted-foreground">Show lines:</span>
+            {serviceLines.map((serviceLine) => {
+              const isSelected = active.has(serviceLine);
+              return (
+                <button
+                  key={serviceLine}
+                  type="button"
+                  onClick={() => setSelectedServiceLines((previous) => {
+                    const next = new Set(previous ?? serviceLines);
+                    if (next.has(serviceLine)) next.delete(serviceLine);
+                    else next.add(serviceLine);
+                    return next;
+                  })}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-opacity ${isSelected ? "text-white" : "text-muted-foreground opacity-55"}`}
+                  style={{
+                    backgroundColor: isSelected ? REPORT_SCATTER_COLORS[serviceLine] ?? "#44546A" : "#E2E8F0",
+                    borderColor: REPORT_SCATTER_COLORS[serviceLine] ?? "#94A3B8",
+                  }}
+                  aria-pressed={isSelected}
+                >
+                  {serviceLine}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className="ml-1 text-[11px] font-medium text-primary underline underline-offset-2"
+              onClick={() => setSelectedServiceLines(new Set(serviceLines))}
+            >
+              Select all
+            </button>
+          </div>
+          <div className="relative overflow-hidden rounded border border-[#B9C6D2] bg-[#FCFBF6] p-2">
+            <svg
+              viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+              className="h-auto w-full"
+              role="img"
+              aria-label="Resident increase percentage by service-line occupancy"
+            >
+              <line x1={pad.left} y1={pad.top} x2={pad.left} y2={pad.top + plotHeight} className="report-scatter-axis" />
+              <line x1={pad.left} y1={pad.top + plotHeight} x2={chartWidth - pad.right} y2={pad.top + plotHeight} className="report-scatter-axis" />
+              {Array.from({ length: 5 }, (_, index) => index / 4).map((step) => {
+                const y = pad.top + plotHeight * (1 - step);
+                const value = yMin + (yMax - yMin) * step;
+                return (
+                  <g key={`y-${step}`}>
+                    <line x1={pad.left} y1={y} x2={chartWidth - pad.right} y2={y} className="report-scatter-grid" />
+                    <text x={pad.left - 8} y={y + 4} textAnchor="end">{value.toFixed(1)}%</text>
+                  </g>
+                );
+              })}
+              {Array.from({ length: Math.round((xMax - xMin) / 5) + 1 }, (_, index) => xMin + index * 5).map((value) => {
+                const x = sx(value);
+                return (
+                  <g key={`x-${value}`}>
+                    <line x1={x} y1={pad.top} x2={x} y2={pad.top + plotHeight} className="report-scatter-grid" />
+                    <text x={x} y={pad.top + plotHeight + 18} textAnchor="middle">{value}%</text>
+                  </g>
+                );
+              })}
+              {points.map((point) => {
+                const isSelected = active.has(point.serviceLine);
+                return (
+                  <circle
+                    key={point.id}
+                    cx={sx(point.occupancyPct)}
+                    cy={sy(point.increasePct)}
+                    r={hovered?.id === point.id ? 5.5 : 3.5}
+                    fill={isSelected ? REPORT_SCATTER_COLORS[point.serviceLine] ?? "#44546A" : "#CBD5E1"}
+                    opacity={isSelected ? 0.86 : 0.42}
+                    stroke={hovered?.id === point.id ? "#172B4D" : "none"}
+                    strokeWidth="1.5"
+                    tabIndex={0}
+                    aria-label={`${point.campus}, ${point.serviceLine}, ${point.increasePct.toFixed(1)} percent increase`}
+                    onMouseEnter={() => setHovered(point)}
+                    onMouseLeave={() => setHovered((current) => current?.id === point.id ? null : current)}
+                    onFocus={() => setHovered(point)}
+                    onBlur={() => setHovered((current) => current?.id === point.id ? null : current)}
+                  />
+                );
+              })}
+              <text x={pad.left + plotWidth / 2} y={chartHeight - 12} textAnchor="middle">Service-line occupancy</text>
+              <text x={16} y={pad.top + plotHeight / 2} textAnchor="middle" transform={`rotate(-90 16 ${pad.top + plotHeight / 2})`}>Resident increase</text>
+            </svg>
+            {hovered && (
+              <div className="pointer-events-none absolute right-4 top-4 w-64 rounded-md border border-[#9EADBB] bg-[#FFFEFA] p-3 text-xs shadow-lg">
+                <div className="font-semibold text-foreground">{hovered.campus || "Unknown campus"} · {hovered.serviceLine}</div>
+                <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-muted-foreground">
+                  <span>Occupancy</span><strong className="text-foreground">{hovered.occupancyPct.toFixed(1)}%</strong>
+                  <span>Increase</span><strong className="text-foreground">{hovered.increasePct.toFixed(1)}%</strong>
+                  <span>Increase $</span><strong className="text-foreground">{formatMoney(hovered.increaseDollarsMonthly)}/mo</strong>
+                  <span>Room</span><strong className="truncate text-foreground">{hovered.roomNumber || "—"}</strong>
+                </div>
+                <a
+                  href={referenceLink(hovered)}
+                  className="pointer-events-auto mt-2 inline-block font-semibold text-primary underline underline-offset-2"
+                >
+                  Edit in Reference Data
+                </a>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function WorkbookReportBody({
+  report,
+  scatter,
+  scatterLoading,
+}: {
+  report: AnnualReport;
+  scatter: ScatterApiResponse | undefined;
+  scatterLoading: boolean;
+}) {
   return (
     <div id="annual-report-sheet" className="annual-report-sheet mx-auto max-w-[1480px]">
       <article className="report-page space-y-4">
@@ -771,8 +964,26 @@ function WorkbookReportBody({ report }: { report: AnnualReport }) {
           // 3 silently render blank even though the distributions were saved.
           plans={report.plans.map(({ plan }) => plan)}
         />
+        <a
+          href="#annual-resident-scatter"
+          className="inline-flex text-xs font-semibold text-primary underline underline-offset-2"
+        >
+          View resident-level increase scattergram →
+        </a>
         <p className="text-[10px] text-muted-foreground">
-          These distributions use the saved resident recommendations from the measured occupancy tier; no resident-level data is retained in the annual report snapshot.
+          These distributions use the saved resident recommendations from the measured occupancy tier. The resident-level scattergram is loaded separately from the authenticated detail snapshot.
+        </p>
+      </article>
+      <article className="report-page space-y-4">
+        <WorkbookPageHeader report={report} page={4} />
+        <ResidentIncreaseScatter
+          report={report}
+          points={scatter?.points ?? []}
+          loading={scatterLoading}
+          available={scatter?.available ?? false}
+        />
+        <p className="text-[10px] text-muted-foreground">
+          The scattergram uses the resident-level detail snapshot saved with this report. Grey dots are service lines that are not selected.
         </p>
       </article>
     </div>
@@ -793,6 +1004,25 @@ export default function AnnualReportPage() {
     enabled: !!scopeKey,
   });
   const report = query.data?.report;
+  const scatterQuery = useQuery<ScatterApiResponse>({
+    queryKey: ["/api/inhouse-planning/annual-report-runs/resident-increase-scatter", report?.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/inhouse-planning/annual-report-runs/${encodeURIComponent(report!.id)}/resident-increase-scatter`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error("Unable to load resident scatter data.");
+      return res.json();
+    },
+    enabled: !!report,
+  });
+  useEffect(() => {
+    if (!report || window.location.hash !== "#annual-resident-scatter") return;
+    const timer = window.setTimeout(() => {
+      document.getElementById("annual-resident-scatter")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [report]);
   const exportPdf = async () => {
     if (!report) return;
     const res = await fetch(`/api/inhouse-planning/annual-report-runs/${encodeURIComponent(report.id)}/pdf`, { credentials: "include" });
@@ -840,6 +1070,6 @@ export default function AnnualReportPage() {
     {query.isLoading && <div className="mx-auto max-w-[1480px] space-y-4"><div className="h-24 animate-pulse rounded-xl bg-muted" /><div className="h-72 animate-pulse rounded-xl bg-muted" /></div>}
     {query.isError && <Alert variant="destructive" className="mx-auto max-w-xl"><AlertTitle>Report unavailable</AlertTitle><AlertDescription>{query.error.message}</AlertDescription></Alert>}
     {!query.isLoading && !query.isError && !report && <Alert className="mx-auto max-w-xl"><AlertTitle>No annual report yet</AlertTitle><AlertDescription>Calculate a plan, then choose Annual Report to save the current run.</AlertDescription></Alert>}
-    {report && <WorkbookReportBody report={report} />}
+     {report && <WorkbookReportBody report={report} scatter={scatterQuery.data} scatterLoading={scatterQuery.isLoading} />}
   </div>;
 }

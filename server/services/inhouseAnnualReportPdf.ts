@@ -4,6 +4,7 @@ import {
   annualRateGrowthRevenue,
   RESIDENT_INCREASE_TIER_LABELS,
   type AnnualRateGrowthBridge,
+  type AnnualReportResidentScatterPoint,
 } from "@shared/inhouseAnnualReportSnapshot";
 
 type JsonObject = Record<string, any>;
@@ -17,6 +18,7 @@ export interface AnnualReportPdfReport {
   tierGrid: unknown;
   generatedAt?: Date | string | null;
   status?: string;
+  residentScatterPoints?: AnnualReportResidentScatterPoint[];
 }
 
 const NAVY = "#17324D";
@@ -888,10 +890,93 @@ function drawWorkbookScatterplots(
   draw("streetIncrease", "Street Rate increase", x + chartWidth + gap);
 }
 
+const RESIDENT_SCATTER_COLORS: Record<string, string> = {
+  AL: "#2F6B95",
+  "AL/MC": "#7A5C9E",
+  HC: "#388194",
+  "HC/MC": "#7A8B3A",
+  SL: "#B06D32",
+  VIL: "#8B4B62",
+};
+
+function drawResidentIncreaseScatter(
+  doc: PDFKit.PDFDocument,
+  points: AnnualReportResidentScatterPoint[],
+  x: number,
+  top: number,
+  width: number,
+): void {
+  line(doc, x, top, width, "Resident increase scattergram", { size: 8, color: BLUE, bold: true });
+  doc.moveTo(x, top + 11).lineTo(x + width, top + 11).lineWidth(0.5).strokeColor(BORDER).stroke();
+  line(
+    doc,
+    x,
+    top + 18,
+    width,
+    "Each dot is one resident. Horizontal position is service-line occupancy; vertical position is the resident's recommended in-house increase.",
+    { size: 6.5, color: MUTED },
+  );
+  if (!points.length) {
+    line(doc, x, top + 54, width, "Resident-level detail is unavailable for this saved report.", { size: 8, color: MUTED });
+    return;
+  }
+
+  const plotX = x + 42;
+  const plotY = top + 42;
+  const plotWidth = width - 60;
+  const plotHeight = 280;
+  const xValues = points.map((point) => point.occupancyPct);
+  const yValues = points.map((point) => point.increasePct);
+  const xMin = Math.max(0, Math.floor(Math.min(...xValues) / 5) * 5 - 5);
+  const xMax = Math.min(100, Math.max(xMin + 10, Math.ceil(Math.max(...xValues) / 5) * 5 + 5));
+  const rawYMin = Math.min(...yValues);
+  const rawYMax = Math.max(...yValues);
+  const yPadding = Math.max(0.5, (rawYMax - rawYMin) * 0.08);
+  const yMin = rawYMin - yPadding;
+  const yMax = rawYMax + yPadding;
+  const sx = (value: number) => plotX + (value - xMin) / Math.max(1, xMax - xMin) * plotWidth;
+  const sy = (value: number) => plotY + plotHeight - (value - yMin) / Math.max(0.01, yMax - yMin) * plotHeight;
+
+  doc.moveTo(plotX, plotY).lineTo(plotX, plotY + plotHeight).lineTo(plotX + plotWidth, plotY + plotHeight)
+    .lineWidth(0.5).strokeColor("#657789").stroke();
+  Array.from({ length: 5 }, (_, index) => index / 4).forEach((step) => {
+    const yy = plotY + plotHeight * (1 - step);
+    doc.moveTo(plotX, yy).lineTo(plotX + plotWidth, yy).lineWidth(0.25).strokeColor("#D9DEE5").stroke();
+    line(doc, x, yy - 3, 36, `${(yMin + (yMax - yMin) * step).toFixed(1)}%`, { size: 5.8, align: "right" });
+  });
+  const xTickCount = Math.max(1, Math.round((xMax - xMin) / 5));
+  Array.from({ length: xTickCount + 1 }, (_, index) => xMin + index * 5).forEach((value) => {
+    const xx = sx(value);
+    doc.moveTo(xx, plotY).lineTo(xx, plotY + plotHeight).lineWidth(0.25).strokeColor("#D9DEE5").stroke();
+    line(doc, xx - 14, plotY + plotHeight + 3, 28, `${value}%`, { size: 5.8, align: "center" });
+  });
+  line(doc, plotX, plotY + plotHeight + 13, plotWidth, "Service-line occupancy", { size: 6, bold: true, align: "center" });
+  points.forEach((point) => {
+    doc.circle(sx(point.occupancyPct), sy(point.increasePct), 2.2)
+      .fill(RESIDENT_SCATTER_COLORS[point.serviceLine] ?? "#44546A");
+  });
+
+  const counts = new Map<string, number>();
+  points.forEach((point) => counts.set(point.serviceLine, (counts.get(point.serviceLine) ?? 0) + 1));
+  let legendX = x;
+  const legendY = plotY + plotHeight + 30;
+  for (const [serviceLine, count] of counts) {
+    const label = `${serviceLine} (${count.toLocaleString("en-US")})`;
+    const labelWidth = Math.max(58, label.length * 4.5 + 14);
+    if (legendX + labelWidth > x + width) {
+      legendX = x;
+    }
+    doc.circle(legendX + 3, legendY + 3, 3).fill(RESIDENT_SCATTER_COLORS[serviceLine] ?? "#44546A");
+    line(doc, legendX + 10, legendY, labelWidth - 10, label, { size: 6.3, color: NAVY });
+    legendX += labelWidth;
+  }
+}
+
 /**
  * Render the saved report snapshot without recalculating it. The reference
- * workbook is a fixed three-page landscape report: Combined + charts on page 1,
- * all three occupancy tiers on page 2, and resident increase distributions on page 3.
+ * workbook is a fixed four-page landscape report: Combined + charts on page 1,
+ * all three occupancy tiers on page 2, resident increase distributions on page 3,
+ * and the resident-level scattergram on page 4.
  */
 export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -926,10 +1011,14 @@ export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): P
     drawWorkbookPageHeader(doc, report, stamp, 3);
     drawResidentIncreaseCharts(doc, residentChartPlans(report, plans), pageX, 54, pageWidth);
 
+    doc.addPage();
+    drawWorkbookPageHeader(doc, report, stamp, 4);
+    drawResidentIncreaseScatter(doc, report.residentScatterPoints ?? [], pageX, 54, pageWidth);
+
     const pages = doc.bufferedPageRange();
-    if (pages.count !== 3) {
+    if (pages.count !== 4) {
       doc.end();
-      reject(new Error(`Annual in-house report must be exactly three pages (${pages.count} pages)`));
+      reject(new Error(`Annual in-house report must be exactly four pages (${pages.count} pages)`));
       return;
     }
     doc.end();

@@ -5,6 +5,86 @@ export interface IncreaseDistributionBand {
   count: number;
 }
 
+export interface AnnualReportResidentScatterPoint {
+  id: string;
+  campus: string;
+  serviceLine: string;
+  roomNumber: string;
+  roomType: string | null;
+  occupancyPct: number;
+  increasePct: number;
+  increaseDollarsMonthly: number;
+}
+
+/**
+ * Project only the resident fields needed by the annual-report scattergram.
+ * The annual report itself remains compact; this projection is built from the
+ * separately saved detail snapshot at read/export time.
+ */
+export function annualReportResidentScatterPoints(
+  detailPlans: unknown,
+  tierGrid: unknown,
+): AnnualReportResidentScatterPoint[] {
+  const entries = Array.isArray(detailPlans)
+    ? detailPlans
+    : detailPlans && typeof detailPlans === "object"
+      ? Object.entries(detailPlans as Record<string, unknown>).map(([sl, plan]) => ({ sl, plan }))
+      : [];
+  const lines = tierGrid && typeof tierGrid === "object" &&
+    Array.isArray((tierGrid as { lines?: unknown }).lines)
+    ? (tierGrid as { lines: Array<{ serviceLine?: unknown; occupancyPct?: unknown }> }).lines
+    : [];
+  const occupancyByLine = new Map(
+    lines
+      .filter((line) => typeof line.serviceLine === "string")
+      .map((line) => [line.serviceLine as string, Number(line.occupancyPct)]),
+  );
+  const points: AnnualReportResidentScatterPoint[] = [];
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    const envelope = entry as { sl?: unknown; plan?: unknown };
+    const plan = envelope.plan && typeof envelope.plan === "object"
+      ? envelope.plan as {
+          scope?: { serviceLine?: unknown };
+          residents?: unknown;
+        }
+      : entry as {
+          scope?: { serviceLine?: unknown };
+          residents?: unknown;
+        };
+    const serviceLine = String(
+      envelope.sl ?? plan.scope?.serviceLine ?? "",
+    ).trim();
+    const occupancyPct = occupancyByLine.get(serviceLine);
+    if (!serviceLine || occupancyPct == null || !Number.isFinite(occupancyPct)) continue;
+    if (!Array.isArray(plan.residents)) continue;
+
+    for (const resident of plan.residents) {
+      if (!resident || typeof resident !== "object") continue;
+      const row = resident as Record<string, unknown>;
+      const increasePct = Number(row.increasePct);
+      const increaseDollarsMonthly = Number(row.increaseDollarsMonthly);
+      if (!Number.isFinite(increasePct) || !Number.isFinite(increaseDollarsMonthly)) continue;
+      const campus = String(row.location ?? "").trim();
+      const roomNumber = String(row.roomNumber ?? "").trim();
+      const roomType = row.roomType == null ? null : String(row.roomType);
+      const identity = String(row.key ?? `${campus}|${roomNumber}|${row.moveInDate ?? ""}`);
+      points.push({
+        id: `${serviceLine}|${identity}`,
+        campus,
+        serviceLine,
+        roomNumber,
+        roomType,
+        occupancyPct,
+        increasePct,
+        increaseDollarsMonthly,
+      });
+    }
+  }
+  return points;
+}
+
 export const RESIDENT_INCREASE_TIER_LABELS = [
   "<3%",
   "3.0%",

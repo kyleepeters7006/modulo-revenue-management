@@ -1,3 +1,4 @@
+- [Annual report resident scatter](annual-report-resident-scatter.md) — project resident dots from the immutable saved detail snapshot; keep compact report payloads resident-free and deep links return to the chart.
 - [Claude via Replit AI Integrations](claude-ai-integrations.md) — Claude billed to enterprise account via AI_INTEGRATIONS_ANTHROPIC_*; never request a personal Anthropic key; no temperature param.
 - [TypeScript check boundary](typescript-check-boundary.md) — keep strict project checking enabled; legacy drift is isolated only by visible file-level boundaries.
 - [Adjustment rules tenant scoping](adjustment-rules-tenant-scoping.md) — client_id exists but only historical location-less strategies are scoped; active rules remain global. Don't assume isolation.

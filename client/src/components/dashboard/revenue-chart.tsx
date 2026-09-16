@@ -3,13 +3,28 @@ import { useQuery } from "@tanstack/react-query";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from "recharts";
 import { Button } from "@/components/ui/button";
 import { formatNumber, formatCurrency, formatPercentage } from "@/lib/formatters";
+import { useAuth } from "@/hooks/useAuth";
+import { readOverviewCache, writeOverviewCache } from "@/lib/overviewCache";
 
 export default function RevenueChart() {
+  const { clientId } = useAuth();
   const [timeRange, setTimeRange] = useState<'1M' | '3M' | '12M' | '24M'>('12M');
+  const seriesCache = readOverviewCache<unknown>(clientId, `series-${timeRange}`);
   
   const { data: seriesData, isLoading } = useQuery({
-    queryKey: ['/api/series', timeRange],
-    queryFn: () => fetch(`/api/series?timeRange=${timeRange}`, { credentials: 'include' }).then(r => r.json()),
+    queryKey: ['/api/series', clientId, timeRange],
+    queryFn: async () => {
+      const response = await fetch(`/api/series?timeRange=${timeRange}`, { credentials: 'include' });
+      if (!response.ok) throw new Error("Unable to load revenue history");
+      const data = await response.json();
+      writeOverviewCache(clientId, `series-${timeRange}`, data);
+      return data;
+    },
+    initialData: seriesCache?.data,
+    initialDataUpdatedAt: seriesCache?.updatedAt,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: true,
   });
 
   // Check if we have real API data (labels and arrays exist)

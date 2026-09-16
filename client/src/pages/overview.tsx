@@ -4,11 +4,18 @@ import RevenueChart from "@/components/dashboard/revenue-chart";
 import IndustryContext from "@/components/dashboard/industry-context";
 import { Link } from "wouter";
 import { BookOpen } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
+import { readOverviewCache, writeOverviewCache } from "@/lib/overviewCache";
 
 export default function Overview() {
   const queryClient = useQueryClient();
+  const { clientId } = useAuth();
+  const rateGrowthKey = useMemo(
+    () => ["/api/overview/rate-growth", clientId, {}] as const,
+    [clientId],
+  );
 
   // RateGrowthDrilldown is rendered inside OverviewTiles after the larger
   // overview payload arrives. Start its independent request immediately so the
@@ -16,18 +23,23 @@ export default function Overview() {
   // request when the chart mounts.
   useEffect(() => {
     void queryClient.prefetchQuery({
-      queryKey: ["/api/overview/rate-growth", {}],
+      queryKey: rateGrowthKey,
       queryFn: async () => {
         const response = await fetch("/api/overview/rate-growth", {
           credentials: "include",
           cache: "no-store",
         });
         if (!response.ok) throw new Error("Unable to preload rate growth");
-        return response.json();
+        const data = await response.json();
+        writeOverviewCache(clientId, "rate-growth-default", data);
+        return data;
       },
       staleTime: 5 * 60 * 1000,
+      gcTime: 30 * 60 * 1000,
+      initialData: readOverviewCache(clientId, "rate-growth-default")?.data,
+      initialDataUpdatedAt: readOverviewCache(clientId, "rate-growth-default")?.updatedAt,
     });
-  }, [queryClient]);
+  }, [clientId, queryClient, rateGrowthKey]);
 
   return (
     <div className="min-h-screen bg-gray-50">

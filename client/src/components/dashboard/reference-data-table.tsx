@@ -717,6 +717,8 @@ interface ReferenceDataTableProps {
   onRuleCreated?: () => void;
   /** Opens the section and horizontally scrolls to this column group. */
   focusGroup?: string | null;
+  /** Filters to a room type when arriving from a resident-level deep link. */
+  focusRoomType?: string | null;
   selectedLocationId?: string | null;
   /** Restores the exact vertical and horizontal position saved before opening Rate Planning. */
   restorePosition?: boolean;
@@ -729,6 +731,7 @@ export default function ReferenceDataTable({
   selectedLocations,
   onRuleCreated,
   focusGroup,
+  focusRoomType,
   selectedLocationId,
   restorePosition,
 }: ReferenceDataTableProps) {
@@ -1207,6 +1210,21 @@ export default function ReferenceDataTable({
     }, 450);
     return () => window.clearTimeout(timer);
   }, [focusGroup, dynGroups, restorePosition]);
+
+  useEffect(() => {
+    if (!focusRoomType || !data?.rows?.length) return;
+    const roomTypeExists = data.rows.some((row) => String(row.roomType ?? "—") === focusRoomType);
+    if (!roomTypeExists) return;
+    setFilters((previous) => (
+      previous.roomType?.mode === "select" &&
+      previous.roomType.selected.includes(focusRoomType)
+        ? previous
+        : {
+            ...previous,
+            roomType: { mode: "select", selected: [focusRoomType], search: "" },
+          }
+    ));
+  }, [focusRoomType, data?.rows]);
 
   const openRatePlanning = () => {
     sessionStorage.setItem("referenceData:returnPosition", JSON.stringify({

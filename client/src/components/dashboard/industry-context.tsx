@@ -192,7 +192,7 @@ function ContextCard({ metric, canEdit, onEdit }: { metric: Metric; canEdit: boo
 }
 
 export default function IndustryContext() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, clientId } = useAuth();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState<Metric | null>(null);
@@ -201,7 +201,7 @@ export default function IndustryContext() {
   const [graphicVersion, setGraphicVersion] = useState(() => Date.now());
   const fileRef = useRef<HTMLInputElement>(null);
   const query = useQuery<IndustryContextResponse>({
-    queryKey: ["/api/industry-context"],
+    queryKey: ["/api/industry-context", clientId],
     queryFn: async () => {
       const response = await fetch("/api/industry-context", { credentials: "include" });
       if (!response.ok) throw new Error("Unable to load industry context");
