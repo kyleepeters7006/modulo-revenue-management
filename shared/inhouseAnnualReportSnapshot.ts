@@ -206,10 +206,16 @@ export function hydrateAnnualReportPlanSnapshot(
  * with the tier counts needed for the distribution.
  */
 export function compactPlanForAnnualReport(plan: PlanResult): AnnualReportPlanSnapshot {
-  const increaseDistribution = residentIncreaseDistribution(
-    plan.residents.filter(({ increasePct }) => increasePct > 0),
-  );
-  const fullResidentIncreaseDistribution = residentIncreaseDistribution(plan.residents);
+  const compacted = plan as PlanResult & Partial<AnnualReportPlanSnapshot>;
+  const hasResidentDetails = Array.isArray(plan.residents) && plan.residents.length > 0;
+  const increaseDistribution = hasResidentDetails
+    ? residentIncreaseDistribution(
+        plan.residents.filter(({ increasePct }) => increasePct > 0),
+      )
+    : compacted.increaseDistribution ?? [];
+  const fullResidentIncreaseDistribution = hasResidentDetails
+    ? residentIncreaseDistribution(plan.residents)
+    : compacted.residentIncreaseDistribution ?? compacted.increaseDistribution ?? [];
 
   const {
     streetRateRecommendations: _legacyRecommendations,

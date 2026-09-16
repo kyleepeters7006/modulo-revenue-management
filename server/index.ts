@@ -879,6 +879,33 @@ app.use((req, res, next) => {
     logMigration(`[migration] annual in-house report runs migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
   }
 
+  // Resident-level calculation details are an authenticated planning cache,
+  // separate from the compact annual-report presentation snapshot.
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS inhouse_plan_detail_snapshots (
+        id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id       varchar NOT NULL REFERENCES clients(id),
+        scope_key       text NOT NULL,
+        plans           jsonb NOT NULL,
+        input_snapshot  jsonb,
+        generated_at    timestamp NOT NULL DEFAULT now()
+      )`));
+    await db.execute(sql.raw(`
+      ALTER TABLE inhouse_plan_detail_snapshots
+        ADD COLUMN IF NOT EXISTS input_snapshot jsonb,
+        ADD COLUMN IF NOT EXISTS generated_at timestamp DEFAULT now()`));
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS inhouse_plan_detail_snapshots_scope_uniq
+        ON inhouse_plan_detail_snapshots (client_id, scope_key)`));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS inhouse_plan_detail_snapshots_client_generated_at_idx
+        ON inhouse_plan_detail_snapshots (client_id, generated_at DESC)`));
+    logMigration("[migration] in-house plan detail snapshots ensured");
+  } catch (migErr) {
+    logMigration(`[migration] in-house plan detail snapshot migration failed (non-fatal): ${migErr instanceof Error ? migErr.message : String(migErr)}`);
+  }
+
   // Idempotent migration: persist Reference Data audit workbook job metadata.
   // The workbook itself remains in a per-job temporary directory, while this
   // table lets the API recover status after the Node process is restarted.

@@ -14,6 +14,7 @@ import { db, pool } from "../db";
 import { invalidateRefDataCache } from "../refDataCache";
 import {
   inhouseAnnualReportRuns,
+  inhousePlanDetailSnapshots,
   inhousePlanningAssumptions,
   inhouseRatePlans,
   locations,
@@ -528,6 +529,40 @@ function requireAuth(req: any, res: any, next: any) {
     .json({ error: "Login required. In-house rate plan actions are disabled in anonymous demo mode." });
 }
 
+function planningScopeKey(
+  locationId: string | null,
+  serviceLines: string[],
+  division: string | null,
+): string {
+  const lines = Array.from(new Set(serviceLines));
+  return division
+    ? `${division}|${locationId ?? "all"}|${lines.join(",")}`
+    : `${locationId ?? "all"}|${lines.join(",")}`;
+}
+
+async function savePlanDetailSnapshot(input: {
+  clientId: string;
+  scopeKey: string;
+  plans: unknown;
+  inputSnapshot: unknown;
+  generatedAt: Date;
+}): Promise<void> {
+  await db
+    .insert(inhousePlanDetailSnapshots)
+    .values(input as any)
+    .onConflictDoUpdate({
+      target: [
+        inhousePlanDetailSnapshots.clientId,
+        inhousePlanDetailSnapshots.scopeKey,
+      ],
+      set: {
+        plans: input.plans,
+        inputSnapshot: input.inputSnapshot,
+        generatedAt: input.generatedAt,
+      } as any,
+    });
+}
+
 export type InhousePlanningRouteDependencies = {
   /**
    * Test seam for the submission path. Production uses the real solver; tests
@@ -753,6 +788,38 @@ export function registerInhousePlanningRoutes(
         division: body.data.division || null,
         lines: inputs,
       });
+      if (req.session?.userId && req.session?.clientId && result.plans.length > 0) {
+        const generatedAt = new Date();
+        const inputSnapshot = body.data.lines;
+        const detailPlans = result.plans.map(({ serviceLine, plan }) => ({
+          sl: serviceLine,
+          plan,
+        }));
+        await Promise.all([
+          savePlanDetailSnapshot({
+            clientId,
+            scopeKey: planningScopeKey(
+              locationId,
+              detailPlans.map(({ sl }) => sl),
+              body.data.division || null,
+            ),
+            plans: detailPlans,
+            inputSnapshot,
+            generatedAt,
+          }),
+          ...detailPlans.map((entry) =>
+            savePlanDetailSnapshot({
+              clientId,
+              scopeKey: planningScopeKey(locationId, [entry.sl], body.data.division || null),
+              plans: [entry],
+              inputSnapshot: body.data.lines.filter(
+                (line) => line.serviceLine === entry.sl,
+              ),
+              generatedAt,
+            }),
+          ),
+        ]);
+      }
       res.setHeader("Cache-Control", "no-store");
       res.json(result);
     } catch (error) {
@@ -1481,6 +1548,41 @@ export function registerInhousePlanningRoutes(
     } catch (error) {
       console.error("[inhouse-planning] division rollup failed:", error);
       return res.status(500).json({ error: "Failed to load the saved division calculation" });
+    }
+  });
+
+  app.get("/api/inhouse-planning/plan-details/latest", requireAuth, async (req: any, res) => {
+    try {
+      const scopeKey = String(req.query.scopeKey || "").trim();
+      if (!scopeKey) return res.status(400).json({ error: "A planning scope is required" });
+      const clientId = req.clientId || "demo";
+      const [row] = await db
+        .select({
+          plans: inhousePlanDetailSnapshots.plans,
+          inputSnapshot: inhousePlanDetailSnapshots.inputSnapshot,
+          generatedAt: inhousePlanDetailSnapshots.generatedAt,
+          scopeKey: inhousePlanDetailSnapshots.scopeKey,
+        })
+        .from(inhousePlanDetailSnapshots)
+        .where(and(
+          eq(inhousePlanDetailSnapshots.clientId, clientId),
+          eq(inhousePlanDetailSnapshots.scopeKey, scopeKey),
+        ))
+        .limit(1);
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({
+        snapshot: row
+          ? {
+              scopeKey: row.scopeKey,
+              plans: row.plans,
+              inputSnapshot: row.inputSnapshot,
+              generatedAt: row.generatedAt,
+            }
+          : null,
+      });
+    } catch (error) {
+      console.error("[inhouse-planning] plan detail snapshot fetch failed:", error);
+      return res.status(500).json({ error: "Failed to load saved plan details" });
     }
   });
 

@@ -773,9 +773,30 @@ export const inhouseAnnualReportRuns = pgTable("inhouse_annual_report_runs", {
     .on(table.clientId, table.generatedAt),
 }));
 
+/**
+ * Resident-level calculation details are kept separately from the compact
+ * annual-report snapshot. This lets the planning page reopen a calculation
+ * without putting a large resident payload in browser storage or the PDF
+ * report snapshot.
+ */
+export const inhousePlanDetailSnapshots = pgTable("inhouse_plan_detail_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clientId: varchar("client_id").notNull().references(() => clients.id),
+  scopeKey: text("scope_key").notNull(),
+  plans: jsonb("plans").notNull(),
+  inputSnapshot: jsonb("input_snapshot"),
+  generatedAt: timestamp("generated_at").defaultNow().notNull(),
+}, (table) => ({
+  scopeUnique: uniqueIndex("inhouse_plan_detail_snapshots_scope_uniq")
+    .on(table.clientId, table.scopeKey),
+  clientGeneratedAt: index("inhouse_plan_detail_snapshots_client_generated_at_idx")
+    .on(table.clientId, table.generatedAt),
+}));
+
 export const insertInhousePlanningAssumptionsSchema = createInsertSchema(inhousePlanningAssumptions);
 export const insertInhouseRatePlansSchema = createInsertSchema(inhouseRatePlans);
 export const insertInhouseAnnualReportRunSchema = createInsertSchema(inhouseAnnualReportRuns);
+export const insertInhousePlanDetailSnapshotSchema = createInsertSchema(inhousePlanDetailSnapshots);
 
 export const insertStreetRatesSchema = createInsertSchema(streetRates);
 export const insertSpecialRatesSchema = createInsertSchema(specialRates);

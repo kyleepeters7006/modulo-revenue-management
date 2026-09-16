@@ -76,6 +76,24 @@ if ("streetRateRecommendations" in compact.summary) {
 if (count !== residents.length) throw new Error(`distribution lost residents: ${count}`);
 if (bytes >= 100_000) throw new Error(`snapshot is still too large: ${bytes} bytes`);
 
+const rolledUpPlan = {
+  ...plan,
+  residents: [],
+  increaseDistribution: [{ label: "6.0%", count: 5 }],
+  residentIncreaseDistribution: [{ label: "6.0%", count: 5 }],
+} as unknown as PlanResult;
+const compactRolledUp = compactPlanForAnnualReport(rolledUpPlan);
+assert.deepEqual(
+  compactRolledUp.increaseDistribution,
+  [{ label: "6.0%", count: 5 }],
+  "rollup increase distribution should survive annual-report compaction",
+);
+assert.deepEqual(
+  compactRolledUp.residentIncreaseDistribution,
+  [{ label: "6.0%", count: 5 }],
+  "rollup resident distribution should survive annual-report compaction",
+);
+
 const legacyCompact = JSON.parse(JSON.stringify(compact));
 for (const quarter of legacyCompact.quarters) {
   delete quarter.requiredRateMonthly;

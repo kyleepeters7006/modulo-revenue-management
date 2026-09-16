@@ -1590,6 +1590,13 @@ interface StoredCalculatedPlan {
   inputSnapshot?: PlanningInputSnapshotEntry[];
 }
 
+interface SavedPlanDetailSnapshot {
+  scopeKey: string;
+  plans: unknown;
+  inputSnapshot?: unknown;
+  generatedAt: string;
+}
+
 function readStoredCalculatedPlan(value: unknown): {
   plans: PlanWithSl[];
   lastRunAt: string | null;
@@ -2377,6 +2384,41 @@ export default function InhouseIncreases() {
     assumptionsQuery.isSuccess &&
     tierState.scopeKey === policyScopeKey &&
     serviceLines.every((sl) => tierState.loaded[sl] === true);
+  const savedPlanDetailsQuery = useQuery<{
+    snapshot: SavedPlanDetailSnapshot | null;
+  }>({
+    queryKey: [
+      "/api/inhouse-planning/plan-details/latest",
+      tierScopeKey,
+      tierInputsKey,
+      storageIdentityKey ?? "anonymous",
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams({ scopeKey: tierScopeKey });
+      const res = await fetch(
+        `/api/inhouse-planning/plan-details/latest?${params}`,
+        { credentials: "include", cache: "no-store" },
+      );
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    enabled:
+      isAuthenticated &&
+      !!storageIdentityKey &&
+      restoredPlanDetailsOmitted &&
+      tierInputsReady,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+  const savedPlanDetailsMatch = (() => {
+    const snapshot = savedPlanDetailsQuery.data?.snapshot;
+    if (!snapshot || snapshot.scopeKey !== tierScopeKey) return false;
+    const inputSnapshot = Array.isArray(snapshot.inputSnapshot)
+      ? snapshot.inputSnapshot as PlanningInputSnapshotEntry[]
+      : [];
+    return inputSnapshot.length === 0 ||
+      planningInputSnapshotKey(inputSnapshot) === tierInputsKey;
+  })();
   const assumptionsStatus =
     assumptionsQuery.isError
       ? "Saved assumptions could not be loaded."
@@ -2860,7 +2902,9 @@ export default function InhouseIncreases() {
     if (
       !restoredPlanDetailsOmitted ||
       !tierInputsReady ||
-      calculate.isPending
+      calculate.isPending ||
+      savedPlanDetailsQuery.isPending ||
+      savedPlanDetailsMatch
     ) {
       return;
     }
@@ -2876,6 +2920,9 @@ export default function InhouseIncreases() {
     });
   }, [
     calculate.isPending,
+    savedPlanDetailsQuery.data,
+    savedPlanDetailsQuery.isPending,
+    savedPlanDetailsMatch,
     restoredPlanDetailsOmitted,
     storageIdentityKey,
     tierInputsKey,
@@ -3130,6 +3177,42 @@ export default function InhouseIncreases() {
     enabled: isAuthenticated && !!division && scopeLocationId === null,
     retry: false,
   });
+
+  useEffect(() => {
+    const snapshot = savedPlanDetailsQuery.data?.snapshot;
+    if (
+      !restoredPlanDetailsOmitted ||
+      !snapshot ||
+      snapshot.scopeKey !== tierScopeKey
+    ) return;
+    const inputSnapshot = Array.isArray(snapshot.inputSnapshot)
+      ? snapshot.inputSnapshot as PlanningInputSnapshotEntry[]
+      : [];
+    if (
+      inputSnapshot.length > 0 &&
+      planningInputSnapshotKey(inputSnapshot) !== tierInputsKey
+    ) return;
+    const savedPlans = Array.isArray(snapshot.plans) ? snapshot.plans : [];
+    const restored = savedPlans
+      .flatMap((value): PlanWithSl[] => isStoredPlan(value) ? [value] : [])
+      .filter(({ sl }) => serviceLines.includes(sl));
+    if (restored.length === 0) return;
+    setPlans(restored);
+    setRestoredPlanDetailsOmitted(false);
+    setRestoringPlanDetails(false);
+    setVisibleCount(50);
+    setExpandedResident(null);
+    const first = restored.find((r) => r.plan.feasible) ?? restored[0];
+    setExpandedQuarter(first?.plan.bindingQuarterLabel
+      ? `${first.sl}-${first.plan.bindingQuarterLabel}`
+      : null);
+  }, [
+    savedPlanDetailsQuery.data,
+    restoredPlanDetailsOmitted,
+    tierScopeKey,
+    tierInputsKey,
+    serviceLines,
+  ]);
 
   // Calculations saved before tier grids were added to browser storage can
   // still recover the exact table from their saved Annual Report snapshot.
