@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { ArrowLeft, Download, Maximize2, Printer, TrendingUp } from "lucide-react";
+import { ArrowLeft, Download, FileSpreadsheet, Maximize2, Printer, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useToast } from "@/hooks/use-toast";
 import {
   RateChart,
   type RateGrowthSeries,
@@ -774,6 +775,7 @@ function WorkbookReportBody({ report }: { report: AnnualReport }) {
 
 export default function AnnualReportPage() {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const scopeKey = new URLSearchParams(window.location.search).get("scopeKey") || "";
   const query = useQuery<ApiResponse>({
     queryKey: ["/api/inhouse-planning/annual-report-runs/latest", scopeKey],
@@ -795,10 +797,39 @@ export default function AnnualReportPage() {
       : generatedDate.toISOString().slice(0, 10);
     const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `Annual_In-House_Rate_Plan_${datePart}.pdf`; a.click(); URL.revokeObjectURL(url);
   };
+  const exportAuditExcel = async () => {
+    if (!report) return;
+    try {
+      const res = await fetch(`/api/inhouse-planning/annual-report-runs/${encodeURIComponent(report.id)}/excel`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error(payload?.error || "Excel export failed.");
+      }
+      const generatedDate = new Date(report.generatedAt);
+      const datePart = Number.isNaN(generatedDate.getTime())
+        ? new Date().toISOString().slice(0, 10)
+        : generatedDate.toISOString().slice(0, 10);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `Annual_In-House_Rate_Plan_Audit_${datePart}.xlsx`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast({
+        title: "Excel export failed",
+        description: error instanceof Error ? error.message : "Could not create the audit workbook.",
+        variant: "destructive",
+      });
+    }
+  };
   return <div className="min-h-[100dvh] bg-[var(--dashboard-bg)] px-4 py-5 sm:px-8 lg:px-12">
     <div className="report-toolbar mx-auto mb-5 flex max-w-[1480px] flex-wrap items-center justify-between gap-2">
       <Button variant="ghost" size="sm" onClick={() => setLocation("/inhouse-increases")}><ArrowLeft className="mr-2 h-4 w-4" />Back to plan</Button>
-      {report && <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print</Button><Button variant="outline" size="sm" onClick={() => void exportPdf()}><Download className="mr-2 h-4 w-4" />Export PDF</Button><Button variant="outline" size="sm" onClick={() => document.documentElement.requestFullscreen?.()}><Maximize2 className="mr-2 h-4 w-4" />Full screen</Button></div>}
+      {report && <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print</Button><Button variant="outline" size="sm" onClick={() => void exportPdf()}><Download className="mr-2 h-4 w-4" />Export PDF</Button><Button variant="outline" size="sm" onClick={() => void exportAuditExcel()}><FileSpreadsheet className="mr-2 h-4 w-4" />Export audit Excel</Button><Button variant="outline" size="sm" onClick={() => document.documentElement.requestFullscreen?.()}><Maximize2 className="mr-2 h-4 w-4" />Full screen</Button></div>}
     </div>
     {query.isLoading && <div className="mx-auto max-w-[1480px] space-y-4"><div className="h-24 animate-pulse rounded-xl bg-muted" /><div className="h-72 animate-pulse rounded-xl bg-muted" /></div>}
     {query.isError && <Alert variant="destructive" className="mx-auto max-w-xl"><AlertTitle>Report unavailable</AlertTitle><AlertDescription>{query.error.message}</AlertDescription></Alert>}

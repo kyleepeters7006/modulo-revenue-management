@@ -39,6 +39,7 @@ import {
   PlanningDataError,
 } from "../services/inhouseRatePlanning";
 import { buildRatePlanWorkbook } from "../services/inhouseRatePlanning/excelExport";
+import { buildAnnualReportAuditWorkbook } from "../services/inhouseAnnualReportAuditWorkbook";
 import {
   generateAnnualInhouseReportPdf,
   planStatus as annualReportPlanStatus,
@@ -1678,6 +1679,39 @@ export function registerInhousePlanningRoutes(
         })
         .returning();
 
+      // Keep an immutable resident-level copy beside the compact report
+      // snapshot. The normal detail snapshot is intentionally replaceable
+      // when the operator recalculates; an audit export must remain tied to
+      // the report the operator saved.
+      try {
+        const [detailSnapshot] = await db
+          .select({
+            plans: inhousePlanDetailSnapshots.plans,
+            inputSnapshot: inhousePlanDetailSnapshots.inputSnapshot,
+            generatedAt: inhousePlanDetailSnapshots.generatedAt,
+          })
+          .from(inhousePlanDetailSnapshots)
+          .where(and(
+            eq(inhousePlanDetailSnapshots.clientId, clientId),
+            eq(inhousePlanDetailSnapshots.scopeKey, body.data.scopeKey),
+          ))
+          .limit(1);
+        if (detailSnapshot && row) {
+          await savePlanDetailSnapshot({
+            clientId,
+            scopeKey: `annual-report:${row.id}`,
+            plans: detailSnapshot.plans,
+            inputSnapshot: detailSnapshot.inputSnapshot,
+            generatedAt: detailSnapshot.generatedAt ?? generatedAt,
+          });
+        }
+      } catch (detailError) {
+        // The compact report remains usable if the optional resident audit
+        // copy cannot be persisted; the Excel endpoint will explain how to
+        // regenerate the detail snapshot.
+        console.error("[inhouse-planning] annual report audit snapshot failed:", detailError);
+      }
+
       res.setHeader("Cache-Control", "no-store");
       return res.json({ report: normalizedAnnualReport(row) });
     } catch (error) {
@@ -1739,6 +1773,77 @@ export function registerInhousePlanningRoutes(
     } catch (error) {
       console.error("[inhouse-planning] annual report PDF failed:", error);
       return res.status(500).json({ error: "Failed to build the annual in-house report PDF" });
+    }
+  });
+
+  app.get("/api/inhouse-planning/annual-report-runs/:id/excel", requireAuth, async (req: any, res) => {
+    try {
+      const clientId = req.clientId || "demo";
+      const [row] = await db
+        .select()
+        .from(inhouseAnnualReportRuns)
+        .where(and(
+          eq(inhouseAnnualReportRuns.id, String(req.params.id)),
+          eq(inhouseAnnualReportRuns.clientId, clientId),
+        ))
+        .limit(1);
+      if (!row) return res.status(404).json({ error: "Annual report not found" });
+
+      const [savedDetail, latestDetail] = await Promise.all([
+        db
+          .select({
+            plans: inhousePlanDetailSnapshots.plans,
+            generatedAt: inhousePlanDetailSnapshots.generatedAt,
+          })
+          .from(inhousePlanDetailSnapshots)
+          .where(and(
+            eq(inhousePlanDetailSnapshots.clientId, clientId),
+            eq(inhousePlanDetailSnapshots.scopeKey, `annual-report:${row.id}`),
+          ))
+          .limit(1),
+        db
+          .select({
+            plans: inhousePlanDetailSnapshots.plans,
+            generatedAt: inhousePlanDetailSnapshots.generatedAt,
+          })
+          .from(inhousePlanDetailSnapshots)
+          .where(and(
+            eq(inhousePlanDetailSnapshots.clientId, clientId),
+            eq(inhousePlanDetailSnapshots.scopeKey, row.scopeKey),
+          ))
+          .limit(1),
+      ]);
+      const detail = savedDetail[0] ?? latestDetail[0];
+      const detailPlans = Array.isArray(detail?.plans)
+        ? detail.plans
+        : [];
+      if (!detail || detailPlans.length === 0) {
+        return res.status(422).json({
+          error: "Resident detail is unavailable for this report. Recalculate the plan and save the Annual Report again.",
+        });
+      }
+
+      const buffer = await buildAnnualReportAuditWorkbook({
+        report: normalizedAnnualReport(row) as any,
+        detailPlans: detailPlans as any,
+        detailGeneratedAt: detail.generatedAt,
+      });
+      const generatedDate = new Date(row.generatedAt ?? row.createdAt ?? Date.now());
+      const datePart = Number.isNaN(generatedDate.getTime())
+        ? new Date().toISOString().slice(0, 10)
+        : generatedDate.toISOString().slice(0, 10);
+      const filename = `Annual_In-House_Rate_Plan_Audit_${datePart}.xlsx`;
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Length", String(buffer.length));
+      res.setHeader("Cache-Control", "no-store");
+      return res.end(buffer);
+    } catch (error) {
+      console.error("[inhouse-planning] annual report Excel failed:", error);
+      return res.status(500).json({ error: "Failed to build the annual report audit workbook" });
     }
   });
 

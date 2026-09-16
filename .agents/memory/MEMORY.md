@@ -125,3 +125,4 @@
 - [Analytics endpoint test harness](analytics-endpoint-test-harness.md) — await route readiness and exit after closing the ephemeral listener; startup schedulers outlive standalone tests.
 - [In-house baseline query pushdown](inhouse-baseline-query-pushdown.md) — scoped planning joins must constrain rate baselines by service line and month range or medians scan the whole tenant history.
 - [In-house division scope](inhouse-division-scope.md) — division is a client-validated campus allowlist, with separate assumptions and explicit campus filters on applied rules.
+- [Annual report audit export](annual-report-audit-export.md) — keep compact report presentation snapshots separate from immutable resident-level audit details used by Excel exports.
