@@ -87,6 +87,9 @@ for (const level of ["service line", "location/region/division/portfolio"]) {
 // Recommended and applied lifecycles cannot leak into one another.
 const applied = rollupAnnualIncrease(roomRows, "ihPlan");
 assert.deepEqual(applied, {
+  planId: null,
+  planStatus: null,
+  editable: false,
   residents: null,
   newRate: null,
   currentRate: null,

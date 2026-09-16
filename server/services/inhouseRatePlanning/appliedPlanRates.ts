@@ -54,6 +54,7 @@ export interface AppliedPlanIndex {
   planScopes?: Array<{
     planId: string;
     status: "applied" | "proposed";
+    editable: boolean;
     location: string | null;
     serviceLine: string;
     streetRate: number | null;
@@ -134,7 +135,19 @@ async function loadPlanRates(
   try {
     res = await pool.query(
       `SELECT id, location, service_line, version, inhouse_effective_date,
-              street_rate_effective_date, recommended_street_rate, residents
+               street_rate_effective_date, recommended_street_rate, residents,
+               (
+                 status = 'proposed'
+                 AND (
+                   SELECT COUNT(DISTINCT action->>'proposalType')
+                     FROM adjustment_rules ar
+                    WHERE ar.client_id = inhouse_rate_plans.client_id
+                      AND ar.action->>'annualPlanId' = inhouse_rate_plans.id::text
+                      AND ar.action->>'proposalType' IN ('annual_plan_street_rate', 'inhouse_rate_plan')
+                      AND ar.lifecycle_status = 'proposed'
+                      AND ar.is_historical IS NOT TRUE
+                 ) = 2
+               ) AS proposal_editable
          FROM inhouse_rate_plans
         WHERE client_id = $1 AND status = $2
         ORDER BY created_at ASC, version ASC`,
@@ -161,6 +174,7 @@ async function loadPlanRates(
     planScopes.push({
       planId: String(plan.id),
       status,
+      editable: Boolean(plan.proposal_editable),
       location: plan.location ?? null,
       serviceLine,
       streetRate: Number.isFinite(Number(plan.recommended_street_rate))

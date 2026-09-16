@@ -29576,21 +29576,27 @@ Return ONLY valid JSON, no markdown fences:
           ihRecommendationMonthlyImpact: recommendationFields.ihPlanMonthlyImpact,
           ihRecommendationEffectiveDate: recommendationFields.ihPlanEffectiveDate,
            ihPlanStatus: appliedStreetScope?.status ?? null,
+           ihPlanEditable: appliedStreetScope?.editable ?? false,
            ihRecommendationStatus: recommendedStreetScope?.status ?? null,
+           ihRecommendationEditable: recommendedStreetScope?.editable ?? false,
            // Street recommendations apply to the whole annual-plan scope, not
            // only to occupied residents that received an in-house increase.
            ihPlanId: planFields.ihPlanId ?? appliedStreetScope?.planId ?? null,
            ihPlanStreetRate: planFields.ihPlanStreetRate ?? appliedStreetScope?.streetRate ?? null,
            ihPlanStreetEffectiveDate: planFields.ihPlanStreetEffectiveDate
              ?? appliedStreetScope?.streetEffectiveDate ?? null,
+          ihPlanStreetPlanId: appliedStreetScope?.planId ?? null,
            ihPlanStreetStatus: appliedStreetScope?.status ?? null,
+           ihPlanStreetEditable: appliedStreetScope?.editable ?? false,
            ihRecommendationPlanId: recommendationFields.ihPlanId
              ?? recommendedStreetScope?.planId ?? null,
            ihRecommendationStreetRate: recommendationFields.ihPlanStreetRate
              ?? recommendedStreetScope?.streetRate ?? null,
            ihRecommendationStreetEffectiveDate: recommendationFields.ihPlanStreetEffectiveDate
              ?? recommendedStreetScope?.streetEffectiveDate ?? null,
+          ihRecommendationStreetPlanId: recommendedStreetScope?.planId ?? null,
            ihRecommendationStreetStatus: recommendedStreetScope?.status ?? null,
+           ihRecommendationStreetEditable: recommendedStreetScope?.editable ?? false,
            ihStreetPlanId: streetPlan?.planId ?? null,
            ihStreetPlanStatus: streetPlan?.status ?? null,
           // True when Final is showing the increase rather than a rule rate, so
@@ -30156,7 +30162,9 @@ Return ONLY valid JSON, no markdown fences:
            ihPlanStreetRate: unitPlan?.streetRate ?? appliedStreetScope?.streetRate ?? null,
            ihPlanStreetEffectiveDate: unitPlan?.streetEffectiveDate
              ?? appliedStreetScope?.streetEffectiveDate ?? null,
+          ihPlanStreetPlanId: appliedStreetScope?.planId ?? null,
            ihPlanStreetStatus: appliedStreetScope?.status ?? null,
+           ihPlanStreetEditable: appliedStreetScope?.editable ?? false,
            ihRecommendationPlanId: unitRecommendation?.planId
              ?? recommendedStreetScope?.planId ?? null,
            ihRecommendationNewRate: unitRecommendation?.newRate ?? null,
@@ -30169,12 +30177,16 @@ Return ONLY valid JSON, no markdown fences:
           ihRecommendationMonthlyImpact: unitRecommendation?.increaseDollarsMonthly ?? null,
           ihRecommendationEffectiveDate: unitRecommendation?.inhouseEffectiveDate ?? null,
            ihPlanStatus: appliedStreetScope?.status ?? null,
+           ihPlanEditable: appliedStreetScope?.editable ?? false,
            ihRecommendationStatus: recommendedStreetScope?.status ?? null,
+           ihRecommendationEditable: recommendedStreetScope?.editable ?? false,
            ihRecommendationStreetRate: unitRecommendation?.streetRate
              ?? recommendedStreetScope?.streetRate ?? null,
            ihRecommendationStreetEffectiveDate: unitRecommendation?.streetEffectiveDate
              ?? recommendedStreetScope?.streetEffectiveDate ?? null,
+          ihRecommendationStreetPlanId: recommendedStreetScope?.planId ?? null,
            ihRecommendationStreetStatus: recommendedStreetScope?.status ?? null,
+           ihRecommendationStreetEditable: recommendedStreetScope?.editable ?? false,
            sourceRoomType: r.source_room_type ?? r.room_type ?? null,
           finalFromPlan: manualOverride === null && unitPlan !== null,
           ...((): { revT3MoveIns: number | null; revMonthlyImpact: number | null; revAnnualImpact: number | null } => {

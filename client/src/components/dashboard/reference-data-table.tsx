@@ -500,8 +500,10 @@ function aggregateRows(
     {
       const rollupPlan = (prefix: "ihPlan" | "ihRecommendation") => {
         const rolled = rollupAnnualIncrease(rs, prefix);
+        out[`${prefix}Id`] = rolled.planId;
         out[`${prefix}PlanId`] = rolled.planId;
         out[`${prefix}Status`] = rolled.planStatus;
+        out[`${prefix}Editable`] = rolled.editable;
         out[`${prefix}Residents`] = rolled.residents;
         out[`${prefix}NewRate`] = rolled.newRate;
         out[`${prefix}CurrentRate`] = rolled.currentRate;
@@ -518,6 +520,7 @@ function aggregateRows(
         const rolled = rollupAnnualStreetIncrease(rs, prefix);
         out[`${prefix}StreetPlanId`] = rolled.planId;
         out[`${prefix}StreetStatus`] = rolled.planStatus;
+      out[`${prefix}StreetEditable`] = rolled.editable;
         out[`${prefix}StreetRate`] = rolled.newRate;
         out[`${prefix}StreetDeltaDollar`] = rolled.deltaDollar;
         out[`${prefix}StreetDeltaPct`] = rolled.deltaPct;
@@ -1058,6 +1061,7 @@ export default function ReferenceDataTable({
       out.ihCalculatedEffectiveDate = row[`${calculatedPrefix}EffectiveDate`] ?? null;
       out.ihCalculatedPlanId = row[`${calculatedPrefix}PlanId`] ?? null;
       out.ihCalculatedPlanStatus = row[`${calculatedPrefix}Status`] ?? null;
+      out.ihCalculatedPlanEditable = row[`${calculatedPrefix}Editable`] ?? false;
       const calculatedMonthlyImpact = row[`${calculatedPrefix}MonthlyImpact`];
       out.ihCalculatedAnnualImpact = calculatedMonthlyImpact == null
         ? null
@@ -1075,10 +1079,12 @@ export default function ReferenceDataTable({
           : null);
       out.streetCalculatedEffectiveDate = row[`${streetPrefix}StreetEffectiveDate`] ?? null;
       out.streetCalculatedPlanId = row[`${streetPrefix}StreetPlanId`]
+        ?? row[`${streetPrefix}Id`]
         ?? row[`${streetPrefix}PlanId`]
         ?? row.ihStreetPlanId
         ?? null;
       out.streetCalculatedPlanStatus = row[`${streetPrefix}StreetStatus`] ?? row.ihStreetPlanStatus ?? null;
+      out.streetCalculatedPlanEditable = row[`${streetPrefix}StreetEditable`] ?? false;
 
       // Rate-change deltas recomputed from wavg base values at aggregation levels.
       // Averaging per-row percentage deltas introduces a mix-effect when unit counts shift
@@ -2021,7 +2027,7 @@ export default function ReferenceDataTable({
                  {c.key === "ihCalculatedDeltaPct"
                    && groupLevel === "roomType"
                    && row.ihCalculatedPlanId
-                   && row.ihCalculatedPlanStatus === "proposed" ? (() => {
+                   && row.ihCalculatedPlanEditable === true ? (() => {
                      const popKey = `${row.campus}||${row.serviceLine}||${row.roomType}||inhouse`;
                      const isOpen = inhousePlanPop?.key === popKey;
                      const openInhousePlan = () => {
@@ -2105,7 +2111,7 @@ export default function ReferenceDataTable({
                    })() : ["streetCalculatedNewRate", "streetCalculatedDeltaDollar", "streetCalculatedDeltaPct"].includes(c.key)
                    && groupLevel === "roomType"
                    && row.streetCalculatedPlanId
-                   && row.streetCalculatedPlanStatus === "proposed" ? (() => {
+                   && row.streetCalculatedPlanEditable === true ? (() => {
                      const popKey = `${row.campus}||${row.serviceLine}||${row.roomType}||${c.key}`;
                      const isOpen = streetPlanPop?.key === popKey;
                      const mode = c.key === "streetCalculatedNewRate"

@@ -3097,12 +3097,13 @@ export default function InhouseIncreases() {
     queryKey: [
       "/api/inhouse-planning/plans",
       scopeLocationId ?? "all",
-      singleLine ?? "all",
+      singleLine ?? (serviceLines.slice().sort().join(",") || "all"),
       division || "all-divisions",
     ],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (singleLine) params.set("serviceLine", singleLine);
+      else if (serviceLines.length) params.set("serviceLines", serviceLines.join(","));
       if (scopeLocationId) params.set("locationId", scopeLocationId);
       if (division) params.set("division", division);
       const res = await fetch(`/api/inhouse-planning/plans?${params}`, { credentials: "include" });
@@ -3111,7 +3112,9 @@ export default function InhouseIncreases() {
     },
   });
   const activeSubmittedPlans = (plansQuery.data?.plans ?? []).filter((plan) =>
-    ["proposed", "applied", "published"].includes(plan.status),
+    ["proposed", "applied", "published"].includes(plan.status) &&
+    !plan.inheritedFromPortfolio &&
+    (!serviceLines.length || serviceLines.includes(plan.serviceLine)),
   );
 
   const latestAnnualReportQuery = useQuery<{
@@ -3403,11 +3406,17 @@ export default function InhouseIncreases() {
       if (activeSubmittedPlans.length === 0) {
         throw new Error("There are no submitted plans for this scope.");
       }
-      await Promise.all(
+      const results = await Promise.allSettled(
         activeSubmittedPlans.map((plan) =>
           apiRequest(`/api/inhouse-planning/plans/${encodeURIComponent(plan.id)}/remove`, "POST"),
         ),
       );
+      const failures = results.filter((result) => result.status === "rejected");
+      if (failures.length > 0) {
+        throw new Error(
+          `${results.length - failures.length} plan(s) removed; ${failures.length} could not be removed.`,
+        );
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/plans"] });
@@ -3419,11 +3428,14 @@ export default function InhouseIncreases() {
       });
     },
     onError: (err: Error) =>
+      (queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/plans"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"], exact: false }),
+      queryClient.invalidateQueries({ queryKey: ["/api/reference-data"], exact: false }),
       toast({
         title: "Could not remove submitted plans",
         description: cleanError(err.message),
         variant: "destructive",
-      }),
+      })),
   });
 
   function update<K extends keyof PlanningAssumptions>(key: K, value: PlanningAssumptions[K]) {

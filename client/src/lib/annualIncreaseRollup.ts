@@ -12,6 +12,7 @@ export interface AnnualIncreaseRollup {
   effectiveDate: string | null;
   streetRate: number | null;
   streetEffectiveDate: string | null;
+  editable: boolean;
 }
 
 export interface AnnualStreetIncreaseRollup {
@@ -22,6 +23,7 @@ export interface AnnualStreetIncreaseRollup {
   deltaDollar: number | null;
   deltaPct: number | null;
   effectiveDate: string | null;
+  editable: boolean;
 }
 
 /**
@@ -46,6 +48,7 @@ export function rollupAnnualIncrease(
   let streetEffectiveDate: string | null = null;
   const planIds = new Set<string>();
   const planStatuses = new Set<"applied" | "proposed">();
+  const editability = new Set<boolean>();
 
   for (const row of rows) {
     const covered = Number(row[`${prefix}Residents`] ?? 0);
@@ -78,10 +81,11 @@ export function rollupAnnualIncrease(
     ) continue;
 
     residents += covered;
-    const planId = row[`${prefix}PlanId`];
+    const planId = row[`${prefix}Id`] ?? row[`${prefix}PlanId`];
     if (planId) planIds.add(String(planId));
     const planStatus = row[`${prefix}Status`];
     if (planStatus === "applied" || planStatus === "proposed") planStatuses.add(planStatus);
+    editability.add(row[`${prefix}Editable`] === true);
     newRateSum += newRate * covered;
     currentRateSum += currentRate * covered;
     displayDeltaSum += deltaDollar * covered;
@@ -111,6 +115,7 @@ export function rollupAnnualIncrease(
     effectiveDate,
     streetRate: streetRateResidents ? streetRateSum / streetRateResidents : null,
     streetEffectiveDate,
+    editable: editability.size === 1 && editability.has(true),
   };
 }
 
@@ -129,6 +134,7 @@ export function rollupAnnualStreetIncrease(
   let effectiveDate: string | null = null;
   const planIds = new Set<string>();
   const statuses = new Set<"applied" | "proposed">();
+  const editability = new Set<boolean>();
 
   for (const row of rows) {
     const newRate = Number(row[`${prefix}StreetRate`]);
@@ -140,10 +146,11 @@ export function rollupAnnualStreetIncrease(
     units += weight;
     newRateSum += newRate * weight;
     currentRateSum += currentRate * weight;
-    const planId = row[`${prefix}PlanId`];
+    const planId = row[`${prefix}StreetPlanId`] ?? row[`${prefix}Id`] ?? row[`${prefix}PlanId`];
     if (planId) planIds.add(String(planId));
     const status = row[`${prefix}StreetStatus`];
     if (status === "applied" || status === "proposed") statuses.add(status);
+    editability.add(row[`${prefix}StreetEditable`] === true);
     if (effectiveDate === null && row[`${prefix}StreetEffectiveDate`]) {
       effectiveDate = String(row[`${prefix}StreetEffectiveDate`]);
     }
@@ -160,5 +167,6 @@ export function rollupAnnualStreetIncrease(
     deltaDollar,
     deltaPct: currentRate && deltaDollar !== null ? deltaDollar / currentRate : null,
     effectiveDate,
+    editable: editability.size === 1 && editability.has(true),
   };
 }

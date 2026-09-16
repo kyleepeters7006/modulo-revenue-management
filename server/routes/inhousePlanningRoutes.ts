@@ -529,6 +529,28 @@ function requireAuth(req: any, res: any, next: any) {
     .json({ error: "Login required. In-house rate plan actions are disabled in anonymous demo mode." });
 }
 
+async function lockEditableAnnualPlanRules(
+  client: any,
+  clientId: string,
+  planId: string,
+): Promise<boolean> {
+  const result = await client.query(
+    `SELECT action->>'proposalType' AS proposal_type, lifecycle_status, is_historical
+       FROM adjustment_rules
+      WHERE client_id = $1
+        AND action->>'annualPlanId' = $2
+        AND action->>'proposalType' IN ('annual_plan_street_rate', 'inhouse_rate_plan')
+      FOR UPDATE`,
+    [clientId, planId],
+  );
+  const types = new Set(result.rows.map((row: any) => row.proposal_type));
+  return result.rows.length === 2
+    && types.has("annual_plan_street_rate")
+    && types.has("inhouse_rate_plan")
+    && result.rows.every((row: any) =>
+      row.lifecycle_status === "proposed" && row.is_historical !== true);
+}
+
 function planningScopeKey(
   locationId: string | null,
   serviceLines: string[],
@@ -1963,7 +1985,12 @@ export function registerInhousePlanningRoutes(
             plan.scope.serviceLine,
             version,
             JSON.stringify(plan.assumptions),
-            JSON.stringify(plan.summary),
+            JSON.stringify({
+              ...plan.summary,
+              // Immutable edit baseline in the same basis as the Reference
+              // Data street target. HC/HC-MC are daily; other lines monthly.
+              currentStreetRateDisplay: plan.currentStreetRateDisplay,
+            }),
             JSON.stringify(plan.quarters),
             JSON.stringify(plan.residents),
             plan.targetDeviationDiagnostic
@@ -2085,8 +2112,9 @@ export function registerInhousePlanningRoutes(
         location: string | null;
         service_line: string;
         street_rate_effective_date: string | null;
+        summary: unknown;
       }>(
-        `SELECT id, status, location, service_line, street_rate_effective_date
+        `SELECT id, status, location, service_line, street_rate_effective_date, summary
            FROM inhouse_rate_plans
           WHERE id = $1 AND client_id = $2
           FOR UPDATE`,
@@ -2101,32 +2129,18 @@ export function registerInhousePlanningRoutes(
         await client.query("ROLLBACK");
         return res.status(409).json({ error: "Only proposed annual plans can be edited" });
       }
+      if (!(await lockEditableAnnualPlanRules(client, clientId, planId))) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Annual plan rules have already been approved or implemented" });
+      }
 
-      const currentRes = await client.query<{ current_rate: string | null }>(
-        `SELECT AVG(rr.street_rate)::text AS current_rate
-           FROM rent_roll_data rr
-           LEFT JOIN locations loc
-             ON loc.client_id = rr.client_id AND loc.name = rr.location
-          WHERE rr.client_id = $1
-            AND rr.upload_month = (
-              SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1
-            )
-            AND rr.service_line = $2
-            AND rr.street_rate > 0
-            AND (
-              $3::text IS NULL
-              OR $3 = rr.location
-              OR (
-                $3 LIKE '__division__:%'
-                AND loc.division = substring($3 from 14)
-              )
-            )`,
-        [clientId, plan.service_line, plan.location],
-      );
-      const currentRate = Number(currentRes.rows[0]?.current_rate);
+      const summary = typeof plan.summary === "string"
+        ? JSON.parse(plan.summary)
+        : plan.summary ?? {};
+      const currentRate = Number(summary.currentStreetRateDisplay);
       if (!Number.isFinite(currentRate) || currentRate <= 0) {
         await client.query("ROLLBACK");
-        return res.status(422).json({ error: "No current street rate is available for this plan scope" });
+        return res.status(422).json({ error: "This annual plan has no submitted street-rate display baseline" });
       }
       const increasePct = ((streetRate - currentRate) / currentRate) * 100;
 
@@ -2216,11 +2230,27 @@ export function registerInhousePlanningRoutes(
         await client.query("ROLLBACK");
         return res.status(409).json({ error: "Only proposed annual plans can be edited" });
       }
+      if (!(await lockEditableAnnualPlanRules(client, clientId, planId))) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Annual plan rules have already been approved or implemented" });
+      }
       if (plan.service_line !== serviceLine) {
         await client.query("ROLLBACK");
         return res.status(409).json({ error: "The selected service line is outside this annual plan" });
       }
 
+      const grouping = await client.query<{ source_room_type: string }>(
+        `SELECT source_room_type
+           FROM room_type_groupings
+          WHERE client_id = $1 AND location = $2 AND service_line = $3
+            AND group_name = $4`,
+        [clientId, campus, serviceLine, roomType],
+      );
+      const groupedRoomTypes = new Set([
+        roomType,
+        sourceRoomType,
+        ...grouping.rows.map((row) => row.source_room_type),
+      ].filter(Boolean));
       const residents = Array.isArray(plan.residents)
         ? plan.residents.map((resident: any) => ({ ...resident }))
         : [];
@@ -2228,8 +2258,8 @@ export function registerInhousePlanningRoutes(
         resident.location === campus
         && (
           !roomType
-          || resident.roomType === roomType
-          || (sourceRoomType && resident.roomType === sourceRoomType)
+          || groupedRoomTypes.has(resident.roomType)
+          || groupedRoomTypes.has(resident.sourceRoomType)
         ),
       );
       if (matches.length === 0) {
@@ -2316,7 +2346,7 @@ export function registerInhousePlanningRoutes(
       summary.currentAvgInhouseRateMonthly = currentAvg;
       summary.newAvgInhouseRateMonthly = weightTotal > 0 ? newWeighted / weightTotal : currentAvg;
 
-      await client.query(
+      const linkedRuleUpdate = await client.query(
         `UPDATE inhouse_rate_plans
             SET residents = $1, summary = $2
           WHERE id = $3 AND client_id = $4`,
@@ -2340,6 +2370,10 @@ export function registerInhousePlanningRoutes(
           planId,
         ],
       );
+      if (linkedRuleUpdate.rowCount !== 1) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "The annual plan's linked in-house proposal is no longer editable" });
+      }
       await client.query("COMMIT");
 
       invalidateRefDataCache();
@@ -2366,6 +2400,16 @@ export function registerInhousePlanningRoutes(
   app.post("/api/inhouse-planning/plans/:id/remove", requireAuth, async (req: any, res) => {
     const clientId = req.clientId || "demo";
     const planId = String(req.params.id || "");
+    const actor = await pool.query<{ role: string }>(
+      `SELECT role
+         FROM users
+        WHERE id = $1 AND client_id = $2 AND account_status = 'active'
+        LIMIT 1`,
+      [req.session.userId, clientId],
+    );
+    if (!actor.rows.length || !["admin", "security_admin"].includes(String(actor.rows[0].role))) {
+      return res.status(403).json({ error: "Admin privileges are required to remove an annual plan" });
+    }
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -2431,21 +2475,26 @@ export function registerInhousePlanningRoutes(
     try {
       const clientId = req.clientId || "demo";
       const serviceLine = (req.query.serviceLine as string) || null;
+      const serviceLines = String(req.query.serviceLines || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
       const locationId = (req.query.locationId as string) || null;
       const division = (req.query.division as string) || null;
       const location = await resolveLocationName(clientId, locationId);
 
       const conditions = [eq(inhouseRatePlans.clientId, clientId)];
       if (serviceLine) conditions.push(eq(inhouseRatePlans.serviceLine, serviceLine));
+      if (serviceLines.length) conditions.push(inArray(inhouseRatePlans.serviceLine, serviceLines));
       if (location) {
         conditions.push(eq(inhouseRatePlans.location, location));
       } else if (division) {
         conditions.push(or(
           eq(inhouseRatePlans.location, `__division__:${division}`),
-          sql`${inhouseRatePlans.location} NOT LIKE '__division__:%'`,
+          sql`${inhouseRatePlans.location} IS NULL`,
         )!);
       } else {
-        conditions.push(sql`${inhouseRatePlans.location} NOT LIKE '__division__:%'`);
+        conditions.push(sql`${inhouseRatePlans.location} IS NULL`);
       }
 
       const rows = await db
@@ -2483,8 +2532,8 @@ export function registerInhousePlanningRoutes(
       const visibleRows = division && !location
         ? rows.filter(
             (row) =>
-              row.location?.startsWith(`__division__:${division}`) ||
-              !activeDivisionLines.has(row.serviceLine),
+            row.location?.startsWith(`__division__:${division}`) ||
+            (!activeDivisionLines.has(row.serviceLine) && row.location === null),
           )
         : rows;
       const plans: InhousePlanHistoryEntry[] = visibleRows.map((row) => ({
