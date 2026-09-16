@@ -298,7 +298,7 @@ async function insertProposedPlan(scope: ScopeRow, resident: RentRollRow) {
       JSON.stringify(residents),
       "2027-01-01",
       "2027-01-01",
-      Number(resident.street_rate) + 250,
+       currentStreetRateMonthly * 1.01,
     ],
   );
   proposedPlanId = plan.rows[0]?.id ?? "";
@@ -364,7 +364,16 @@ async function main() {
 
   try {
     const initial = await getReferenceData(auth, scope.location, scope.service_line);
-    const targetBefore = Number(resident!.street_rate) + 250;
+    const targetBefore = Number(
+      (await pool.query<{ current_rate: string }>(
+        `SELECT AVG(street_rate)::text AS current_rate
+           FROM rent_roll_data
+          WHERE client_id = $1 AND upload_month = (
+            SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1
+          ) AND location = $2 AND service_line = $3 AND street_rate > 0`,
+        [CLIENT, scope.location, scope.service_line],
+      )).rows[0]?.current_rate,
+    ) * 1.01;
     const coveredGroup = initial.rows.find(
       (row) => row.ihRecommendationPlanId === proposedPlanId &&
         row.ihRecommendationResidents !== null,
@@ -375,7 +384,32 @@ async function main() {
     );
     assert.ok(coveredGroup, "the resident recommendation is visible in its covered group");
     assert.ok(uncoveredGroup, "the street target is visible in a group with no resident recommendation");
-    assert.equal(Number(uncoveredGroup!.ihRecommendationStreetRate), targetBefore);
+    assert.ok(
+      Math.abs(
+        Number(uncoveredGroup!.ihRecommendationStreetRate)
+        - Number(uncoveredGroup!.streetSpot) * 1.01,
+      ) < 0.02,
+      `expected projected target from group spot ${uncoveredGroup!.streetSpot}, `
+      + `got ${uncoveredGroup!.ihRecommendationStreetRate}`,
+    );
+    const scopedStreetRows = initial.rows.filter(
+      (row) => row.ihRecommendationPlanId === proposedPlanId,
+    );
+    assert.ok(scopedStreetRows.length >= 2, "the plan covers multiple room-type groups");
+    for (const row of scopedStreetRows) {
+      assert.ok(
+        Math.abs(
+          Number(row.ihRecommendationStreetRate)
+          - Number(row.streetSpot) * 1.01,
+        ) < 0.02,
+        `room group ${row.roomType} did not receive a 1% projected target: `
+        + `streetSpot=${row.streetSpot}, target=${row.ihRecommendationStreetRate}`,
+      );
+    }
+    assert.ok(
+      new Set(scopedStreetRows.map((row) => Number(row.ihRecommendationStreetRate).toFixed(2))).size > 1,
+      "different current room-group Street Rates remain different after projection",
+    );
     assert.equal(uncoveredGroup!.ihRecommendationStreetStatus, "proposed");
 
     await pool.query(
@@ -410,7 +444,10 @@ async function main() {
          FROM inhouse_rate_plans WHERE id = $1 AND client_id = $2`,
       [proposedPlanId, CLIENT],
     );
-    assert.equal(Number(stored.rows[0]?.recommended_street_rate), targetAfter);
+    assert.ok(
+      Math.abs(Number(stored.rows[0]?.recommended_street_rate) - targetAfter) < 0.01,
+      `stored target ${stored.rows[0]?.recommended_street_rate} did not match ${targetAfter}`,
+    );
 
     const linkedRule = await pool.query<{ adjustment_value: string }>(
       `SELECT action->>'adjustmentValue' AS adjustment_value
@@ -434,7 +471,14 @@ async function main() {
         row.ihRecommendationResidents === null,
     );
     assert.ok(editedUncovered, "the uncovered group remains in Reference Data after editing");
-    assert.equal(Number(editedUncovered!.ihRecommendationStreetRate), targetAfter);
+    assert.ok(
+      Math.abs(
+        Number(editedUncovered!.ihRecommendationStreetRate)
+        - Number(editedUncovered!.streetSpot) * (targetAfter / currentRate),
+      ) < 0.02,
+      `edited projected target ${editedUncovered!.ihRecommendationStreetRate} did not match `
+      + `the edited percentage from ${editedUncovered!.streetSpot}`,
+    );
 
     await pool.query(
       `UPDATE inhouse_rate_plans SET status = 'applied' WHERE id = $1 AND client_id = $2`,
@@ -448,7 +492,14 @@ async function main() {
     );
     assert.ok(appliedRow, "the applied plan remains visible");
     assert.equal(appliedRow!.ihPlanStreetStatus, "applied");
-    assert.equal(Number(appliedRow!.ihPlanStreetRate), targetAfter);
+    assert.ok(
+      Math.abs(
+        Number(appliedRow!.ihPlanStreetRate)
+        - Number(appliedRow!.streetSpot) * (targetAfter / currentRate),
+      ) < 0.02,
+      `applied projected target ${appliedRow!.ihPlanStreetRate} did not match `
+      + `the edited percentage from ${appliedRow!.streetSpot}`,
+    );
 
     const locked = await patchStreetRate(auth, proposedPlanId, targetAfter + 50);
     assert.equal(locked.status, 409, "applied plans cannot be edited");

@@ -764,7 +764,13 @@ function WorkbookReportBody({ report }: { report: AnnualReport }) {
       </article>
       <article className="report-page space-y-4">
         <WorkbookPageHeader report={report} page={3} />
-        <ResidentIncreaseCharts plans={report.tierGrid.lines.map((line) => line.currentPlan).filter(Boolean)} />
+        <ResidentIncreaseCharts
+          // The saved report keeps the compact plans in `report.plans`, while
+          // tierGrid lines intentionally omit currentPlan to keep the payload
+          // small. Reading the charts from the tier lines therefore made page
+          // 3 silently render blank even though the distributions were saved.
+          plans={report.plans.map(({ plan }) => plan)}
+        />
         <p className="text-[10px] text-muted-foreground">
           These distributions use the saved resident recommendations from the measured occupancy tier; no resident-level data is retained in the annual report snapshot.
         </p>

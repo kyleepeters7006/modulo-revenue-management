@@ -28890,6 +28890,7 @@ Return ONLY valid JSON, no markdown fences:
       // triggers benefit from historical averaging, but the comp-rate column
       // should only show when the most recent survey covers that room type.
       const { loadCompBenchmark: _loadCB, SL_TO_COMP: _SL_TO_COMP } = await import('./services/compBenchmark');
+      const { projectPlanStreetRate } = await import('./services/inhouseRatePlanning/appliedPlanRates');
       const [refCompBench, _latestCovRes] = await Promise.all([
         _loadCB(pool, clientId),
         pool.query<{ keystats_location: string; competitor_type: string; room_type: string }>(
@@ -29341,6 +29342,8 @@ Return ONLY valid JSON, no markdown fences:
           recommendedPlans, c.campus, c.division, c.serviceLine,
         );
         const streetPlan = appliedStreetScope ?? recommendedStreetScope;
+        const appliedStreetRate = projectPlanStreetRate(appliedStreetScope, streetSpot);
+        const recommendedStreetRate = projectPlanStreetRate(recommendedStreetScope, streetSpot);
 
         // Final precedence: a manual override still wins over everything; below
         // it an applied increase takes over from the rule rate, because for an
@@ -29582,7 +29585,7 @@ Return ONLY valid JSON, no markdown fences:
            // Street recommendations apply to the whole annual-plan scope, not
            // only to occupied residents that received an in-house increase.
            ihPlanId: planFields.ihPlanId ?? appliedStreetScope?.planId ?? null,
-           ihPlanStreetRate: planFields.ihPlanStreetRate ?? appliedStreetScope?.streetRate ?? null,
+           ihPlanStreetRate: appliedStreetRate,
            ihPlanStreetEffectiveDate: planFields.ihPlanStreetEffectiveDate
              ?? appliedStreetScope?.streetEffectiveDate ?? null,
           ihPlanStreetPlanId: appliedStreetScope?.planId ?? null,
@@ -29590,8 +29593,7 @@ Return ONLY valid JSON, no markdown fences:
            ihPlanStreetEditable: appliedStreetScope?.editable ?? false,
            ihRecommendationPlanId: recommendationFields.ihPlanId
              ?? recommendedStreetScope?.planId ?? null,
-           ihRecommendationStreetRate: recommendationFields.ihPlanStreetRate
-             ?? recommendedStreetScope?.streetRate ?? null,
+           ihRecommendationStreetRate: recommendedStreetRate,
            ihRecommendationStreetEffectiveDate: recommendationFields.ihPlanStreetEffectiveDate
              ?? recommendedStreetScope?.streetEffectiveDate ?? null,
           ihRecommendationStreetPlanId: recommendedStreetScope?.planId ?? null,

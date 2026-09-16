@@ -18,6 +18,8 @@ const INTEGER = '#,##0';
 const PERCENT = "0.0%";
 const PERCENT_2 = "0.00%";
 const DATE = "yyyy-mm-dd";
+const AUDIT_HEADER_ROW = 4;
+const AUDIT_FIRST_DATA_ROW = AUDIT_HEADER_ROW + 1;
 
 type DetailPlan = PlanResult & {
   standardization?: PlanResult["standardization"];
@@ -110,6 +112,53 @@ function formula(cell: ExcelJS.Cell, expression: string, result: number | string
   cell.value = { formula: expression, result: result ?? 0 } as ExcelJS.CellFormulaValue;
 }
 
+function quoteSheet(name: string): string {
+  return `'${name.replace(/'/g, "''")}'`;
+}
+
+function residentDetailBounds(detailPlans: Array<{ sl: string; plan: DetailPlan }>) {
+  const residentCount = detailPlans.reduce(
+    (sum, entry) => sum + (entry.plan.residents?.length ?? 0),
+    0,
+  );
+  return {
+    first: AUDIT_FIRST_DATA_ROW,
+    last: AUDIT_FIRST_DATA_ROW + residentCount - 1,
+  };
+}
+
+function residentWeightedFormula(
+  valueColumn: string,
+  summaryRow: number,
+  detailFirst: number,
+  detailLast: number,
+): string {
+  const sheet = quoteSheet("Resident detail");
+  const serviceLines = `${sheet}!$A$${detailFirst}:$A$${detailLast}`;
+  const weights = `${sheet}!$J$${detailFirst}:$J$${detailLast}`;
+  const values = `${sheet}!$${valueColumn}$${detailFirst}:$${valueColumn}$${detailLast}`;
+  return `=IFERROR(SUMPRODUCT(--(${serviceLines}=$A${summaryRow}),${weights},${values})/SUMIF(${serviceLines},$A${summaryRow},${weights}),0)`;
+}
+
+function residentSumIfFormula(
+  valueColumn: string,
+  summaryRow: number,
+  detailFirst: number,
+  detailLast: number,
+): string {
+  const sheet = quoteSheet("Resident detail");
+  return `=SUMIF(${sheet}!$A$${detailFirst}:$A$${detailLast},$A${summaryRow},${sheet}!$${valueColumn}$${detailFirst}:$${valueColumn}$${detailLast})`;
+}
+
+function residentCountIfFormula(
+  summaryRow: number,
+  detailFirst: number,
+  detailLast: number,
+): string {
+  const sheet = quoteSheet("Resident detail");
+  return `=COUNTIF(${sheet}!$A$${detailFirst}:$A$${detailLast},$A${summaryRow})`;
+}
+
 function applyNumberFormats(ws: ExcelJS.Worksheet, rowStart: number, rowEnd: number, columns: number[], format: string) {
   for (let row = rowStart; row <= rowEnd; row++) {
     for (const column of columns) ws.getCell(row, column).numFmt = format;
@@ -138,7 +187,6 @@ function explainPriorPeriod(
 function buildReportTotals(
   ws: ExcelJS.Worksheet,
   input: AnnualReportAuditWorkbookInput,
-  detailByLine: Map<string, DetailPlan>,
 ) {
   const entries = input.report.plans;
   const columns = [
@@ -157,13 +205,19 @@ function buildReportTotals(
   styleNote(
     ws,
     2,
-    `Report ${input.report.id} · scope ${input.report.scopeKey} · generated ${new Date(input.report.generatedAt).toLocaleString("en-US")} · detail snapshot ${input.detailGeneratedAt ? new Date(input.detailGeneratedAt).toLocaleString("en-US") : "not timestamped"}. Values are the saved annual-report calculation; yellow cells on the total row are Excel formulas over the service-line rows.`,
+    `Report ${input.report.id} · scope ${input.report.scopeKey} · generated ${new Date(input.report.generatedAt).toLocaleString("en-US")} · detail snapshot ${input.detailGeneratedAt ? new Date(input.detailGeneratedAt).toLocaleString("en-US") : "not timestamped"}. Numeric service-line cells link to the Resident detail tab; derived percentages and the total row are Excel formulas.`,
     columns.length,
   );
-  const headerRow = 4;
+  const headerRow = AUDIT_HEADER_ROW;
   columns.forEach((header, index) => { ws.getCell(headerRow, index + 1).value = header; });
   styleHeader(ws.getRow(headerRow));
-  const first = headerRow + 1;
+  const first = AUDIT_FIRST_DATA_ROW;
+  const total = first + entries.length;
+  const detailBounds = residentDetailBounds(input.detailPlans);
+  const totalResidents = entries.reduce(
+    (sum, entry) => sum + number(entry.plan.summary?.residentCount),
+    0,
+  );
 
   entries.forEach((entry, index) => {
     const rowNumber = first + index;
@@ -176,27 +230,31 @@ function buildReportTotals(
     const currentStreet = number(plan.currentStreetRateMonthly);
     const plannedStreet = number(plan.recommendedStreetRateMonthly);
     ws.getCell(rowNumber, 1).value = entry.sl;
-    ws.getCell(rowNumber, 2).value = currentInhouse;
-    ws.getCell(rowNumber, 3).value = plannedInhouse;
-    ws.getCell(rowNumber, 4).value = percent(planIncrease);
-    ws.getCell(rowNumber, 5).value = currentStreet;
-    ws.getCell(rowNumber, 6).value = plannedStreet;
-    ws.getCell(rowNumber, 7).value = percent(number(plan.streetIncreasePct));
-    ws.getCell(rowNumber, 8).value = plannedInhouse > 0 ? plannedStreet / plannedInhouse - 1 : null;
-    ws.getCell(rowNumber, 9).value = bridge?.priorYearAverageRateMonthly ?? null;
-    ws.getCell(rowNumber, 10).value = bridge?.projectedPlanYearAverageRateMonthly ?? null;
-    ws.getCell(rowNumber, 11).value = percent(bridge?.priorPeriodIncreasePct);
-    ws.getCell(rowNumber, 12).value = percent(bridge?.planIncreasePct);
-    ws.getCell(rowNumber, 13).value = percent(bridge?.fullYearYoyPct);
-    ws.getCell(rowNumber, 14).value = bridge
-      ? annualRateGrowthRevenue(bridge, residents) ?? 0
-      : 0;
-    ws.getCell(rowNumber, 15).value = residents;
-    ws.getCell(rowNumber, 16).value = null;
-    void detailByLine;
+    formula(ws.getCell(rowNumber, 2), residentWeightedFormula("K", rowNumber, detailBounds.first, detailBounds.last), currentInhouse);
+    formula(ws.getCell(rowNumber, 3), residentWeightedFormula("R", rowNumber, detailBounds.first, detailBounds.last), plannedInhouse);
+    formula(ws.getCell(rowNumber, 4), `=IFERROR(C${rowNumber}/B${rowNumber}-1,0)`, percent(planIncrease));
+    formula(ws.getCell(rowNumber, 5), residentWeightedFormula("L", rowNumber, detailBounds.first, detailBounds.last), currentStreet);
+    formula(ws.getCell(rowNumber, 6), residentWeightedFormula("W", rowNumber, detailBounds.first, detailBounds.last), plannedStreet);
+    formula(ws.getCell(rowNumber, 7), `=IFERROR(F${rowNumber}/E${rowNumber}-1,0)`, percent(number(plan.streetIncreasePct)));
+    formula(ws.getCell(rowNumber, 8), `=IFERROR(F${rowNumber}/C${rowNumber}-1,0)`, plannedInhouse > 0 ? plannedStreet / plannedInhouse - 1 : null);
+    formula(ws.getCell(rowNumber, 9), residentWeightedFormula("X", rowNumber, detailBounds.first, detailBounds.last), bridge?.priorYearAverageRateMonthly ?? null);
+    formula(ws.getCell(rowNumber, 10), residentWeightedFormula("Y", rowNumber, detailBounds.first, detailBounds.last), bridge?.projectedPlanYearAverageRateMonthly ?? null);
+    formula(ws.getCell(rowNumber, 11), `=M${rowNumber}-L${rowNumber}`, percent(bridge?.priorPeriodIncreasePct));
+    formula(ws.getCell(rowNumber, 12), `=D${rowNumber}`, percent(bridge?.planIncreasePct));
+    formula(ws.getCell(rowNumber, 13), `=IFERROR(J${rowNumber}/I${rowNumber}-1,0)`, percent(bridge?.fullYearYoyPct));
+    formula(
+      ws.getCell(rowNumber, 14),
+      residentSumIfFormula("AB", rowNumber, detailBounds.first, detailBounds.last),
+      bridge ? annualRateGrowthRevenue(bridge, residents) ?? 0 : 0,
+    );
+    formula(ws.getCell(rowNumber, 15), residentCountIfFormula(rowNumber, detailBounds.first, detailBounds.last), residents);
+    formula(
+      ws.getCell(rowNumber, 16),
+      `=IFERROR(O${rowNumber}/O${total},0)`,
+      totalResidents > 0 ? residents / totalResidents : 0,
+    );
   });
 
-  const total = first + entries.length;
   ws.getCell(total, 1).value = "Total";
   const last = total - 1;
   if (last >= first) {
@@ -214,7 +272,7 @@ function buildReportTotals(
     formula(ws.getCell(total, 13), `=J${total}/I${total}-1`, 0);
     formula(ws.getCell(total, 14), `=SUM(N${first}:N${last})`, 0);
     formula(ws.getCell(total, 15), `=SUM(O${first}:O${last})`, 0);
-    formula(ws.getCell(total, 16), "=100%", 1);
+    formula(ws.getCell(total, 16), `=SUM(P${first}:P${last})`, 1);
   }
   styleTotal(ws.getRow(total));
   applyNumberFormats(ws, first, total, [2, 3, 5, 6, 9, 10], MONEY);
@@ -309,12 +367,14 @@ function buildResidentDetailSheet(
     "Companion bed", "Rate basis", "Resident-day weight", "Starting IH / mo",
     "Used Street / mo", "Used Street / display", "Street product", "Street rate source",
     "Plan increase %", "Increase $ / mo", "Planned IH / mo", "Planned IH / display",
-    "New gap to Street %", "Constraint", "Included in plan",
+    "New gap to Street %", "Constraint", "Included in plan", "Planned Street / mo",
+    "Prior-year realized avg / mo", "Plan-year projected avg / mo", "Prior-period %",
+    "Plan %", "Total YoY revenue growth",
   ];
   ws.columns = columns.map((header, index) => ({
     header,
     key: `c${index + 1}`,
-    width: [15, 25, 11, 18, 14, 17, 14, 14, 12, 18, 18, 18, 21, 18, 22, 15, 17, 18, 20, 18, 18, 16][index],
+    width: [15, 25, 11, 18, 14, 17, 14, 14, 12, 18, 18, 18, 21, 18, 22, 15, 17, 18, 20, 18, 18, 16, 18, 24, 25, 14, 11, 24][index],
   }));
   styleTitle(ws, "Resident and room detail — starting rates and planned increases", columns.length);
   styleNote(
@@ -323,14 +383,21 @@ function buildResidentDetailSheet(
     "Each row is a private-pay occupied rent-roll room included in the planning population after the documented rate and product gates. Used Street is the product-matched rate actually used for that row's ceiling; it may be the unit rate, a campus/service-line product median, or a derived formula.",
     columns.length,
   );
-  const headerRow = 4;
+  const headerRow = AUDIT_HEADER_ROW;
   columns.forEach((header, index) => { ws.getCell(headerRow, index + 1).value = header; });
   styleHeader(ws.getRow(headerRow));
-  const first = headerRow + 1;
+  const first = AUDIT_FIRST_DATA_ROW;
   let currentRow = first;
 
   for (const entry of detailPlans) {
     const plan = entry.plan;
+    const planIncrease = number(plan.summary?.weightedAvgIncreasePct);
+    const bridge = annualRateGrowthBridge(plan.quarters, plan.rateBasis, planIncrease);
+    const priorYear = bridge?.priorYearAverageRateMonthly ?? null;
+    const projectedYear = bridge?.projectedPlanYearAverageRateMonthly ?? null;
+    const priorPeriod = percent(bridge?.priorPeriodIncreasePct);
+    const planPercent = percent(bridge?.planIncreasePct);
+    const perResidentRevenueGrowth = bridge ? annualRateGrowthRevenue(bridge, 1) ?? 0 : 0;
     for (const resident of plan.residents ?? []) {
       const row = ws.getRow(currentRow++);
       const displayStreet = plan.rateBasis === "daily"
@@ -359,6 +426,12 @@ function buildResidentDetailSheet(
         percent(number(resident.newGapToStreetPct)),
         resident.constraint,
         "Yes",
+        number(plan.recommendedStreetRateMonthly),
+        priorYear,
+        projectedYear,
+        priorPeriod,
+        planPercent,
+        perResidentRevenueGrowth,
       ];
     }
   }
@@ -373,8 +446,8 @@ function buildResidentDetailSheet(
     formula(ws.getCell(total, 18), `=SUMPRODUCT(R${first}:R${currentRow - 1},J${first}:J${currentRow - 1})/SUM(J${first}:J${currentRow - 1})`, 0);
   }
   styleTotal(ws.getRow(total));
-  applyNumberFormats(ws, first, total, [11, 12, 13, 17, 18], MONEY);
-  applyNumberFormats(ws, first, total, [16, 20], PERCENT);
+  applyNumberFormats(ws, first, total, [11, 12, 13, 17, 18, 23, 24, 25, 28], MONEY);
+  applyNumberFormats(ws, first, total, [16, 20, 26, 27], PERCENT);
   applyNumberFormats(ws, first, total, [10], "0.0");
   applyNumberFormats(ws, first, total, [7], DATE);
   ws.views = [{ state: "frozen", ySplit: headerRow, xSplit: 2 }];
@@ -517,7 +590,7 @@ function buildReadMeSheet(ws: ExcelJS.Worksheet, input: AnnualReportAuditWorkboo
     ["What caused prior-period %", "The Prior-period bridge sheet gives the plain-English explanation. The Historical comparisons sheet separates matched-room rate movement from room-mix movement and retains coverage and suppression reasons."],
     ["Quarter totals", "The Quarter detail sheet shows each room's existing-rate share, replacement share, replacement rate, and projected room rate. Those rows roll into the quarterly averages used by the report."],
     ["Currency and basis", "Rates are normalized monthly in calculation columns. Daily service lines retain their daily display columns where applicable; do not divide monthly-normalized rates again."],
-    ["Formula checks", "The Report totals total row uses Excel formulas over the service-line rows. The Resident detail weighted averages and increase totals also use formulas, allowing an auditor to inspect the arithmetic directly."],
+    ["Formula checks", "Every numeric service-line cell on Report totals links to the Resident detail tab with Excel formulas. Derived percentages and the total row also use formulas, while the Resident detail weighted averages and increase totals remain inspectable."],
   ];
   rows.forEach(([topic, explanation], index) => {
     const row = ws.getRow(index + 3);
@@ -558,7 +631,7 @@ export async function buildAnnualReportAuditWorkbook(
   const readMe = workbook.addWorksheet("Read me");
   buildReadMeSheet(readMe, input);
   const totals = workbook.addWorksheet("Report totals");
-  buildReportTotals(totals, input, detailByLine);
+  buildReportTotals(totals, input);
   const bridge = workbook.addWorksheet("Prior-period bridge");
   buildPriorPeriodSheet(bridge, input, detailByLine);
   const residents = workbook.addWorksheet("Resident detail");

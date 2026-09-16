@@ -57,6 +57,8 @@ export interface AppliedPlanIndex {
     editable: boolean;
     location: string | null;
     serviceLine: string;
+    /** Percentage applied to each room group's current Street Rate. */
+    streetIncreasePct: number | null;
     streetRate: number | null;
     streetEffectiveDate: string | null;
   }>;
@@ -147,8 +149,18 @@ async function loadPlanRates(
                       AND ar.lifecycle_status = 'proposed'
                       AND ar.is_historical IS NOT TRUE
                  ) = 2
-               ) AS proposal_editable
-         FROM inhouse_rate_plans
+                ) AS proposal_editable,
+                (
+                  SELECT NULLIF(ar.action->>'adjustmentValue', '')::double precision
+                    FROM adjustment_rules ar
+                   WHERE ar.client_id = inhouse_rate_plans.client_id
+                     AND ar.action->>'annualPlanId' = inhouse_rate_plans.id::text
+                     AND ar.action->>'proposalType' = 'annual_plan_street_rate'
+                     AND ar.is_historical IS NOT TRUE
+                   ORDER BY ar.created_at DESC NULLS LAST
+                   LIMIT 1
+                ) AS street_increase_pct
+          FROM inhouse_rate_plans
         WHERE client_id = $1 AND status = $2
         ORDER BY created_at ASC, version ASC`,
       [clientId, status],
@@ -177,6 +189,9 @@ async function loadPlanRates(
       editable: Boolean(plan.proposal_editable),
       location: plan.location ?? null,
       serviceLine,
+      streetIncreasePct: Number.isFinite(Number(plan.street_increase_pct))
+        ? Number(plan.street_increase_pct)
+        : null,
       streetRate: Number.isFinite(Number(plan.recommended_street_rate))
         ? Number(plan.recommended_street_rate)
         : null,
@@ -286,6 +301,29 @@ export function findPlanScope(
     if (applies) match = scope;
   }
   return match;
+}
+
+/**
+ * Annual plans store one absolute portfolio/campus target, but the linked
+ * street rule is a percentage adjustment. Reference Data groups can have
+ * different current Street Rates, so the visible target must be projected
+ * from each group's own spot rate. Keep the absolute target as a compatibility
+ * fallback for old plans whose linked rule is unavailable.
+ */
+export function projectPlanStreetRate(
+  scope: AppliedPlanScope | null | undefined,
+  currentStreetRate: number | null,
+): number | null {
+  if (!scope) return null;
+  if (
+    scope.streetIncreasePct !== null
+    && currentStreetRate !== null
+    && Number.isFinite(currentStreetRate)
+    && currentStreetRate > 0
+  ) {
+    return currentStreetRate * (1 + scope.streetIncreasePct / 100);
+  }
+  return scope.streetRate;
 }
 
 /** Running total for one Reference Data group. */
