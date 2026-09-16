@@ -714,7 +714,7 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
         occupiedLabels.push(box);
         return true;
       }) ?? candidates[0];
-      return { point, px, py, ...placement };
+      return { point, label, px, py, ...placement };
     });
     return (
       <div className="report-scatter">
@@ -731,7 +731,7 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
             const x = sx(value);
             return <g key={value}><line x1={x} y1={pad.top} x2={x} y2={pad.top + plotHeight} className="report-scatter-grid" /><text x={x} y={height - 7} textAnchor="middle">{value.toFixed(1).replace(".0", "")}%</text></g>;
           })}
-          {labelPlacements.map(({ point, px, py, x, y, anchor }) => (
+          {labelPlacements.map(({ point, label, px, py, x, y, anchor }) => (
             <g key={`${field}-${point.sl}`}>
               <circle cx={px} cy={py} r="5.2" fill={REPORT_SCATTER_COLORS[point.sl] ?? "#44546A"} />
                <text x={x} y={y} textAnchor={anchor} className="report-scatter-label">{label}</text>
