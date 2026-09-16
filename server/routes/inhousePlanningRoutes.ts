@@ -1138,6 +1138,352 @@ export function registerInhousePlanningRoutes(
     };
   }
 
+  /**
+   * A portfolio tier run persists one compact annual-report snapshot per
+   * campus. A division view should be able to reopen those campus results as a
+   * division calculation instead of appearing empty until the operator runs
+   * the solver again.
+   *
+   * This deliberately rolls up the saved campus snapshots rather than
+   * averaging their displayed percentages. Dollar and resident metrics are
+   * accumulated first, then the rates are re-derived from those totals.
+   */
+  function rollUpDivisionCampusReports({
+    division,
+    scopeKey,
+    serviceLines,
+    campusRows,
+    reportRows,
+  }: {
+    division: string;
+    scopeKey: string;
+    serviceLines: string[];
+    campusRows: Array<{ id: string; name: string }>;
+    reportRows: any[];
+  }): any | null {
+    const campusIds = new Set(campusRows.map((campus) => campus.id));
+    const campusById = new Map(campusRows.map((campus) => [campus.id, campus]));
+    const requested = new Set(serviceLines);
+    const latestByCampusLine = new Map<string, {
+      generatedAt: number;
+      isDivisionScoped: boolean;
+      plan: any;
+      tierLine: any;
+      inputSnapshot: any[];
+    }>();
+
+    for (const row of reportRows) {
+      if (!row.locationId || !campusIds.has(row.locationId)) continue;
+      const rowScope = String(row.scopeKey ?? "");
+      const divisionPrefix = `${division}|${row.locationId}|`;
+      const portfolioPrefix = `${row.locationId}|`;
+      if (!rowScope.startsWith(divisionPrefix) && !rowScope.startsWith(portfolioPrefix)) continue;
+      const rowPlans = Array.isArray(row.plans) ? row.plans : [];
+      const rowTierLines =
+        row.tierGrid &&
+        typeof row.tierGrid === "object" &&
+        Array.isArray(row.tierGrid.lines)
+          ? row.tierGrid.lines
+          : [];
+      const generatedAt = Date.parse(
+        row.generatedAt?.toISOString?.() ?? String(row.generatedAt ?? ""),
+      ) || 0;
+      for (const entry of rowPlans) {
+        const sl = typeof entry?.sl === "string" ? entry.sl : null;
+        if (!sl || !requested.has(sl) || !entry.plan) continue;
+        const key = `${row.locationId}::${sl}`;
+        const previous = latestByCampusLine.get(key);
+        // A division-specific campus snapshot wins over an older portfolio
+        // snapshot at the same campus. Otherwise newest generatedAt wins.
+        const isDivisionScoped = rowScope.startsWith(divisionPrefix);
+        if (
+          previous &&
+          (
+            previous.isDivisionScoped && !isDivisionScoped ||
+            previous.isDivisionScoped === isDivisionScoped &&
+            previous.generatedAt >= generatedAt
+          )
+        ) {
+          continue;
+        }
+        latestByCampusLine.set(key, {
+          generatedAt,
+          isDivisionScoped,
+          plan: entry.plan,
+          tierLine: rowTierLines.find((line: any) => line?.serviceLine === sl) ?? null,
+          inputSnapshot:
+            row.tierGrid &&
+            typeof row.tierGrid === "object" &&
+            Array.isArray(row.tierGrid.inputSnapshot)
+              ? row.tierGrid.inputSnapshot
+              : [],
+        });
+      }
+    }
+
+    const planByLine = new Map<string, any[]>();
+    for (const [key, value] of latestByCampusLine) {
+      const sl = key.slice(key.indexOf("::") + 2);
+      const plans = planByLine.get(sl) ?? [];
+      plans.push(value.plan);
+      planByLine.set(sl, plans);
+    }
+    if (planByLine.size === 0) return null;
+
+    const weightedAverage = (plans: any[], selector: (plan: any) => unknown): number => {
+      let total = 0;
+      let weight = 0;
+      for (const plan of plans) {
+        const value = Number(selector(plan));
+        const count = Math.max(0, Number(plan.summary?.residentCount) || 0);
+        if (!Number.isFinite(value) || count <= 0) continue;
+        total += value * count;
+        weight += count;
+      }
+      return weight > 0 ? total / weight : 0;
+    };
+    const sum = (plans: any[], selector: (plan: any) => unknown): number =>
+      plans.reduce((total, plan) => {
+        const value = Number(selector(plan));
+        return total + (Number.isFinite(value) ? value : 0);
+      }, 0);
+    const uniqueStrings = (values: unknown[]): string[] =>
+      Array.from(new Set(values.filter(
+        (value): value is string => typeof value === "string" && value.length > 0,
+      )));
+
+    const rollUpPlan = (serviceLine: string, plans: any[]): any => {
+      const first = plans[0];
+      const residentCount = sum(plans, (plan) => plan.summary?.residentCount);
+      const currentRateTotal = sum(
+        plans,
+        (plan) => (Number(plan.summary?.currentAvgInhouseRateMonthly) || 0) *
+          (Number(plan.summary?.residentCount) || 0),
+      );
+      const increaseTotal = sum(plans, (plan) => plan.summary?.totalMonthlyIncreaseDollars);
+      const currentAvg = residentCount > 0 ? currentRateTotal / residentCount : 0;
+      const newAvg = residentCount > 0 ? currentAvg + increaseTotal / residentCount : currentAvg;
+      const targetPct = Number(first.assumptions?.rateGrowthTargetPct) || 0;
+      const quarters = Array.from(
+        new Map(
+          plans.flatMap((plan) => (Array.isArray(plan.quarters) ? plan.quarters : []))
+            .map((quarter: any) => [`${quarter.year}-${quarter.quarter}`, quarter]),
+        ).values(),
+      ).map((template: any) => {
+        const matching = plans.flatMap((plan) =>
+          (Array.isArray(plan.quarters) ? plan.quarters : [])
+            .filter((quarter: any) => quarter.year === template.year && quarter.quarter === template.quarter),
+        );
+        const priorRate = weightedAverage(matching.map((quarter: any) => ({
+          summary: { residentCount: plans.find((plan) =>
+            plan.quarters?.some((quarter: any) =>
+              quarter.year === template.year && quarter.quarter === template.quarter,
+            ),
+          )?.summary?.residentCount ?? 0 },
+          priorYear: quarter.priorYear,
+        })), (value: any) => value.priorYear?.realizedRateMonthly);
+        const projectedRate = weightedAverage(
+          matching.map((quarter: any) => ({
+            summary: {
+              residentCount: plans.find((plan) =>
+                plan.quarters?.some((candidate: any) =>
+                  candidate.year === template.year && candidate.quarter === template.quarter,
+                ),
+              )?.summary?.residentCount ?? 0,
+            },
+            projectedRateMonthly: quarter.projectedRateMonthly,
+          })),
+          (value: any) => value.projectedRateMonthly,
+        );
+        const yoyGrowthPct = priorRate > 0 ? (projectedRate / priorRate - 1) * 100 : 0;
+        return {
+          year: template.year,
+          quarter: template.quarter,
+          label: template.label,
+          priorYear: {
+            ...template.priorYear,
+            realizedRateMonthly: priorRate,
+          },
+          requiredRateMonthly: priorRate * (1 + targetPct / 100),
+          projectedRateMonthly: projectedRate,
+          yoyGrowthPct,
+          passes: yoyGrowthPct >= targetPct,
+          shortfallPct: Math.max(0, targetPct - yoyGrowthPct),
+          isBinding: false,
+        };
+      });
+      const binding = quarters
+        .filter((quarter: any) => !quarter.passes)
+        .sort((a: any, b: any) => b.shortfallPct - a.shortfallPct)[0];
+      if (binding) binding.isBinding = true;
+
+      const distributions = ["increaseDistribution", "residentIncreaseDistribution"].map((field) => {
+        const counts = new Map<string, number>();
+        for (const plan of plans) {
+          for (const entry of Array.isArray(plan[field]) ? plan[field] : []) {
+            counts.set(entry.label, (counts.get(entry.label) ?? 0) + (Number(entry.count) || 0));
+          }
+        }
+        return Array.from(counts, ([label, count]) => ({ label, count }));
+      });
+
+      const summary = {
+        residentCount,
+        residentsReceivingIncrease: sum(plans, (plan) => plan.summary?.residentsReceivingIncrease),
+        residentsAtMin: sum(plans, (plan) => plan.summary?.residentsAtMin),
+        residentsAtMax: sum(plans, (plan) => plan.summary?.residentsAtMax),
+        residentsBlockedByStreet: sum(plans, (plan) => plan.summary?.residentsBlockedByStreet),
+        weightedAvgIncreasePct: currentRateTotal > 0 ? (increaseTotal / currentRateTotal) * 100 : 0,
+        minIncreasePct: Math.min(...plans.map((plan) => Number(plan.summary?.minIncreasePct) || 0)),
+        maxIncreasePct: Math.max(...plans.map((plan) => Number(plan.summary?.maxIncreasePct) || 0)),
+        totalMonthlyIncreaseDollars: increaseTotal,
+        totalAnnualIncreaseDollars: sum(plans, (plan) => plan.summary?.totalAnnualIncreaseDollars),
+        currentAvgInhouseRateMonthly: currentAvg,
+        newAvgInhouseRateMonthly: newAvg,
+      };
+      return {
+        ...first,
+        scope: {
+          ...first.scope,
+          locationId: null,
+          location: division,
+          division,
+          serviceLine,
+        },
+        currentStreetRateMonthly: weightedAverage(plans, (plan) => plan.currentStreetRateMonthly),
+        recommendedStreetRateMonthly: weightedAverage(plans, (plan) => plan.recommendedStreetRateMonthly),
+        streetIncreasePct: weightedAverage(plans, (plan) => plan.streetIncreasePct),
+        streetIncreaseDollarsMonthly: sum(plans, (plan) => plan.streetIncreaseDollarsMonthly),
+        currentStreetRateDisplay: weightedAverage(plans, (plan) => plan.currentStreetRateDisplay),
+        recommendedStreetRateDisplay: weightedAverage(plans, (plan) => plan.recommendedStreetRateDisplay),
+        requiredWeightedAvgIncreasePct: weightedAverage(plans, (plan) => plan.requiredWeightedAvgIncreasePct),
+        quarters,
+        monthlyRateProjection: [],
+        bindingQuarterLabel: binding?.label ?? null,
+        summary,
+        residents: [],
+        targetDeviationDiagnostic: null,
+        warnings: uniqueStrings([
+          ...plans.flatMap((plan) => Array.isArray(plan.warnings) ? plan.warnings : []),
+          `Rolled up from ${plans.length} campus calculation${plans.length === 1 ? "" : "s"} in ${division}.`,
+        ]),
+        increaseDistribution: distributions[0],
+        residentIncreaseDistribution: distributions[1],
+      };
+    };
+
+    const plans = serviceLines.flatMap((serviceLine) => {
+      const linePlans = planByLine.get(serviceLine);
+      return linePlans?.length ? [{ sl: serviceLine, plan: rollUpPlan(serviceLine, linePlans) }] : [];
+    });
+    if (plans.length === 0) return null;
+    const inputSnapshot = Array.from(latestByCampusLine.values())
+      .map((value) => value.inputSnapshot)
+      .find((snapshot) => snapshot.length > 0) ?? [];
+
+    const tierLines = serviceLines.flatMap((serviceLine) => {
+      const values = Array.from(latestByCampusLine.entries())
+        .filter(([key]) => key.endsWith(`::${serviceLine}`))
+        .map(([, value]) => value)
+        .filter((value) => value.tierLine);
+      const aggregate = plans.find((entry) => entry.sl === serviceLine)?.plan;
+      if (!aggregate || values.length === 0) return [];
+      const currentTier = values
+        .map((value) => value.tierLine.currentTier)
+        .filter(Boolean)[0] ?? null;
+      const cells = ["low", "target", "high"].map((tier) => {
+        const matching = values
+          .map((value) => value.tierLine.cells?.find((cell: any) => cell.tier === tier))
+          .filter(Boolean);
+        return {
+          serviceLine,
+          tier,
+          rangeLabel: matching[0]?.rangeLabel ?? tier,
+          isCurrent: tier === currentTier,
+          inhouseIncreasePct: matching.length
+            ? matching.reduce((total: number, cell: any) => total + (Number(cell.inhouseIncreasePct) || 0), 0) / matching.length
+            : null,
+          streetIncreasePct: matching.length
+            ? matching.reduce((total: number, cell: any) => total + (Number(cell.streetIncreasePct) || 0), 0) / matching.length
+            : null,
+          feasible: matching.length ? matching.every((cell: any) => cell.feasible !== false) : null,
+        };
+      });
+      return [{
+        serviceLine,
+        occupancyPct: values.reduce((total, value) => total + (Number(value.tierLine.occupancyPct) || 0), 0) / values.length,
+        occupancyMonth: values[0].tierLine.occupancyMonth ?? null,
+        occupancySource: values[0].tierLine.occupancySource ?? null,
+        currentTier,
+        cells,
+        warnings: uniqueStrings(values.flatMap((value) => value.tierLine.warnings ?? [])),
+        currentPlan: aggregate,
+      }];
+    });
+
+    return {
+      id: null,
+      scopeKey,
+      locationId: null,
+      serviceLines: plans.map(({ sl }) => sl),
+      // Annual-report consumers use the same `{ sl, plan }` envelope as the
+      // normal calculation snapshot. Keeping that envelope is what lets the
+      // division restore select the right line from the rolled-up report.
+      plans,
+      tierGrid: {
+        lines: tierLines,
+        skipped: [],
+        scopeKey,
+        inputSnapshot,
+      },
+      generatedAt: new Date(
+        Math.max(...Array.from(latestByCampusLine.values()).map((value) => value.generatedAt)),
+      ).toISOString(),
+      status: "campus_rollup",
+      campusNames: plans.map(({ sl }) => sl).length
+        ? campusRows.map((campus) => campus.name)
+        : [],
+    };
+  }
+
+  app.get("/api/inhouse-planning/division-rollup/latest", requireAuth, async (req: any, res) => {
+    try {
+      const division = String(req.query.division || "").trim();
+      const scopeKey = String(req.query.scopeKey || "").trim();
+      if (!division || !scopeKey) return res.json({ report: null });
+      const clientId = req.clientId || "demo";
+      const serviceLines = scopeKey.includes("|")
+        ? scopeKey.slice(scopeKey.lastIndexOf("|") + 1).split(",").filter(Boolean)
+        : [];
+      if (serviceLines.length === 0) return res.json({ report: null });
+      const campusRows = await db
+        .select({ id: locations.id, name: locations.name })
+        .from(locations)
+        .where(and(eq(locations.clientId, clientId), eq(locations.division, division)));
+      if (campusRows.length === 0) return res.json({ report: null });
+      const reportRows = await db
+        .select()
+        .from(inhouseAnnualReportRuns)
+        .where(and(
+          eq(inhouseAnnualReportRuns.clientId, clientId),
+          inArray(inhouseAnnualReportRuns.locationId, campusRows.map((campus) => campus.id)),
+        ))
+        .orderBy(desc(inhouseAnnualReportRuns.generatedAt));
+      const report = rollUpDivisionCampusReports({
+        division,
+        scopeKey,
+        serviceLines,
+        campusRows,
+        reportRows,
+      });
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({ report });
+    } catch (error) {
+      console.error("[inhouse-planning] division rollup failed:", error);
+      return res.status(500).json({ error: "Failed to load the saved division calculation" });
+    }
+  });
+
   app.post("/api/inhouse-planning/annual-report-runs", requireAuth, async (req: any, res) => {
     try {
       const body = annualReportRunSchema.safeParse(req.body);

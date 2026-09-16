@@ -3100,12 +3100,45 @@ export default function InhouseIncreases() {
     refetchInterval: scopeLocationId === null ? false : 10_000,
   });
 
+  const divisionRollupQuery = useQuery<{
+    report: {
+      id: null;
+      generatedAt: string;
+      scopeKey: string;
+      locationId: null;
+      plans?: unknown;
+      tierGrid?: unknown;
+    } | null;
+  }>({
+    queryKey: [
+      "/api/inhouse-planning/division-rollup/latest",
+      tierScopeKey,
+      division || "all-divisions",
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        scopeKey: tierScopeKey,
+        division,
+      });
+      const res = await fetch(
+        `/api/inhouse-planning/division-rollup/latest?${params}`,
+        { credentials: "include", cache: "no-store" },
+      );
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    enabled: isAuthenticated && !!division && scopeLocationId === null,
+    retry: false,
+  });
+
   // Calculations saved before tier grids were added to browser storage can
   // still recover the exact table from their saved Annual Report snapshot.
   // This applies to portfolio scopes as well as individual campuses.
   useEffect(() => {
     if (tierGrid) return;
-    const report = latestAnnualReportQuery.data?.report;
+    const report =
+      latestAnnualReportQuery.data?.report ??
+      divisionRollupQuery.data?.report;
     if (
       !report ||
       report.scopeKey !== tierScopeKey ||
@@ -3144,6 +3177,7 @@ export default function InhouseIncreases() {
   }, [
     calculatedPlanKey,
     latestAnnualReportQuery.data,
+    divisionRollupQuery.data,
     scopeLocationId,
     storageIdentityKey,
     tierScopeKey,

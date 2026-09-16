@@ -222,8 +222,8 @@ async function setupFixture() {
     [OTHER_CLIENT, "Other Tenant Campus"],
   ]) {
     locations.push(await pool.query<{ id: string }>(
-      `INSERT INTO locations (client_id, name) VALUES ($1, $2) RETURNING id`,
-      [clientId, name],
+      `INSERT INTO locations (client_id, name, division) VALUES ($1, $2, $3) RETURNING id`,
+      [clientId, name, clientId === CLIENT ? "Central South Indiana" : "Other Division"],
     ));
   }
   return {
@@ -374,6 +374,129 @@ async function assertEndpointContract() {
   );
   assert.equal(otherTenant.statusCode, 200);
   assert.equal(otherTenant.body.report, null, "tenant scoping prevents cross-tenant report reopening");
+
+  const division = "Central South Indiana";
+  const divisionPlan = (locationId: string, location: string, residents: number, increaseDollars: number) => ({
+    scope: {
+      clientId: CLIENT,
+      locationId,
+      location,
+      division,
+      serviceLine: SERVICE_LINE,
+      sourceMonth: "2026-12",
+    },
+    assumptions,
+    feasible: true,
+    rateBasis: "monthly",
+    currentStreetRateMonthly: 5000,
+    recommendedStreetRateMonthly: 5100,
+    streetIncreasePct: 2,
+    streetIncreaseDollarsMonthly: residents * 100,
+    currentStreetRateDisplay: 5000,
+    recommendedStreetRateDisplay: 5100,
+    requiredWeightedAvgIncreasePct: 6,
+    quarters: [{
+      year: 2027,
+      quarter: 1,
+      label: "Q1 2027",
+      priorYear: {
+        label: "Q1 2026",
+        year: 2026,
+        quarter: 1,
+        realizedRateMonthly: 5000,
+        basis: "actual",
+        monthsAvailable: 3,
+        monthsExpected: 3,
+      },
+      requiredRateMonthly: 5300,
+      projectedRateMonthly: 5300,
+      yoyGrowthPct: 6,
+      passes: true,
+      shortfallPct: 0,
+      isBinding: false,
+    }],
+    summary: {
+      residentCount: residents,
+      residentsReceivingIncrease: residents,
+      residentsAtMin: 0,
+      residentsAtMax: 0,
+      residentsBlockedByStreet: 0,
+      weightedAvgIncreasePct: 6,
+      minIncreasePct: 6,
+      maxIncreasePct: 6,
+      totalMonthlyIncreaseDollars: increaseDollars,
+      totalAnnualIncreaseDollars: increaseDollars * 12,
+      currentAvgInhouseRateMonthly: 5000,
+      newAvgInhouseRateMonthly: 5000 + increaseDollars / residents,
+    },
+    residents: [],
+    warnings: [],
+    increaseDistribution: [{ label: "6.0%", count: residents }],
+    residentIncreaseDistribution: [{ label: "6.0%", count: residents }],
+    targetDeviationDiagnostic: null,
+  });
+  const divisionTierGrid = (plan: any) => ({
+    lines: [{
+      serviceLine: SERVICE_LINE,
+      occupancyPct: 90,
+      occupancyMonth: "2026-12",
+      occupancySource: "occupancy_history",
+      currentTier: "target",
+      cells: [{
+        serviceLine: SERVICE_LINE,
+        tier: "target",
+        rangeLabel: "88–94%",
+        isCurrent: true,
+        inhouseIncreasePct: 6,
+        streetIncreasePct: 2,
+        feasible: true,
+      }],
+      warnings: [],
+      currentPlan: plan,
+    }],
+    skipped: [],
+    scopeKey: `${division}|all|${SERVICE_LINE}`,
+    inputSnapshot: [],
+  });
+  const generatedAt = new Date();
+  await pool.query(
+    `INSERT INTO inhouse_annual_report_runs
+      (client_id, scope_key, location_id, service_lines, plans, tier_grid, generated_at)
+     VALUES
+      ($1, $2, $3, $4, $5, $6, $7),
+      ($1, $8, $9, $4, $10, $11, $7)`,
+    [
+      CLIENT,
+      `${division}|${campusA}|${SERVICE_LINE}`,
+      campusA,
+      JSON.stringify([SERVICE_LINE]),
+      JSON.stringify([{ sl: SERVICE_LINE, plan: divisionPlan(campusA, "Annual Report Campus A", 2, 200) }]),
+      JSON.stringify(divisionTierGrid(divisionPlan(campusA, "Annual Report Campus A", 2, 200))),
+      generatedAt,
+      `${division}|${campusB}|${SERVICE_LINE}`,
+      campusB,
+      JSON.stringify([{ sl: SERVICE_LINE, plan: divisionPlan(campusB, "Annual Report Campus B", 3, 450) }]),
+      JSON.stringify(divisionTierGrid(divisionPlan(campusB, "Annual Report Campus B", 3, 450))),
+    ],
+  );
+  const divisionRollup = await harness.invoke(
+    "GET",
+    "/api/inhouse-planning/division-rollup/latest",
+    undefined,
+    CLIENT,
+    true,
+    { division, scopeKey: `${division}|all|${SERVICE_LINE}` },
+  );
+  assert.equal(divisionRollup.statusCode, 200);
+  assert.equal(divisionRollup.body.report.locationId, null, "division rollup remains portfolio-shaped");
+  assert.equal(divisionRollup.body.report.plans[0].sl, SERVICE_LINE);
+  assert.equal(divisionRollup.body.report.plans[0].plan.summary.residentCount, 5);
+  assert.equal(
+    divisionRollup.body.report.plans[0].plan.summary.totalMonthlyIncreaseDollars,
+    650,
+    "division rollup sums campus increase dollars",
+  );
+  assert.equal(divisionRollup.body.report.tierGrid.lines[0].serviceLine, SERVICE_LINE);
 
   const anonymous = await harness.invoke(
     "GET",
