@@ -18,6 +18,7 @@ import {
   BarChart,
   Cell,
   CartesianGrid,
+  LabelList,
   Line,
   LineChart,
   Scatter,
@@ -609,6 +610,12 @@ const MONTH_ABBR = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 const ALL_CAMPUSES = "__all__";
+const ALL_RESIDENT_LINES = "__all_lines__";
+const ALL_RESIDENT_CONSTRAINTS = "__all_constraints__";
+
+function formatResidentCount(value: number | string): string {
+  return Number(value).toLocaleString("en-US");
+}
 
 /** Which tier of the fallback chain the shown assumptions actually came from. */
 const SCOPE_LEVEL_LABEL: Record<string, string> = {
@@ -1790,6 +1797,9 @@ export default function InhouseIncreases() {
   const [sortDesc, setSortDesc] = useState(true);
   const [constrainedOnly, setConstrainedOnly] = useState(false);
   const [heldBackOnly, setHeldBackOnly] = useState(false);
+  const [residentSearch, setResidentSearch] = useState("");
+  const [residentLineFilter, setResidentLineFilter] = useState(ALL_RESIDENT_LINES);
+  const [residentConstraintFilter, setResidentConstraintFilter] = useState(ALL_RESIDENT_CONSTRAINTS);
   const [visibleCount, setVisibleCount] = useState(50);
 
   const scopeLocationId = locationId === ALL_CAMPUSES ? null : locationId;
@@ -3635,8 +3645,14 @@ export default function InhouseIncreases() {
     });
   }, [allTaggedResidents, plans]);
 
+  const residentLineOptions = useMemo(
+    () => [...new Set(allTaggedResidents.map((resident) => resident._sl))].sort(),
+    [allTaggedResidents],
+  );
+
   const sortedResidents = useMemo(() => {
-    const filtered = heldBackOnly
+    const normalizedSearch = residentSearch.trim().toLowerCase();
+    const filtered = (heldBackOnly
       ? allTaggedResidents.filter((r) =>
           r.constraint === "max" ||
           r.constraint === "street_cap" ||
@@ -3644,7 +3660,23 @@ export default function InhouseIncreases() {
         )
       : constrainedOnly
         ? allTaggedResidents.filter((r) => r.constraint !== "none")
-        : allTaggedResidents;
+        : allTaggedResidents
+    ).filter((r) => {
+      if (residentLineFilter !== ALL_RESIDENT_LINES && r._sl !== residentLineFilter) return false;
+      if (
+        residentConstraintFilter !== ALL_RESIDENT_CONSTRAINTS &&
+        (
+          residentConstraintFilter === "none"
+            ? r.constraint !== "none"
+            : residentConstraintFilter === "held"
+              ? r.constraint === "none"
+              : r.constraint !== residentConstraintFilter
+        )
+      ) return false;
+      if (!normalizedSearch) return true;
+      return [r.location, r.roomNumber, r.roomType, r._sl]
+        .some((value) => String(value ?? "").toLowerCase().includes(normalizedSearch));
+    });
     const pick = (r: TaggedResident): string | number => {
       switch (sortKey) {
         case "location": return r.location;
@@ -3663,7 +3695,16 @@ export default function InhouseIncreases() {
           ? av.localeCompare(bv) : Number(av) - Number(bv);
       return sortDesc ? -cmp : cmp;
     });
-  }, [allTaggedResidents, sortKey, sortDesc, constrainedOnly, heldBackOnly]);
+  }, [
+    allTaggedResidents,
+    sortKey,
+    sortDesc,
+    constrainedOnly,
+    heldBackOnly,
+    residentSearch,
+    residentLineFilter,
+    residentConstraintFilter,
+  ]);
 
   useEffect(() => {
     if (!heldBackOnly || allTaggedResidents.length === 0) return;
@@ -3698,6 +3739,15 @@ export default function InhouseIncreases() {
   function toggleSort(key: SortKey) {
     if (key === sortKey) { setSortDesc((d) => !d); }
     else { setSortKey(key); setSortDesc(true); }
+    setVisibleCount(50);
+  }
+
+  function clearResidentFilters() {
+    setResidentSearch("");
+    setResidentLineFilter(ALL_RESIDENT_LINES);
+    setResidentConstraintFilter(ALL_RESIDENT_CONSTRAINTS);
+    setConstrainedOnly(false);
+    setHeldBackOnly(false);
     setVisibleCount(50);
   }
 
@@ -5624,7 +5674,7 @@ export default function InhouseIncreases() {
                        )}
                        <div className="h-44">
                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={data} margin={{ top: 8, right: 8, left: 16, bottom: 2 }}>
+                            <BarChart data={data} margin={{ top: 20, right: 8, left: 16, bottom: 2 }}>
                              <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
                              <XAxis
                                dataKey="tier"
@@ -5634,10 +5684,11 @@ export default function InhouseIncreases() {
                              />
                              <YAxis
                                allowDecimals={false}
-                               tick={{ fontSize: 10 }}
+                                tick={{ fontSize: 10 }}
                                tickLine={false}
                                axisLine={false}
-                               width={42}
+                                tickFormatter={formatResidentCount}
+                                width={50}
                                label={{ value: "Residents", angle: -90, position: "left", offset: 8, fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                              />
                              <RechartsTooltip
@@ -5651,7 +5702,15 @@ export default function InhouseIncreases() {
                                  fontSize: "11px",
                                }}
                              />
-                             <Bar dataKey="residents" name="Residents" radius={[2, 2, 0, 0]} isAnimationActive={false}>
+                              <Bar dataKey="residents" name="Residents" radius={[2, 2, 0, 0]} isAnimationActive={false}>
+                                <LabelList
+                                  dataKey="residents"
+                                  position="top"
+                                  formatter={(value) => formatResidentCount(Number(value))}
+                                  fill="hsl(var(--foreground))"
+                                  fontSize={10}
+                                  offset={5}
+                                />
                                {data.map((entry) => (
                                  <Cell key={`${sl}-${entry.tier}`} fill="#0f9f9a" />
                                ))}
@@ -5664,21 +5723,92 @@ export default function InhouseIncreases() {
                  </div>
                </CardContent>
              )}
-            <CardContent className="p-0 sm:p-6 sm:pt-0">
-              <div className="overflow-x-auto">
+             <CardContent className="p-0 sm:p-6 sm:pt-0">
+               <div className="flex flex-wrap items-end gap-2 border-b px-4 py-3 sm:px-0" data-testid="resident-table-filters">
+                 <div className="min-w-[15rem] flex-1">
+                   <Label htmlFor="resident-search" className="mb-1 block text-[11px] text-muted-foreground">
+                     Search campus, room, type
+                   </Label>
+                   <Input
+                     id="resident-search"
+                     value={residentSearch}
+                     onChange={(event) => {
+                       setResidentSearch(event.target.value);
+                       setVisibleCount(50);
+                     }}
+                     placeholder="Search residents…"
+                     className="h-9"
+                     data-testid="input-resident-search"
+                   />
+                 </div>
+                 {plans.length > 1 && (
+                   <div className="w-36">
+                     <Label htmlFor="resident-line-filter" className="mb-1 block text-[11px] text-muted-foreground">
+                       Service line
+                     </Label>
+                     <Select
+                       value={residentLineFilter}
+                       onValueChange={(value) => {
+                         setResidentLineFilter(value);
+                         setVisibleCount(50);
+                       }}
+                     >
+                       <SelectTrigger id="resident-line-filter" className="h-9" data-testid="select-resident-line">
+                         <SelectValue placeholder="All lines" />
+                       </SelectTrigger>
+                       <SelectContent>
+                         <SelectItem value={ALL_RESIDENT_LINES}>All lines</SelectItem>
+                         {residentLineOptions.map((sl) => (
+                           <SelectItem key={sl} value={sl}>{sl}</SelectItem>
+                         ))}
+                       </SelectContent>
+                     </Select>
+                   </div>
+                 )}
+                 <div className="w-44">
+                   <Label htmlFor="resident-constraint-filter" className="mb-1 block text-[11px] text-muted-foreground">
+                     Limit status
+                   </Label>
+                   <Select
+                     value={residentConstraintFilter}
+                     onValueChange={(value) => {
+                       setResidentConstraintFilter(value);
+                       setVisibleCount(50);
+                     }}
+                   >
+                     <SelectTrigger id="resident-constraint-filter" className="h-9" data-testid="select-resident-constraint">
+                       <SelectValue placeholder="All residents" />
+                     </SelectTrigger>
+                     <SelectContent>
+                       <SelectItem value={ALL_RESIDENT_CONSTRAINTS}>All residents</SelectItem>
+                       <SelectItem value="held">Any limit</SelectItem>
+                       <SelectItem value="street_cap">Street limit</SelectItem>
+                       <SelectItem value="max">Maximum increase</SelectItem>
+                       <SelectItem value="none">No limit</SelectItem>
+                     </SelectContent>
+                   </Select>
+                 </div>
+                 {(residentSearch || residentLineFilter !== ALL_RESIDENT_LINES ||
+                   residentConstraintFilter !== ALL_RESIDENT_CONSTRAINTS || constrainedOnly || heldBackOnly) && (
+                   <Button type="button" variant="ghost" size="sm" onClick={clearResidentFilters}>
+                     Clear filters
+                   </Button>
+                 )}
+               </div>
+               <div className="max-h-[34rem] overflow-auto">
                 <table className="w-full min-w-[860px] text-sm">
-                  <thead>
+                   <thead className="sticky top-0 z-20 bg-card shadow-sm">
                     <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                      {plans.length > 1 && <th className="px-4 py-2 font-medium">SL</th>}
+                      {plans.length > 1 && <th className="sticky top-0 z-20 bg-card px-4 py-2 font-medium">SL</th>}
                       <SortableTh label="Campus" k="location" {...{ sortKey, sortDesc, toggleSort }} />
                       <SortableTh label="Room" k="roomNumber" {...{ sortKey, sortDesc, toggleSort }} />
-                      <th className="px-4 py-2 font-medium">Room type</th>
+                      <th className="sticky top-0 z-20 bg-card px-4 py-2 font-medium">Room type</th>
                       <SortableTh label={`Current${unit}`} k="currentRate" align="right" {...{ sortKey, sortDesc, toggleSort }} />
                       <SortableTh label={`Street${unit}`} k="streetRate" align="right" {...{ sortKey, sortDesc, toggleSort }} />
                       <SortableTh label="Room to street" k="gap" align="right" {...{ sortKey, sortDesc, toggleSort }} />
                       <SortableTh label="Increase" k="increasePct" align="right" {...{ sortKey, sortDesc, toggleSort }} />
                       <SortableTh label="New rate" k="increaseDollars" align="right" {...{ sortKey, sortDesc, toggleSort }} />
-                      <th className="px-4 py-2 font-medium">Limit</th>
+                      <th className="sticky top-0 z-20 bg-card px-4 py-2 font-medium">Limit</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -5752,7 +5882,7 @@ export default function InhouseIncreases() {
                   </tbody>
                 </table>
               </div>
-              {visibleCount < sortedResidents.length && (
+               {visibleCount < sortedResidents.length && (
                 <div className="flex justify-center border-t p-4">
                   <Button variant="outline" size="sm" onClick={() => setVisibleCount((c) => c + 100)} data-testid="button-show-more">
                     Show 100 more ({(sortedResidents.length - visibleCount).toLocaleString()} remaining)
@@ -6019,7 +6149,7 @@ function SortableTh({
   return (
     <th
       className={cn(
-        "cursor-pointer select-none px-4 py-2 font-medium hover:text-foreground",
+        "sticky top-0 z-20 cursor-pointer select-none bg-card px-4 py-2 font-medium hover:text-foreground",
         align === "right" && "text-right",
         active && "text-foreground",
       )}

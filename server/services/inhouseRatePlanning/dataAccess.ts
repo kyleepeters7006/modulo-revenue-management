@@ -1375,9 +1375,9 @@ export async function fetchOccupancyByServiceLine(
   location: string | null,
   locationNames?: string[],
 ): Promise<ScopeOccupancy> {
-  const params: any[] = [clientId];
   const scope = { location, locationNames };
-  const campusParams = (expression: string) => {
+  const scopedParams = (expression: string): { filter: string; params: any[] } => {
+    const params: any[] = [clientId];
     const predicates: string[] = [];
     if (scope.location) {
       params.push(scope.location);
@@ -1387,10 +1387,15 @@ export async function fetchOccupancyByServiceLine(
       params.push(scope.locationNames);
       predicates.push(`${expression} = ANY($${params.length}::text[])`);
     }
-    return predicates.length ? `AND ${predicates.join(" AND ")}` : "";
+    return {
+      filter: predicates.length ? `AND ${predicates.join(" AND ")}` : "",
+      params,
+    };
   };
-  const rtoLocFilter = campusParams("COALESCE(roh.location_name, l2.name)");
-  const rrLocFilter = campusParams("location");
+  const rtoScope = scopedParams("COALESCE(roh.location_name, l2.name)");
+  const rrScope = scopedParams("location");
+  const rtoLocFilter = rtoScope.filter;
+  const rrLocFilter = rrScope.filter;
 
   // Anchored to the newest month occupancy history covers FOR THIS SCOPE, which
   // can lag the rent roll. Reading the rent roll for a month history simply has
@@ -1436,8 +1441,8 @@ export async function fetchOccupancyByServiceLine(
      GROUP BY 1`;
 
   const [rtoRes, weightRes] = await Promise.all([
-    pool.query(rtoSql, params),
-    pool.query(weightSql, params),
+    pool.query(rtoSql, rtoScope.params),
+    pool.query(weightSql, rrScope.params),
   ]);
 
   const weights = new Map<string, { units: number; occupied: number }>();
