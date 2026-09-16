@@ -758,7 +758,7 @@ export const inhouseRatePlans = pgTable("inhouse_rate_plans", {
  */
 export const inhouseAnnualReportRuns = pgTable("inhouse_annual_report_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
-  clientId: varchar("client_id").notNull().references(() => clients.id),
+  clientId: varchar("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
   scopeKey: text("scope_key").notNull(),
   locationId: varchar("location_id").references(() => locations.id),
   serviceLines: jsonb("service_lines").notNull(),

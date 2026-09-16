@@ -919,6 +919,37 @@ export function registerInhousePlanningRoutes(
           };
         }),
       });
+      if (req.session?.userId && req.session?.clientId && result.lines.length > 0) {
+        const generatedAt = new Date();
+        const detailPlans = result.lines.map((line) => ({
+          sl: line.serviceLine,
+          plan: line.currentPlan,
+        }));
+        await Promise.all([
+          savePlanDetailSnapshot({
+            clientId,
+            scopeKey: planningScopeKey(
+              locationId,
+              detailPlans.map(({ sl }) => sl),
+              body.data.division || null,
+            ),
+            plans: detailPlans,
+            inputSnapshot: body.data.lines,
+            generatedAt,
+          }),
+          ...detailPlans.map((entry) =>
+            savePlanDetailSnapshot({
+              clientId,
+              scopeKey: planningScopeKey(locationId, [entry.sl], body.data.division || null),
+              plans: [entry],
+              inputSnapshot: body.data.lines.filter(
+                (line) => line.serviceLine === entry.sl,
+              ),
+              generatedAt,
+            }),
+          ),
+        ]);
+      }
       if (locationId === null && result.lines.length > 0) {
         const campusReportBatchStartedAt = new Date();
         const reportLines = body.data.lines.map((line, index) => {

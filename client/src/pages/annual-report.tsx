@@ -429,7 +429,7 @@ function WorkbookReportBlock({
       : null;
   };
   const annualImpact = rows.reduce(
-    (sum, row) => sum + (row.plan.summary.totalAnnualIncreaseDollars || 0),
+    (sum, row) => sum + (row.annualizedRevenue || 0),
     0,
   );
   const inhouseIncreaseValues = rows.map((row) => row.inhouseIncrease);
@@ -517,7 +517,7 @@ function WorkbookReportBlock({
               {!tier && <td className="mono">{bridgeResidents > 0 ? pct(combinedPriorPeriodIncrease) : "—"}</td>}
               {!tier && <td className="mono increase-pct" style={{ color: increaseTextColor(weightedInhouse, inhouseIncreaseValues) }}>{bridgeResidents > 0 ? pct(weightedInhouse) : "—"}</td>}
               {!tier && <td className="mono">{bridgeResidents > 0 ? pct(combinedFullYearYoy) : "—"}</td>}
-              <td className="mono">{signedMoney(rows.reduce((sum, row) => sum + row.annualizedRevenue, 0))}</td>
+              <td className="mono">{signedMoney(rows.reduce((sum, row) => sum + (row.annualizedRevenue ?? 0), 0))}</td>
               <td className="mono">{totalResidents.toLocaleString()}</td>
               <td className="mono">{totalResidents ? "100.0%" : "—"}</td>
             </tr>

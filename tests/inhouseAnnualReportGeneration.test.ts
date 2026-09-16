@@ -204,6 +204,10 @@ async function cleanup() {
     `DELETE FROM inhouse_annual_report_runs WHERE client_id IN ($1, $2)`,
     [CLIENT, OTHER_CLIENT],
   );
+  await pool.query(
+    `DELETE FROM inhouse_plan_detail_snapshots WHERE client_id IN ($1, $2)`,
+    [CLIENT, OTHER_CLIENT],
+  );
   await pool.query(`DELETE FROM locations WHERE client_id IN ($1, $2)`, [CLIENT, OTHER_CLIENT]);
   await pool.query(`DELETE FROM clients WHERE id IN ($1, $2)`, [CLIENT, OTHER_CLIENT]);
 }

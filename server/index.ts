@@ -896,6 +896,11 @@ app.use((req, res, next) => {
         ADD COLUMN IF NOT EXISTS input_snapshot jsonb,
         ADD COLUMN IF NOT EXISTS generated_at timestamp DEFAULT now()`));
     await db.execute(sql.raw(`
+      ALTER TABLE inhouse_plan_detail_snapshots
+        DROP CONSTRAINT IF EXISTS inhouse_plan_detail_snapshots_client_id_fkey,
+        ADD CONSTRAINT inhouse_plan_detail_snapshots_client_id_fkey
+          FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE`));
+    await db.execute(sql.raw(`
       CREATE UNIQUE INDEX IF NOT EXISTS inhouse_plan_detail_snapshots_scope_uniq
         ON inhouse_plan_detail_snapshots (client_id, scope_key)`));
     await db.execute(sql.raw(`

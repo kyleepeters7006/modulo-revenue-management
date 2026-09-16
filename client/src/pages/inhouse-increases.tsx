@@ -2422,13 +2422,6 @@ export default function InhouseIncreases() {
   const savedPlanDetailsMatch = (() => {
     const snapshot = savedPlanDetailsQuery.data?.snapshot;
     if (!snapshot || snapshot.scopeKey !== tierScopeKey) return false;
-    const inputSnapshot = Array.isArray(snapshot.inputSnapshot)
-      ? snapshot.inputSnapshot as PlanningInputSnapshotEntry[]
-      : [];
-    if (
-      inputSnapshot.length > 0 &&
-      planningInputSnapshotKey(inputSnapshot) !== tierInputsKey
-    ) return false;
     const savedPlans = Array.isArray(snapshot.plans) ? snapshot.plans : [];
     return savedPlans.some((value) => {
       const plan = normalizeSavedPlan(value);
@@ -3204,10 +3197,6 @@ export default function InhouseIncreases() {
     const inputSnapshot = Array.isArray(snapshot.inputSnapshot)
       ? snapshot.inputSnapshot as PlanningInputSnapshotEntry[]
       : [];
-    if (
-      inputSnapshot.length > 0 &&
-      planningInputSnapshotKey(inputSnapshot) !== tierInputsKey
-    ) return;
     const savedPlans = Array.isArray(snapshot.plans) ? snapshot.plans : [];
     const restored = savedPlans
       .flatMap((value): PlanWithSl[] => {
@@ -3220,6 +3209,12 @@ export default function InhouseIncreases() {
       return;
     }
     setPlans(restored);
+    setCalculatedInputsKey(
+      inputSnapshot.length > 0
+        ? planningInputSnapshotKey(inputSnapshot)
+        : null,
+    );
+    setLastRunAt(snapshot.generatedAt || null);
     setRestoredPlanDetailsOmitted(false);
     setRestoringPlanDetails(false);
     setVisibleCount(50);
