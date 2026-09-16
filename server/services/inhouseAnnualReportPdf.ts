@@ -6,6 +6,7 @@ import {
   RESIDENT_INCREASE_TIER_LABELS,
   type AnnualRateGrowthBridge,
   type AnnualReportResidentScatterPoint,
+  type AnnualReportGenerationStatus,
 } from "@shared/inhouseAnnualReportSnapshot";
 
 type JsonObject = Record<string, any>;
@@ -19,6 +20,7 @@ export interface AnnualReportPdfReport {
   tierGrid: unknown;
   generatedAt?: Date | string | null;
   status?: string;
+  generationStatus?: AnnualReportGenerationStatus | null;
   residentScatterPoints?: AnnualReportResidentScatterPoint[];
 }
 
@@ -814,6 +816,14 @@ function drawWorkbookPageHeader(
   line(doc, 18 + width * 0.65, 31, width * 0.35, stamp, { size: 6.8, color: MUTED, align: "right" });
 }
 
+function generationStatus(report: AnnualReportPdfReport): AnnualReportGenerationStatus | null {
+  if (report.generationStatus?.state) return report.generationStatus;
+  const grid = report.tierGrid;
+  const status = grid && typeof grid === "object"
+    ? (grid as JsonObject).generationStatus
+    : null;
+  return status && typeof status === "object" ? status as AnnualReportGenerationStatus : null;
+}
 function drawWorkbookScatterplots(
   doc: PDFKit.PDFDocument,
   rows: WorkbookRow[],
@@ -1027,6 +1037,7 @@ export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): P
     const pageWidth = doc.page.width - 36;
     const combinedRows = workbookRows(plans, report.tierGrid);
     drawWorkbookPageHeader(doc, report, stamp, 1);
+    drawGenerationNotice(doc, report, pageX, 36, pageWidth);
     drawWorkbookBlock(doc, combinedRows, pageX, 54, pageWidth, "Combined", "#44546A");
     drawWorkbookScatterplots(doc, combinedRows, report.tierGrid, pageX, 300, pageWidth);
 
@@ -1056,3 +1067,32 @@ export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): P
 
 export { planStatus };
 export const generateAnnualReportPdf = generateAnnualInhouseReportPdf;
+
+function drawGenerationNotice(
+  doc: PDFKit.PDFDocument,
+  report: AnnualReportPdfReport,
+  x: number,
+  y: number,
+  width: number,
+): void {
+  const status = generationStatus(report);
+  if (!status || status.state !== "incomplete") return;
+  const missing = status.missingCampuses.map((campus) => campus.locationName).join(", ");
+  doc.rect(x, y, width, 24).fill("#FFF1F0").strokeColor("#C53030").stroke();
+  line(
+    doc,
+    x + 6,
+    y + 7,
+    width - 12,
+    `INCOMPLETE GENERATION — ${status.includedCampusCount} of ${status.expectedCampusCount} campuses included; unavailable: ${missing || "not identified"}`,
+    { size: 6.5, bold: true, color: "#9B2C2C" },
+  );
+  line(
+    doc,
+    x + 6,
+    y + 16,
+    width - 12,
+    "Missing campuses were not substituted with older snapshots.",
+    { size: 5.5, color: "#9B2C2C" },
+  );
+}

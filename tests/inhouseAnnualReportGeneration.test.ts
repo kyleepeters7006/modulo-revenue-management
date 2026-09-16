@@ -150,6 +150,9 @@ function makeRouteHarness(dependencies: any) {
     post(path: string, ...routeHandlers: RouteHandler[]) {
       handlers.set(`POST ${path}`, routeHandlers);
     },
+    patch(path: string, ...routeHandlers: RouteHandler[]) {
+      handlers.set(`PATCH ${path}`, routeHandlers);
+    },
   };
   registerInhousePlanningRoutes(fakeApp as any, dependencies);
 
@@ -501,6 +504,53 @@ async function assertEndpointContract() {
     "division rollup sums campus increase dollars",
   );
   assert.equal(divisionRollup.body.report.tierGrid.lines[0].serviceLine, SERVICE_LINE);
+
+  // A later automatic generation can finish only one campus. The rollup must
+  // not pair that newer campus with Campus B's older snapshot.
+  const newerGeneration = new Date(generatedAt.getTime() + 60_000);
+  await pool.query(
+    `INSERT INTO inhouse_annual_report_runs
+      (client_id, scope_key, location_id, service_lines, plans, tier_grid, generated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (client_id, scope_key) DO UPDATE SET
+       location_id = EXCLUDED.location_id,
+       service_lines = EXCLUDED.service_lines,
+       plans = EXCLUDED.plans,
+       tier_grid = EXCLUDED.tier_grid,
+       generated_at = EXCLUDED.generated_at`,
+    [
+      CLIENT,
+      `${division}|${campusA}|${SERVICE_LINE}`,
+      campusA,
+      JSON.stringify([SERVICE_LINE]),
+      JSON.stringify([{ sl: SERVICE_LINE, plan: divisionPlan(campusA, "Annual Report Campus A", 9, 900) }]),
+      JSON.stringify(divisionTierGrid(divisionPlan(campusA, "Annual Report Campus A", 9, 900))),
+      newerGeneration,
+    ],
+  );
+  const incompleteRollup = await harness.invoke(
+    "GET",
+    "/api/inhouse-planning/division-rollup/latest",
+    undefined,
+    CLIENT,
+    true,
+    { division, scopeKey: `${division}|all|${SERVICE_LINE}` },
+  );
+  assert.equal(incompleteRollup.statusCode, 200);
+  assert.equal(incompleteRollup.body.report.status, "incomplete_generation");
+  assert.equal(incompleteRollup.body.report.generationStatus.state, "incomplete");
+  assert.equal(incompleteRollup.body.report.generationStatus.expectedCampusCount, 2);
+  assert.equal(incompleteRollup.body.report.generationStatus.includedCampusCount, 1);
+  assert.deepEqual(
+    incompleteRollup.body.report.generationStatus.missingCampuses,
+    [{
+      locationId: campusB,
+      locationName: "Annual Report Campus B",
+      serviceLines: [SERVICE_LINE],
+    }],
+  );
+  assert.equal(incompleteRollup.body.report.plans.length, 0, "partial service-line totals stay unavailable");
+  assert.equal(incompleteRollup.body.report.tierGrid.skipped[0].sl, SERVICE_LINE);
 
   const anonymous = await harness.invoke(
     "GET",

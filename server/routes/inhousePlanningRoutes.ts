@@ -48,6 +48,7 @@ import { generateCampusAnnualReports } from "../services/inhouseAnnualReportGene
 import {
   annualReportResidentScatterPoints,
   compactPlanForAnnualReport,
+  type AnnualReportGenerationStatus,
 } from "@shared/inhouseAnnualReportSnapshot";
 import { computeHistoricalTurnover } from "../services/inhouseRatePlanning/historicalTurnover";
 import {
@@ -1260,6 +1261,13 @@ export function registerInhousePlanningRoutes(
           ? Object.values(plans)
           : [],
     );
+    const generationStatus =
+      row.tierGrid &&
+      typeof row.tierGrid === "object" &&
+      row.tierGrid.generationStatus &&
+      typeof row.tierGrid.generationStatus === "object"
+        ? row.tierGrid.generationStatus
+        : null;
     return {
       id: row.id,
       scopeKey: row.scopeKey,
@@ -1270,7 +1278,8 @@ export function registerInhousePlanningRoutes(
       createdAt: row.createdAt?.toISOString?.() ?? (row.createdAt ? String(row.createdAt) : null),
       generatedAt:
         row.generatedAt?.toISOString?.() ?? (row.generatedAt ? String(row.generatedAt) : null),
-      status,
+      generationStatus,
+      status: generationStatus?.state === "incomplete" ? "incomplete_generation" : status,
     };
   }
 
@@ -1300,6 +1309,30 @@ export function registerInhousePlanningRoutes(
     const campusIds = new Set(campusRows.map((campus) => campus.id));
     const campusById = new Map(campusRows.map((campus) => [campus.id, campus]));
     const requested = new Set(serviceLines);
+    const candidateRows = reportRows.flatMap((row) => {
+      if (!row.locationId || !campusIds.has(row.locationId)) return [];
+      const rowScope = String(row.scopeKey ?? "");
+      const divisionPrefix = `${division}|${row.locationId}|`;
+      const portfolioPrefix = `${row.locationId}|`;
+      if (!rowScope.startsWith(divisionPrefix) && !rowScope.startsWith(portfolioPrefix)) return [];
+      const generatedAt = Date.parse(
+        row.generatedAt?.toISOString?.() ?? String(row.generatedAt ?? ""),
+      ) || 0;
+      if (!generatedAt) return [];
+      return [{ row, rowScope, generatedAt, isDivisionScoped: rowScope.startsWith(divisionPrefix) }];
+    });
+    const hasDivisionScopedRows = candidateRows.some((candidate) => candidate.isDivisionScoped);
+    const matchingRows = hasDivisionScopedRows
+      ? candidateRows.filter((candidate) => candidate.isDivisionScoped)
+      : candidateRows;
+    // Every campus save from one automatic fan-out carries the same timestamp.
+    // Pick one generation for the whole rollup; selecting independently per
+    // campus is what previously mixed a new campus with stale campuses.
+    const selectedGenerationAt = matchingRows.reduce(
+      (latest, candidate) => Math.max(latest, candidate.generatedAt),
+      0,
+    );
+    if (!selectedGenerationAt) return null;
     const latestByCampusLine = new Map<string, {
       generatedAt: number;
       isDivisionScoped: boolean;
@@ -1308,12 +1341,9 @@ export function registerInhousePlanningRoutes(
       inputSnapshot: any[];
     }>();
 
-    for (const row of reportRows) {
-      if (!row.locationId || !campusIds.has(row.locationId)) continue;
-      const rowScope = String(row.scopeKey ?? "");
-      const divisionPrefix = `${division}|${row.locationId}|`;
-      const portfolioPrefix = `${row.locationId}|`;
-      if (!rowScope.startsWith(divisionPrefix) && !rowScope.startsWith(portfolioPrefix)) continue;
+    for (const candidate of matchingRows) {
+      if (candidate.generatedAt !== selectedGenerationAt) continue;
+      const { row, rowScope, generatedAt, isDivisionScoped } = candidate;
       const rowPlans = Array.isArray(row.plans) ? row.plans : [];
       const rowTierLines =
         row.tierGrid &&
@@ -1321,17 +1351,13 @@ export function registerInhousePlanningRoutes(
         Array.isArray(row.tierGrid.lines)
           ? row.tierGrid.lines
           : [];
-      const generatedAt = Date.parse(
-        row.generatedAt?.toISOString?.() ?? String(row.generatedAt ?? ""),
-      ) || 0;
       for (const entry of rowPlans) {
         const sl = typeof entry?.sl === "string" ? entry.sl : null;
         if (!sl || !requested.has(sl) || !entry.plan) continue;
         const key = `${row.locationId}::${sl}`;
         const previous = latestByCampusLine.get(key);
-        // A division-specific campus snapshot wins over an older portfolio
-        // snapshot at the same campus. Otherwise newest generatedAt wins.
-        const isDivisionScoped = rowScope.startsWith(divisionPrefix);
+        // A division-specific snapshot wins if both scopes happen to be saved
+        // in the same generation. Never fall back to another generation here.
         if (
           previous &&
           (
@@ -1364,7 +1390,42 @@ export function registerInhousePlanningRoutes(
       plans.push(value.plan);
       planByLine.set(sl, plans);
     }
-    if (planByLine.size === 0) return null;
+    const missingCampuses = serviceLines.flatMap((serviceLine) => {
+      const missing = campusRows.filter((campus) =>
+        !latestByCampusLine.has(`${campus.id}::${serviceLine}`),
+      );
+      return missing.map((campus) => ({
+        locationId: campus.id,
+        locationName: campus.name,
+        serviceLines: [serviceLine],
+      }));
+    });
+    const missingByCampus = new Map<string, AnnualReportGenerationStatus["missingCampuses"][number]>();
+    for (const missing of missingCampuses) {
+      const existing = missingByCampus.get(missing.locationId);
+      if (existing) existing.serviceLines.push(...missing.serviceLines);
+      else missingByCampus.set(missing.locationId, { ...missing, serviceLines: [...missing.serviceLines] });
+    }
+    const generationStatus: AnnualReportGenerationStatus = {
+      state: missingCampuses.length > 0 ? "incomplete" : "complete",
+      generationAt: selectedGenerationAt ? new Date(selectedGenerationAt).toISOString() : null,
+      expectedCampusCount: campusRows.length,
+      includedCampusCount: new Set(
+        Array.from(latestByCampusLine.keys()).map((key) => key.slice(0, key.indexOf("::"))),
+      ).size,
+      missingCampuses: Array.from(missingByCampus.values()).map((campus) => ({
+        ...campus,
+        serviceLines: Array.from(new Set(campus.serviceLines)),
+      })),
+    };
+
+    // Do not calculate a partial service-line total. It is represented in
+    // tierGrid.skipped and the shared generation status instead.
+    for (const serviceLine of serviceLines) {
+      if (campusRows.some((campus) => !latestByCampusLine.has(`${campus.id}::${serviceLine}`))) {
+        planByLine.delete(serviceLine);
+      }
+    }
 
     const weightedAverage = (plans: any[], selector: (plan: any) => unknown): number => {
       let total = 0;
@@ -1512,7 +1573,6 @@ export function registerInhousePlanningRoutes(
       const linePlans = planByLine.get(serviceLine);
       return linePlans?.length ? [{ sl: serviceLine, plan: rollUpPlan(serviceLine, linePlans) }] : [];
     });
-    if (plans.length === 0) return null;
     const inputSnapshot = Array.from(latestByCampusLine.values())
       .map((value) => value.inputSnapshot)
       .find((snapshot) => snapshot.length > 0) ?? [];
@@ -1657,17 +1717,24 @@ export function registerInhousePlanningRoutes(
       plans,
       tierGrid: {
         lines: tierLines,
-        skipped: [],
+        skipped: serviceLines
+          .filter((serviceLine) => !planByLine.has(serviceLine))
+          .map((serviceLine) => ({
+            sl: serviceLine,
+            message: "Unavailable: one or more campuses are missing from the selected report generation.",
+          })),
         scopeKey,
         inputSnapshot,
+        generationStatus,
       },
       generatedAt: new Date(
         Math.max(...Array.from(latestByCampusLine.values()).map((value) => value.generatedAt)),
       ).toISOString(),
-      status: "campus_rollup",
-      campusNames: plans.map(({ sl }) => sl).length
-        ? campusRows.map((campus) => campus.name)
-        : [],
+      status: generationStatus.state === "incomplete"
+        ? "incomplete_generation"
+        : "campus_rollup",
+      generationStatus,
+      campusNames: campusRows.map((campus) => campus.name),
     };
   }
 

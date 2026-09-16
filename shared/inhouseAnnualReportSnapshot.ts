@@ -350,3 +350,15 @@ export function compactPlanForAnnualReport(plan: PlanResult): AnnualReportPlanSn
     residentIncreaseDistribution: fullResidentIncreaseDistribution,
   };
 }
+
+export interface AnnualReportGenerationStatus {
+  state: "complete" | "incomplete";
+  generationAt: string | null;
+  expectedCampusCount: number;
+  includedCampusCount: number;
+  missingCampuses: Array<{
+    locationId: string;
+    locationName: string;
+    serviceLines: string[];
+  }>;
+}

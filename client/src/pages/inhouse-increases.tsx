@@ -1430,6 +1430,17 @@ interface TierGridResult {
   scopeKey: string;
   inputsKey: string;
   inputSnapshot: PlanningInputSnapshotEntry[];
+  generationStatus?: {
+    state: "complete" | "incomplete";
+    generationAt: string | null;
+    expectedCampusCount: number;
+    includedCampusCount: number;
+    missingCampuses: Array<{
+      locationId: string;
+      locationName: string;
+      serviceLines: string[];
+    }>;
+  };
 }
 
 /**
@@ -2705,6 +2716,9 @@ export default function InhouseIncreases() {
         scopeKey: reportTierGrid.scopeKey,
         inputsKey: reportTierGrid.inputsKey,
         inputSnapshot: reportTierGrid.inputSnapshot,
+        ...(reportTierGrid.generationStatus
+          ? { generationStatus: reportTierGrid.generationStatus }
+          : {}),
       };
       const payload = {
         scopeKey: reportTierGrid.scopeKey,
@@ -3277,6 +3291,7 @@ export default function InhouseIncreases() {
       inputsKey: saved.inputsKey ??
         (inputSnapshot.length ? planningInputSnapshotKey(inputSnapshot) : tierInputsKey),
       inputSnapshot,
+      generationStatus: saved.generationStatus ?? undefined,
     });
   }, [
     calculatedPlanKey,

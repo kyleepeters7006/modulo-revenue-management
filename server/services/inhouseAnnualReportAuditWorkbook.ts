@@ -4,6 +4,7 @@ import {
   annualRateGrowthRevenue,
   annualReportServiceLineLabel,
   type AnnualReportPlanSnapshot,
+  type AnnualReportGenerationStatus,
 } from "@shared/inhouseAnnualReportSnapshot";
 import type { PlanResult } from "@shared/inhousePlanning";
 import { DAYS_PER_MONTH } from "@shared/careRates";
@@ -47,6 +48,7 @@ export interface AnnualReportAuditWorkbookInput {
     serviceLines: string[];
     plans: ReportPlanEntry[];
     tierGrid?: unknown;
+    generationStatus?: AnnualReportGenerationStatus | null;
   };
   detailPlans: Array<{ sl: string; plan: DetailPlan }>;
   detailGeneratedAt?: string | Date | null;
@@ -144,6 +146,18 @@ function styleNote(ws: ExcelJS.Worksheet, row: number, text: string, lastColumn:
   ws.getRow(row).height = 30;
 }
 
+function reportGenerationStatus(
+  input: AnnualReportAuditWorkbookInput,
+): AnnualReportGenerationStatus | null {
+  if (input.report.generationStatus?.state) return input.report.generationStatus;
+  const grid = input.report.tierGrid;
+  const status = grid && typeof grid === "object"
+    ? (grid as { generationStatus?: unknown }).generationStatus
+    : null;
+  return status && typeof status === "object"
+    ? status as AnnualReportGenerationStatus
+    : null;
+}
 function styleTotal(row: ExcelJS.Row) {
   row.eachCell({ includeEmpty: true }, (cell) => {
     cell.font = { bold: true };
@@ -246,9 +260,18 @@ function buildReportTotals(
     width: [18, 19, 19, 12, 22, 22, 12, 19, 24, 25, 14, 11, 13, 24, 12, 14][index],
   }));
   styleTitle(ws, "Annual report audit — report totals", columns.length);
+  const generation = reportGenerationStatus(input);
+  if (generation?.state === "incomplete") {
+    styleNote(
+      ws,
+      2,
+      `INCOMPLETE GENERATION: ${generation.includedCampusCount} of ${generation.expectedCampusCount} campuses included. Missing campuses were not substituted with older snapshots: ${generation.missingCampuses.map((campus) => campus.locationName).join(", ") || "not identified"}.`,
+      columns.length,
+    );
+  }
   styleNote(
     ws,
-    2,
+    generation?.state === "incomplete" ? 3 : 2,
     `Report ${input.report.id} · scope ${input.report.scopeKey} · generated ${new Date(input.report.generatedAt).toLocaleString("en-US")} · detail snapshot ${input.detailGeneratedAt ? new Date(input.detailGeneratedAt).toLocaleString("en-US") : "not timestamped"}. Numeric service-line cells link to the Resident detail tab; derived percentages and the total row are Excel formulas.`,
     columns.length,
   );

@@ -41,7 +41,20 @@ type TierLine = {
   cells: OccupancyTierPlanCell[];
   warnings: string[];
 };
-type TierGrid = { lines: TierLine[]; skipped: Array<{ sl: string; message: string }>; scopeKey: string };
+type TierGrid = {
+  lines: TierLine[];
+  skipped: Array<{ sl: string; message: string }>;
+  scopeKey: string;
+  generationStatus?: GenerationStatus | null;
+};
+
+type GenerationStatus = {
+  state: "complete" | "incomplete";
+  generationAt: string | null;
+  expectedCampusCount: number;
+  includedCampusCount: number;
+  missingCampuses: Array<{ locationId: string; locationName: string; serviceLines: string[] }>;
+};
 type AnnualReport = {
   id: string;
   generatedAt: string;
@@ -51,6 +64,7 @@ type AnnualReport = {
   plans: PlanWithSl[];
   tierGrid: TierGrid;
   status?: string;
+  generationStatus?: GenerationStatus | null;
 };
 type ApiResponse = { report: AnnualReport | null };
 type ScatterApiResponse = {
@@ -241,6 +255,18 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
           </div>
         </div>
       </header>
+      {report.generationStatus?.state === "incomplete" && (
+        <Alert variant="destructive">
+          <AlertTitle>Incomplete report generation</AlertTitle>
+          <AlertDescription>
+            This report uses generation {report.generationStatus.generationAt
+              ? dateTime(report.generationStatus.generationAt)
+              : "—"} and includes {report.generationStatus.includedCampusCount} of{" "}
+            {report.generationStatus.expectedCampusCount} campuses. Missing campuses are unavailable rather than mixed with an older generation:
+            {" "}{report.generationStatus.missingCampuses.map((campus) => campus.locationName).join(", ")}.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi label="Recommended average increase" value={pct(weightedIncrease)} note="Revenue-weighted measured-tier plan" accent />
