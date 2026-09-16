@@ -872,15 +872,12 @@ function drawWorkbookScatterplots(
       const value = point[field] ?? 0;
       const px = plotX + (point.occupancy - xMin) / (xMax - xMin) * plotWidth;
       const py = plotY + plotHeight - (value - yMin) / (yMax - yMin) * plotHeight;
-      const labelWidth = Math.max(10, point.line.length * 4.2);
-      const candidates = [
-        { x: px + 4, y: py - 2, align: "left" as const },
-        { x: px - labelWidth - 4, y: py - 2, align: "left" as const },
-        { x: px - labelWidth / 2, y: py - 9, align: "left" as const },
-        { x: px - labelWidth / 2, y: py + 5, align: "left" as const },
-        { x: px + 4, y: py - 9, align: "left" as const },
-        { x: px - labelWidth - 4, y: py - 9, align: "left" as const },
-      ];
+      const labelWidth = Math.max(18, point.line.length * 4.8 + 2);
+      const candidates = [-20, -10, 2, 14, 26].flatMap((offset) => [
+        { x: px + 4, y: py + offset, align: "left" as const },
+        { x: px - labelWidth - 4, y: py + offset, align: "left" as const },
+        { x: px - labelWidth / 2, y: py + offset, align: "left" as const },
+      ]);
       const placement = candidates.find((candidate) => {
         const box = {
           left: candidate.x,

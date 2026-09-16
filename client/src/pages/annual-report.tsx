@@ -685,15 +685,13 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
     const labelPlacements = points.map((point) => {
       const px = sx(point.occupancy);
       const py = sy(point[field]);
-      const labelWidth = Math.max(15, point.sl.length * 7);
-      const candidates = [
-        { x: px + 6, y: py + 3, anchor: "start" as const },
-        { x: px - 6, y: py + 3, anchor: "end" as const },
-        { x: px, y: py - 7, anchor: "middle" as const },
-        { x: px, y: py + 12, anchor: "middle" as const },
-        { x: px + 6, y: py - 6, anchor: "start" as const },
-        { x: px - 6, y: py - 6, anchor: "end" as const },
-      ];
+      const label = annualReportServiceLineLabel(point.sl);
+      const labelWidth = Math.max(15, label.length * 7);
+      const candidates = [-20, -10, 3, 16, 29].flatMap((offset) => [
+        { x: px + 6, y: py + offset, anchor: "start" as const },
+        { x: px - 6, y: py + offset, anchor: "end" as const },
+        { x: px, y: py + offset, anchor: "middle" as const },
+      ]);
       const placement = candidates.find((candidate) => {
         const left = candidate.anchor === "start"
           ? candidate.x
@@ -736,7 +734,7 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
           {labelPlacements.map(({ point, px, py, x, y, anchor }) => (
             <g key={`${field}-${point.sl}`}>
               <circle cx={px} cy={py} r="5.2" fill={REPORT_SCATTER_COLORS[point.sl] ?? "#44546A"} />
-               <text x={x} y={y} textAnchor={anchor} className="report-scatter-label">{annualReportServiceLineLabel(point.sl)}</text>
+               <text x={x} y={y} textAnchor={anchor} className="report-scatter-label">{label}</text>
             </g>
           ))}
         </svg>
