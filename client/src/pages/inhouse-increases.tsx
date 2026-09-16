@@ -1845,8 +1845,6 @@ export default function InhouseIncreases() {
   const tierScopeKeyRef = useRef(tierScopeKey);
   tierScopeKeyRef.current = tierScopeKey;
   const singleLine = serviceLines.length === 1 ? serviceLines[0] : null;
-  const planHistoryScopeKey = `${scopeLocationId ?? "all"}|${singleLine ?? "all"}|${division || "all-divisions"}`;
-  const [submittedPlanScopeKey, setSubmittedPlanScopeKey] = useState<string | null>(null);
   const calculatedPlanKey = useMemo(
     () => storageIdentityKey
       ? calculatedPlanScopeKey(scopeLocationId, serviceLines, division || null)
@@ -3080,7 +3078,6 @@ export default function InhouseIncreases() {
       // Keep Reference Data navigation available immediately after the
       // transaction succeeds. The history query is invalidated below and can
       // briefly expose no rows while it refetches.
-      setSubmittedPlanScopeKey(planHistoryScopeKey);
       queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/plans"] });
       queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"], exact: false });
       queryClient.invalidateQueries({ queryKey: ["/api/reference-data"], exact: false });
@@ -3113,9 +3110,9 @@ export default function InhouseIncreases() {
       return res.json();
     },
   });
-  const hasSubmittedPlanForScope =
-    (plansQuery.data?.plans?.length ?? 0) > 0 ||
-    submittedPlanScopeKey === planHistoryScopeKey;
+  const activeSubmittedPlans = (plansQuery.data?.plans ?? []).filter((plan) =>
+    ["proposed", "applied", "published"].includes(plan.status),
+  );
 
   const latestAnnualReportQuery = useQuery<{
     report: {
@@ -3399,6 +3396,34 @@ export default function InhouseIncreases() {
     },
     onError: (err: Error) =>
       toast({ title: "Could not remove plan", description: cleanError(err.message), variant: "destructive" }),
+  });
+
+  const removeSubmittedPlans = useMutation({
+    mutationFn: async () => {
+      if (activeSubmittedPlans.length === 0) {
+        throw new Error("There are no submitted plans for this scope.");
+      }
+      await Promise.all(
+        activeSubmittedPlans.map((plan) =>
+          apiRequest(`/api/inhouse-planning/plans/${encodeURIComponent(plan.id)}/remove`, "POST"),
+        ),
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/plans"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/reference-data"], exact: false });
+      toast({
+        title: "Submitted plans removed",
+        description: "The submitted plans no longer appear in Reference Data. Their history was retained.",
+      });
+    },
+    onError: (err: Error) =>
+      toast({
+        title: "Could not remove submitted plans",
+        description: cleanError(err.message),
+        variant: "destructive",
+      }),
   });
 
   function update<K extends keyof PlanningAssumptions>(key: K, value: PlanningAssumptions[K]) {
@@ -5791,17 +5816,37 @@ export default function InhouseIncreases() {
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={!hasSubmittedPlanForScope}
+                  disabled={false}
                   onClick={() => {
                     setLocation(referenceDataUrl());
                   }}
-                  title={!hasSubmittedPlanForScope
-                    ? "Submit the calculated proposal first so Reference Data can load it."
-                    : "Open the submitted or applied plan columns in Reference Data."}
+                  title="Open the submitted or applied plan columns in Reference Data."
                   data-testid="view-inhouse-plan-reference-data"
                 >
                   <ExternalLink className="mr-2 h-4 w-4" />
                   View in Reference Data
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  disabled={activeSubmittedPlans.length === 0 || removeSubmittedPlans.isPending}
+                  onClick={() => {
+                    if (window.confirm(
+                      `Remove ${activeSubmittedPlans.length === 1 ? "this submitted plan" : `these ${activeSubmittedPlans.length} submitted plans`} from Reference Data? The audit history will be retained.`,
+                    )) {
+                      removeSubmittedPlans.mutate();
+                    }
+                  }}
+                  title={activeSubmittedPlans.length === 0
+                    ? "There are no submitted plans for this scope."
+                    : "Remove submitted plans from Reference Data while retaining their history."}
+                  data-testid="remove-submitted-inhouse-plans"
+                >
+                  {removeSubmittedPlans.isPending
+                    ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    : <Trash2 className="mr-2 h-4 w-4" />}
+                  Remove submitted plan{activeSubmittedPlans.length === 1 ? "" : "s"}
                 </Button>
               </div>
 

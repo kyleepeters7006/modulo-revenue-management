@@ -50,6 +50,15 @@ export interface AppliedPlanIndex {
   isEmpty: boolean;
   /** Scopes covered, so callers can narrow their own queries instead of scanning. */
   scopes: Array<{ location: string | null; serviceLine: string }>;
+  /** One entry per stored plan, including its street-rate recommendation. */
+  planScopes?: Array<{
+    planId: string;
+    status: "applied" | "proposed";
+    location: string | null;
+    serviceLine: string;
+    streetRate: number | null;
+    streetEffectiveDate: string | null;
+  }>;
 }
 
 const EMPTY: AppliedPlanIndex = {
@@ -57,7 +66,10 @@ const EMPTY: AppliedPlanIndex = {
   byResidentRoom: new Map(),
   isEmpty: true,
   scopes: [],
+  planScopes: [],
 };
+
+export type AppliedPlanScope = NonNullable<AppliedPlanIndex["planScopes"]>[number];
 
 /**
  * Identity for one resident's room.
@@ -140,11 +152,22 @@ async function loadPlanRates(
   const byUnit = new Map<string, AppliedPlanUnitRate>();
   const byResidentRoom = new Map<string, AppliedPlanUnitRate>();
   const scopes: Array<{ location: string | null; serviceLine: string }> = [];
+  const planScopes: AppliedPlanScope[] = [];
   let skipped = 0;
 
   for (const plan of res.rows) {
     const serviceLine: string = plan.service_line;
     scopes.push({ location: plan.location ?? null, serviceLine });
+    planScopes.push({
+      planId: String(plan.id),
+      status,
+      location: plan.location ?? null,
+      serviceLine,
+      streetRate: Number.isFinite(Number(plan.recommended_street_rate))
+        ? Number(plan.recommended_street_rate)
+        : null,
+      streetEffectiveDate: plan.street_rate_effective_date ?? null,
+    });
 
     const residents = Array.isArray(plan.residents) ? plan.residents : [];
     const planRoomFallbacks = new Map<string, AppliedPlanUnitRate>();
@@ -214,7 +237,7 @@ async function loadPlanRates(
     console.warn(`[${status}-plan-rates] skipped ${skipped} resident(s) with incomplete rate figures`);
   }
 
-  return { byUnit, byResidentRoom, isEmpty: byUnit.size === 0, scopes };
+  return { byUnit, byResidentRoom, isEmpty: byUnit.size === 0, scopes, planScopes };
 }
 
 export async function loadAppliedPlanRates(clientId: string): Promise<AppliedPlanIndex> {
@@ -226,8 +249,34 @@ export async function loadRecommendedPlanRates(clientId: string): Promise<Applie
   return loadPlanRates(clientId, "proposed");
 }
 
+/**
+ * Find the latest plan whose scope covers a Reference Data campus. A null
+ * location is portfolio-wide; division plans use the persisted
+ * `__division__:<name>` marker. The loader orders plans oldest-first, so the
+ * last matching entry is the current one.
+ */
+export function findPlanScope(
+  index: AppliedPlanIndex,
+  campus: string,
+  division: string | null | undefined,
+  serviceLine: string,
+): AppliedPlanScope | null {
+  const scopes = index.planScopes ?? [];
+  let match: AppliedPlanScope | null = null;
+  for (const scope of scopes) {
+    if (scope.serviceLine !== serviceLine) continue;
+    const applies = scope.location === null
+      || scope.location === campus
+      || (scope.location?.startsWith("__division__:") &&
+        scope.location.slice("__division__:".length) === (division ?? ""));
+    if (applies) match = scope;
+  }
+  return match;
+}
+
 /** Running total for one Reference Data group. */
 export interface PlanGroupAccumulator {
+  planId: string | null;
   residents: number;
   newRateSum: number;
   currentRateSum: number;
@@ -243,6 +292,7 @@ export interface PlanGroupAccumulator {
 
 export function newPlanGroupAccumulator(): PlanGroupAccumulator {
   return {
+    planId: null,
     residents: 0, newRateSum: 0, currentRateSum: 0,
     increaseDollarsSum: 0, increaseDollarsMonthlySum: 0, effectiveDate: null,
     streetRateSum: 0, streetRateCount: 0, streetEffectiveDate: null,
@@ -250,6 +300,7 @@ export function newPlanGroupAccumulator(): PlanGroupAccumulator {
 }
 
 export function addToPlanGroup(acc: PlanGroupAccumulator, rate: AppliedPlanUnitRate): void {
+  if (acc.planId === null) acc.planId = rate.planId;
   acc.residents += 1;
   acc.newRateSum += rate.newRate;
   acc.currentRateSum += rate.currentRate;
@@ -274,6 +325,7 @@ export function addToPlanGroup(acc: PlanGroupAccumulator, rate: AppliedPlanUnitR
 export function finalizePlanGroup(acc: PlanGroupAccumulator | undefined) {
   if (!acc || acc.residents === 0) {
     return {
+      ihPlanId: null,
       ihPlanNewRate: null,
       ihPlanCurrentRate: null,
       ihPlanDeltaDollar: null,
@@ -288,6 +340,7 @@ export function finalizePlanGroup(acc: PlanGroupAccumulator | undefined) {
   const n = acc.residents;
   const currentAvg = acc.currentRateSum / n;
   return {
+    ihPlanId: acc.planId,
     ihPlanNewRate: acc.newRateSum / n,
     ihPlanCurrentRate: currentAvg,
     ihPlanDeltaDollar: acc.increaseDollarsSum / n,

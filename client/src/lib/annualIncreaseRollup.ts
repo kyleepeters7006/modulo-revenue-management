@@ -1,6 +1,8 @@
 export type AnnualIncreasePrefix = "ihPlan" | "ihRecommendation";
 
 export interface AnnualIncreaseRollup {
+  planId: string | null;
+  planStatus: "applied" | "proposed" | null;
   residents: number | null;
   newRate: number | null;
   currentRate: number | null;
@@ -10,6 +12,16 @@ export interface AnnualIncreaseRollup {
   effectiveDate: string | null;
   streetRate: number | null;
   streetEffectiveDate: string | null;
+}
+
+export interface AnnualStreetIncreaseRollup {
+  planId: string | null;
+  planStatus: "applied" | "proposed" | null;
+  newRate: number | null;
+  currentRate: number | null;
+  deltaDollar: number | null;
+  deltaPct: number | null;
+  effectiveDate: string | null;
 }
 
 /**
@@ -32,6 +44,8 @@ export function rollupAnnualIncrease(
   let streetRateSum = 0;
   let streetRateResidents = 0;
   let streetEffectiveDate: string | null = null;
+  const planIds = new Set<string>();
+  const planStatuses = new Set<"applied" | "proposed">();
 
   for (const row of rows) {
     const covered = Number(row[`${prefix}Residents`] ?? 0);
@@ -64,6 +78,10 @@ export function rollupAnnualIncrease(
     ) continue;
 
     residents += covered;
+    const planId = row[`${prefix}PlanId`];
+    if (planId) planIds.add(String(planId));
+    const planStatus = row[`${prefix}Status`];
+    if (planStatus === "applied" || planStatus === "proposed") planStatuses.add(planStatus);
     newRateSum += newRate * covered;
     currentRateSum += currentRate * covered;
     displayDeltaSum += deltaDollar * covered;
@@ -82,6 +100,8 @@ export function rollupAnnualIncrease(
   }
 
   return {
+    planId: planIds.size === 1 ? [...planIds][0] : null,
+    planStatus: planStatuses.size === 1 ? [...planStatuses][0] : null,
     residents: residents || null,
     newRate: residents ? newRateSum / residents : null,
     currentRate: residents ? currentRateSum / residents : null,
@@ -91,5 +111,54 @@ export function rollupAnnualIncrease(
     effectiveDate,
     streetRate: streetRateResidents ? streetRateSum / streetRateResidents : null,
     streetEffectiveDate,
+  };
+}
+
+/**
+ * Roll an annual-plan street target upward using total units. Street plans
+ * apply to asking rates for vacant and occupied units, unlike the in-house
+ * plan, which is intentionally resident-scoped.
+ */
+export function rollupAnnualStreetIncrease(
+  rows: Record<string, any>[],
+  prefix: AnnualIncreasePrefix,
+): AnnualStreetIncreaseRollup {
+  let units = 0;
+  let newRateSum = 0;
+  let currentRateSum = 0;
+  let effectiveDate: string | null = null;
+  const planIds = new Set<string>();
+  const statuses = new Set<"applied" | "proposed">();
+
+  for (const row of rows) {
+    const newRate = Number(row[`${prefix}StreetRate`]);
+    const currentRate = Number(row.streetSpot);
+    const weight = Number(row.totalUnits ?? 0);
+    if (!Number.isFinite(newRate) || !Number.isFinite(currentRate) || currentRate <= 0 || weight <= 0) {
+      continue;
+    }
+    units += weight;
+    newRateSum += newRate * weight;
+    currentRateSum += currentRate * weight;
+    const planId = row[`${prefix}PlanId`];
+    if (planId) planIds.add(String(planId));
+    const status = row[`${prefix}StreetStatus`];
+    if (status === "applied" || status === "proposed") statuses.add(status);
+    if (effectiveDate === null && row[`${prefix}StreetEffectiveDate`]) {
+      effectiveDate = String(row[`${prefix}StreetEffectiveDate`]);
+    }
+  }
+
+  const newRate = units > 0 ? newRateSum / units : null;
+  const currentRate = units > 0 ? currentRateSum / units : null;
+  const deltaDollar = newRate !== null && currentRate !== null ? newRate - currentRate : null;
+  return {
+    planId: planIds.size === 1 ? [...planIds][0] : null,
+    planStatus: statuses.size === 1 ? [...statuses][0] : null,
+    newRate,
+    currentRate,
+    deltaDollar,
+    deltaPct: currentRate && deltaDollar !== null ? deltaDollar / currentRate : null,
+    effectiveDate,
   };
 }

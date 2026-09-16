@@ -10,7 +10,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { rollupAnnualIncrease } from "@/lib/annualIncreaseRollup";
+import {
+  rollupAnnualIncrease,
+  rollupAnnualStreetIncrease,
+} from "@/lib/annualIncreaseRollup";
 import {
   Popover,
   PopoverContent,
@@ -260,11 +263,20 @@ const GROUPS: GroupDef[] = [
     label: "Calculated In-House Increase",
     cols: [
       { key: "ihCalculatedNewRate", label: "In House", type: "money", w: 88, tip: "Calculated in-house rate for covered residents. Applied plans take precedence; otherwise this shows the latest submitted recommendation." },
-      { key: "ihCalculatedStreetRate", label: "Street", type: "money", w: 88, tip: "Calculated street rate from the same plan, in the service line's daily or monthly display basis." },
       { key: "ihCalculatedDeltaDollar", label: "$ Change", type: "moneysigned", w: 82, tip: "Calculated in-house rate minus current in-house rate, averaged over covered residents." },
       { key: "ihCalculatedDeltaPct", label: "% Change", type: "pctfracsigned", w: 82, tip: "Calculated in-house increase divided by covered residents' current in-house rate." },
       { key: "ihCalculatedEffectiveDate", label: "Effective Date", type: "text", w: 96, tip: "Effective date of the calculated in-house increase." },
       { key: "ihCalculatedAnnualImpact", label: "Annual Impact", type: "moneysigned", w: 100, tip: "Annualized resident revenue impact: monthly in-house increase multiplied by 12." },
+    ],
+  },
+  {
+    id: "streetCalculated",
+    label: "Calculated Street Increase",
+    cols: [
+      { key: "streetCalculatedNewRate", label: "Street", type: "money", w: 88, tip: "Annual-plan street rate target. Applied plans take precedence; otherwise this shows the latest submitted recommendation." },
+      { key: "streetCalculatedDeltaDollar", label: "$ Change", type: "moneysigned", w: 82, tip: "Annual-plan street rate minus the current spot street rate." },
+      { key: "streetCalculatedDeltaPct", label: "% Change", type: "pctfracsigned", w: 82, tip: "Annual-plan street rate increase divided by the current spot street rate." },
+      { key: "streetCalculatedEffectiveDate", label: "Effective Date", type: "text", w: 96, tip: "Effective date of the annual-plan street-rate increase." },
     ],
   },
   {
@@ -488,6 +500,8 @@ function aggregateRows(
     {
       const rollupPlan = (prefix: "ihPlan" | "ihRecommendation") => {
         const rolled = rollupAnnualIncrease(rs, prefix);
+        out[`${prefix}PlanId`] = rolled.planId;
+        out[`${prefix}Status`] = rolled.planStatus;
         out[`${prefix}Residents`] = rolled.residents;
         out[`${prefix}NewRate`] = rolled.newRate;
         out[`${prefix}CurrentRate`] = rolled.currentRate;
@@ -500,6 +514,17 @@ function aggregateRows(
       };
       rollupPlan("ihPlan");
       rollupPlan("ihRecommendation");
+      const rollupStreet = (prefix: "ihPlan" | "ihRecommendation") => {
+        const rolled = rollupAnnualStreetIncrease(rs, prefix);
+        out[`${prefix}StreetPlanId`] = rolled.planId;
+        out[`${prefix}StreetStatus`] = rolled.planStatus;
+        out[`${prefix}StreetRate`] = rolled.newRate;
+        out[`${prefix}StreetDeltaDollar`] = rolled.deltaDollar;
+        out[`${prefix}StreetDeltaPct`] = rolled.deltaPct;
+        out[`${prefix}StreetEffectiveDate`] = rolled.effectiveDate;
+      };
+      rollupStreet("ihPlan");
+      rollupStreet("ihRecommendation");
     }
     // % impact recomputed from summed components (never average %s): summed
     // move-ins-based monthly impact ÷ summed current in-house revenue
@@ -778,6 +803,25 @@ export default function ReferenceDataTable({
   const [overrideNote, setOverrideNote] = useState('');
   const [noteEditKey, setNoteEditKey] = useState<string | null>(null);
   const [noteEditVal, setNoteEditVal] = useState('');
+  const [streetPlanPop, setStreetPlanPop] = useState<{
+    key: string;
+    planId: string;
+    campus: string;
+    serviceLine: string;
+    roomType: string;
+    mode: 'rate' | 'dollar' | 'pct';
+    currentRate: number;
+  } | null>(null);
+  const [streetPlanInput, setStreetPlanInput] = useState('');
+  const [inhousePlanPop, setInhousePlanPop] = useState<{
+    key: string;
+    planId: string;
+    campus: string;
+    serviceLine: string;
+    roomType: string;
+    sourceRoomType: string;
+  } | null>(null);
+  const [inhousePlanInput, setInhousePlanInput] = useState('');
 
   const overrideSaveMutation = useMutation({
     mutationFn: async (payload: { campus: string; serviceLine: string; roomType: string; locationId: string | null; overrideRate: number; notes?: string }) =>
@@ -801,6 +845,56 @@ export default function ReferenceDataTable({
       queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-overrides'] });
       queryClient.invalidateQueries({ queryKey: ['/api/manual-rate-override-history'] });
       setOverridePop(null);
+    },
+  });
+
+  const streetPlanEditMutation = useMutation({
+    mutationFn: async (payload: { planId: string; streetRate: number }) =>
+      apiRequest(`/api/inhouse-planning/plans/${encodeURIComponent(payload.planId)}/street-rate`, 'PATCH', {
+        streetRate: payload.streetRate,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/reference-data'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/inhouse-planning/plans'] });
+      setStreetPlanPop(null);
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Failed to update annual street rate',
+        description: err?.message ?? 'Could not update the proposed annual plan.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const inhousePlanEditMutation = useMutation({
+    mutationFn: async (payload: {
+      planId: string;
+      increasePct: number;
+      campus: string;
+      serviceLine: string;
+      roomType: string;
+      sourceRoomType: string;
+    }) =>
+      apiRequest(`/api/inhouse-planning/plans/${encodeURIComponent(payload.planId)}/inhouse-rate`, 'PATCH', {
+        increasePct: payload.increasePct,
+        campus: payload.campus,
+        serviceLine: payload.serviceLine,
+        roomType: payload.roomType,
+        sourceRoomType: payload.sourceRoomType,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/reference-data'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/reference-data/units'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/inhouse-planning/plans'] });
+      setInhousePlanPop(null);
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Failed to update annual in-house rate',
+        description: err?.message ?? 'Could not update the proposed annual plan.',
+        variant: 'destructive',
+      });
     },
   });
 
@@ -959,14 +1053,32 @@ export default function ReferenceDataTable({
       // applied values win; otherwise show the latest submitted recommendation.
       const calculatedPrefix = row.ihPlanNewRate != null ? "ihPlan" : "ihRecommendation";
       out.ihCalculatedNewRate = row[`${calculatedPrefix}NewRate`] ?? null;
-      out.ihCalculatedStreetRate = row[`${calculatedPrefix}StreetRate`] ?? null;
       out.ihCalculatedDeltaDollar = row[`${calculatedPrefix}DeltaDollar`] ?? null;
       out.ihCalculatedDeltaPct = row[`${calculatedPrefix}DeltaPct`] ?? null;
       out.ihCalculatedEffectiveDate = row[`${calculatedPrefix}EffectiveDate`] ?? null;
+      out.ihCalculatedPlanId = row[`${calculatedPrefix}PlanId`] ?? null;
+      out.ihCalculatedPlanStatus = row[`${calculatedPrefix}Status`] ?? null;
       const calculatedMonthlyImpact = row[`${calculatedPrefix}MonthlyImpact`];
       out.ihCalculatedAnnualImpact = calculatedMonthlyImpact == null
         ? null
         : Number(calculatedMonthlyImpact) * 12;
+
+      const streetPrefix = row.ihPlanStreetRate != null ? "ihPlan" : "ihRecommendation";
+      out.streetCalculatedNewRate = row[`${streetPrefix}StreetRate`] ?? null;
+      out.streetCalculatedDeltaDollar = row[`${streetPrefix}StreetDeltaDollar`] ??
+        (out.streetCalculatedNewRate != null && row.streetSpot != null
+          ? Number(out.streetCalculatedNewRate) - Number(row.streetSpot)
+          : null);
+      out.streetCalculatedDeltaPct = row[`${streetPrefix}StreetDeltaPct`] ??
+        (out.streetCalculatedNewRate != null && row.streetSpot != null && Number(row.streetSpot) !== 0
+          ? (Number(out.streetCalculatedNewRate) - Number(row.streetSpot)) / Number(row.streetSpot)
+          : null);
+      out.streetCalculatedEffectiveDate = row[`${streetPrefix}StreetEffectiveDate`] ?? null;
+      out.streetCalculatedPlanId = row[`${streetPrefix}StreetPlanId`]
+        ?? row[`${streetPrefix}PlanId`]
+        ?? row.ihStreetPlanId
+        ?? null;
+      out.streetCalculatedPlanStatus = row[`${streetPrefix}StreetStatus`] ?? row.ihStreetPlanStatus ?? null;
 
       // Rate-change deltas recomputed from wavg base values at aggregation levels.
       // Averaging per-row percentage deltas introduces a mix-effect when unit counts shift
@@ -1906,7 +2018,201 @@ export default function ReferenceDataTable({
                     ...(isFrozen ? { left: frozenLeft } : {}),
                   }}
                 >
-                {c.key === "proposedRule" && groupLevel === "roomType" ? (() => {
+                 {c.key === "ihCalculatedDeltaPct"
+                   && groupLevel === "roomType"
+                   && row.ihCalculatedPlanId
+                   && row.ihCalculatedPlanStatus === "proposed" ? (() => {
+                     const popKey = `${row.campus}||${row.serviceLine}||${row.roomType}||inhouse`;
+                     const isOpen = inhousePlanPop?.key === popKey;
+                     const openInhousePlan = () => {
+                       const currentPct = Number(row.ihCalculatedDeltaPct) * 100;
+                       if (!Number.isFinite(currentPct)) return;
+                       setInhousePlanPop({
+                         key: popKey,
+                         planId: String(row.ihCalculatedPlanId),
+                         campus: row.campus,
+                         serviceLine: row.serviceLine,
+                         roomType: row.roomType,
+                         sourceRoomType: row.sourceRoomType ?? row.roomType,
+                       });
+                       setInhousePlanInput(String(Math.round(currentPct * 10) / 10));
+                     };
+                     const saveInhousePlan = () => {
+                       if (!inhousePlanPop) return;
+                       const value = Number(inhousePlanInput);
+                       if (!Number.isFinite(value) || value <= -100) return;
+                       inhousePlanEditMutation.mutate({
+                         planId: inhousePlanPop.planId,
+                         increasePct: value,
+                         campus: inhousePlanPop.campus,
+                         serviceLine: inhousePlanPop.serviceLine,
+                         roomType: inhousePlanPop.roomType,
+                         sourceRoomType: inhousePlanPop.sourceRoomType,
+                       });
+                     };
+                     return (
+                       <div className="flex items-center gap-0.5 justify-end group">
+                         <span className={colorCls}>{display || "—"}</span>
+                         <Popover
+                           open={isOpen}
+                           onOpenChange={(open) => {
+                             if (open) openInhousePlan();
+                             else setInhousePlanPop(null);
+                           }}
+                         >
+                           <PopoverTrigger asChild>
+                             <button
+                               type="button"
+                               className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 hover:bg-muted text-muted-foreground hover:text-primary focus:outline-none focus:opacity-100"
+                               title="Edit proposed annual in-house percentage"
+                             >
+                               <Pencil className="h-3 w-3" />
+                             </button>
+                           </PopoverTrigger>
+                           <PopoverContent className="w-64 p-3" align="end">
+                             <p className="text-xs font-semibold mb-0.5">Edit Annual In-House Increase</p>
+                             <p className="text-[10px] text-muted-foreground mb-2 leading-tight">
+                               {row.campus} · {row.serviceLine} · {row.roomType}
+                             </p>
+                             <p className="text-[10px] text-muted-foreground mb-2">
+                               The stored dollars and calculated rate will update from this percentage.
+                             </p>
+                             <div className="relative mb-2">
+                               <Input
+                                 type="number"
+                                 step="0.1"
+                                 value={inhousePlanInput}
+                                 onChange={e => setInhousePlanInput(e.target.value)}
+                                 placeholder="e.g. 5.0"
+                                 className="h-8 text-xs pr-8"
+                                 autoFocus
+                                 onKeyDown={e => { if (e.key === "Enter") saveInhousePlan(); }}
+                               />
+                               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">%</span>
+                             </div>
+                             <Button
+                               size="sm"
+                               className="h-7 w-full text-xs"
+                               disabled={inhousePlanEditMutation.isPending || inhousePlanInput === ""}
+                               onClick={saveInhousePlan}
+                             >
+                               Save
+                             </Button>
+                           </PopoverContent>
+                         </Popover>
+                       </div>
+                     );
+                   })() : ["streetCalculatedNewRate", "streetCalculatedDeltaDollar", "streetCalculatedDeltaPct"].includes(c.key)
+                   && groupLevel === "roomType"
+                   && row.streetCalculatedPlanId
+                   && row.streetCalculatedPlanStatus === "proposed" ? (() => {
+                     const popKey = `${row.campus}||${row.serviceLine}||${row.roomType}||${c.key}`;
+                     const isOpen = streetPlanPop?.key === popKey;
+                     const mode = c.key === "streetCalculatedNewRate"
+                       ? "rate"
+                       : c.key === "streetCalculatedDeltaDollar" ? "dollar" : "pct";
+                     const openStreetPlan = () => {
+                       const currentRate = Number(row.streetSpot);
+                       const plannedRate = Number(row.streetCalculatedNewRate);
+                       if (!Number.isFinite(currentRate) || currentRate <= 0 || !Number.isFinite(plannedRate)) return;
+                       const initial = mode === "rate"
+                         ? plannedRate
+                         : mode === "dollar"
+                           ? plannedRate - currentRate
+                           : ((plannedRate - currentRate) / currentRate) * 100;
+                       setStreetPlanPop({
+                         key: popKey,
+                         planId: String(row.streetCalculatedPlanId),
+                         campus: row.campus,
+                         serviceLine: row.serviceLine,
+                         roomType: row.roomType,
+                         mode,
+                         currentRate,
+                       });
+                       setStreetPlanInput(String(Math.round(initial * 10) / 10));
+                     };
+                     const saveStreetPlan = () => {
+                       if (!streetPlanPop) return;
+                       const value = Number(streetPlanInput);
+                       if (!Number.isFinite(value)) return;
+                       const target = streetPlanPop.mode === "rate"
+                         ? value
+                         : streetPlanPop.mode === "dollar"
+                           ? streetPlanPop.currentRate + value
+                           : streetPlanPop.currentRate * (1 + value / 100);
+                       if (!Number.isFinite(target) || target <= 0) return;
+                       streetPlanEditMutation.mutate({
+                         planId: streetPlanPop.planId,
+                         streetRate: Math.round(target * 100) / 100,
+                       });
+                     };
+                     const previewTarget = streetPlanInput !== "" && Number.isFinite(Number(streetPlanInput))
+                       ? mode === "rate"
+                         ? Number(streetPlanInput)
+                         : mode === "dollar"
+                           ? (Number(row.streetSpot) + Number(streetPlanInput))
+                           : Number(row.streetSpot) * (1 + Number(streetPlanInput) / 100)
+                       : null;
+                     return (
+                       <div className="flex items-center gap-0.5 justify-end group">
+                         <span className={colorCls}>{display || "—"}</span>
+                         <Popover
+                           open={isOpen}
+                           onOpenChange={(open) => {
+                             if (open) openStreetPlan();
+                             else setStreetPlanPop(null);
+                           }}
+                         >
+                           <PopoverTrigger asChild>
+                             <button
+                               type="button"
+                               className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 hover:bg-muted text-muted-foreground hover:text-primary focus:outline-none focus:opacity-100"
+                               title="Edit proposed annual street rate"
+                             >
+                               <Pencil className="h-3 w-3" />
+                             </button>
+                           </PopoverTrigger>
+                           <PopoverContent className="w-64 p-3" align="end">
+                             <p className="text-xs font-semibold mb-0.5">Edit Annual Street Rate</p>
+                             <p className="text-[10px] text-muted-foreground mb-2 leading-tight">
+                               {row.campus} · {row.serviceLine} · {row.roomType}
+                             </p>
+                             <p className="text-[10px] text-muted-foreground mb-2">
+                               Current street rate: <strong>${Math.round(Number(row.streetSpot)).toLocaleString()}</strong>
+                             </p>
+                             <div className="relative mb-2">
+                               <Input
+                                 type="number"
+                                 step={mode === "pct" ? "0.1" : "1"}
+                                 value={streetPlanInput}
+                                 onChange={e => setStreetPlanInput(e.target.value)}
+                                 placeholder={mode === "rate" ? "e.g. 6300" : mode === "dollar" ? "e.g. 250" : "e.g. 4.0"}
+                                 className="h-8 text-xs pr-8"
+                                 autoFocus
+                                 onKeyDown={e => { if (e.key === "Enter") saveStreetPlan(); }}
+                               />
+                               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
+                                 {mode === "rate" ? "$" : mode === "dollar" ? "$" : "%"}
+                               </span>
+                             </div>
+                             {previewTarget !== null && (
+                               <p className="text-[10px] text-muted-foreground mb-2">
+                                 New plan target: <strong>${Math.round(previewTarget).toLocaleString()}</strong>
+                               </p>
+                             )}
+                             <Button
+                               size="sm"
+                               className="h-7 w-full text-xs"
+                               disabled={streetPlanEditMutation.isPending || streetPlanInput === ""}
+                               onClick={saveStreetPlan}
+                             >
+                               Save
+                             </Button>
+                           </PopoverContent>
+                         </Popover>
+                       </div>
+                     );
+                   })() : c.key === "proposedRule" && groupLevel === "roomType" ? (() => {
                     const popKey = `${row.campus}||${row.serviceLine}||${row.roomType}`;
                     const isOpen = overridePop?.key === popKey;
                     return (

@@ -29210,7 +29210,7 @@ Return ONLY valid JSON, no markdown fences:
       // `ihPlanResidents` publishes that coverage rather than implying it.
       const {
         loadAppliedPlanRates, loadRecommendedPlanRates, unitKey: planUnitKey, newPlanGroupAccumulator,
-        addToPlanGroup, finalizePlanGroup,
+         addToPlanGroup, finalizePlanGroup, findPlanScope,
       } = await import('./services/inhouseRatePlanning/appliedPlanRates');
       const [appliedPlans, recommendedPlans] = await Promise.all([
         loadAppliedPlanRates(clientId),
@@ -29336,6 +29336,11 @@ Return ONLY valid JSON, no markdown fences:
         const recommendationFields = finalizePlanGroup(
           recommendationGroupMap.get(`${c.campus}||${c.serviceLine}||${c.roomType}`),
         );
+        const appliedStreetScope = findPlanScope(appliedPlans, c.campus, c.division, c.serviceLine);
+        const recommendedStreetScope = findPlanScope(
+          recommendedPlans, c.campus, c.division, c.serviceLine,
+        );
+        const streetPlan = appliedStreetScope ?? recommendedStreetScope;
 
         // Final precedence: a manual override still wins over everything; below
         // it an applied increase takes over from the rule rate, because for an
@@ -29422,6 +29427,7 @@ Return ONLY valid JSON, no markdown fences:
           campus: c.campus,
           serviceLine: c.serviceLine,
           roomType: c.roomType,
+           sourceRoomType: c.modeRoomType,
           locationId: c.locationId,
           totalUnits,
           // Vacant units — sourced from room_type_occupancy_history (physical rooms,
@@ -29569,8 +29575,24 @@ Return ONLY valid JSON, no markdown fences:
           ihRecommendationResidents: recommendationFields.ihPlanResidents,
           ihRecommendationMonthlyImpact: recommendationFields.ihPlanMonthlyImpact,
           ihRecommendationEffectiveDate: recommendationFields.ihPlanEffectiveDate,
-          ihRecommendationStreetRate: recommendationFields.ihPlanStreetRate,
-          ihRecommendationStreetEffectiveDate: recommendationFields.ihPlanStreetEffectiveDate,
+           ihPlanStatus: appliedStreetScope?.status ?? null,
+           ihRecommendationStatus: recommendedStreetScope?.status ?? null,
+           // Street recommendations apply to the whole annual-plan scope, not
+           // only to occupied residents that received an in-house increase.
+           ihPlanId: planFields.ihPlanId ?? appliedStreetScope?.planId ?? null,
+           ihPlanStreetRate: planFields.ihPlanStreetRate ?? appliedStreetScope?.streetRate ?? null,
+           ihPlanStreetEffectiveDate: planFields.ihPlanStreetEffectiveDate
+             ?? appliedStreetScope?.streetEffectiveDate ?? null,
+           ihPlanStreetStatus: appliedStreetScope?.status ?? null,
+           ihRecommendationPlanId: recommendationFields.ihPlanId
+             ?? recommendedStreetScope?.planId ?? null,
+           ihRecommendationStreetRate: recommendationFields.ihPlanStreetRate
+             ?? recommendedStreetScope?.streetRate ?? null,
+           ihRecommendationStreetEffectiveDate: recommendationFields.ihPlanStreetEffectiveDate
+             ?? recommendedStreetScope?.streetEffectiveDate ?? null,
+           ihRecommendationStreetStatus: recommendedStreetScope?.status ?? null,
+           ihStreetPlanId: streetPlan?.planId ?? null,
+           ihStreetPlanStatus: streetPlan?.status ?? null,
           // True when Final is showing the increase rather than a rule rate, so
           // the grid can label the two apart.
           finalFromPlan: manualRate === null && planFields.ihPlanNewRate !== null,
@@ -29823,7 +29845,8 @@ Return ONLY valid JSON, no markdown fences:
       const {
         loadAppliedPlanRates: loadPlansForUnits,
         loadRecommendedPlanRates: loadRecommendationsForUnits,
-        findPlanUnit: findPlanUnitForUnits,
+         findPlanUnit: findPlanUnitForUnits,
+         findPlanScope: findPlanScopeForUnits,
       } =
         await import('./services/inhouseRatePlanning/appliedPlanRates');
       const { parseFlexibleDate: parsePlanMoveIn } = await import('./services/inhouseRatePlanning/dates');
@@ -30084,6 +30107,12 @@ Return ONLY valid JSON, no markdown fences:
               r.source_room_type ?? null, parsePlanMoveIn(r.move_in_date),
             )
           : null;
+        const appliedStreetScope = findPlanScopeForUnits(
+          unitPlanIndex, r.campus, r.division, r.service_line,
+        );
+        const recommendedStreetScope = findPlanScopeForUnits(
+          unitRecommendationIndex, r.campus, r.division, r.service_line,
+        );
         const proposed = manualOverride ?? unitPlan?.newRate ?? num(r.proposed_rate) ?? rulePreviewMap.get(unitGroupKey) ?? null;
         return {
           division: r.division,
@@ -30111,29 +30140,42 @@ Return ONLY valid JSON, no markdown fences:
           // these across a group reproduces the grouped endpoint's figures:
           // residents sum, monthly impact sums, and the rate averages over
           // covered rooms only (uncovered rooms carry null, not 0).
-          ihPlanNewRate: unitPlan?.newRate ?? null,
+           ihPlanId: unitPlan?.planId ?? appliedStreetScope?.planId ?? null,
+           ihPlanNewRate: unitPlan?.newRate ?? null,
           ihPlanCurrentRate: unitPlan?.currentRate ?? null,
           // Δ$ stays in the display basis so it is comparable to the in-house
           // rate columns beside it (daily for HC); the impact below is monthly.
           ihPlanDeltaDollar: unitPlan?.increaseDollars ?? null,
-          ihPlanDeltaPct: unitPlan?.increasePct ?? null,
+           ihPlanDeltaPct: unitPlan?.increasePct != null ? unitPlan.increasePct / 100 : null,
           ihPlanResidents: unitPlan ? 1 : null,
           // Always the MONTHLY delta, never the display one: for daily-billed
           // HC/HC-MC the display delta is per day and would understate the
           // revenue impact by ~30x. Detail must sum to the grouped figure.
           ihPlanMonthlyImpact: unitPlan?.increaseDollarsMonthly ?? null,
           ihPlanEffectiveDate: unitPlan?.inhouseEffectiveDate ?? null,
-          ihPlanStreetRate: unitPlan?.streetRate ?? null,
-          ihPlanStreetEffectiveDate: unitPlan?.streetEffectiveDate ?? null,
-          ihRecommendationNewRate: unitRecommendation?.newRate ?? null,
+           ihPlanStreetRate: unitPlan?.streetRate ?? appliedStreetScope?.streetRate ?? null,
+           ihPlanStreetEffectiveDate: unitPlan?.streetEffectiveDate
+             ?? appliedStreetScope?.streetEffectiveDate ?? null,
+           ihPlanStreetStatus: appliedStreetScope?.status ?? null,
+           ihRecommendationPlanId: unitRecommendation?.planId
+             ?? recommendedStreetScope?.planId ?? null,
+           ihRecommendationNewRate: unitRecommendation?.newRate ?? null,
           ihRecommendationCurrentRate: unitRecommendation?.currentRate ?? null,
           ihRecommendationDeltaDollar: unitRecommendation?.increaseDollars ?? null,
-          ihRecommendationDeltaPct: unitRecommendation?.increasePct ?? null,
+           ihRecommendationDeltaPct: unitRecommendation?.increasePct != null
+             ? unitRecommendation.increasePct / 100
+             : null,
           ihRecommendationResidents: unitRecommendation ? 1 : null,
           ihRecommendationMonthlyImpact: unitRecommendation?.increaseDollarsMonthly ?? null,
           ihRecommendationEffectiveDate: unitRecommendation?.inhouseEffectiveDate ?? null,
-          ihRecommendationStreetRate: unitRecommendation?.streetRate ?? null,
-          ihRecommendationStreetEffectiveDate: unitRecommendation?.streetEffectiveDate ?? null,
+           ihPlanStatus: appliedStreetScope?.status ?? null,
+           ihRecommendationStatus: recommendedStreetScope?.status ?? null,
+           ihRecommendationStreetRate: unitRecommendation?.streetRate
+             ?? recommendedStreetScope?.streetRate ?? null,
+           ihRecommendationStreetEffectiveDate: unitRecommendation?.streetEffectiveDate
+             ?? recommendedStreetScope?.streetEffectiveDate ?? null,
+           ihRecommendationStreetStatus: recommendedStreetScope?.status ?? null,
+           sourceRoomType: r.source_room_type ?? r.room_type ?? null,
           finalFromPlan: manualOverride === null && unitPlan !== null,
           ...((): { revT3MoveIns: number | null; revMonthlyImpact: number | null; revAnnualImpact: number | null } => {
             const key = `${r.campus}||${r.service_line || 'Other'}||${r.room_type || 'Other'}`;

@@ -2064,6 +2064,303 @@ export function registerInhousePlanningRoutes(
     }
   });
 
+  // ── Edit proposed annual-plan street rate from Reference Data ─────────────
+  // This edits the street side of the annual-plan proposal, not a live rate
+  // override. The linked proposed rule is kept in sync so publishing the plan
+  // later uses the manually revised target.
+  app.patch("/api/inhouse-planning/plans/:id/street-rate", requireAuth, async (req: any, res) => {
+    const clientId = req.clientId || "demo";
+    const planId = String(req.params.id || "");
+    const streetRate = Number(req.body?.streetRate);
+    if (!Number.isFinite(streetRate) || streetRate <= 0) {
+      return res.status(400).json({ error: "streetRate must be a positive number" });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const planRes = await client.query<{
+        id: string;
+        status: string;
+        location: string | null;
+        service_line: string;
+        street_rate_effective_date: string | null;
+      }>(
+        `SELECT id, status, location, service_line, street_rate_effective_date
+           FROM inhouse_rate_plans
+          WHERE id = $1 AND client_id = $2
+          FOR UPDATE`,
+        [planId, clientId],
+      );
+      const plan = planRes.rows[0];
+      if (!plan) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      if (plan.status !== "proposed") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Only proposed annual plans can be edited" });
+      }
+
+      const currentRes = await client.query<{ current_rate: string | null }>(
+        `SELECT AVG(rr.street_rate)::text AS current_rate
+           FROM rent_roll_data rr
+           LEFT JOIN locations loc
+             ON loc.client_id = rr.client_id AND loc.name = rr.location
+          WHERE rr.client_id = $1
+            AND rr.upload_month = (
+              SELECT MAX(upload_month) FROM rent_roll_data WHERE client_id = $1
+            )
+            AND rr.service_line = $2
+            AND rr.street_rate > 0
+            AND (
+              $3::text IS NULL
+              OR $3 = rr.location
+              OR (
+                $3 LIKE '__division__:%'
+                AND loc.division = substring($3 from 14)
+              )
+            )`,
+        [clientId, plan.service_line, plan.location],
+      );
+      const currentRate = Number(currentRes.rows[0]?.current_rate);
+      if (!Number.isFinite(currentRate) || currentRate <= 0) {
+        await client.query("ROLLBACK");
+        return res.status(422).json({ error: "No current street rate is available for this plan scope" });
+      }
+      const increasePct = ((streetRate - currentRate) / currentRate) * 100;
+
+      await client.query(
+        `UPDATE inhouse_rate_plans
+            SET recommended_street_rate = $1
+          WHERE id = $2 AND client_id = $3`,
+        [streetRate, planId, clientId],
+      );
+      await client.query(
+        `UPDATE adjustment_rules
+            SET action = jsonb_set(action, '{adjustmentValue}', to_jsonb($1::numeric), true),
+                description = $2,
+                updated_at = now()
+          WHERE client_id = $3
+            AND action->>'annualPlanId' = $4
+            AND action->>'proposalType' = 'annual_plan_street_rate'`,
+        [
+          increasePct,
+          `${increasePct.toFixed(2)}% street-rate increase proposed by annual plan`,
+          clientId,
+          planId,
+        ],
+      );
+      await client.query("COMMIT");
+
+      invalidateRefDataCache();
+      const { purgeRuleCaches } = await import("../routes");
+      await purgeRuleCaches(clientId);
+      return res.json({
+        ok: true,
+        planId,
+        streetRate,
+        currentRate,
+        increasePct,
+        effectiveDate: plan.street_rate_effective_date,
+      });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[inhouse-planning] street-rate edit failed:", error);
+      return res.status(500).json({ error: "Failed to update the annual plan street rate" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // Edit the resident-level in-house allocation for one Reference Data
+  // campus/service-line/room-type proposal. Unlike a manual rate override this
+  // stays inside the annual plan snapshot and updates the linked proposal.
+  app.patch("/api/inhouse-planning/plans/:id/inhouse-rate", requireAuth, async (req: any, res) => {
+    const clientId = req.clientId || "demo";
+    const planId = String(req.params.id || "");
+    const increasePct = Number(req.body?.increasePct);
+    const campus = String(req.body?.campus || "").trim();
+    const serviceLine = String(req.body?.serviceLine || "").trim();
+    const roomType = String(req.body?.roomType || "").trim();
+    const sourceRoomType = String(req.body?.sourceRoomType || "").trim();
+    if (!Number.isFinite(increasePct) || increasePct <= -100) {
+      return res.status(400).json({ error: "increasePct must be greater than -100" });
+    }
+    if (!campus || !serviceLine || (!roomType && !sourceRoomType)) {
+      return res.status(400).json({ error: "campus, serviceLine, and roomType are required" });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const planRes = await client.query<{
+        id: string;
+        status: string;
+        service_line: string;
+        residents: unknown;
+        summary: unknown;
+      }>(
+        `SELECT id, status, service_line, residents, summary
+           FROM inhouse_rate_plans
+          WHERE id = $1 AND client_id = $2
+          FOR UPDATE`,
+        [planId, clientId],
+      );
+      const plan = planRes.rows[0];
+      if (!plan) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Plan not found" });
+      }
+      if (plan.status !== "proposed") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Only proposed annual plans can be edited" });
+      }
+      if (plan.service_line !== serviceLine) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "The selected service line is outside this annual plan" });
+      }
+
+      const residents = Array.isArray(plan.residents)
+        ? plan.residents.map((resident: any) => ({ ...resident }))
+        : [];
+      const matches = residents.filter((resident: any) =>
+        resident.location === campus
+        && (
+          !roomType
+          || resident.roomType === roomType
+          || (sourceRoomType && resident.roomType === sourceRoomType)
+        ),
+      );
+      if (matches.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(422).json({ error: "No annual-plan residents match this Reference Data row" });
+      }
+
+      const factor = 1 + increasePct / 100;
+      let updated = 0;
+      for (const resident of matches) {
+        const currentMonthly = Number(resident.currentRateMonthly);
+        const currentDisplay = Number(resident.currentRateDisplay);
+        if (!Number.isFinite(currentMonthly) || currentMonthly <= 0 ||
+            !Number.isFinite(currentDisplay) || currentDisplay <= 0) {
+          continue;
+        }
+        const newMonthly = currentMonthly * factor;
+        const newDisplay = currentDisplay * factor;
+        resident.increasePct = increasePct;
+        resident.increaseDollarsMonthly = newMonthly - currentMonthly;
+        resident.newRateMonthly = newMonthly;
+        resident.newRateDisplay = newDisplay;
+        resident.increaseDollarsDisplay = newDisplay - currentDisplay;
+        resident.newGapToStreetPct = Number(resident.streetRateMonthly) > 0
+          ? (Number(resident.streetRateMonthly) / newMonthly - 1) * 100
+          : 0;
+        resident.constraint = "none";
+        updated++;
+      }
+      if (updated === 0) {
+        await client.query("ROLLBACK");
+        return res.status(422).json({ error: "The matched annual-plan residents have no usable current rates" });
+      }
+
+      const summary = typeof plan.summary === "string"
+        ? JSON.parse(plan.summary)
+        : { ...(plan.summary as Record<string, any> || {}) };
+      let currentWeighted = 0;
+      let newWeighted = 0;
+      let weightTotal = 0;
+      let totalMonthly = 0;
+      let minPct = Number.POSITIVE_INFINITY;
+      let maxPct = Number.NEGATIVE_INFINITY;
+      let receiving = 0;
+      let atMin = 0;
+      let atMax = 0;
+      let blocked = 0;
+      for (const resident of residents) {
+        const weight = Number(resident.weight);
+        const current = Number(resident.currentRateMonthly);
+        const next = Number(resident.newRateMonthly);
+        const monthly = Number(resident.increaseDollarsMonthly);
+        const pct = Number(resident.increasePct);
+        if (!Number.isFinite(weight) || weight <= 0 || !Number.isFinite(current) ||
+            !Number.isFinite(next) || !Number.isFinite(monthly) || !Number.isFinite(pct)) {
+          continue;
+        }
+        currentWeighted += current * weight;
+        newWeighted += next * weight;
+        weightTotal += weight;
+        totalMonthly += monthly;
+        minPct = Math.min(minPct, pct);
+        maxPct = Math.max(maxPct, pct);
+        if (pct > 1e-9) receiving++;
+        if (resident.constraint === "min") atMin++;
+        if (resident.constraint === "max") atMax++;
+        if (resident.constraint === "street_cap" || resident.constraint === "at_or_above_street") blocked++;
+      }
+      const currentAvg = weightTotal > 0
+        ? currentWeighted / weightTotal
+        : Number(summary.currentAvgInhouseRateMonthly) || 0;
+      summary.residentCount = residents.length;
+      summary.residentsReceivingIncrease = receiving;
+      summary.residentsAtMin = atMin;
+      summary.residentsAtMax = atMax;
+      summary.residentsBlockedByStreet = blocked;
+      summary.weightedAvgIncreasePct = currentWeighted > 0
+        ? (newWeighted / currentWeighted - 1) * 100
+        : 0;
+      summary.minIncreasePct = Number.isFinite(minPct) ? minPct : 0;
+      summary.maxIncreasePct = Number.isFinite(maxPct) ? maxPct : 0;
+      summary.totalMonthlyIncreaseDollars = totalMonthly;
+      summary.totalAnnualIncreaseDollars = totalMonthly * 12;
+      summary.currentAvgInhouseRateMonthly = currentAvg;
+      summary.newAvgInhouseRateMonthly = weightTotal > 0 ? newWeighted / weightTotal : currentAvg;
+
+      await client.query(
+        `UPDATE inhouse_rate_plans
+            SET residents = $1, summary = $2
+          WHERE id = $3 AND client_id = $4`,
+        [JSON.stringify(residents), JSON.stringify(summary), planId, clientId],
+      );
+      await client.query(
+        `UPDATE adjustment_rules
+            SET action = jsonb_set(
+              jsonb_set(action, '{adjustmentValue}', to_jsonb($1::numeric), true),
+              '{weightedAvgIncreasePct}', to_jsonb($1::numeric), true
+            ),
+                description = $2,
+                updated_at = now()
+          WHERE client_id = $3
+            AND action->>'annualPlanId' = $4
+            AND action->>'proposalType' = 'inhouse_rate_plan'`,
+        [
+          summary.weightedAvgIncreasePct,
+          `${Number(summary.weightedAvgIncreasePct).toFixed(2)}% weighted in-house increase proposed by annual plan`,
+          clientId,
+          planId,
+        ],
+      );
+      await client.query("COMMIT");
+
+      invalidateRefDataCache();
+      const { purgeRuleCaches } = await import("../routes");
+      await purgeRuleCaches(clientId);
+      return res.json({
+        ok: true,
+        planId,
+        increasePct,
+        matchedResidents: updated,
+        summary,
+      });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[inhouse-planning] in-house rate edit failed:", error);
+      return res.status(500).json({ error: "Failed to update the annual plan in-house rate" });
+    } finally {
+      client.release();
+    }
+  });
+
   // ── Plan history ─────────────────────────────────────────────────────────
 
   app.post("/api/inhouse-planning/plans/:id/remove", requireAuth, async (req: any, res) => {
