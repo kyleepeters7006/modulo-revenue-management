@@ -86,8 +86,17 @@ function makePlan(serviceLine: string, currentRate: number, residentCount: numbe
   return plan as any;
 }
 
+const alPlan = makePlan("AL", 5000, 2);
+alPlan.residents[0].location = "Campus A";
+alPlan.residents[1].location = "Campus B";
+
+const campusAPlan = makePlan("AL", 4000, 1);
+campusAPlan.scope.location = "Campus A";
+const campusBPlan = makePlan("AL", 6000, 1);
+campusBPlan.scope.location = "Campus B";
+
 const detailPlans = [
-  { sl: "AL", plan: makePlan("AL", 5000, 2) },
+  { sl: "AL", plan: alPlan },
   { sl: "HC", plan: makePlan("HC", 7000, 1) },
 ];
 
@@ -107,6 +116,18 @@ const workbookBuffer = await buildAnnualReportAuditWorkbook({
   },
   detailPlans,
   detailGeneratedAt: "2026-09-16T12:01:00.000Z",
+  campusPlans: [
+    {
+      locationId: "campus-a",
+      locationName: "Campus A",
+      plans: [{ sl: "AL", plan: campusAPlan }],
+    },
+    {
+      locationId: "campus-b",
+      locationName: "Campus B",
+      plans: [{ sl: "AL", plan: campusBPlan }],
+    },
+  ],
 });
 
 const workbook = new ExcelJS.Workbook();
@@ -132,6 +153,12 @@ assert.equal(detail.getCell("W4").value, "Planned Street / mo");
 assert.equal(detail.getCell("X4").value, "Prior-year realized avg / mo");
 assert.equal(detail.getCell("Y4").value, "Plan-year projected avg / mo");
 assert.equal(detail.getCell("AB4").value, "Total YoY revenue growth");
+assert.equal((detail.getCell("W5").value as ExcelJS.CellFormulaValue).result, 4550);
+assert.equal((detail.getCell("W6").value as ExcelJS.CellFormulaValue).result, 6550);
+assert.equal((detail.getCell("X5").value as ExcelJS.CellFormulaValue).result, 3920);
+assert.equal((detail.getCell("X6").value as ExcelJS.CellFormulaValue).result, 5880);
+assert.equal((detail.getCell("Y5").value as ExcelJS.CellFormulaValue).result, 4240);
+assert.equal((detail.getCell("Y6").value as ExcelJS.CellFormulaValue).result, 6360);
 
 const residentFormulaColumns = ["M", "P", "Q", "R", "S", "T", "W", "X", "Y", "Z", "AA", "AB"];
 for (const column of residentFormulaColumns) {

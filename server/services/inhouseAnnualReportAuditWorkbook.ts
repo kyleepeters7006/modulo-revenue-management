@@ -30,6 +30,13 @@ type ReportPlanEntry = {
   plan: AnnualReportPlanSnapshot;
 };
 
+type CampusPlanContext = {
+  locationId: string;
+  locationName: string;
+  plans: ReportPlanEntry[];
+  generatedAt?: string | Date | null;
+};
+
 export interface AnnualReportAuditWorkbookInput {
   report: {
     id: string;
@@ -42,6 +49,13 @@ export interface AnnualReportAuditWorkbookInput {
   };
   detailPlans: Array<{ sl: string; plan: DetailPlan }>;
   detailGeneratedAt?: string | Date | null;
+  /**
+   * Campus-level compact snapshots from the same portfolio/division run.
+   * Portfolio resident detail is still the source of the audit rows; these
+   * snapshots provide the campus-specific street and annual bridge values
+   * that cannot be reconstructed from a resident row alone.
+   */
+  campusPlans?: CampusPlanContext[];
 }
 
 function number(value: unknown): number {
@@ -65,6 +79,35 @@ function weightedAverage(values: Array<{ value: number; weight: number }>): numb
   return weight > 0
     ? usable.reduce((sum, entry) => sum + entry.value * entry.weight, 0) / weight
     : 0;
+}
+
+function campusNameKey(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase();
+}
+
+function campusPlanLookup(
+  campusPlans: CampusPlanContext[] | undefined,
+): Map<string, AnnualReportPlanSnapshot> {
+  const lookup = new Map<string, AnnualReportPlanSnapshot>();
+  for (const campus of campusPlans ?? []) {
+    for (const entry of campus.plans ?? []) {
+      const sl = String(entry?.sl ?? "").trim();
+      if (!sl) continue;
+      const names = [
+        campus.locationName,
+        (entry.plan as any)?.scope?.location,
+      ]
+        .map(campusNameKey)
+        .filter(Boolean);
+      for (const name of names) {
+        lookup.set(`${sl}::${name}`, entry.plan);
+      }
+    }
+  }
+  return lookup;
 }
 
 function styleHeader(row: ExcelJS.Row, fill = NAVY) {
@@ -361,6 +404,7 @@ function buildPriorPeriodSheet(
 function buildResidentDetailSheet(
   ws: ExcelJS.Worksheet,
   detailPlans: Array<{ sl: string; plan: DetailPlan }>,
+  campusPlans?: CampusPlanContext[],
 ) {
   const visibleColumns = [
     "Service line", "Campus", "Room", "Room type", "Care level", "Payor", "Move-in date",
@@ -407,6 +451,7 @@ function buildResidentDetailSheet(
   styleHeader(ws.getRow(headerRow));
   const first = AUDIT_FIRST_DATA_ROW;
   let currentRow = first;
+  const campusLookup = campusPlanLookup(campusPlans);
 
   for (const entry of detailPlans) {
     const plan = entry.plan;
@@ -418,6 +463,34 @@ function buildResidentDetailSheet(
     const planPercent = percent(bridge?.planIncreasePct);
     const perResidentRevenueGrowth = bridge ? annualRateGrowthRevenue(bridge, 1) ?? 0 : 0;
     for (const resident of plan.residents ?? []) {
+      const campusPlan = campusLookup.get(
+        `${entry.sl}::${campusNameKey(resident.location)}`,
+      );
+      const campusPlanIncrease = campusPlan
+        ? number(campusPlan.summary?.weightedAvgIncreasePct)
+        : null;
+      const campusBridge = campusPlan
+        ? annualRateGrowthBridge(
+            campusPlan.quarters,
+            campusPlan.rateBasis,
+            campusPlanIncrease ?? 0,
+          )
+        : null;
+      const plannedStreet = campusPlan
+        ? number(campusPlan.recommendedStreetRateMonthly)
+        : number(plan.recommendedStreetRateMonthly);
+      const rowPriorYear = campusBridge?.priorYearAverageRateMonthly ?? priorYear;
+      const rowProjectedYear =
+        campusBridge?.projectedPlanYearAverageRateMonthly ?? projectedYear;
+      const rowPriorPeriod = percent(
+        campusBridge?.priorPeriodIncreasePct ?? bridge?.priorPeriodIncreasePct,
+      );
+      const rowPlanPercent = percent(
+        campusBridge?.planIncreasePct ?? bridge?.planIncreasePct,
+      );
+      const rowRevenueGrowth = campusBridge
+        ? annualRateGrowthRevenue(campusBridge, 1) ?? 0
+        : perResidentRevenueGrowth;
       const row = ws.getRow(currentRow++);
       const displayStreet = plan.rateBasis === "daily"
         ? number(resident.streetRateMonthly) / DAYS_PER_MONTH
@@ -445,20 +518,20 @@ function buildResidentDetailSheet(
         percent(number(resident.newGapToStreetPct)),
         resident.constraint,
         "Yes",
-        number(plan.recommendedStreetRateMonthly),
-        priorYear,
-        projectedYear,
-        priorPeriod,
-        planPercent,
-        perResidentRevenueGrowth,
+        plannedStreet,
+        rowPriorYear,
+        rowProjectedYear,
+        rowPriorPeriod,
+        rowPlanPercent,
+        rowRevenueGrowth,
       ];
       const helperStart = visibleColumns.length + 1;
       ws.getCell(currentRow - 1, helperStart).value = percent(number(resident.increasePct));
-      ws.getCell(currentRow - 1, helperStart + 1).value = number(plan.recommendedStreetRateMonthly);
-      ws.getCell(currentRow - 1, helperStart + 2).value = priorYear;
-      ws.getCell(currentRow - 1, helperStart + 3).value = projectedYear;
-      ws.getCell(currentRow - 1, helperStart + 4).value = priorPeriod;
-      ws.getCell(currentRow - 1, helperStart + 5).value = planPercent;
+      ws.getCell(currentRow - 1, helperStart + 1).value = plannedStreet;
+      ws.getCell(currentRow - 1, helperStart + 2).value = rowPriorYear;
+      ws.getCell(currentRow - 1, helperStart + 3).value = rowProjectedYear;
+      ws.getCell(currentRow - 1, helperStart + 4).value = rowPriorPeriod;
+      ws.getCell(currentRow - 1, helperStart + 5).value = rowPlanPercent;
 
       const rowNumber = currentRow - 1;
       const divisor = `IF($I${rowNumber}="daily",365/12,1)`;
@@ -468,16 +541,16 @@ function buildResidentDetailSheet(
       formula(ws.getCell(rowNumber, 18), `=$K${rowNumber}+$Q${rowNumber}`, number(resident.newRateMonthly));
       formula(ws.getCell(rowNumber, 19), `=IFERROR($R${rowNumber}/${divisor},0)`, number(resident.newRateDisplay));
       formula(ws.getCell(rowNumber, 20), `=IFERROR($W${rowNumber}/$R${rowNumber}-1,0)`, percent(number(resident.newGapToStreetPct)));
-      formula(ws.getCell(rowNumber, 23), `=$AD${rowNumber}`, number(plan.recommendedStreetRateMonthly));
-      formula(ws.getCell(rowNumber, 24), `=$AE${rowNumber}`, priorYear);
-      formula(ws.getCell(rowNumber, 25), `=$AF${rowNumber}`, projectedYear);
-      formula(ws.getCell(rowNumber, 26), `=$AG${rowNumber}`, priorPeriod);
+      formula(ws.getCell(rowNumber, 23), `=$AD${rowNumber}`, plannedStreet);
+      formula(ws.getCell(rowNumber, 24), `=$AE${rowNumber}`, rowPriorYear);
+      formula(ws.getCell(rowNumber, 25), `=$AF${rowNumber}`, rowProjectedYear);
+      formula(ws.getCell(rowNumber, 26), `=$AG${rowNumber}`, rowPriorPeriod);
       formula(
         ws.getCell(rowNumber, 27),
         `=IFERROR(SUMPRODUCT($P$${first}:$P$${currentRow - 1},$J$${first}:$J$${currentRow - 1})/SUM($J$${first}:$J$${currentRow - 1}),0)`,
-        planPercent,
+        rowPlanPercent,
       );
-      formula(ws.getCell(rowNumber, 28), `=($Y${rowNumber}-$X${rowNumber})*12`, perResidentRevenueGrowth);
+      formula(ws.getCell(rowNumber, 28), `=($Y${rowNumber}-$X${rowNumber})*12`, rowRevenueGrowth);
     }
   }
   const total = currentRow;
@@ -687,7 +760,7 @@ export async function buildAnnualReportAuditWorkbook(
   const bridge = workbook.addWorksheet("Prior-period bridge");
   buildPriorPeriodSheet(bridge, input, detailByLine);
   const residents = workbook.addWorksheet("Resident detail");
-  buildResidentDetailSheet(residents, input.detailPlans);
+  buildResidentDetailSheet(residents, input.detailPlans, input.campusPlans);
   const quarters = workbook.addWorksheet("Quarter room detail");
   buildQuarterDetailSheet(quarters, input.detailPlans);
   const history = workbook.addWorksheet("Historical drivers");

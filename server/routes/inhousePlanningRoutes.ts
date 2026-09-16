@@ -1872,10 +1872,75 @@ export function registerInhousePlanningRoutes(
         });
       }
 
+      // Portfolio/division resident detail is one service-line plan spanning
+      // every campus. The saved campus runs contain the campus-specific
+      // street target and annual bridge needed by the audit rows; without
+      // them, the workbook would repeat the portfolio average on every row.
+      const reportServiceLines = Array.isArray(row.serviceLines)
+        ? row.serviceLines.map((value: unknown) => String(value)).filter(Boolean)
+        : [];
+      const reportScopeParts = String(row.scopeKey).split("|");
+      const division = reportScopeParts.length === 3 ? reportScopeParts[0] : null;
+      const campusPlans: Array<{
+        locationId: string;
+        locationName: string;
+        plans: any[];
+        generatedAt: Date | null;
+      }> = [];
+      if (!row.locationId && reportServiceLines.length > 0) {
+        const lineSuffix = `|${reportServiceLines.join(",")}`;
+        const [campusRows, locationRows] = await Promise.all([
+          db
+            .select({
+              locationId: inhouseAnnualReportRuns.locationId,
+              scopeKey: inhouseAnnualReportRuns.scopeKey,
+              plans: inhouseAnnualReportRuns.plans,
+              generatedAt: inhouseAnnualReportRuns.generatedAt,
+            })
+            .from(inhouseAnnualReportRuns)
+            .where(and(
+              eq(inhouseAnnualReportRuns.clientId, clientId),
+              isNotNull(inhouseAnnualReportRuns.locationId),
+              like(inhouseAnnualReportRuns.scopeKey, `%${lineSuffix}`),
+            ))
+            .orderBy(desc(inhouseAnnualReportRuns.generatedAt)),
+          db
+            .select({ id: locations.id, name: locations.name })
+            .from(locations)
+            .where(eq(locations.clientId, clientId)),
+        ]);
+        const locationNames = new Map(locationRows.map((location) => [location.id, location.name]));
+        const reportTime = new Date(row.generatedAt ?? row.createdAt ?? 0).getTime();
+        const latestByLocation = new Map<string, typeof campusRows[number]>();
+        for (const candidate of campusRows) {
+          const locationId = candidate.locationId;
+          if (!locationId) continue;
+          const expectedScopeKey =
+            `${division ? `${division}|` : ""}${locationId}|${reportServiceLines.join(",")}`;
+          if (candidate.scopeKey !== expectedScopeKey) continue;
+          const candidateTime = candidate.generatedAt?.getTime?.() ?? NaN;
+          if (Number.isFinite(reportTime) && Number.isFinite(candidateTime) && candidateTime > reportTime) {
+            continue;
+          }
+          if (!latestByLocation.has(locationId)) latestByLocation.set(locationId, candidate);
+        }
+        for (const [locationId, candidate] of latestByLocation) {
+          const plans = Array.isArray(candidate.plans) ? candidate.plans : [];
+          if (plans.length === 0) continue;
+          campusPlans.push({
+            locationId,
+            locationName: locationNames.get(locationId) ?? "",
+            plans,
+            generatedAt: candidate.generatedAt ?? null,
+          });
+        }
+      }
+
       const buffer = await buildAnnualReportAuditWorkbook({
         report: normalizedAnnualReport(row) as any,
         detailPlans: detailPlans as any,
         detailGeneratedAt: detail.generatedAt,
+        campusPlans,
       });
       const generatedDate = new Date(row.generatedAt ?? row.createdAt ?? Date.now());
       const datePart = Number.isNaN(generatedDate.getTime())

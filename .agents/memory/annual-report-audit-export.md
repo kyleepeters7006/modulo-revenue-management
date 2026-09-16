@@ -7,4 +7,4 @@ Annual report presentation snapshots stay compact and should not retain resident
 
 **Why:** Recalculating from current rent-roll data during export can silently change the numbers the operator approved, while putting all resident rows into the presentation snapshot makes normal report saves unnecessarily large.
 
-**How to apply:** Use the report-specific detail copy first for Excel audit exports, fall back to the latest scope detail only for legacy reports, and clearly explain the fallback or unavailable-detail state to the operator.
+**How to apply:** Use the report-specific detail copy first for Excel audit exports, fall back to the latest scope detail only for legacy reports, and clearly explain the fallback or unavailable-detail state to the operator. For portfolio/division exports, join each resident row to the campus snapshot from the same report generation before writing planned Street or annual prior-year bridge values; never repeat a portfolio average as if it were campus data.
