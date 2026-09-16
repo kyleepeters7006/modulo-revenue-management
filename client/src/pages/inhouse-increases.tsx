@@ -2725,21 +2725,6 @@ export default function InhouseIncreases() {
     },
     onError: (error: Error) => toast({ title: "Annual report could not be created", description: error.message, variant: "destructive" }),
   });
-  const autoSavedAnnualReportRun = useRef<string | null>(null);
-  useEffect(() => {
-    if (!plans || !tierGrid || tierGridStale || !lastRunAt) return;
-    const runKey = `${tierGrid.scopeKey}|${lastRunAt}`;
-    if (autoSavedAnnualReportRun.current === runKey) return;
-    autoSavedAnnualReportRun.current = runKey;
-    annualReport.mutate({
-      reportPlans: plans,
-      reportTierGrid: tierGrid,
-      reportLocationId: plans[0]?.plan.scope.locationId ?? null,
-      reportServiceLines: plans.map(({ sl }) => sl),
-      openAfterSave: false,
-    });
-  }, [plans, tierGrid, tierGridStale, lastRunAt]);
-
   /**
    * The what-if grid: every selected service line solved under all three of
    * its tiers. Fanned out per line like the single-plan calculation, so the
