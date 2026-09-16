@@ -427,9 +427,7 @@ function drawResidentIncreaseCharts(
   const gap = 10;
   const cardWidth = (width - gap * (columns - 1)) / columns;
   const cardHeight = 214;
-  const plotTop = y + 47;
   const plotHeight = 132;
-  const plotBottom = plotTop + plotHeight;
   const plotLeftOffset = 24;
   const plotRightOffset = 5;
   const plotWidth = cardWidth - plotLeftOffset - plotRightOffset;
@@ -439,6 +437,8 @@ function drawResidentIncreaseCharts(
     const column = index % columns;
     const cardX = x + column * (cardWidth + gap);
     const cardY = y + 30 + row * (cardHeight + 12);
+    const plotTop = cardY + 17;
+    const plotBottom = plotTop + plotHeight;
     const distribution = new Map(
       objects(first(plan, [
         "residentIncreaseDistribution",
@@ -481,6 +481,47 @@ function drawResidentIncreaseCharts(
       line(doc, barX - 4, plotBottom + 5, slotWidth + 8, RESIDENT_INCREASE_TIER_LABELS[valueIndex], { size: 4.1, align: "center" });
     });
     line(doc, cardX - 1, plotTop + plotHeight / 2, 18, "Residents", { size: 4.8, align: "center" });
+  });
+}
+
+function residentChartPlans(report: AnnualReportPdfReport, plans: JsonObject[]): JsonObject[] {
+  const grid = report.tierGrid as JsonObject | null;
+  const gridPlans = Array.isArray(grid?.lines)
+    ? grid.lines.flatMap((line: JsonObject) => {
+        const currentPlan = line.currentPlan;
+        if (!currentPlan || typeof currentPlan !== "object") return [];
+        return [{
+          ...(currentPlan as JsonObject),
+          serviceLine: serviceLine(currentPlan as JsonObject) === "Service line"
+            ? line.serviceLine
+            : serviceLine(currentPlan as JsonObject),
+        }];
+      })
+    : [];
+  const gridByLine = new Map(gridPlans.map((plan) => [serviceLine(plan), plan]));
+
+  // The browser report uses the measured-tier currentPlan in tierGrid. Merge
+  // that distribution into the compact top-level plan when the saved payload
+  // was produced by a version that stored it only in tierGrid.
+  return plans.map((plan) => {
+    const gridPlan = gridByLine.get(serviceLine(plan));
+    const topLevelDistribution = first(plan, [
+      "residentIncreaseDistribution",
+      "increaseDistribution",
+      "distribution",
+      "summary.increaseDistribution",
+    ]);
+    const gridDistribution = gridPlan
+      ? first(gridPlan, [
+          "residentIncreaseDistribution",
+          "increaseDistribution",
+          "distribution",
+          "summary.increaseDistribution",
+        ])
+      : undefined;
+    return topLevelDistribution !== undefined || gridDistribution === undefined
+      ? plan
+      : { ...plan, residentIncreaseDistribution: gridDistribution };
   });
 }
 
@@ -883,7 +924,7 @@ export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): P
 
     doc.addPage();
     drawWorkbookPageHeader(doc, report, stamp, 3);
-    drawResidentIncreaseCharts(doc, plans, pageX, 54, pageWidth);
+    drawResidentIncreaseCharts(doc, residentChartPlans(report, plans), pageX, 54, pageWidth);
 
     const pages = doc.bufferedPageRange();
     if (pages.count !== 3) {
