@@ -25538,8 +25538,10 @@ Return ONLY valid JSON, no markdown fences:
       const owned = await pool.query(
         `SELECT id FROM adjustment_rules
           WHERE id = $1
-            AND (client_id = $2 OR (client_id IS NULL AND location_id IN (
-              SELECT id FROM locations WHERE client_id = $2
+            AND (client_id = $2 OR (client_id IS NULL AND (
+              location_id IS NULL OR location_id IN (
+                SELECT id FROM locations WHERE client_id = $2
+              )
             )))`,
         [id, clientId],
       );
@@ -26036,9 +26038,11 @@ Return ONLY valid JSON, no markdown fences:
       const candidate = await pool.query(
         `SELECT * FROM adjustment_rules
           WHERE id = $1
-            AND (client_id = $2 OR (client_id IS NULL AND location_id IN (
-              SELECT id FROM locations WHERE client_id = $2
-            )))`,
+           AND (client_id = $2 OR (client_id IS NULL AND (
+             location_id IS NULL OR location_id IN (
+               SELECT id FROM locations WHERE client_id = $2
+             )
+           )))`,
         [id, clientId],
       );
       if (!candidate.rows.length) return res.status(404).json({ error: "Rule not found" });
@@ -26135,8 +26139,10 @@ Return ONLY valid JSON, no markdown fences:
                 implemented_at = COALESCE(implemented_at, now()),
                 updated_at = now()
           WHERE id = $1
-            AND (client_id = $2 OR (client_id IS NULL AND location_id IN (
-              SELECT id FROM locations WHERE client_id = $2
+            AND (client_id = $2 OR (client_id IS NULL AND (
+              location_id IS NULL OR location_id IN (
+                SELECT id FROM locations WHERE client_id = $2
+              )
             )))
             AND is_historical IS NOT TRUE
             AND lifecycle_status = 'proposed'
@@ -26167,8 +26173,10 @@ Return ONLY valid JSON, no markdown fences:
         await connection.query("BEGIN");
         const candidate = await connection.query(
           `SELECT * FROM adjustment_rules WHERE id = $1
-             AND (client_id = $2 OR (client_id IS NULL AND location_id IN (
-               SELECT id FROM locations WHERE client_id = $2
+             AND (client_id = $2 OR (client_id IS NULL AND (
+               location_id IS NULL OR location_id IN (
+                 SELECT id FROM locations WHERE client_id = $2
+               )
              ))) FOR UPDATE`,
           [id, clientId],
         );
@@ -26347,8 +26355,10 @@ Return ONLY valid JSON, no markdown fences:
       const owned = await pool.query(
         `SELECT id FROM adjustment_rules
           WHERE id = $1
-            AND (client_id = $2 OR (client_id IS NULL AND location_id IN (
-              SELECT id FROM locations WHERE client_id = $2
+            AND (client_id = $2 OR (client_id IS NULL AND (
+              location_id IS NULL OR location_id IN (
+                SELECT id FROM locations WHERE client_id = $2
+              )
             )))`,
         [id, clientId],
       );
@@ -26383,8 +26393,10 @@ Return ONLY valid JSON, no markdown fences:
         await connection.query("BEGIN");
         const candidate = await connection.query(
           `SELECT * FROM adjustment_rules WHERE id = $1
-             AND (client_id = $2 OR (client_id IS NULL AND location_id IN (
-               SELECT id FROM locations WHERE client_id = $2
+             AND (client_id = $2 OR (client_id IS NULL AND (
+               location_id IS NULL OR location_id IN (
+                 SELECT id FROM locations WHERE client_id = $2
+               )
              ))) FOR UPDATE`,
           [id, clientId],
         );

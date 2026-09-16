@@ -2043,6 +2043,11 @@ export function registerInhousePlanningRoutes(
         client.release();
       }
 
+      // Reference Data reads from a server-side cache as well as the browser
+      // query cache. Bust it after the plan transaction commits so a submitted
+      // recommendation is visible immediately instead of waiting for the TTL.
+      invalidateRefDataCache();
+
       // The proposal list is cached by Rule Administration. This is a
       // submission only (so do not schedule a pricing recalculation), but the
       // newly-created proposals must be visible immediately.

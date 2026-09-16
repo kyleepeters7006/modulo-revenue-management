@@ -1845,6 +1845,8 @@ export default function InhouseIncreases() {
   const tierScopeKeyRef = useRef(tierScopeKey);
   tierScopeKeyRef.current = tierScopeKey;
   const singleLine = serviceLines.length === 1 ? serviceLines[0] : null;
+  const planHistoryScopeKey = `${scopeLocationId ?? "all"}|${singleLine ?? "all"}|${division || "all-divisions"}`;
+  const [submittedPlanScopeKey, setSubmittedPlanScopeKey] = useState<string | null>(null);
   const calculatedPlanKey = useMemo(
     () => storageIdentityKey
       ? calculatedPlanScopeKey(scopeLocationId, serviceLines, division || null)
@@ -3075,6 +3077,10 @@ export default function InhouseIncreases() {
       return results;
     },
     onSuccess: (results: any[]) => {
+      // Keep Reference Data navigation available immediately after the
+      // transaction succeeds. The history query is invalidated below and can
+      // briefly expose no rows while it refetches.
+      setSubmittedPlanScopeKey(planHistoryScopeKey);
       queryClient.invalidateQueries({ queryKey: ["/api/inhouse-planning/plans"] });
       queryClient.invalidateQueries({ queryKey: ["/api/adjustment-rules"], exact: false });
       queryClient.invalidateQueries({ queryKey: ["/api/reference-data"], exact: false });
@@ -3107,6 +3113,9 @@ export default function InhouseIncreases() {
       return res.json();
     },
   });
+  const hasSubmittedPlanForScope =
+    (plansQuery.data?.plans?.length ?? 0) > 0 ||
+    submittedPlanScopeKey === planHistoryScopeKey;
 
   const latestAnnualReportQuery = useQuery<{
     report: {
@@ -5782,11 +5791,11 @@ export default function InhouseIncreases() {
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={(plansQuery.data?.plans?.length ?? 0) === 0}
+                  disabled={!hasSubmittedPlanForScope}
                   onClick={() => {
                     setLocation(referenceDataUrl());
                   }}
-                  title={(plansQuery.data?.plans?.length ?? 0) === 0
+                  title={!hasSubmittedPlanForScope
                     ? "Submit the calculated proposal first so Reference Data can load it."
                     : "Open the submitted or applied plan columns in Reference Data."}
                   data-testid="view-inhouse-plan-reference-data"
