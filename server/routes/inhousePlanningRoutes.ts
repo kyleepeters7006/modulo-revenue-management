@@ -1752,6 +1752,7 @@ export function registerInhousePlanningRoutes(
       const [report] = await db
         .select({
           id: inhouseAnnualReportRuns.id,
+          scopeKey: inhouseAnnualReportRuns.scopeKey,
           tierGrid: inhouseAnnualReportRuns.tierGrid,
         })
         .from(inhouseAnnualReportRuns)
@@ -1762,14 +1763,28 @@ export function registerInhousePlanningRoutes(
         .limit(1);
       if (!report) return res.status(404).json({ error: "Annual report not found" });
 
-      const [detail] = await db
-        .select({ plans: inhousePlanDetailSnapshots.plans })
-        .from(inhousePlanDetailSnapshots)
-        .where(and(
-          eq(inhousePlanDetailSnapshots.clientId, clientId),
-          eq(inhousePlanDetailSnapshots.scopeKey, `annual-report:${report.id}`),
-        ))
-        .limit(1);
+      const [savedDetail, latestDetail] = await Promise.all([
+        db
+          .select({ plans: inhousePlanDetailSnapshots.plans })
+          .from(inhousePlanDetailSnapshots)
+          .where(and(
+            eq(inhousePlanDetailSnapshots.clientId, clientId),
+            eq(inhousePlanDetailSnapshots.scopeKey, `annual-report:${report.id}`),
+          ))
+          .limit(1),
+        db
+          .select({ plans: inhousePlanDetailSnapshots.plans })
+          .from(inhousePlanDetailSnapshots)
+          .where(and(
+            eq(inhousePlanDetailSnapshots.clientId, clientId),
+            eq(inhousePlanDetailSnapshots.scopeKey, report.scopeKey),
+          ))
+          .limit(1),
+      ]);
+      // Legacy reports may predate the immutable report-specific detail copy.
+      // The exact report snapshot wins; the scope snapshot keeps those reports
+      // usable without changing the compact report itself.
+      const detail = savedDetail[0] ?? latestDetail[0];
       const points = detail
         ? annualReportResidentScatterPoints(detail.plans, report.tierGrid)
         : [];
@@ -1795,14 +1810,25 @@ export function registerInhousePlanningRoutes(
       if (!row) return res.status(404).json({ error: "Annual report not found" });
 
       const report = normalizedAnnualReport(row);
-      const [detail] = await db
-        .select({ plans: inhousePlanDetailSnapshots.plans })
-        .from(inhousePlanDetailSnapshots)
-        .where(and(
-          eq(inhousePlanDetailSnapshots.clientId, clientId),
-          eq(inhousePlanDetailSnapshots.scopeKey, `annual-report:${row.id}`),
-        ))
-        .limit(1);
+      const [savedDetail, latestDetail] = await Promise.all([
+        db
+          .select({ plans: inhousePlanDetailSnapshots.plans })
+          .from(inhousePlanDetailSnapshots)
+          .where(and(
+            eq(inhousePlanDetailSnapshots.clientId, clientId),
+            eq(inhousePlanDetailSnapshots.scopeKey, `annual-report:${row.id}`),
+          ))
+          .limit(1),
+        db
+          .select({ plans: inhousePlanDetailSnapshots.plans })
+          .from(inhousePlanDetailSnapshots)
+          .where(and(
+            eq(inhousePlanDetailSnapshots.clientId, clientId),
+            eq(inhousePlanDetailSnapshots.scopeKey, row.scopeKey),
+          ))
+          .limit(1),
+      ]);
+      const detail = savedDetail[0] ?? latestDetail[0];
       const residentScatterPoints = detail
         ? annualReportResidentScatterPoints(detail.plans, row.tierGrid)
         : [];
