@@ -1580,6 +1580,15 @@ function isStoredPlan(value: unknown): value is PlanWithSl {
   );
 }
 
+function normalizeSavedPlan(value: unknown): PlanWithSl | null {
+  if (isStoredPlan(value)) return value;
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as { serviceLine?: unknown; plan?: unknown };
+  if (typeof candidate.serviceLine !== "string") return null;
+  const normalized = { sl: candidate.serviceLine, plan: candidate.plan };
+  return isStoredPlan(normalized) ? normalized : null;
+}
+
 interface StoredCalculatedPlan {
   plans: PlanWithSl[];
   lastRunAt: string;
@@ -2416,8 +2425,15 @@ export default function InhouseIncreases() {
     const inputSnapshot = Array.isArray(snapshot.inputSnapshot)
       ? snapshot.inputSnapshot as PlanningInputSnapshotEntry[]
       : [];
-    return inputSnapshot.length === 0 ||
-      planningInputSnapshotKey(inputSnapshot) === tierInputsKey;
+    if (
+      inputSnapshot.length > 0 &&
+      planningInputSnapshotKey(inputSnapshot) !== tierInputsKey
+    ) return false;
+    const savedPlans = Array.isArray(snapshot.plans) ? snapshot.plans : [];
+    return savedPlans.some((value) => {
+      const plan = normalizeSavedPlan(value);
+      return !!plan && serviceLines.includes(plan.sl);
+    });
   })();
   const assumptionsStatus =
     assumptionsQuery.isError
@@ -3194,9 +3210,15 @@ export default function InhouseIncreases() {
     ) return;
     const savedPlans = Array.isArray(snapshot.plans) ? snapshot.plans : [];
     const restored = savedPlans
-      .flatMap((value): PlanWithSl[] => isStoredPlan(value) ? [value] : [])
+      .flatMap((value): PlanWithSl[] => {
+        const plan = normalizeSavedPlan(value);
+        return plan ? [plan] : [];
+      })
       .filter(({ sl }) => serviceLines.includes(sl));
-    if (restored.length === 0) return;
+    if (restored.length === 0) {
+      setRestoringPlanDetails(false);
+      return;
+    }
     setPlans(restored);
     setRestoredPlanDetailsOmitted(false);
     setRestoringPlanDetails(false);
