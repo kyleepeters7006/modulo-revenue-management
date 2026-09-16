@@ -765,6 +765,7 @@ app.use((req, res, next) => {
       CREATE TABLE IF NOT EXISTS inhouse_planning_assumptions (
         id                          varchar PRIMARY KEY DEFAULT gen_random_uuid(),
         client_id                   varchar NOT NULL,
+         division                    text,
         location_id                 varchar REFERENCES locations(id),
         service_line                text,
         rate_growth_target_pct      real    NOT NULL DEFAULT 5,
@@ -798,8 +799,13 @@ app.use((req, res, next) => {
     // NULLS NOT DISTINCT so the campus-wide and portfolio-wide rows collide
     // with themselves and upsert cleanly instead of accumulating duplicates.
     await db.execute(sql.raw(`
+      ALTER TABLE inhouse_planning_assumptions
+        ADD COLUMN IF NOT EXISTS division text`));
+    await db.execute(sql.raw(`
+      DROP INDEX IF EXISTS inhouse_planning_assumptions_scope`));
+    await db.execute(sql.raw(`
       CREATE UNIQUE INDEX IF NOT EXISTS inhouse_planning_assumptions_scope
-        ON inhouse_planning_assumptions (client_id, location_id, service_line) NULLS NOT DISTINCT`));
+        ON inhouse_planning_assumptions (client_id, division, location_id, service_line) NULLS NOT DISTINCT`));
     await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS inhouse_rate_plans (
         id                          varchar PRIMARY KEY DEFAULT gen_random_uuid(),

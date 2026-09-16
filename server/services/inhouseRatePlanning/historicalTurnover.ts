@@ -169,8 +169,9 @@ function historicalTurnoverCacheKey(
   clientId: string,
   locationId: string | null,
   locationName: string | null,
+  locationNames?: string[],
 ): string {
-  return `${clientId}\x1f${locationId ?? ""}\x1f${locationName ?? ""}`;
+  return `${clientId}\x1f${locationId ?? ""}\x1f${locationName ?? ""}\x1f${(locationNames ?? []).slice().sort().join(",")}`;
 }
 
 /**
@@ -768,15 +769,16 @@ export async function computeHistoricalTurnover(
   clientId: string,
   locationId: string | null,
   locationName: string | null,
+  locationNames?: string[],
 ): Promise<HistoricalTurnoverResult | null> {
-  const key = historicalTurnoverCacheKey(clientId, locationId, locationName);
+  const key = historicalTurnoverCacheKey(clientId, locationId, locationName, locationNames);
   const cached = historicalTurnoverCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
   const inFlight = historicalTurnoverInFlight.get(key);
   if (inFlight) return inFlight;
 
-  const request = computeHistoricalTurnoverUncached(clientId, locationId, locationName)
+  const request = computeHistoricalTurnoverUncached(clientId, locationId, locationName, locationNames)
     .then((value) => {
       historicalTurnoverCache.set(key, {
         expiresAt: Date.now() + HISTORICAL_TURNOVER_CACHE_TTL_MS,
@@ -795,6 +797,7 @@ async function computeHistoricalTurnoverUncached(
   clientId: string,
   locationId: string | null,
   locationName: string | null,
+  locationNames?: string[],
 ): Promise<HistoricalTurnoverResult | null> {
   // Events key on campus NAME, occupancy and rent roll key on location ID.
   // Supplying one without the other scopes the numerator to a campus while
@@ -852,6 +855,16 @@ async function computeHistoricalTurnoverUncached(
   // scales every rule's projected revenue impact, read the same rows), and a
   // predicate each query has to remember to repeat is a predicate the next
   // query will forget. Read the view; never the base table.
+  const eventLocationSql = locationName
+    ? `AND e.location = $4${locationNames ? " AND e.location = ANY($5::text[])" : ""}`
+    : locationNames
+      ? "AND e.location = ANY($4::text[])"
+      : "";
+  const rentRollLocationSql = locationName
+    ? `AND rr.location = $4${locationNames ? " AND rr.location = ANY($5::text[])" : ""}`
+    : locationNames
+      ? "AND rr.location = ANY($4::text[])"
+      : "";
   const moveOutSql = `
     SELECT e.service_line AS sl, substring(e.event_date, 1, 7) AS m, COUNT(*)::int AS n
       FROM ${MOVE_IN_OUT_ACTIVE_VIEW} e
@@ -860,7 +873,7 @@ async function computeHistoricalTurnoverUncached(
        AND e.counted = true
        AND substring(e.event_date, 1, 7) BETWEEN $2 AND $3
        AND ${moveOutPayerScopeSql("e")}
-       ${locationName ? "AND e.location = $4" : ""}
+        ${eventLocationSql}
      GROUP BY 1, 2`;
 
   // Some permanent departures are absent from the discharge feed. The rent
@@ -945,7 +958,7 @@ async function computeHistoricalTurnoverUncached(
              AND $3
          AND rr.room_number IS NOT NULL
          AND ${bBedExclusionSql("rr.")}
-         ${locationName ? "AND rr.location = $4" : ""}
+         ${rentRollLocationSql}
     ),
     rent_roll AS MATERIALIZED (
       SELECT DISTINCT ON (location, sl, room_number, m)
@@ -984,7 +997,7 @@ async function computeHistoricalTurnoverUncached(
          AND substring(e.event_date, 1, 7) BETWEEN $2 AND $3
          AND e.room_name IS NOT NULL
          AND ${moveOutPayerScopeSql("e")}
-         ${locationName ? "AND e.location = $4" : ""}
+       ${eventLocationSql}
     ),
     missing_room_months AS (
       SELECT current.sl,
@@ -1083,7 +1096,7 @@ async function computeHistoricalTurnoverUncached(
       FROM room_type_occupancy_history
      WHERE client_id = $1
        AND to_char(make_date(year, month, 1), 'YYYY-MM') BETWEEN $2 AND $3
-       ${locationId ? "AND location_id = $4" : ""}
+        ${locationId ? "AND location_id = $4" : locationNames ? "AND location_name = ANY($4::text[])" : ""}
      GROUP BY 1, 2`;
 
   // Payer mix only — never the occupancy level (see file header).
@@ -1093,20 +1106,26 @@ async function computeHistoricalTurnoverUncached(
              / NULLIF(COUNT(*) FILTER (WHERE occupied_yn), 0)::float AS pp_share
       FROM rent_roll_data
      WHERE client_id = $1
-       ${locationId ? "AND location_id = $2" : ""}
+        ${locationId ? "AND location_id = $2" : locationNames ? "AND location = ANY($2::text[])" : ""}
      GROUP BY 1`;
 
-  const eventParams: any[] = locationName
-    ? [clientId, windowStart, windowEnd, locationName]
-    : [clientId, windowStart, windowEnd];
+  const eventParams: any[] = [clientId, windowStart, windowEnd];
+  if (locationName) eventParams.push(locationName);
+  if (locationNames) eventParams.push(locationNames);
   const occParams: any[] = locationId
     ? [clientId, windowStart, windowEnd, locationId]
-    : [clientId, windowStart, windowEnd];
-  const shareParams: any[] = locationId ? [clientId, locationId] : [clientId];
+    : locationNames
+      ? [clientId, windowStart, windowEnd, locationNames]
+      : [clientId, windowStart, windowEnd];
+  const shareParams: any[] = locationId
+    ? [clientId, locationId]
+    : locationNames
+      ? [clientId, locationNames]
+      : [clientId];
 
-  const inferredParams: any[] = locationName
-    ? [clientId, windowStart, windowEnd, locationName]
-    : [clientId, windowStart, windowEnd];
+  const inferredParams: any[] = [clientId, windowStart, windowEnd];
+  if (locationName) inferredParams.push(locationName);
+  if (locationNames) inferredParams.push(locationNames);
   const [moveOutRes, inferredMoveOutRes, occRes, shareRes] = await Promise.all([
     pool.query(moveOutSql, eventParams),
     pool.query(inferredMoveOutSql, inferredParams),

@@ -100,6 +100,9 @@ export interface CalculatePlanInput {
   locationId: string | null;
   /** Campus name as stored in `rent_roll_data.location`. */
   location: string | null;
+  /** Validated campus names included by the selected division. */
+  locationNames?: string[];
+  division?: string | null;
   serviceLine: string;
   assumptions: PlanningAssumptions;
 }
@@ -232,6 +235,7 @@ export async function preparePlan(
   const scope: ScopeFilter = {
     clientId: input.clientId,
     location: input.location,
+    locationNames: input.locationNames,
     serviceLine: input.serviceLine,
   };
 
@@ -816,6 +820,7 @@ export async function preparePlan(
       clientId: input.clientId,
       locationId: input.locationId,
       location: input.location,
+      division: input.division ?? null,
       serviceLine: input.serviceLine,
       sourceMonth,
     };
@@ -953,6 +958,8 @@ export interface CalculatePlanTiersInput {
   clientId: string;
   locationId: string | null;
   location: string | null;
+  locationNames?: string[];
+  division?: string | null;
   serviceLine: string;
   /** Service-line-level assumptions: effective dates, growth target, turnover. */
   assumptions: PlanningAssumptions;
@@ -983,6 +990,8 @@ export interface CalculatePlanBatchInput {
   clientId: string;
   locationId: string | null;
   location: string | null;
+  locationNames?: string[];
+  division?: string | null;
   lines: CalculatePlanBatchLine[];
 }
 
@@ -1004,6 +1013,8 @@ export interface CalculatePlanTiersBatchInput {
   clientId: string;
   locationId: string | null;
   location: string | null;
+  locationNames?: string[];
+  division?: string | null;
   lines: CalculatePlanTiersBatchLine[];
 }
 
@@ -1030,6 +1041,7 @@ export async function calculatePlanBatch(
       input.clientId,
       input.location,
       input.lines.map((line) => line.serviceLine),
+      input.locationNames,
     ),
   ]);
   const settled = await Promise.allSettled(
@@ -1039,6 +1051,8 @@ export async function calculatePlanBatch(
           clientId: input.clientId,
           locationId: input.locationId,
           location: input.location,
+          locationNames: input.locationNames,
+          division: input.division,
           serviceLine: line.serviceLine,
           assumptions: line.assumptions,
         },
@@ -1138,12 +1152,13 @@ export async function calculatePlanTiersBatch(
   input: CalculatePlanTiersBatchInput,
 ): Promise<CalculatePlanTiersBatchResult> {
   const [occupancy, formulas, sourceMonths] = await Promise.all([
-    fetchOccupancyByServiceLine(input.clientId, input.location),
+    fetchOccupancyByServiceLine(input.clientId, input.location, input.locationNames),
     getDerivedRateFormulas((s, p) => pool.query(s, p), input.clientId),
     getLatestMonthsForScopes(
       input.clientId,
       input.location,
       input.lines.map((line) => line.serviceLine),
+      input.locationNames,
     ),
   ]);
   const settled = await Promise.allSettled(
@@ -1153,6 +1168,8 @@ export async function calculatePlanTiersBatch(
           clientId: input.clientId,
           locationId: input.locationId,
           location: input.location,
+          locationNames: input.locationNames,
+          division: input.division,
           serviceLine: line.serviceLine,
           assumptions: line.assumptions,
         },
@@ -1198,6 +1215,8 @@ export async function calculatePlanTiers(
     clientId: input.clientId,
     locationId: input.locationId,
     location: input.location,
+    locationNames: input.locationNames,
+    division: input.division,
     lines: [{
       serviceLine: input.serviceLine,
       assumptions: input.assumptions,

@@ -696,6 +696,7 @@ export const manualRateOverrideHistory = pgTable("manual_rate_override_history",
 export const inhousePlanningAssumptions = pgTable("inhouse_planning_assumptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   clientId: varchar("client_id").notNull(),
+  division: text("division"),                                           // NULL = all divisions
   locationId: varchar("location_id").references(() => locations.id), // NULL = all campuses
   serviceLine: text("service_line"),                                 // NULL = all service lines
   rateGrowthTargetPct: real("rate_growth_target_pct").notNull().default(5),
@@ -723,7 +724,7 @@ export const inhousePlanningAssumptions = pgTable("inhouse_planning_assumptions"
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   uniqueScope: uniqueIndex("inhouse_planning_assumptions_scope")
-    .on(table.clientId, table.locationId, table.serviceLine),
+    .on(table.clientId, table.division, table.locationId, table.serviceLine),
 }));
 
 // An in-house increase plan, kept as an immutable audit version.

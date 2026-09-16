@@ -622,6 +622,7 @@ const SCOPE_LEVEL_LABEL: Record<string, string> = {
 interface LocationRow {
   id: string;
   name: string;
+  division: string | null;
 }
 
 type SortKey =
@@ -1387,6 +1388,7 @@ function PlanScatterReview({
 interface CalculateRequest {
   identityKey: string | null;
   locationId: string | null;
+  division: string | null;
   serviceLines: string[];
   assumptionsByLine: Record<string, PlanningAssumptions>;
   tierPoliciesByLine: Record<string, OccupancyTierPolicy>;
@@ -1552,8 +1554,13 @@ type TaggedResident = ResidentRecommendation & { _sl: string };
  * while switching campus or service-line selections never shows another
  * scope's result.
  */
-export function calculatedPlanScopeKey(locationId: string | null, serviceLines: string[]): string {
-  return `${locationId ?? ALL_CAMPUSES}::${Array.from(new Set(serviceLines)).sort().join(",")}`;
+export function calculatedPlanScopeKey(
+  locationId: string | null,
+  serviceLines: string[],
+  division: string | null = null,
+): string {
+  const base = `${locationId ?? ALL_CAMPUSES}::${Array.from(new Set(serviceLines)).sort().join(",")}`;
+  return division ? `${division}::${base}` : base;
 }
 
 function isStoredPlan(value: unknown): value is PlanWithSl {
@@ -1679,6 +1686,9 @@ export default function InhouseIncreases() {
   const [locationId, setLocationId] = useState<string>(() =>
     new URLSearchParams(window.location.search).get("locationId") || ALL_CAMPUSES,
   );
+  const [division, setDivision] = useState<string>(() =>
+    new URLSearchParams(window.location.search).get("division") || "",
+  );
   // Multi-select: default to all service lines.
   const [serviceLines, setServiceLines] = useState<string[]>(() => {
     const requested = new URLSearchParams(window.location.search).get("serviceLine");
@@ -1776,9 +1786,11 @@ export default function InhouseIncreases() {
   // What the tier grid describes. Scope and inputs are tracked separately so
   // the two can be reported differently: a scope change invalidates the grid
   // outright, while an edited input only makes it out of date.
-  const tierScopeKey = `${scopeLocationId ?? "all"}|${serviceLines.join(",")}`;
+  const tierScopeKey = division
+    ? `${division}|${scopeLocationId ?? "all"}|${serviceLines.join(",")}`
+    : `${scopeLocationId ?? "all"}|${serviceLines.join(",")}`;
   // Policies are per campus; the service line is the record key inside them.
-  const policyScopeKey = scopeLocationId ?? "all";
+  const policyScopeKey = division ? `${division}|${scopeLocationId ?? "all"}` : (scopeLocationId ?? "all");
   /**
    * Per-line targets are also per campus. Keep the scope beside the values so
    * a cached query for a revisited campus cannot be followed by a reset effect
@@ -1819,9 +1831,9 @@ export default function InhouseIncreases() {
   const singleLine = serviceLines.length === 1 ? serviceLines[0] : null;
   const calculatedPlanKey = useMemo(
     () => storageIdentityKey
-      ? calculatedPlanScopeKey(scopeLocationId, serviceLines)
+      ? calculatedPlanScopeKey(scopeLocationId, serviceLines, division || null)
       : null,
-    [scopeLocationId, serviceLines, storageIdentityKey],
+    [scopeLocationId, serviceLines, storageIdentityKey, division],
   );
 
   const previousStorageIdentity = useRef<string | null | undefined>(undefined);
@@ -1881,7 +1893,7 @@ export default function InhouseIncreases() {
       if (!restored || restored.length !== serviceLines.length) {
         const perLine = await Promise.all(
           serviceLines.map(async (sl) => {
-            const lineKey = calculatedPlanScopeKey(scopeLocationId, [sl]);
+            const lineKey = calculatedPlanScopeKey(scopeLocationId, [sl], division || null);
             const lineStoredValue = await readInhousePlan<unknown>(
               storageIdentityKey,
               lineKey,
@@ -1948,7 +1960,7 @@ export default function InhouseIncreases() {
     return () => {
       cancelled = true;
     };
-  }, [calculatedPlanKey, scopeLocationId, serviceLines, storageIdentityKey]);
+  }, [calculatedPlanKey, scopeLocationId, serviceLines, storageIdentityKey, division]);
 
   function toggleServiceLine(sl: string) {
     setServiceLines((prev) => {
@@ -1965,12 +1977,34 @@ export default function InhouseIncreases() {
     queryKey: ["/api/locations"],
   });
   const locations = locationsData?.locations ?? [];
+  const divisions = useMemo(
+    () => Array.from(new Set(locations.map((location) => location.division).filter(Boolean) as string[]))
+      .sort((a, b) => a.localeCompare(b)),
+    [locations],
+  );
+  const visibleLocations = useMemo(
+    () => division
+      ? locations.filter((location) => location.division === division)
+      : locations,
+    [locations, division],
+  );
+
+  useEffect(() => {
+    if (division && !divisions.includes(division)) setDivision("");
+  }, [division, divisions]);
+
+  useEffect(() => {
+    if (scopeLocationId && !visibleLocations.some((location) => location.id === scopeLocationId)) {
+      setLocationId(ALL_CAMPUSES);
+    }
+  }, [scopeLocationId, visibleLocations]);
 
   const { data: campusOccupancyData } = useQuery<{ readings: CampusOccupancyReading[] }>({
     queryKey: [
       "/api/inhouse-planning/occupancy-by-campus",
       storageIdentityKey ?? "anonymous",
       calculatedPlanKey ?? "unscoped",
+      division || "all-divisions",
     ],
     enabled:
       plans !== null &&
@@ -1985,9 +2019,13 @@ export default function InhouseIncreases() {
       "/api/inhouse-planning/campus-plan-points",
       storageIdentityKey ?? "anonymous",
       serviceLines.join(","),
+      division || "all-divisions",
     ],
     queryFn: async () => {
-      const params = new URLSearchParams({ serviceLines: serviceLines.join(",") });
+       const params = new URLSearchParams({
+         serviceLines: serviceLines.join(","),
+         ...(division ? { division } : {}),
+       });
       const res = await fetch(`/api/inhouse-planning/campus-plan-points?${params}`, {
         credentials: "include",
         cache: "no-store",
@@ -2019,10 +2057,12 @@ export default function InhouseIncreases() {
       "/api/inhouse-planning/assumptions",
       scopeLocationId ?? "all",
       firstLine,
+      division || "all-divisions",
     ],
     queryFn: async () => {
       const params = new URLSearchParams({ serviceLine: firstLine });
       if (scopeLocationId) params.set("locationId", scopeLocationId);
+      if (division) params.set("division", division);
       const res = await fetch(`/api/inhouse-planning/assumptions?${params}`, {
         credentials: "include",
       });
@@ -2090,12 +2130,14 @@ export default function InhouseIncreases() {
       "tier-policies",
       scopeLocationId ?? "all",
       serviceLines.join(","),
+      division || "all-divisions",
     ],
     queryFn: async ({ signal }) => {
       // The campus this run is answering for, captured before any awaiting.
       const scopeKey = scopeLocationId ?? "all";
       const params = new URLSearchParams({ serviceLines: serviceLines.join(",") });
       if (scopeLocationId) params.set("locationId", scopeLocationId);
+      if (division) params.set("division", division);
       const controller = new AbortController();
       const cancelForQuery = () => controller.abort();
       signal.addEventListener("abort", cancelForQuery, { once: true });
@@ -2250,6 +2292,7 @@ export default function InhouseIncreases() {
       "/api/inhouse-planning/historical-turnover",
       storageIdentityKey ?? "anonymous",
       scopeLocationId ?? "all",
+      division || "all-divisions",
     ],
     initialData: () =>
       scopeLocationId === null
@@ -2268,6 +2311,7 @@ export default function InhouseIncreases() {
     queryFn: async () => {
       const params = new URLSearchParams();
       if (scopeLocationId) params.set("locationId", scopeLocationId);
+      if (division) params.set("division", division);
       const res = await fetch(`/api/inhouse-planning/historical-turnover?${params}`, {
         credentials: "include",
       });
@@ -2369,6 +2413,7 @@ export default function InhouseIncreases() {
         credentials: "include",
         body: JSON.stringify({
           locationId: scopeLocationId,
+          division: division || null,
           serviceLine: sl,
           assumptions: assumptionsForLine(sl),
           tierPolicy: tierPolicyFor(sl),
@@ -2430,9 +2475,14 @@ export default function InhouseIncreases() {
   // whole portfolio calculation.
   const calculate = useMutation({
     mutationFn: async (request: CalculateRequest) => {
-      const requestedScopeKey = calculatedPlanScopeKey(request.locationId, request.serviceLines);
+      const requestedScopeKey = calculatedPlanScopeKey(
+        request.locationId,
+        request.serviceLines,
+        request.division,
+      );
       const res = await apiRequest("/api/inhouse-planning/calculate-batch", "POST", {
         locationId: request.locationId,
+        division: request.division || null,
         lines: request.serviceLines.map((sl) => ({
           serviceLine: sl,
           assumptions: request.assumptionsByLine[sl],
@@ -2473,7 +2523,7 @@ export default function InhouseIncreases() {
       if (restoreDetails) {
         if (
           identityKey !== currentStorageIdentity.current ||
-          scopeKey !== calculatedPlanScopeKey(scopeLocationId, serviceLines)
+           scopeKey !== calculatedPlanScopeKey(scopeLocationId, serviceLines, division || null)
         ) return;
         setPlans(results);
         setRestoredPlanDetailsOmitted(false);
@@ -2508,7 +2558,11 @@ export default function InhouseIncreases() {
           identityKey,
           { scopeKey, value: stored },
           compactResults.map((result) => ({
-            scopeKey: calculatedPlanScopeKey(result.plan.scope.locationId ?? null, [result.sl]),
+             scopeKey: calculatedPlanScopeKey(
+               result.plan.scope.locationId ?? null,
+               [result.sl],
+               division || null,
+             ),
             value: {
               plans: [result],
               lastRunAt,
@@ -2522,7 +2576,7 @@ export default function InhouseIncreases() {
       // one.
       if (
         identityKey !== currentStorageIdentity.current ||
-        scopeKey !== calculatedPlanScopeKey(scopeLocationId, serviceLines)
+        scopeKey !== calculatedPlanScopeKey(scopeLocationId, serviceLines, division || null)
       ) return;
       setPlans(results);
       setLastRunAt(lastRunAt);
@@ -2653,9 +2707,11 @@ export default function InhouseIncreases() {
       const inputsKey = planningInputSnapshotKey(inputEntries);
       const locationIdAtStart = scopeLocationId;
       const identityKey = storageIdentityKey;
-      const planScopeKey = calculatedPlanScopeKey(locationIdAtStart, requested);
+       const divisionAtStart = division || null;
+       const planScopeKey = calculatedPlanScopeKey(locationIdAtStart, requested, divisionAtStart);
       const res = await apiRequest("/api/inhouse-planning/calculate-tiers-batch", "POST", {
         locationId: locationIdAtStart,
+         division: divisionAtStart,
         lines: inputEntries.map((entry) => ({
           serviceLine: entry.serviceLine,
           assumptions: entry.assumptions,
@@ -2705,7 +2761,7 @@ export default function InhouseIncreases() {
       const lastRunAt = new Date().toISOString();
       if (
         result.identityKey === currentStorageIdentity.current &&
-        result.planScopeKey === calculatedPlanScopeKey(scopeLocationId, serviceLines)
+         result.planScopeKey === calculatedPlanScopeKey(scopeLocationId, serviceLines, division || null)
       ) {
         setPlans(calculatedPlans);
         setCalculatedInputsKey(result.inputsKey);
@@ -2744,7 +2800,11 @@ export default function InhouseIncreases() {
               (entry) => entry.serviceLine === calculated.sl,
             );
             return {
-              scopeKey: calculatedPlanScopeKey(calculated.plan.scope.locationId ?? null, [calculated.sl]),
+              scopeKey: calculatedPlanScopeKey(
+                calculated.plan.scope.locationId ?? null,
+                [calculated.sl],
+                division || null,
+              ),
               value: {
                 plans: [calculated],
                 lastRunAt,
@@ -2758,7 +2818,9 @@ export default function InhouseIncreases() {
                   lines: compactTierGrid.lines.filter(
                     (line) => line.serviceLine === calculated.sl,
                   ),
-                  scopeKey: `${calculated.plan.scope.locationId ?? "all"}|${calculated.sl}`,
+                   scopeKey: division
+                     ? `${division}|${calculated.plan.scope.locationId ?? "all"}|${calculated.sl}`
+                     : `${calculated.plan.scope.locationId ?? "all"}|${calculated.sl}`,
                   inputsKey: inputSnapshot.length === 1
                     ? planningInputSnapshotKey(inputSnapshot)
                     : result.inputsKey,
@@ -2831,6 +2893,7 @@ export default function InhouseIncreases() {
         serviceLines.map(async (sl) => {
           const response = await apiRequest("/api/inhouse-planning/assumptions", "POST", {
             locationId: scopeLocationId,
+            division: division || null,
             serviceLine: sl,
             assumptions: assumptionsForLine(sl),
             tierPolicy: submitted[sl],
@@ -2885,6 +2948,7 @@ export default function InhouseIncreases() {
             "/api/inhouse-planning/assumptions",
             scopeLocationId ?? "all",
             firstLine,
+            division || "all-divisions",
           ],
           (old) => (old ? { ...old, assumptions: savedAssumptions } : old),
         );
@@ -2936,8 +3000,8 @@ export default function InhouseIncreases() {
       toast({
         title: "Assumptions saved",
         description: scopeLocationId
-          ? `Saved for ${lineLabel} at this campus.`
-          : `Saved for ${lineLabel} across all campuses.`,
+          ? `Saved for ${lineLabel} at this campus${division ? ` in ${division}` : ""}.`
+          : `Saved for ${lineLabel} across all campuses${division ? ` in ${division}` : ""}.`,
       });
     },
     onError: (err: Error) =>
@@ -2960,6 +3024,7 @@ export default function InhouseIncreases() {
         submittablePlans.map(({ sl }) =>
           apiRequest("/api/inhouse-planning/apply", "POST", {
             locationId: scopeLocationId,
+            division: division || null,
             serviceLine: sl,
             assumptions: assumptionsForLine(sl),
             tierPolicy: tierPolicyFor(sl),
@@ -2985,11 +3050,17 @@ export default function InhouseIncreases() {
    // Fetch submitted and applied plan history; omit serviceLine filter when multiple are
   // selected so all lines' history shows in one list.
   const plansQuery = useQuery<{ plans: InhousePlanHistoryEntry[] }>({
-    queryKey: ["/api/inhouse-planning/plans", scopeLocationId ?? "all", singleLine ?? "all"],
+    queryKey: [
+      "/api/inhouse-planning/plans",
+      scopeLocationId ?? "all",
+      singleLine ?? "all",
+      division || "all-divisions",
+    ],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (singleLine) params.set("serviceLine", singleLine);
       if (scopeLocationId) params.set("locationId", scopeLocationId);
+      if (division) params.set("division", division);
       const res = await fetch(`/api/inhouse-planning/plans?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
@@ -3006,9 +3077,14 @@ export default function InhouseIncreases() {
       tierGrid?: unknown;
     } | null;
   }>({
-    queryKey: ["/api/inhouse-planning/annual-report-runs/latest", tierScopeKey],
+    queryKey: [
+      "/api/inhouse-planning/annual-report-runs/latest",
+      tierScopeKey,
+      division || "all-divisions",
+    ],
     queryFn: async () => {
       const params = new URLSearchParams({ scopeKey: tierScopeKey });
+      if (division) params.set("division", division);
       const res = await fetch(
         `/api/inhouse-planning/annual-report-runs/latest?${params}`,
         { credentials: "include", cache: "no-store" },
@@ -3230,6 +3306,7 @@ export default function InhouseIncreases() {
     return {
       identityKey: storageIdentityKey,
       locationId: scopeLocationId,
+      division: division || null,
       serviceLines: selectedLines,
       assumptionsByLine: Object.fromEntries(
         selectedLines.map((sl) => [sl, { ...assumptionsForLine(sl) }]),
@@ -3701,6 +3778,32 @@ export default function InhouseIncreases() {
         </CardHeader>
         {expandedSections.scope && <CardContent id="inhouse-scope-content" className="grid gap-4 pt-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Division</Label>
+            <Select
+              value={division || "__all_divisions__"}
+              onValueChange={(value) => {
+                const next = value === "__all_divisions__" ? "" : value;
+                setDivision(next);
+                setLocationId(ALL_CAMPUSES);
+                setAssumptionsTouched(false);
+                setPlans(null);
+                setCalculatedInputsKey(null);
+              }}
+            >
+              <SelectTrigger className="h-9" data-testid="select-division">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all_divisions__">All divisions</SelectItem>
+                {divisions.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {value}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
             <Label className="text-xs font-medium">Campus</Label>
             <Select
               value={locationId}
@@ -3715,7 +3818,7 @@ export default function InhouseIncreases() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL_CAMPUSES}>All campuses</SelectItem>
-                {locations.map((l) => (
+                {visibleLocations.map((l) => (
                   <SelectItem key={l.id} value={l.id}>
                     {l.name}
                   </SelectItem>
@@ -5600,6 +5703,11 @@ export default function InhouseIncreases() {
                       <span className="text-muted-foreground">
                         {p.location || "All campuses"} · {p.serviceLine}
                       </span>
+                      {p.inheritedFromPortfolio && (
+                        <Badge variant="outline" className="text-[11px] font-normal">
+                          Inherited from portfolio
+                        </Badge>
+                      )}
                       <span className="font-mono text-xs">
                         {formatPct(p.summary?.weightedAvgIncreasePct ?? 0, 2)} avg
                       </span>

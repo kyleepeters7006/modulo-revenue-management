@@ -81,7 +81,30 @@ export interface ScopeFilter {
   clientId: string;
   /** Campus name as stored in `rent_roll_data.location`. Null = whole portfolio. */
   location: string | null;
+  /**
+   * Validated campus names belonging to the selected division. When present,
+   * this narrows the portfolio/campus scope without changing the legacy
+   * location-name contract used by rent-roll data.
+   */
+  locationNames?: string[];
   serviceLine: string;
+}
+
+function scopeLocationSql(
+  scope: Pick<ScopeFilter, "location" | "locationNames">,
+  params: any[],
+  alias = "rr",
+): string {
+  const predicates: string[] = [];
+  if (scope.location) {
+    params.push(scope.location);
+    predicates.push(`${alias}.location = $${params.length}`);
+  }
+  if (scope.locationNames) {
+    params.push(scope.locationNames);
+    predicates.push(`${alias}.location = ANY($${params.length}::text[])`);
+  }
+  return predicates.length ? ` AND ${predicates.join(" AND ")}` : "";
 }
 
 /**
@@ -113,11 +136,7 @@ export async function fetchPlanningSignalValidation(
 ): Promise<PlanningSignalAssessments> {
   const aliases = planningSignalServiceLineAliases(scope.serviceLine);
   const params: any[] = [scope.clientId, sourceMonth, aliases];
-  let locSql = "";
-  if (scope.location) {
-    params.push(scope.location);
-    locSql = ` AND rr.location = $${params.length}`;
-  }
+  const locSql = scopeLocationSql(scope, params);
 
   const result = await pool.query<{
     signal: PlanningSignalName;
@@ -199,11 +218,7 @@ export async function fetchPlanningSignalValidation(
 /** Latest rent-roll month that actually has occupied rows for this scope. */
 export async function getLatestMonthForScope(scope: ScopeFilter): Promise<string | null> {
   const params: any[] = [scope.clientId, scope.serviceLine];
-  let locSql = "";
-  if (scope.location) {
-    params.push(scope.location);
-    locSql = ` AND rr.location = $${params.length}`;
-  }
+  const locSql = scopeLocationSql(scope, params);
   const res = await pool.query<{ upload_month: string }>(
     `SELECT rr.upload_month
        FROM rent_roll_data rr
@@ -224,14 +239,11 @@ export async function getLatestMonthsForScopes(
   clientId: string,
   location: string | null,
   serviceLines: string[],
+  locationNames?: string[],
 ): Promise<Map<string, string | null>> {
   if (serviceLines.length === 0) return new Map();
   const params: any[] = [clientId, serviceLines];
-  let locSql = "";
-  if (location) {
-    params.push(location);
-    locSql = ` AND rr.location = $${params.length}`;
-  }
+  const locSql = scopeLocationSql({ location, locationNames }, params);
   const result = await pool.query<{ service_line: string; upload_month: string | null }>(
     `SELECT rr.service_line, MAX(rr.upload_month) AS upload_month
        FROM rent_roll_data rr
@@ -280,11 +292,7 @@ export async function fetchResidentRows(
   month: string,
 ): Promise<RawResidentRow[]> {
   const params: any[] = [scope.clientId, month, scope.serviceLine];
-  let locSql = "";
-  if (scope.location) {
-    params.push(scope.location);
-    locSql = ` AND rr.location = $${params.length}`;
-  }
+  const locSql = scopeLocationSql(scope, params);
 
   const join = buildRateBaselineJoin({
     rr: "rr.",
@@ -637,11 +645,7 @@ export async function fetchCurrentStreetRate(
   month: string,
 ): Promise<number> {
   const params: any[] = [scope.clientId, month, scope.serviceLine];
-  let locSql = "";
-  if (scope.location) {
-    params.push(scope.location);
-    locSql = ` AND rr.location = $${params.length}`;
-  }
+  const locSql = scopeLocationSql(scope, params);
   const join = buildRateBaselineJoin({
     rr: "rr.",
     clientSql: "$1",
@@ -707,11 +711,7 @@ export async function fetchMixStandardizedStreetComparison(
   currentMonth: string,
 ): Promise<MixStandardizedStreetComparison> {
   const params: any[] = [scope.clientId, currentMonth, scope.serviceLine, baselineMonth];
-  let locSql = "";
-  if (scope.location) {
-    params.push(scope.location);
-    locSql = ` AND rr.location = $${params.length}`;
-  }
+  const locSql = scopeLocationSql(scope, params);
   const roomCte = (monthSql: string, alias: string, payerFiltered: boolean) => `
     SELECT rr.location, rr.service_line, rr.room_number,
            AVG(${monthlyRateExpr("rr.street_rate")}) AS rate
@@ -774,11 +774,7 @@ export async function fetchTopCompetitorRate(
   month: string,
 ): Promise<number | null> {
   const params: any[] = [scope.clientId, month, scope.serviceLine];
-  let locSql = "";
-  if (scope.location) {
-    params.push(scope.location);
-    locSql = ` AND rr.location = $${params.length}`;
-  }
+  const locSql = scopeLocationSql(scope, params);
   const res = await pool.query<{ avg_rate: string | null }>(
     `SELECT AVG(${monthlyRateExpr("rr.competitor_final_rate")}) AS avg_rate
        FROM rent_roll_data rr
@@ -883,11 +879,7 @@ async function queryMonthlyRealized(
   throughMonth?: string,
 ): Promise<{ months: MonthlyRealized[]; cohortRooms: number; cohortMonthCount: number }> {
   const params: any[] = [scope.clientId, scope.serviceLine, fromMonth];
-  let locSql = "";
-  if (scope.location) {
-    params.push(scope.location);
-    locSql = ` AND rr.location = $${params.length}`;
-  }
+  const locSql = scopeLocationSql(scope, params);
 
   const monthStart = `to_date(rr.upload_month || '-01', 'YYYY-MM-DD')`;
   const monthEndExcl = `(${monthStart} + INTERVAL '1 month')`;
@@ -1084,11 +1076,7 @@ export async function fetchRecordedMonths(
   // over a client's whole rent roll scans millions of rows on every plan build;
   // the caller only ever needs presence for a handful of known months.
   const params: any[] = [scope.clientId, scope.serviceLine, months];
-  let locSql = "";
-  if (scope.location) {
-    params.push(scope.location);
-    locSql = ` AND rr.location = $${params.length}`;
-  }
+  const locSql = scopeLocationSql(scope, params);
   const res = await pool.query<{ upload_month: string }>(
     `SELECT DISTINCT rr.upload_month
        FROM rent_roll_data rr
@@ -1108,11 +1096,7 @@ export async function fetchQuarterRoomRates(
   if (months.length === 0) return { months, rooms: [], weightBasis };
 
   const params: any[] = [scope.clientId, scope.serviceLine, months];
-  let locSql = "";
-  if (scope.location) {
-    params.push(scope.location);
-    locSql = ` AND rr.location = $${params.length}`;
-  }
+  const locSql = scopeLocationSql(scope, params);
 
   const monthStart = `to_date(rr.upload_month || '-01', 'YYYY-MM-DD')`;
   const monthEndExcl = `(${monthStart} + INTERVAL '1 month')`;
@@ -1389,10 +1373,24 @@ export interface CampusServiceLineOccupancy extends ServiceLineOccupancy {
 export async function fetchOccupancyByServiceLine(
   clientId: string,
   location: string | null,
+  locationNames?: string[],
 ): Promise<ScopeOccupancy> {
-  const params: any[] = location ? [clientId, location] : [clientId];
-  const rtoLocFilter = location ? "AND COALESCE(roh.location_name, l2.name) = $2" : "";
-  const rrLocFilter = location ? "AND location = $2" : "";
+  const params: any[] = [clientId];
+  const scope = { location, locationNames };
+  const campusParams = (expression: string) => {
+    const predicates: string[] = [];
+    if (scope.location) {
+      params.push(scope.location);
+      predicates.push(`${expression} = $${params.length}`);
+    }
+    if (scope.locationNames) {
+      params.push(scope.locationNames);
+      predicates.push(`${expression} = ANY($${params.length}::text[])`);
+    }
+    return predicates.length ? `AND ${predicates.join(" AND ")}` : "";
+  };
+  const rtoLocFilter = campusParams("COALESCE(roh.location_name, l2.name)");
+  const rrLocFilter = campusParams("location");
 
   // Anchored to the newest month occupancy history covers FOR THIS SCOPE, which
   // can lag the rent roll. Reading the rent roll for a month history simply has
@@ -1505,7 +1503,14 @@ export async function fetchOccupancyByServiceLine(
  */
 export async function fetchOccupancyByCampus(
   clientId: string,
+  locationNames?: string[],
 ): Promise<CampusServiceLineOccupancy[]> {
+  const rtoLocationFilter = locationNames
+    ? "AND COALESCE(roh.location_name, l.name) = ANY($2::text[])"
+    : "";
+  const rentRollLocationFilter = locationNames
+    ? "AND rr.location = ANY($2::text[])"
+    : "";
   const rtoSql = `
     WITH anchored AS (
       SELECT roh.location_id,
@@ -1514,6 +1519,7 @@ export async function fetchOccupancyByCampus(
         FROM room_type_occupancy_history roh
         LEFT JOIN locations l ON l.id = roh.location_id
        WHERE roh.client_id = $1
+       ${rtoLocationFilter}
        GROUP BY roh.location_id, COALESCE(roh.location_name, l.name)
     )
     SELECT roh.location_id,
@@ -1529,6 +1535,7 @@ export async function fetchOccupancyByCampus(
        AND a.location IS NOT DISTINCT FROM COALESCE(roh.location_name, l.name)
        AND make_date(roh.year, roh.month, 1) = a.anchor
      WHERE roh.client_id = $1
+      ${rtoLocationFilter}
      GROUP BY roh.location_id, COALESCE(roh.location_name, l.name), a.anchor, roh.service_line`;
 
   const weightSql = `
@@ -1536,6 +1543,7 @@ export async function fetchOccupancyByCampus(
       SELECT location_id, location, MAX(upload_month) AS upload_month
         FROM rent_roll_data
        WHERE client_id = $1
+       ${locationNames ? "AND location = ANY($2::text[])" : ""}
        GROUP BY location_id, location
     )
     SELECT rr.location_id, rr.location,
@@ -1550,11 +1558,12 @@ export async function fetchOccupancyByCampus(
        AND a.upload_month = rr.upload_month
      WHERE rr.client_id = $1
        AND ${slWeightSqlPredicate("rr.")}
+        ${rentRollLocationFilter}
      GROUP BY rr.location_id, rr.location, rr.service_line, a.upload_month`;
 
   const [rtoRes, weightRes] = await Promise.all([
-    pool.query(rtoSql, [clientId]),
-    pool.query(weightSql, [clientId]),
+    pool.query(rtoSql, locationNames ? [clientId, locationNames] : [clientId]),
+    pool.query(weightSql, locationNames ? [clientId, locationNames] : [clientId]),
   ]);
   type CampusKey = string;
   const keyOf = (locationId: unknown, location: unknown) =>

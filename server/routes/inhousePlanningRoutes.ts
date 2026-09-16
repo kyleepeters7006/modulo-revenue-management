@@ -106,6 +106,7 @@ const assumptionsSchema = z.object({
 
 const scopeSchema = z.object({
   locationId: z.string().nullable().optional(),
+  division: z.string().trim().nullable().optional(),
   serviceLine: z.string().min(1),
 });
 
@@ -149,6 +150,7 @@ const batchLineSchema = z.object({
 
 const batchScopeSchema = z.object({
   locationId: z.string().nullable().optional(),
+  division: z.string().trim().nullable().optional(),
   lines: z
     .array(batchLineSchema)
     .min(1, "Select at least one service line")
@@ -193,8 +195,9 @@ async function assumptionsForMeasuredTier(
   serviceLine: string,
   assumptions: PlanningAssumptions,
   tierPolicy: OccupancyTierPolicy,
+  locationNames?: string[],
 ): Promise<PlanningAssumptions> {
-  const occupancy = await fetchOccupancyByServiceLine(clientId, location);
+  const occupancy = await fetchOccupancyByServiceLine(clientId, location, locationNames);
   const reading = occupancy.byServiceLine.get(serviceLine) ?? null;
   const tier = tierForOccupancy(tierPolicy, reading?.occupancyPct ?? null);
   return tier ? applyOccupancyTier(assumptions, tierPolicy.tiers[tier]) : assumptions;
@@ -247,6 +250,7 @@ async function resolveAssumptions(
   clientId: string,
   locationId: string | null,
   serviceLine: string | null,
+  division: string | null = null,
 ): Promise<{
   assumptions: PlanningAssumptions;
   tierPolicy: OccupancyTierPolicy;
@@ -260,47 +264,56 @@ async function resolveAssumptions(
   scopeLevel: string;
 }> {
   const tiers: Array<{ level: string; where: any }> = [];
-  if (locationId && serviceLine) {
+  const addTiersForDivision = (divisionValue: string | null) => {
+    const divisionWhere = divisionValue
+      ? eq(inhousePlanningAssumptions.division, divisionValue)
+      : sql`${inhousePlanningAssumptions.division} IS NULL`;
+    const level = (name: string) => divisionValue ? `division+${name}` : name;
+    if (locationId && serviceLine) {
+      tiers.push({
+        level: level("location+serviceLine"),
+        where: and(
+          eq(inhousePlanningAssumptions.clientId, clientId),
+          divisionWhere,
+          eq(inhousePlanningAssumptions.locationId, locationId),
+          eq(inhousePlanningAssumptions.serviceLine, serviceLine),
+        ),
+      });
+    }
+    if (locationId) {
+      tiers.push({
+        level: level("location"),
+        where: and(
+          eq(inhousePlanningAssumptions.clientId, clientId),
+          divisionWhere,
+          eq(inhousePlanningAssumptions.locationId, locationId),
+          sql`${inhousePlanningAssumptions.serviceLine} IS NULL`,
+        ),
+      });
+    }
+    if (serviceLine) {
+      tiers.push({
+        level: level("serviceLine"),
+        where: and(
+          eq(inhousePlanningAssumptions.clientId, clientId),
+          divisionWhere,
+          sql`${inhousePlanningAssumptions.locationId} IS NULL`,
+          eq(inhousePlanningAssumptions.serviceLine, serviceLine),
+        ),
+      });
+    }
     tiers.push({
-      level: "location+serviceLine",
+      level: level("global"),
       where: and(
         eq(inhousePlanningAssumptions.clientId, clientId),
-        eq(inhousePlanningAssumptions.locationId, locationId),
-        eq(inhousePlanningAssumptions.serviceLine, serviceLine),
-      ),
-    });
-  }
-  if (locationId) {
-    tiers.push({
-      level: "location",
-      where: and(
-        eq(inhousePlanningAssumptions.clientId, clientId),
-        eq(inhousePlanningAssumptions.locationId, locationId),
+        divisionWhere,
+        sql`${inhousePlanningAssumptions.locationId} IS NULL`,
         sql`${inhousePlanningAssumptions.serviceLine} IS NULL`,
       ),
     });
-  }
-  // Portfolio-wide but service-line specific. This is what the UI writes when
-  // the campus selector says "All campuses", so it has to be searched — without
-  // it, saving from the default view appears to succeed and then never applies.
-  if (serviceLine) {
-    tiers.push({
-      level: "serviceLine",
-      where: and(
-        eq(inhousePlanningAssumptions.clientId, clientId),
-        sql`${inhousePlanningAssumptions.locationId} IS NULL`,
-        eq(inhousePlanningAssumptions.serviceLine, serviceLine),
-      ),
-    });
-  }
-  tiers.push({
-    level: "global",
-    where: and(
-      eq(inhousePlanningAssumptions.clientId, clientId),
-      sql`${inhousePlanningAssumptions.locationId} IS NULL`,
-      sql`${inhousePlanningAssumptions.serviceLine} IS NULL`,
-    ),
-  });
+  };
+  addTiersForDivision(division);
+  if (division) addTiersForDivision(null);
 
   for (const tier of tiers) {
     const [row] = await db
@@ -341,6 +354,7 @@ async function resolveAssumptionsBatch(
   clientId: string,
   locationId: string | null,
   serviceLines: string[],
+  division: string | null = null,
 ): Promise<Record<string, Awaited<ReturnType<typeof resolveAssumptions>>>> {
   const rows = await db
     .select()
@@ -348,6 +362,12 @@ async function resolveAssumptionsBatch(
     .where(
       and(
         eq(inhousePlanningAssumptions.clientId, clientId),
+        division
+          ? or(
+              eq(inhousePlanningAssumptions.division, division),
+              sql`${inhousePlanningAssumptions.division} IS NULL`,
+            )
+          : sql`${inhousePlanningAssumptions.division} IS NULL`,
         locationId
           ? or(
               eq(inhousePlanningAssumptions.locationId, locationId),
@@ -375,6 +395,7 @@ async function resolveAssumptionsBatch(
       (locationId
         ? newest(
             (candidate) =>
+              candidate.division === division &&
               candidate.locationId === locationId &&
               candidate.serviceLine === serviceLine,
           )
@@ -382,32 +403,57 @@ async function resolveAssumptionsBatch(
       (locationId
         ? newest(
             (candidate) =>
+              candidate.division === division &&
               candidate.locationId === locationId &&
               candidate.serviceLine === null,
           )
         : undefined) ??
       newest(
         (candidate) =>
+          candidate.division === division &&
           candidate.locationId === null &&
           candidate.serviceLine === serviceLine,
       ) ??
       newest(
         (candidate) =>
+          candidate.division === division &&
           candidate.locationId === null &&
           candidate.serviceLine === null,
       );
+    const fallbackRow = row ?? (
+      (locationId
+        ? newest((candidate) =>
+            candidate.division === null &&
+            candidate.locationId === locationId &&
+            candidate.serviceLine === serviceLine)
+        : undefined) ??
+      (locationId
+        ? newest((candidate) =>
+            candidate.division === null &&
+            candidate.locationId === locationId &&
+            candidate.serviceLine === null)
+        : undefined) ??
+      newest((candidate) =>
+        candidate.division === null &&
+        candidate.locationId === null &&
+        candidate.serviceLine === serviceLine) ??
+      newest((candidate) =>
+        candidate.division === null &&
+        candidate.locationId === null &&
+        candidate.serviceLine === null)
+    );
 
-    resolved[serviceLine] = row
+    resolved[serviceLine] = fallbackRow
       ? {
-          assumptions: rowToAssumptions(row),
-          tierPolicy: rowToTierPolicy(row),
-          tierPolicyStored: tierPolicySchema.safeParse(row.occupancyTierPolicy).success,
+          assumptions: rowToAssumptions(fallbackRow),
+          tierPolicy: rowToTierPolicy(fallbackRow),
+          tierPolicyStored: tierPolicySchema.safeParse(fallbackRow.occupancyTierPolicy).success,
           scopeLevel:
-            locationId && row.locationId === locationId
-              ? row.serviceLine === serviceLine
+            locationId && fallbackRow.locationId === locationId
+              ? fallbackRow.serviceLine === serviceLine
                 ? "location+serviceLine"
                 : "location"
-              : row.serviceLine === serviceLine
+              : fallbackRow.serviceLine === serviceLine
                 ? "serviceLine"
                 : "global",
         }
@@ -434,6 +480,45 @@ async function resolveLocationName(
     .limit(1);
   if (!row) throw new PlanningDataError("Campus not found for this client.");
   return row.name;
+}
+
+/**
+ * Resolve the division once at the route boundary. The solver/data-access
+ * layer receives the exact campus-name set, so every baseline, resident,
+ * history, occupancy, and competitor query uses the same validated scope.
+ */
+async function resolvePlanningScope(
+  clientId: string,
+  locationId: string | null,
+  division: string | null | undefined,
+): Promise<{ location: string | null; locationNames?: string[] }> {
+  const normalizedDivision = division?.trim() || null;
+  const selected = locationId
+    ? await db
+      .select({ name: locations.name, division: locations.division })
+      .from(locations)
+      .where(and(eq(locations.id, locationId), eq(locations.clientId, clientId)))
+      .limit(1)
+    : [];
+  if (locationId && !selected[0]) {
+    throw new PlanningDataError("Campus not found for this client.");
+  }
+  if (normalizedDivision && selected[0]?.division !== normalizedDivision) {
+    throw new PlanningDataError("The selected campus is not in the selected division.");
+  }
+
+  const names = normalizedDivision
+    ? (await db
+      .select({ name: locations.name })
+      .from(locations)
+      .where(and(eq(locations.clientId, clientId), eq(locations.division, normalizedDivision))))
+      .map((row) => row.name)
+    : undefined;
+
+  return {
+    location: selected[0]?.name ?? null,
+    locationNames: locationId ? [selected[0]!.name] : names,
+  };
 }
 
 function requireAuth(req: any, res: any, next: any) {
@@ -475,7 +560,8 @@ export function registerInhousePlanningRoutes(
       const clientId = req.clientId || "demo";
       const locationId = (req.query.locationId as string) || null;
       const serviceLine = (req.query.serviceLine as string) || null;
-      const resolved = await resolveAssumptions(clientId, locationId, serviceLine);
+      const division = (req.query.division as string) || null;
+      const resolved = await resolveAssumptions(clientId, locationId, serviceLine, division);
       res.setHeader("Cache-Control", "no-store");
       res.json(resolved);
     } catch (error) {
@@ -488,6 +574,7 @@ export function registerInhousePlanningRoutes(
     try {
       const clientId = req.clientId || "demo";
       const locationId = (req.query.locationId as string) || null;
+      const division = (req.query.division as string) || null;
       const serviceLines = String(req.query.serviceLines || "")
         .split(",")
         .map((value) => value.trim())
@@ -496,7 +583,7 @@ export function registerInhousePlanningRoutes(
       if (serviceLines.length === 0) {
         return res.status(400).json({ error: "At least one service line is required." });
       }
-      const policies = await resolveAssumptionsBatch(clientId, locationId, serviceLines);
+       const policies = await resolveAssumptionsBatch(clientId, locationId, serviceLines, division);
       res.setHeader("Cache-Control", "no-store");
       res.json({ policies });
     } catch (error) {
@@ -511,6 +598,7 @@ export function registerInhousePlanningRoutes(
       const body = z
         .object({
           locationId: z.string().nullable().optional(),
+          division: z.string().trim().nullable().optional(),
           serviceLine: z.string().nullable().optional(),
           assumptions: assumptionsSchema,
           tierPolicy: tierPolicySchema.optional(),
@@ -521,11 +609,12 @@ export function registerInhousePlanningRoutes(
           .status(400)
           .json({ error: body.error.errors[0]?.message || "Invalid planning assumptions" });
       }
-      const { locationId = null, serviceLine = null } = body.data;
+       const { locationId = null, serviceLine = null, division = null } = body.data;
       const assumptions = enforceCurrentPlanningPolicy(body.data.assumptions);
 
       const values = {
         clientId,
+        division: division || null,
         locationId: locationId || null,
         serviceLine: serviceLine || null,
         rateGrowthTargetPct: assumptions.rateGrowthTargetPct,
@@ -558,6 +647,7 @@ export function registerInhousePlanningRoutes(
         .onConflictDoUpdate({
           target: [
             inhousePlanningAssumptions.clientId,
+             inhousePlanningAssumptions.division,
             inhousePlanningAssumptions.locationId,
             inhousePlanningAssumptions.serviceLine,
           ],
@@ -565,7 +655,12 @@ export function registerInhousePlanningRoutes(
         })
         .returning();
 
-      const resolved = await resolveAssumptions(clientId, locationId || null, serviceLine || null);
+       const resolved = await resolveAssumptions(
+         clientId,
+         locationId || null,
+         serviceLine || null,
+         division || null,
+       );
       res.setHeader("Cache-Control", "no-store");
       // Return the row acknowledged by the write rather than relying only on
       // scope resolution. This keeps the editor aligned with exactly what the
@@ -587,8 +682,17 @@ export function registerInhousePlanningRoutes(
     try {
       const clientId = req.clientId || "demo";
       const locationId = (req.query.locationId as string) || null;
-      const locationName = await resolveLocationName(clientId, locationId);
-      const result = await computeHistoricalTurnover(clientId, locationId, locationName);
+      const scope = await resolvePlanningScope(
+        clientId,
+        locationId,
+        (req.query.division as string) || null,
+      );
+      const result = await computeHistoricalTurnover(
+        clientId,
+        locationId,
+        scope.location,
+        scope.locationNames,
+      );
       res.setHeader("Cache-Control", "no-store");
       res.json(result ?? { windowStart: null, windowEnd: null, monthsInWindow: 0, byServiceLine: [] });
     } catch (error) {
@@ -617,12 +721,12 @@ export function registerInhousePlanningRoutes(
           .json({ error: body.error.errors[0]?.message || "Invalid batch planning request" });
       }
       const locationId = body.data.locationId || null;
-      const location = await resolveLocationName(clientId, locationId);
+      const scope = await resolvePlanningScope(clientId, locationId, body.data.division);
       const [occupancy, stored] = await Promise.all([
-        fetchOccupancyByServiceLine(clientId, location),
+        fetchOccupancyByServiceLine(clientId, scope.location, scope.locationNames),
         Promise.all(
           body.data.lines.map((line) =>
-            resolveAssumptions(clientId, locationId, line.serviceLine),
+            resolveAssumptions(clientId, locationId, line.serviceLine, body.data.division || null),
           ),
         ),
       ]);
@@ -644,7 +748,9 @@ export function registerInhousePlanningRoutes(
       const result = await calculatePlanBatch({
         clientId,
         locationId,
-        location,
+        location: scope.location,
+        locationNames: scope.locationNames,
+        division: body.data.division || null,
         lines: inputs,
       });
       res.setHeader("Cache-Control", "no-store");
@@ -673,22 +779,30 @@ export function registerInhousePlanningRoutes(
           .json({ error: body.error.errors[0]?.message || "Invalid planning request" });
       }
       const locationId = body.data.locationId || null;
-      const location = await resolveLocationName(clientId, locationId);
-      const stored = await resolveAssumptions(clientId, locationId, body.data.serviceLine);
+      const scope = await resolvePlanningScope(clientId, locationId, body.data.division);
+      const stored = await resolveAssumptions(
+        clientId,
+        locationId,
+        body.data.serviceLine,
+        body.data.division || null,
+      );
       const baseAssumptions = enforceCurrentPlanningPolicy(
         body.data.assumptions ?? stored.assumptions,
       );
       const assumptions = await assumptionsForMeasuredTier(
         clientId,
-        location,
+        scope.location,
         body.data.serviceLine,
         baseAssumptions,
         body.data.tierPolicy ?? stored.tierPolicy,
+        scope.locationNames,
       );
       const plan = await calculatePlanForRoute({
         clientId,
         locationId,
-        location,
+        location: scope.location,
+        locationNames: scope.locationNames,
+        division: body.data.division || null,
         serviceLine: body.data.serviceLine,
         assumptions,
       });
@@ -715,16 +829,18 @@ export function registerInhousePlanningRoutes(
           .json({ error: body.error.errors[0]?.message || "Invalid tier grid request" });
       }
       const locationId = body.data.locationId || null;
-      const location = await resolveLocationName(clientId, locationId);
+      const scope = await resolvePlanningScope(clientId, locationId, body.data.division);
       const stored = await Promise.all(
         body.data.lines.map((line) =>
-          resolveAssumptions(clientId, locationId, line.serviceLine),
+          resolveAssumptions(clientId, locationId, line.serviceLine, body.data.division || null),
         ),
       );
       const result = await calculatePlanTiersBatchForRoute({
         clientId,
         locationId,
-        location,
+        location: scope.location,
+        locationNames: scope.locationNames,
+        division: body.data.division || null,
         lines: body.data.lines.map((line, index) => {
           const resolved = stored[index];
           return {
@@ -752,7 +868,10 @@ export function registerInhousePlanningRoutes(
           const campusRows = await db
             .select({ id: locations.id, name: locations.name })
             .from(locations)
-            .where(eq(locations.clientId, clientId));
+            .where(and(
+              eq(locations.clientId, clientId),
+              ...(body.data.division ? [eq(locations.division, body.data.division)] : []),
+            ));
           const generated = await generateCampusAnnualReportsForRoute({
             locations: campusRows,
             lines: reportLines,
@@ -762,6 +881,7 @@ export function registerInhousePlanningRoutes(
                 clientId,
                 locationId: campus.id,
                 location: campus.name,
+                division: body.data.division || null,
                 lines: lines as any,
               }) as any,
             save: async ({ location: campus, serviceLines, result: campusResult }) => {
@@ -769,7 +889,9 @@ export function registerInhousePlanningRoutes(
                 sl: line.serviceLine,
                 plan: compactPlanForAnnualReport(line.currentPlan as any),
               }));
-              const scopeKey = `${campus.id}|${serviceLines.join(",")}`;
+              const scopeKey = body.data.division
+                ? `${body.data.division}|${campus.id}|${serviceLines.join(",")}`
+                : `${campus.id}|${serviceLines.join(",")}`;
               // One timestamp identifies the entire portfolio run. A slower
               // older fan-out must never overwrite a campus already saved by
               // a newer portfolio run.
@@ -863,15 +985,22 @@ export function registerInhousePlanningRoutes(
           .json({ error: body.error.errors[0]?.message || "Invalid tier grid request" });
       }
       const locationId = body.data.locationId || null;
-      const location = await resolveLocationName(clientId, locationId);
-      const stored = await resolveAssumptions(clientId, locationId, body.data.serviceLine);
+      const scope = await resolvePlanningScope(clientId, locationId, body.data.division);
+      const stored = await resolveAssumptions(
+        clientId,
+        locationId,
+        body.data.serviceLine,
+        body.data.division || null,
+      );
       const assumptions = enforceCurrentPlanningPolicy(
         body.data.assumptions ?? stored.assumptions,
       );
       const result = await calculatePlanTiers({
         clientId,
         locationId,
-        location,
+        location: scope.location,
+        locationNames: scope.locationNames,
+        division: body.data.division || null,
         serviceLine: body.data.serviceLine,
         assumptions,
         tierPolicy: body.data.tierPolicy ?? stored.tierPolicy,
@@ -893,7 +1022,9 @@ export function registerInhousePlanningRoutes(
   app.get("/api/inhouse-planning/occupancy-by-campus", async (req: any, res) => {
     try {
       const clientId = req.clientId || "demo";
-      const readings = await fetchOccupancyByCampus(clientId);
+      const division = (req.query.division as string) || null;
+      const scope = await resolvePlanningScope(clientId, null, division);
+      const readings = await fetchOccupancyByCampus(clientId, scope.locationNames);
       res.setHeader("Cache-Control", "no-store");
       res.json({ readings });
     } catch (error) {
@@ -917,6 +1048,7 @@ export function registerInhousePlanningRoutes(
       if (serviceLines.length === 0) {
         return res.status(400).json({ error: "At least one service line is required" });
       }
+      const division = (req.query.division as string) || null;
       const scopeSuffix = `|${serviceLines.join(",")}`;
       const rows = await db
         .select({
@@ -1145,29 +1277,37 @@ export function registerInhousePlanningRoutes(
     void (async () => {
       try {
         const locationId = body.data.locationId || null;
-        const location = await resolveLocationName(clientId, locationId);
-        const stored = await resolveAssumptions(clientId, locationId, body.data.serviceLine);
+        const scope = await resolvePlanningScope(clientId, locationId, body.data.division);
+        const stored = await resolveAssumptions(
+          clientId,
+          locationId,
+          body.data.serviceLine,
+          body.data.division || null,
+        );
         const baseAssumptions = enforceCurrentPlanningPolicy(
           body.data.assumptions ?? stored.assumptions,
         );
         const assumptions = await assumptionsForMeasuredTier(
           clientId,
-          location,
+          scope.location,
           body.data.serviceLine,
           baseAssumptions,
           body.data.tierPolicy ?? stored.tierPolicy,
+          scope.locationNames,
         );
         const { plan, audit } = await calculatePlanDetailed({
           clientId,
           locationId,
-          location,
+          location: scope.location,
+          locationNames: scope.locationNames,
+          division: body.data.division || null,
           serviceLine: body.data.serviceLine,
           assumptions,
         });
         const buffer = await buildRatePlanWorkbook({ plan, audit, generatedBy });
         const slug = (value: string) =>
           value.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "all";
-        const filename = `in-house-rate-plan_${slug(location ?? "all-campuses")}_${slug(
+        const filename = `in-house-rate-plan_${slug(scope.location ?? (body.data.division ? `division-${body.data.division}` : "all-campuses"))}_${slug(
           body.data.serviceLine,
         )}_${plan.scope.sourceMonth}.xlsx`;
         ratePlanExportJobs.set(exportId, {
@@ -1231,14 +1371,20 @@ export function registerInhousePlanningRoutes(
         return res.status(400).json({ error: body.error.errors[0]?.message || "Invalid apply request" });
       }
       const locationId = body.data.locationId || null;
-      const location = await resolveLocationName(clientId, locationId);
-      const stored = await resolveAssumptions(clientId, locationId, body.data.serviceLine);
+      const scope = await resolvePlanningScope(clientId, locationId, body.data.division);
+      const stored = await resolveAssumptions(
+        clientId,
+        locationId,
+        body.data.serviceLine,
+        body.data.division || null,
+      );
       const assumptions = await assumptionsForMeasuredTier(
         clientId,
-        location,
+        scope.location,
         body.data.serviceLine,
         enforceCurrentPlanningPolicy(body.data.assumptions),
         body.data.tierPolicy ?? stored.tierPolicy,
+        scope.locationNames,
       );
 
       // Recalculate server-side rather than trusting a posted plan: the client
@@ -1246,7 +1392,9 @@ export function registerInhousePlanningRoutes(
       const plan = await calculatePlanForRoute({
         clientId,
         locationId,
-        location,
+        location: scope.location,
+        locationNames: scope.locationNames,
+        division: body.data.division || null,
         serviceLine: body.data.serviceLine,
         assumptions,
       });
@@ -1260,13 +1408,15 @@ export function registerInhousePlanningRoutes(
       let version = 1;
       let planId: string | undefined;
       let replacedImplementedProposal = false;
+      const storedPlanLocation = plan.scope.location
+        ?? (body.data.division ? `__division__:${body.data.division}` : null);
       try {
         await client.query("BEGIN");
         // Serialize concurrent approvals for this scope behind one advisory
         // lock, so the MAX(version) read below cannot be stale by the time the
         // insert runs.
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-          `inhouse_rate_plan:${clientId}:${plan.scope.location ?? ""}:${plan.scope.serviceLine}`,
+          `inhouse_rate_plan:${clientId}:${storedPlanLocation ?? ""}:${plan.scope.serviceLine}`,
         ]);
         const versionRow = await client.query<{ next: string }>(
           `SELECT COALESCE(MAX(version), 0) + 1 AS next
@@ -1274,7 +1424,7 @@ export function registerInhousePlanningRoutes(
             WHERE client_id = $1
               AND service_line = $2
               AND location IS NOT DISTINCT FROM $3`,
-          [clientId, plan.scope.serviceLine, plan.scope.location],
+          [clientId, plan.scope.serviceLine, storedPlanLocation],
         );
         version = Number(versionRow.rows[0]?.next) || 1;
 
@@ -1330,7 +1480,7 @@ export function registerInhousePlanningRoutes(
           [
             clientId,
             locationId,
-            plan.scope.location,
+             storedPlanLocation,
             plan.scope.serviceLine,
             version,
             JSON.stringify(plan.assumptions),
@@ -1362,7 +1512,10 @@ export function registerInhousePlanningRoutes(
           adjustmentType: "percentage",
           adjustmentValue: plan.streetIncreasePct,
           isAdditive: false,
-          filters: { serviceLine: [plan.scope.serviceLine] },
+           filters: {
+             serviceLine: [plan.scope.serviceLine],
+             ...(scope.locationNames ? { location: scope.locationNames } : {}),
+           },
           annualPlanId: planId,
           proposalType: "annual_plan_street_rate",
         };
@@ -1371,6 +1524,10 @@ export function registerInhousePlanningRoutes(
           type: "annual_inhouse_plan",
           adjustmentType: "percentage",
           adjustmentValue: plan.summary.weightedAvgIncreasePct,
+          filters: {
+            serviceLine: [plan.scope.serviceLine],
+            ...(scope.locationNames ? { location: scope.locationNames } : {}),
+          },
         };
         const suffix = planId.slice(0, 8);
         await client.query(
@@ -1494,11 +1651,21 @@ export function registerInhousePlanningRoutes(
       const clientId = req.clientId || "demo";
       const serviceLine = (req.query.serviceLine as string) || null;
       const locationId = (req.query.locationId as string) || null;
+      const division = (req.query.division as string) || null;
       const location = await resolveLocationName(clientId, locationId);
 
       const conditions = [eq(inhouseRatePlans.clientId, clientId)];
       if (serviceLine) conditions.push(eq(inhouseRatePlans.serviceLine, serviceLine));
-      if (location) conditions.push(eq(inhouseRatePlans.location, location));
+      if (location) {
+        conditions.push(eq(inhouseRatePlans.location, location));
+      } else if (division) {
+        conditions.push(or(
+          eq(inhouseRatePlans.location, `__division__:${division}`),
+          sql`${inhouseRatePlans.location} NOT LIKE '__division__:%'`,
+        )!);
+      } else {
+        conditions.push(sql`${inhouseRatePlans.location} NOT LIKE '__division__:%'`);
+      }
 
       const rows = await db
         .select({
@@ -1521,8 +1688,29 @@ export function registerInhousePlanningRoutes(
         .orderBy(desc(inhouseRatePlans.createdAt))
         .limit(50);
 
-      const plans: InhousePlanHistoryEntry[] = rows.map((row) => ({
+      const activeDivisionLines = division && !location
+        ? new Set(
+            rows
+              .filter(
+                (row) =>
+                  row.location === `__division__:${division}` &&
+                  ["proposed", "applied", "published"].includes(row.status),
+              )
+              .map((row) => row.serviceLine),
+          )
+        : new Set<string>();
+      const visibleRows = division && !location
+        ? rows.filter(
+            (row) =>
+              row.location?.startsWith(`__division__:${division}`) ||
+              !activeDivisionLines.has(row.serviceLine),
+          )
+        : rows;
+      const plans: InhousePlanHistoryEntry[] = visibleRows.map((row) => ({
         ...row,
+        location: row.location?.startsWith("__division__:") ? null : row.location,
+        inheritedFromPortfolio:
+          Boolean(division && !location && !row.location?.startsWith("__division__:")),
         summary: row.summary as PlanSummary,
         assumptions: row.assumptions as PlanningAssumptions,
         targetDeviationDiagnostic:

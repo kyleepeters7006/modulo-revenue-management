@@ -649,6 +649,8 @@ export interface PlanScope {
   clientId: string;
   locationId: string | null;
   location: string | null;
+  /** Selected division; null means the full client portfolio. */
+  division?: string | null;
   serviceLine: string;
   /** Latest rent-roll month the resident population was read from. */
   sourceMonth: string;
@@ -693,6 +695,8 @@ export interface InhousePlanHistoryEntry {
   inhouseEffectiveDate: string | null;
   appliedBy: string | null;
   createdAt: string | null;
+  /** True when this division view is inheriting the portfolio plan. */
+  inheritedFromPortfolio?: boolean;
 }
 
 export interface PlanResult {
