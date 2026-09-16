@@ -159,6 +159,12 @@ assert.equal((detail.getCell("X5").value as ExcelJS.CellFormulaValue).result, 39
 assert.equal((detail.getCell("X6").value as ExcelJS.CellFormulaValue).result, 5880);
 assert.equal((detail.getCell("Y5").value as ExcelJS.CellFormulaValue).result, 4240);
 assert.equal((detail.getCell("Y6").value as ExcelJS.CellFormulaValue).result, 6360);
+assert.equal(detail.getCell("AD5").value, 4550);
+assert.equal(detail.getCell("AD6").value, 6550);
+assert.equal(detail.getCell("AE5").value, 3920);
+assert.equal(detail.getCell("AE6").value, 5880);
+assert.equal(detail.getCell("AF5").value, 4240);
+assert.equal(detail.getCell("AF6").value, 6360);
 
 const residentFormulaColumns = ["M", "P", "Q", "R", "S", "T", "W", "X", "Y", "Z", "AA", "AB"];
 for (const column of residentFormulaColumns) {

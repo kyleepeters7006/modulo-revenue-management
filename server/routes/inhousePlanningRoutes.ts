@@ -1911,27 +1911,38 @@ export function registerInhousePlanningRoutes(
         ]);
         const locationNames = new Map(locationRows.map((location) => [location.id, location.name]));
         const reportTime = new Date(row.generatedAt ?? row.createdAt ?? 0).getTime();
-        const latestByLocation = new Map<string, typeof campusRows[number]>();
+        const latestMatchingByLocation = new Map<string, typeof campusRows[number]>();
+        const latestAtOrBeforeReportByLocation = new Map<string, typeof campusRows[number]>();
         for (const candidate of campusRows) {
           const locationId = candidate.locationId;
           if (!locationId) continue;
           const expectedScopeKey =
             `${division ? `${division}|` : ""}${locationId}|${reportServiceLines.join(",")}`;
           if (candidate.scopeKey !== expectedScopeKey) continue;
+          if (!latestMatchingByLocation.has(locationId)) {
+            latestMatchingByLocation.set(locationId, candidate);
+          }
           const candidateTime = candidate.generatedAt?.getTime?.() ?? NaN;
           if (Number.isFinite(reportTime) && Number.isFinite(candidateTime) && candidateTime > reportTime) {
             continue;
           }
-          if (!latestByLocation.has(locationId)) latestByLocation.set(locationId, candidate);
+          if (!latestAtOrBeforeReportByLocation.has(locationId)) {
+            latestAtOrBeforeReportByLocation.set(locationId, candidate);
+          }
         }
-        for (const [locationId, candidate] of latestByLocation) {
-          const plans = Array.isArray(candidate.plans) ? candidate.plans : [];
+        for (const [locationId, candidate] of latestMatchingByLocation) {
+          // A portfolio report can be saved before its asynchronous campus
+          // fan-out finishes. Prefer the immutable-era match when available;
+          // otherwise use the newest exact-scope campus run rather than
+          // repeating the portfolio average on every resident row.
+          const selected = latestAtOrBeforeReportByLocation.get(locationId) ?? candidate;
+          const plans = Array.isArray(selected.plans) ? selected.plans : [];
           if (plans.length === 0) continue;
           campusPlans.push({
             locationId,
             locationName: locationNames.get(locationId) ?? "",
             plans,
-            generatedAt: candidate.generatedAt ?? null,
+            generatedAt: selected.generatedAt ?? null,
           });
         }
       }
