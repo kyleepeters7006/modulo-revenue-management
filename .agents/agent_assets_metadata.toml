@@ -380,14 +380,14 @@ logical_id = "28f53eed-ca88-4c83-b64d-ac9fc0fdb04b"
 id = "WTMeCjTXSu0ms_KTCVKtf"
 uri = "file://client/public/media/modulo-pricing-intelligence.mp4"
 type = "video"
-title = "Voice-synced pricing intelligence overview"
-description = "The narration now matches the five visual chapters: portfolio dashboard, AI prioritization, proposed rates, competitive context, and analytics. Captions and the About Us cache key were updated with the same timing."
+title = "Overview video with corrected Modulo pronunciation"
+description = "The narration now speaks the brand as “Mod do low,” while the on-screen text remains “Modulo.” Timing remains aligned at 32.5 seconds."
 logical_id = "6cb21250-db42-4bed-9b3e-79a40ffdf611"
-content_hash = "sha256:439cfa5d432b379233ad5bf7efb7ac64295d26e776c500c2e5ce6b035f567a76"
-size = 1159329
-mtime_ms = 1789617309357
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/87e6ff5a-af6f-4066-b17e-282d24f5491a"
-storage_version_token = "1789617325327723"
+content_hash = "sha256:cb952873d185a77ab95857a02cd44557e397fb21fda732655b75d1ed966fd7cb"
+size = 1164814
+mtime_ms = 1789617786522
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/a82dce3a-4534-4587-abe7-406a8de44f5f"
+storage_version_token = "1789617797795448"
 content_type = "video/mp4"
 
 [[outputs]]
@@ -451,3 +451,11 @@ type = "audio"
 title = "dynamic pricing demo overview aligned"
 description = "Text-to-speech audio: Modulo starts with a portfolio dashboard for occupancy, rates, revenue, and market context. AI prioritizes high-impact moves using revenue goals and elasticity. Operators review…"
 logical_id = "3dff13a4-7061-4995-8d95-6cad099a46f3"
+
+[[outputs]]
+id = "zFJYAHDr3--924Ispmbb4"
+uri = "file://attached_assets/generated_audio/dynamic-pricing-demo-overview-aligned_2.mp3"
+type = "audio"
+title = "regenerated Modulo pronunciation narration"
+description = "Text-to-speech audio: Mod do low starts with a portfolio dashboard for occupancy, rates, revenue, and market context. AI prioritizes high-impact moves using revenue goals and elasticity. Operators re…"
+logical_id = "2c5e62d1-9d92-4350-a981-a4a3a105d519"

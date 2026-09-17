@@ -137,7 +137,7 @@ ffmpeg -hide_banner -loglevel error -y \
   -i "$VOICEOVER" \
   -stream_loop -1 -i "$MUSIC" \
   -filter_complex "\
-[1:a]aresample=48000,volume=0.95,adelay=3100|3100[voiceover];\
+  [1:a]aresample=48000,atempo=1.08,volume=0.95,adelay=3100|3100[voiceover];\
 [2:a]aresample=48000,volume=0.10,afade=t=out:st=30.5:d=2.0[music];\
 [voiceover][music]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95:attack=5:release=80[a]" \
   -map 0:v -map "[a]" -t 32.5 \
