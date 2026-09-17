@@ -9,6 +9,7 @@
  *   npx tsx tests/inhouseAnnualReportGeneration.test.ts
  */
 import assert from "node:assert/strict";
+import ExcelJS from "exceljs";
 import pg from "pg";
 import { registerInhousePlanningRoutes } from "../server/routes/inhousePlanningRoutes";
 import { generateCampusAnnualReports } from "../server/services/inhouseAnnualReportGeneration";
@@ -163,6 +164,7 @@ function makeRouteHarness(dependencies: any) {
     clientId: string,
     authenticated = true,
     query: Record<string, string> = {},
+    params: Record<string, string> = {},
   ) {
     const routeHandlers = handlers.get(`${method} ${path}`);
     if (!routeHandlers) throw new Error(`route was not registered: ${method} ${path}`);
@@ -180,7 +182,8 @@ function makeRouteHarness(dependencies: any) {
         responseBody = value;
         return response;
       },
-      end() {
+      end(value?: unknown) {
+        responseBody = value;
         return response;
       },
     };
@@ -189,6 +192,7 @@ function makeRouteHarness(dependencies: any) {
       session: authenticated ? { clientId, userId: `user-${clientId}` } : {},
       body,
       query,
+      params,
     };
     let index = 0;
     const next = async () => {
@@ -551,6 +555,188 @@ async function assertEndpointContract() {
   );
   assert.equal(incompleteRollup.body.report.plans.length, 0, "partial service-line totals stay unavailable");
   assert.equal(incompleteRollup.body.report.tierGrid.skipped[0].sl, SERVICE_LINE);
+
+  const auditScopeKey = `legacy-audit-${SUFFIX}|${SERVICE_LINE}`;
+  const reportGeneratedAt = new Date("2026-09-01T12:00:00.000Z");
+  const expectedInputs = [{ serviceLine: SERVICE_LINE, assumptions, tierPolicy }];
+  const detailPlan = makePlan(
+    {
+      clientId: CLIENT,
+      locationId: campusA,
+      location: "Annual Report Campus A",
+      __testRun: 99,
+    },
+    expectedInputs[0],
+  );
+  detailPlan.residents = [{
+    key: "legacy-resident",
+    location: "Annual Report Campus A",
+    roomNumber: "101",
+    roomType: "Studio",
+    careLevel: SERVICE_LINE,
+    payorType: "Private Pay",
+    moveInDate: "2025-01-01",
+    isCompanionBed: false,
+    rateProduct: "base",
+    streetRateSource: "unit",
+    currentRateMonthly: 5000,
+    streetRateMonthly: 5500,
+    increasePct: 4,
+    increaseDollarsMonthly: 200,
+    newRateMonthly: 5200,
+    newRateDisplay: 5200,
+    newGapToStreetPct: 5,
+    constraint: "none",
+    weight: 1,
+  }];
+  const compactPlan = { ...detailPlan, residents: [] };
+  const insertedReport = await pool.query<{ id: string }>(
+    `INSERT INTO inhouse_annual_report_runs
+      (client_id, scope_key, location_id, service_lines, plans, tier_grid, generated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING id`,
+    [
+      CLIENT,
+      auditScopeKey,
+      campusA,
+      JSON.stringify([SERVICE_LINE]),
+      JSON.stringify([{ sl: SERVICE_LINE, plan: compactPlan }]),
+      JSON.stringify({ inputSnapshot: expectedInputs, lines: [] }),
+      reportGeneratedAt,
+    ],
+  );
+  const auditReportId = insertedReport.rows[0].id;
+  await pool.query(
+    `INSERT INTO inhouse_plan_detail_snapshots
+      (client_id, scope_key, plans, input_snapshot, generated_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [
+      CLIENT,
+      auditScopeKey,
+      JSON.stringify([{ sl: SERVICE_LINE, plan: detailPlan }]),
+      JSON.stringify(expectedInputs),
+      new Date(reportGeneratedAt.getTime() + 60_000),
+    ],
+  );
+
+  const excelRoute = "/api/inhouse-planning/annual-report-runs/:id/excel";
+  const matchingExport = await harness.invoke(
+    "GET",
+    excelRoute,
+    undefined,
+    CLIENT,
+    true,
+    {},
+    { id: auditReportId },
+  );
+  assert.equal(matchingExport.statusCode, 200, "a newer detail snapshot with exact inputs can build the audit export");
+  assert.equal(Buffer.isBuffer(matchingExport.body), true, "matching audit export returns an Excel workbook");
+  const auditWorkbook = new ExcelJS.Workbook();
+  await auditWorkbook.xlsx.load(matchingExport.body);
+  assert.equal(
+    auditWorkbook.getWorksheet("Resident detail")?.getCell("B5").value,
+    "Annual Report Campus A",
+    "the audit workbook retains resident detail from the matching newer snapshot",
+  );
+
+  const mismatchedInputs = [{
+    serviceLine: SERVICE_LINE,
+    assumptions: { ...assumptions, rateGrowthTargetPct: 7 },
+    tierPolicy,
+  }];
+  const saveMismatchScopeKey = `legacy-save-mismatch-${SUFFIX}|${SERVICE_LINE}`;
+  await pool.query(
+    `INSERT INTO inhouse_plan_detail_snapshots
+      (client_id, scope_key, plans, input_snapshot, generated_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [
+      CLIENT,
+      saveMismatchScopeKey,
+      JSON.stringify([{ sl: SERVICE_LINE, plan: detailPlan }]),
+      JSON.stringify(mismatchedInputs),
+      new Date(reportGeneratedAt.getTime() + 120_000),
+    ],
+  );
+  const saveMismatch = await harness.invoke(
+    "POST",
+    "/api/inhouse-planning/annual-report-runs",
+    {
+      scopeKey: saveMismatchScopeKey,
+      locationId: campusA,
+      serviceLines: [SERVICE_LINE],
+      plans: [{ sl: SERVICE_LINE, plan: compactPlan }],
+      tierGrid: { inputSnapshot: expectedInputs, lines: [] },
+    },
+    CLIENT,
+  );
+  assert.equal(saveMismatch.statusCode, 200, "saving a report still succeeds when optional detail is from another generation");
+  const savedMismatchReport = await pool.query<{
+    id: string;
+    detail_generated_at: Date | null;
+  }>(
+    `SELECT id, detail_generated_at
+       FROM inhouse_annual_report_runs
+      WHERE client_id = $1 AND scope_key = $2`,
+    [CLIENT, saveMismatchScopeKey],
+  );
+  assert.equal(savedMismatchReport.rows[0]?.detail_generated_at, null, "mismatched source detail is not linked to the report");
+  const copiedMismatchDetail = await pool.query(
+    `SELECT 1
+       FROM inhouse_plan_detail_snapshots
+      WHERE client_id = $1 AND scope_key = $2`,
+    [CLIENT, `annual-report:${savedMismatchReport.rows[0]?.id}`],
+  );
+  assert.equal(copiedMismatchDetail.rowCount, 0, "mismatched source detail is not copied into the immutable report snapshot");
+
+  await pool.query(
+    `INSERT INTO inhouse_plan_detail_snapshots
+      (client_id, scope_key, plans, input_snapshot, generated_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [
+      CLIENT,
+      `annual-report:${auditReportId}`,
+      JSON.stringify([{ sl: SERVICE_LINE, plan: detailPlan }]),
+      JSON.stringify(expectedInputs),
+      new Date(reportGeneratedAt.getTime() + 180_000),
+    ],
+  );
+  const immutableExport = await harness.invoke(
+    "GET",
+    excelRoute,
+    undefined,
+    CLIENT,
+    true,
+    {},
+    { id: auditReportId },
+  );
+  assert.equal(immutableExport.statusCode, 200, "a matching immutable detail copy can build the audit export");
+
+  await pool.query(
+    `UPDATE inhouse_plan_detail_snapshots
+        SET input_snapshot = $1
+      WHERE client_id = $2 AND scope_key = $3`,
+    [JSON.stringify(mismatchedInputs), CLIENT, `annual-report:${auditReportId}`],
+  );
+  await pool.query(
+    `DELETE FROM inhouse_plan_detail_snapshots
+      WHERE client_id = $1 AND scope_key = $2`,
+    [CLIENT, auditScopeKey],
+  );
+  const mismatchedExport = await harness.invoke(
+    "GET",
+    excelRoute,
+    undefined,
+    CLIENT,
+    true,
+    {},
+    { id: auditReportId },
+  );
+  assert.equal(mismatchedExport.statusCode, 422, "an unrelated newer detail snapshot is rejected");
+  assert.match(
+    mismatchedExport.body?.error ?? "",
+    /Resident detail is unavailable/,
+    "the mismatch explains how to restore the missing immutable detail",
+  );
 
   const anonymous = await harness.invoke(
     "GET",

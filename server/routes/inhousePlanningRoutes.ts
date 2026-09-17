@@ -1850,6 +1850,11 @@ export function registerInhousePlanningRoutes(
           eq(inhousePlanDetailSnapshots.scopeKey, body.data.scopeKey),
         ))
         .limit(1);
+      const expectedInputs = (body.data.tierGrid as any)?.inputSnapshot;
+      const matchingDetailSnapshot = detailSnapshot &&
+        stableJson(detailSnapshot.inputSnapshot) === stableJson(expectedInputs)
+        ? detailSnapshot
+        : undefined;
       const values = {
         clientId,
         scopeKey: body.data.scopeKey,
@@ -1858,7 +1863,7 @@ export function registerInhousePlanningRoutes(
         plans: body.data.plans,
         tierGrid: body.data.tierGrid,
         generatedAt,
-        detailGeneratedAt: detailSnapshot?.generatedAt ?? null,
+        detailGeneratedAt: matchingDetailSnapshot?.generatedAt ?? null,
       };
       const [row] = await db
         .insert(inhouseAnnualReportRuns)
@@ -1871,7 +1876,7 @@ export function registerInhousePlanningRoutes(
             plans: body.data.plans,
             tierGrid: body.data.tierGrid,
             generatedAt,
-            detailGeneratedAt: detailSnapshot?.generatedAt ?? null,
+            detailGeneratedAt: matchingDetailSnapshot?.generatedAt ?? null,
           } as any,
         })
         .returning();
@@ -1881,13 +1886,13 @@ export function registerInhousePlanningRoutes(
       // when the operator recalculates; an audit export must remain tied to
       // the report the operator saved.
       try {
-        if (detailSnapshot && row) {
+        if (matchingDetailSnapshot && row) {
           await savePlanDetailSnapshot({
             clientId,
             scopeKey: `annual-report:${row.id}`,
-            plans: detailSnapshot.plans,
-            inputSnapshot: detailSnapshot.inputSnapshot,
-            generatedAt: detailSnapshot.generatedAt ?? generatedAt,
+            plans: matchingDetailSnapshot.plans,
+            inputSnapshot: matchingDetailSnapshot.inputSnapshot,
+            generatedAt: matchingDetailSnapshot.generatedAt ?? generatedAt,
           });
         }
       } catch (detailError) {
@@ -2100,11 +2105,19 @@ export function registerInhousePlanningRoutes(
           .limit(1),
       ]);
       const expectedInputs = (row.tierGrid as any)?.inputSnapshot;
-      const matchingNewerDetail = newestDetail[0] &&
-        stableJson(newestDetail[0].inputSnapshot) === stableJson(expectedInputs)
+      const matchesReportInputs = (candidate: typeof newestDetail[number] | undefined) =>
+        Boolean(candidate) &&
+        stableJson(candidate?.inputSnapshot) === stableJson(expectedInputs);
+      const matchingSavedDetail = matchesReportInputs(savedDetail[0])
+        ? savedDetail[0]
+        : undefined;
+      const matchingLegacyDetail = matchesReportInputs(latestDetail[0])
+        ? latestDetail[0]
+        : undefined;
+      const matchingNewerDetail = matchesReportInputs(newestDetail[0])
         ? newestDetail[0]
         : undefined;
-      const detail = savedDetail[0] ?? latestDetail[0] ?? matchingNewerDetail;
+      const detail = matchingSavedDetail ?? matchingLegacyDetail ?? matchingNewerDetail;
       const detailPlans = Array.isArray(detail?.plans)
         ? detail.plans
         : [];
