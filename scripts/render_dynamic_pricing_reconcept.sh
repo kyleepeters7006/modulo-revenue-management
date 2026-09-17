@@ -87,9 +87,12 @@ render_closing() {
   local out="$1"
   ffmpeg -hide_banner -loglevel error -y \
     -loop 1 -i "$LOGO" \
-    -vf "scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H},\
-    fade=t=in:st=0:d=0.5,fade=t=out:st=4.5:d=0.5,format=yuv420p" \
-    -an -t 5.0 -r "$FPS" -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p "$out"
+    -f lavfi -i "color=c=$BG:s=${W}x${H}:r=$FPS:d=5.0" \
+    -filter_complex "\
+    [0:v]scale=480:480:force_original_aspect_ratio=decrease:flags=lanczos[logo];\
+    [1:v][logo]overlay=x=(W-w)/2:y=(H-h)/2,\
+    fade=t=in:st=0:d=0.5,fade=t=out:st=4.5:d=0.5,format=yuv420p[v]" \
+    -map "[v]" -an -t 5.0 -r "$FPS" -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p "$out"
 }
 
 # Screen chapters: titles are deliberately concise so the page itself stays readable.
