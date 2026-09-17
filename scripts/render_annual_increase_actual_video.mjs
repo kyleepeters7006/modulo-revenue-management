@@ -117,7 +117,7 @@ const scenes = [
     kicker: "01  TRACE THE RATE INCREASE",
     title: "See Every Rate Component",
     subtitle: "Review YoY and prior-period components in the saved annual plan.",
-    images: ["attached_assets/image_1789600788394.png"],
+    images: ["attached_assets/image_1789601040698.png"],
     cursor: { from: [0.12, 0.7], to: [0.72, 0.18] },
   },
   {
@@ -149,7 +149,7 @@ const scenes = [
     kicker: "05  REVIEW THE REPORT",
     title: "Compare the Saved Rate Plan",
     subtitle: "Compare plan increase, prior period, and Total YoY before approval.",
-    images: ["attached_assets/image_1789602335136.png"],
+    images: ["attached_assets/image_1789600788394.png"],
     cursor: { from: [0.14, 0.72], to: [0.72, 0.22] },
   },
   {
@@ -157,7 +157,7 @@ const scenes = [
     kicker: "06  CREATE THE OPERATING RECORD",
     title: "Generate the Annual In-House Rate Plan",
     subtitle: "Save the combined recommendation and tier scenarios for approval.",
-    images: ["attached_assets/image_1789601040698.png"],
+    images: ["attached_assets/image_1789603743352.png"],
     cursor: { from: [0.84, 0.72], to: [0.32, 0.2] },
   },
 ];

@@ -394,14 +394,14 @@ content_type = "video/mp4"
 id = "Ur26WeD5kn2hzwELT9qc0"
 uri = "file://client/public/media/modulo-annual-increase-process.mp4"
 type = "video"
-title = "Annual increase video without highlight rectangles"
-description = "All highlight rectangles have been removed. Cursor movement remains limited to slides 3 and 6."
+title = "Annual increase video without user annotations"
+description = "The user-highlighted report screen has been removed. The report scene now uses a clean capture, and the final scene uses a separate unmarked tier view."
 logical_id = "676c5d3a-1e57-40cb-921b-6b412c478e12"
-content_hash = "sha256:a165a9dca51beb53bce7ad36fae0cd9ab78cb2c3d1cdad11405b67f077718b7d"
-size = 1084270
-mtime_ms = 1789617703335
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/16af3b4e-4067-4822-b1a5-c0c7ad5a8dae"
-storage_version_token = "1789617721408310"
+content_hash = "sha256:2fda25d61cee16aa9756b24263872d6917e0f8ca6a08b338410cddeee44616ad"
+size = 1044301
+mtime_ms = 1789617868938
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/ac37c115-77d8-4486-a203-1657d4f315e5"
+storage_version_token = "1789617884266908"
 content_type = "video/mp4"
 
 [[outputs]]
