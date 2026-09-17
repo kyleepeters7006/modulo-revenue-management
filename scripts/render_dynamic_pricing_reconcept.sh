@@ -75,8 +75,8 @@ render_ui_scene() {
 [1:v]format=rgba[bg];\
 [bg]drawbox=x=80:y=58:w=1120:h=2:color=${TEAL}@0.7:t=fill,\
      drawtext=fontfile=${SANS}:text='${chapter}':fontcolor=${TEAL}:fontsize=14:x=80:y=15,\
-     drawtext=fontfile=${SERIF}:text='${title}':fontcolor=${INK}:fontsize=23:x=270:y=7,\
-     drawtext=fontfile=${SANS}:text='${body}':fontcolor=${MUTED}:fontsize=11:x=270:y=36[header];\
+     drawtext=fontfile=${SERIF}:text='${title}':fontcolor=${INK}:fontsize=23:x=190:y=7,\
+     drawtext=fontfile=${SANS}:text='${body}':fontcolor=${MUTED}:fontsize=11:x=190:y=36[header];\
 [header][screen]overlay=x=190:y=132,\
 fade=t=in:st=0:d=0.35:alpha=1,fade=t=out:st=$(awk "BEGIN{print $duration-0.45}"):d=0.45:alpha=1,\
 format=yuv420p[v]" \

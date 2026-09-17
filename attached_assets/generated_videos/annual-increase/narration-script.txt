@@ -1,4 +1,4 @@
-Start with the current rate signals, then trace the increase components: street-rate growth, year-over-year movement, and the prior-period change.
+Start by setting the scope and operating assumptions for the plan: growth targets, turnover, effective dates, and occupancy guardrails.
 Review projected growth by service line as realized rates move toward the Street Rate.
 Then see how many residents fall into each recommended in-house increase tier.
 The portfolio view keeps every care level visible.

@@ -9,7 +9,7 @@ const finalVideo = join(outDir, "modulo-annual-increase-process.mp4");
 const oldVideo = join(outDir, "modulo-annual-increase-process.previous.mp4");
 const narration = join(
   root,
-  "attached_assets/generated_audio/annual-increase-process-components.mp3",
+  "attached_assets/generated_audio/annual-increase-process-aligned.mp3",
 );
 const music = join(root, "attached_assets/generated_audio/dynamic-pricing-demo-music.mp3");
 const cursor = join(root, "attached_assets/generated_videos/mouse-cursor.png");
@@ -39,19 +39,44 @@ function esc(value) {
     .replaceAll(">", "&gt;");
 }
 
-function pngDimensions(relativePath) {
-  const bytes = readFileSync(join(root, relativePath));
-  if (bytes.readUInt32BE(0) !== 0x89504e47 || bytes.toString("ascii", 1, 4) !== "PNG") {
-    throw new Error(`Expected a PNG image: ${relativePath}`);
+function imageDimensions(relativePath) {
+  const file = join(root, relativePath);
+  if (extname(relativePath).toLowerCase() === ".png") {
+    const bytes = readFileSync(file);
+    if (bytes.readUInt32BE(0) !== 0x89504e47 || bytes.toString("ascii", 1, 4) !== "PNG") {
+      throw new Error(`Expected a PNG image: ${relativePath}`);
+    }
+    return {
+      width: bytes.readUInt32BE(16),
+      height: bytes.readUInt32BE(20),
+    };
   }
-  return {
-    width: bytes.readUInt32BE(16),
-    height: bytes.readUInt32BE(20),
-  };
+  const dimensions = execFileSync(
+    "ffprobe",
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=width,height",
+      "-of",
+      "csv=s=x:p=0",
+      file,
+    ],
+    { encoding: "utf8" },
+  )
+    .trim()
+    .split("x")
+    .map(Number);
+  if (dimensions.length !== 2 || dimensions.some((value) => !Number.isFinite(value))) {
+    throw new Error(`Could not read image dimensions: ${relativePath}`);
+  }
+  return { width: dimensions[0], height: dimensions[1] };
 }
 
 function displayedImageRect(relativePath) {
-  const { width, height } = pngDimensions(relativePath);
+  const { width, height } = imageDimensions(relativePath);
   const scale = Math.min(screen.w / width, screen.h / height);
   const w = width * scale;
   const h = height * scale;
@@ -113,15 +138,15 @@ function imageFrame({ kicker, title, subtitle, images, index }) {
 
 const scenes = [
   {
-    duration: 3.75,
-    kicker: "01  TRACE THE RATE INCREASE",
-    title: "See Every Rate Component",
-    subtitle: "Review YoY and prior-period components in the saved annual plan.",
-    images: ["attached_assets/image_1789601040698.png"],
+    duration: 7.75,
+    kicker: "01  SET THE INPUTS",
+    title: "Set the Planning Assumptions",
+    subtitle: "Choose scope, growth targets, turnover, and occupancy guardrails.",
+    images: ["screenshots/inhouse-proposal-workflow.jpg"],
     cursor: { from: [0.12, 0.7], to: [0.72, 0.18] },
   },
   {
-    duration: 4,
+    duration: 4.5,
     kicker: "02  FOLLOW THE RATE PATH",
     title: "See Monthly Growth by Service Line",
     subtitle: "Projected realized rates move toward the Street Rate across each service line.",
@@ -129,7 +154,7 @@ const scenes = [
     cursor: { from: [0.1, 0.72], to: [0.76, 0.25] },
   },
   {
-    duration: 5,
+    duration: 3.25,
     kicker: "03  SET THE INCREASE TIERS",
     title: "Review Resident In-House Increases",
     subtitle: "See how many residents receive each recommended increase tier.",
@@ -137,7 +162,7 @@ const scenes = [
     cursor: { from: [0.82, 0.72], to: [0.28, 0.2] },
   },
   {
-    duration: 6.75,
+    duration: 5.1,
     kicker: "04  CHECK THE PORTFOLIO",
     title: "Inspect the Detailed Recommendations",
     subtitle: "Move from each tier to the resident rows behind the recommendation.",
@@ -145,7 +170,7 @@ const scenes = [
     cursor: { from: [0.8, 0.22], to: [0.56, 0.72] },
   },
   {
-    duration: 5.25,
+    duration: 3.4,
     kicker: "05  REVIEW THE REPORT",
     title: "Compare the Saved Rate Plan",
     subtitle: "Compare plan increase, prior period, and Total YoY before approval.",
@@ -153,7 +178,7 @@ const scenes = [
     cursor: { from: [0.14, 0.72], to: [0.72, 0.22] },
   },
   {
-    duration: 5.25,
+    duration: 6,
     kicker: "06  CREATE THE OPERATING RECORD",
     title: "Generate the Annual In-House Rate Plan",
     subtitle: "Save the combined recommendation and tier scenarios for approval.",

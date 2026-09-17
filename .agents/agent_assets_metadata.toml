@@ -380,28 +380,28 @@ logical_id = "28f53eed-ca88-4c83-b64d-ac9fc0fdb04b"
 id = "WTMeCjTXSu0ms_KTCVKtf"
 uri = "file://client/public/media/modulo-pricing-intelligence.mp4"
 type = "video"
-title = "Overview video with Modoolo pronunciation"
-description = "The brand is now voiced as “mo-doo-lo,” similar to modelo with the requested middle syllable. Timing remains aligned at 32.5 seconds."
+title = "Overview video with aligned header"
+description = "The scene title and descriptor now align with the left edge of the product screenshot. The video remains 32.5 seconds."
 logical_id = "6cb21250-db42-4bed-9b3e-79a40ffdf611"
-content_hash = "sha256:c6edc5cb2d6bd43192545cdb8c4949df382159656978a5f36bff4a6de6342d4a"
-size = 1152718
-mtime_ms = 1789617928310
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/4e4b9e36-e832-4711-bec0-e83f01e174bd"
-storage_version_token = "1789617942489026"
+content_hash = "sha256:3aa7542b8ed03d58708edb05c031fa8e8bd78d3fdfd032b156e4c55f3ba79b35"
+size = 1152476
+mtime_ms = 1789618020695
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/4ba21e69-458d-451f-8d15-3c47d1952e82"
+storage_version_token = "1789618035023322"
 content_type = "video/mp4"
 
 [[outputs]]
 id = "Ur26WeD5kn2hzwELT9qc0"
 uri = "file://client/public/media/modulo-annual-increase-process.mp4"
 type = "video"
-title = "Annual increase video without user annotations"
-description = "The user-highlighted report screen has been removed. The report scene now uses a clean capture, and the final scene uses a separate unmarked tier view."
+title = "Annual video synced to voice cadence"
+description = "Scene changes now land on measured narration breaks, with the final report and operating-record scenes split at the closing emphasis."
 logical_id = "676c5d3a-1e57-40cb-921b-6b412c478e12"
-content_hash = "sha256:2fda25d61cee16aa9756b24263872d6917e0f8ca6a08b338410cddeee44616ad"
-size = 1044301
-mtime_ms = 1789617868938
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/ac37c115-77d8-4486-a203-1657d4f315e5"
-storage_version_token = "1789617884266908"
+content_hash = "sha256:31bcbe46c99be1b2b6d0f9f975879d08474a4a6d54981d1713e492d686656e5b"
+size = 1022506
+mtime_ms = 1789618229779
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/16445c97-b633-43d9-b540-a98181772424"
+storage_version_token = "1789618253950995"
 content_type = "video/mp4"
 
 [[outputs]]
@@ -467,3 +467,11 @@ type = "audio"
 title = "generated corrected Modoolo narration"
 description = "Text-to-speech audio: Mo-doo-lo starts with a portfolio dashboard for occupancy, rates, revenue, and market context. AI prioritizes high-impact moves using revenue goals and elasticity. Operators rev…"
 logical_id = "ead88096-3f46-41c0-afb2-174c9726057d"
+
+[[outputs]]
+id = "I3iqBr1Rmd3quqZhsy1Yw"
+uri = "file://attached_assets/generated_audio/annual-increase-process-aligned.mp3"
+type = "audio"
+title = "generated updated annual narration"
+description = "Text-to-speech audio: Start by setting the scope and operating assumptions for the plan: growth targets, turnover, effective dates, and occupancy guardrails. Review projected growth by service line a…"
+logical_id = "8bbabb24-baef-484a-8f14-d943e6af9a18"
