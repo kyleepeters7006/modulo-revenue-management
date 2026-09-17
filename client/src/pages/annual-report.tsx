@@ -433,13 +433,36 @@ function WorkbookReportBlock({
   const rows = report.plans.map(({ sl, plan }) => {
     const line = report.tierGrid.lines.find((entry) => entry.serviceLine === sl);
     const scenario = tier ? line?.cells.find((cell) => cell.tier === tier) : undefined;
+    const currentInhouse = plan.summary.currentAvgInhouseRateMonthly;
+    const currentStreet = plan.currentStreetRateMonthly;
+    // Older saved reports retained the scenario percentages but not the
+    // derived rate/dollar fields. Reconstruct those deterministic values so a
+    // valid legacy scenario is not presented as unavailable.
+    const derivedNewInhouse = scenario && finiteNumber(scenario.inhouseIncreasePct) && finiteNumber(currentInhouse)
+      ? currentInhouse * (1 + scenario.inhouseIncreasePct / 100)
+      : null;
+    const derivedNewStreet = scenario && finiteNumber(scenario.streetIncreasePct) && finiteNumber(currentStreet)
+      ? currentStreet * (1 + scenario.streetIncreasePct / 100)
+      : null;
+    const derivedAnnualIncrease = scenario && finiteNumber(derivedNewInhouse) && finiteNumber(currentInhouse)
+      ? (derivedNewInhouse - currentInhouse) * (plan.summary.residentCount || 0) * 12
+      : null;
+    const scenarioNewInhouse = scenario && finiteNumber(scenario.newAvgInhouseRateMonthly)
+      ? scenario.newAvgInhouseRateMonthly
+      : derivedNewInhouse;
+    const scenarioNewStreet = scenario && finiteNumber(scenario.recommendedStreetRateMonthly)
+      ? scenario.recommendedStreetRateMonthly
+      : derivedNewStreet;
+    const scenarioAnnualIncrease = scenario && finiteNumber(scenario.totalAnnualIncreaseDollars)
+      ? scenario.totalAnnualIncreaseDollars
+      : derivedAnnualIncrease;
     const scenarioAvailable = !tier || (
       scenario != null &&
       finiteNumber(scenario.inhouseIncreasePct) &&
       finiteNumber(scenario.streetIncreasePct) &&
-      finiteNumber(scenario.newAvgInhouseRateMonthly) &&
-      finiteNumber(scenario.recommendedStreetRateMonthly) &&
-      finiteNumber(scenario.totalAnnualIncreaseDollars)
+      finiteNumber(scenarioNewInhouse) &&
+      finiteNumber(scenarioNewStreet) &&
+      finiteNumber(scenarioAnnualIncrease)
     );
     const inhouseIncrease = tier
       ? scenarioAvailable ? scenario!.inhouseIncreasePct : null
@@ -447,13 +470,11 @@ function WorkbookReportBlock({
     const streetIncrease = tier
       ? scenarioAvailable ? scenario!.streetIncreasePct : null
       : plan.streetIncreasePct;
-    const currentInhouse = plan.summary.currentAvgInhouseRateMonthly;
     const proposedInhouse = tier
-      ? scenarioAvailable ? scenario!.newAvgInhouseRateMonthly : null
+      ? scenarioAvailable ? scenarioNewInhouse : null
       : plan.summary.newAvgInhouseRateMonthly;
-    const currentStreet = plan.currentStreetRateMonthly;
     const proposedStreet = tier
-      ? scenarioAvailable ? scenario!.recommendedStreetRateMonthly : null
+      ? scenarioAvailable ? scenarioNewStreet : null
       : plan.recommendedStreetRateMonthly;
     const position = proposedInhouse && proposedStreet != null
       ? ((proposedStreet - proposedInhouse) / proposedInhouse) * 100
@@ -477,7 +498,7 @@ function WorkbookReportBlock({
       growthBridge,
       scenarioAvailable,
       annualizedRevenue: tier
-        ? scenarioAvailable ? scenario!.totalAnnualIncreaseDollars : null
+        ? scenarioAvailable ? scenarioAnnualIncrease : null
         : growthBridge
           ? annualRateGrowthRevenue(growthBridge, plan.summary.residentCount)
           : plan.summary.totalAnnualIncreaseDollars,
@@ -832,7 +853,7 @@ function ResidentIncreaseCharts({ plans }: { plans: ReportPlan[] }) {
                   return (
                     <g key={step}>
                       <line x1={pad.left} y1={y} x2={width - pad.right} y2={y} className="report-scatter-grid" />
-                      <text x={pad.left - 5} y={y + 3} textAnchor="end">{value}</text>
+                       <text className="report-resident-y-tick" x={pad.left - 5} y={y + 3} textAnchor="end">{value}</text>
                     </g>
                   );
                 })}
@@ -843,7 +864,7 @@ function ResidentIncreaseCharts({ plans }: { plans: ReportPlan[] }) {
                   return (
                     <g key={label}>
                       {value > 0 && (
-                        <text x={x + barWidth / 2} y={pad.top + plotHeight - barHeight - 4} textAnchor="middle">
+                           <text className="report-resident-value" x={x + barWidth / 2} y={pad.top + plotHeight - barHeight - 4} textAnchor="middle">
                           {value}
                         </text>
                       )}
@@ -854,11 +875,11 @@ function ResidentIncreaseCharts({ plans }: { plans: ReportPlan[] }) {
                         height={barHeight}
                         fill="#2F9E9A"
                       />
-                      <text x={x + barWidth / 2} y={height - 23} textAnchor="middle">{label}</text>
+                       <text className="report-resident-x-tick" x={x + barWidth / 2} y={height - 23} textAnchor="middle">{label}</text>
                     </g>
                   );
                 })}
-                <text x={pad.left / 2} y={pad.top + plotHeight / 2} textAnchor="middle" transform={`rotate(-90 ${pad.left / 2} ${pad.top + plotHeight / 2})`}>Residents</text>
+                 <text className="report-resident-axis-label" x={pad.left / 2} y={pad.top + plotHeight / 2} textAnchor="middle" transform={`rotate(-90 ${pad.left / 2} ${pad.top + plotHeight / 2})`}>Residents</text>
               </svg>
             </div>
           );

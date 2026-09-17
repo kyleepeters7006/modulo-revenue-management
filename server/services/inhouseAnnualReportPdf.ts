@@ -411,7 +411,7 @@ function drawResidentIncreaseCharts(
     y + 16,
     width,
     "Number of residents receiving each recommended in-house increase, shown separately by service line.",
-    { size: 6.5, color: MUTED },
+    { size: 7.4, color: MUTED },
   );
 
   const chartPlans = plans.filter((plan) => {
@@ -464,7 +464,7 @@ function drawResidentIncreaseCharts(
     const barWidth = Math.max(2, slotWidth * 0.7);
 
     doc.rect(cardX, cardY, cardWidth, cardHeight).lineWidth(0.5).strokeColor(BORDER).stroke();
-    line(doc, cardX + 4, cardY + 7, cardWidth - 8, serviceLine(plan), { size: 7.3, bold: true, align: "center" });
+    line(doc, cardX + 4, cardY + 7, cardWidth - 8, serviceLine(plan), { size: 8.4, bold: true, align: "center" });
     doc.moveTo(cardX + plotLeftOffset, plotTop).lineTo(cardX + plotLeftOffset, plotBottom)
       .lineTo(cardX + plotLeftOffset + plotWidth, plotBottom)
       .lineWidth(0.5).strokeColor("#657789").stroke();
@@ -475,7 +475,7 @@ function drawResidentIncreaseCharts(
       doc.moveTo(cardX + plotLeftOffset, yy)
         .lineTo(cardX + plotLeftOffset + plotWidth, yy)
         .lineWidth(0.25).strokeColor("#D9DEE5").stroke();
-      line(doc, cardX + 1, yy - 3, plotLeftOffset - 5, String(value), { size: 5.2, align: "right" });
+      line(doc, cardX + 1, yy - 3, plotLeftOffset - 5, String(value), { size: 6.1, align: "right" });
     });
 
     values.forEach((value, valueIndex) => {
@@ -483,11 +483,11 @@ function drawResidentIncreaseCharts(
       const barHeight = value > 0 ? (value / maximum) * plotHeight : 0;
       if (value > 0) {
         doc.rect(barX, plotBottom - barHeight, barWidth, barHeight).fill("#2F9E9A");
-        line(doc, barX - 2, plotBottom - barHeight - 8, barWidth + 4, String(value), { size: 4.2, align: "center" });
+        line(doc, barX - 2, plotBottom - barHeight - 8, barWidth + 4, String(value), { size: 5.2, align: "center" });
       }
-      line(doc, barX - 4, plotBottom + 5, slotWidth + 8, RESIDENT_INCREASE_TIER_LABELS[valueIndex], { size: 4.1, align: "center" });
+      line(doc, barX - 4, plotBottom + 5, slotWidth + 8, RESIDENT_INCREASE_TIER_LABELS[valueIndex], { size: 5.0, align: "center" });
     });
-    line(doc, cardX - 1, plotTop + plotHeight / 2, 18, "Residents", { size: 4.8, align: "center" });
+    line(doc, cardX - 1, plotTop + plotHeight / 2, 18, "Residents", { size: 5.8, align: "center" });
   });
 }
 
@@ -568,25 +568,42 @@ function workbookRows(plans: JsonObject[], grid: unknown, tier?: string): Workbo
           serviceLine(cell) === lineName &&
           String(first(cell, ["tier", "tierLabel"]) ?? "").toLowerCase() === tier.toLowerCase())
       : undefined;
+    // Legacy report snapshots kept the scenario percentages but omitted the
+    // deterministic derived rate and annual-dollar fields. Reconstruct those
+    // values so valid saved scenarios remain readable.
+    const scenarioInhouseIncrease = number(first(scenario ?? {}, ["inhouseIncreasePct"]));
+    const scenarioStreetIncrease = number(first(scenario ?? {}, ["streetIncreasePct"]));
+    const derivedNewInhouse = scenarioInhouseIncrease != null && currentInhouse != null
+      ? currentInhouse * (1 + scenarioInhouseIncrease / 100)
+      : null;
+    const derivedNewStreet = scenarioStreetIncrease != null && currentStreet != null
+      ? currentStreet * (1 + scenarioStreetIncrease / 100)
+      : null;
+    const derivedAnnualIncrease = derivedNewInhouse != null && currentInhouse != null
+      ? (derivedNewInhouse - currentInhouse) * (residents ?? 0) * 12
+      : null;
+    const scenarioNewInhouse = number(first(scenario ?? {}, ["newAvgInhouseRateMonthly"])) ?? derivedNewInhouse;
+    const scenarioNewStreet = number(first(scenario ?? {}, ["recommendedStreetRateMonthly"])) ?? derivedNewStreet;
+    const scenarioAnnualIncrease = number(first(scenario ?? {}, ["totalAnnualIncreaseDollars"])) ?? derivedAnnualIncrease;
     const scenarioAvailable = !tier || (
       scenario != null &&
-      number(first(scenario, ["inhouseIncreasePct"])) != null &&
-      number(first(scenario, ["streetIncreasePct"])) != null &&
-      number(first(scenario, ["newAvgInhouseRateMonthly"])) != null &&
-      number(first(scenario, ["recommendedStreetRateMonthly"])) != null &&
-      number(first(scenario, ["totalAnnualIncreaseDollars"])) != null
+      scenarioInhouseIncrease != null &&
+      scenarioStreetIncrease != null &&
+      scenarioNewInhouse != null &&
+      scenarioNewStreet != null &&
+      scenarioAnnualIncrease != null
     );
     const inhouseIncrease = tier
-      ? scenarioAvailable ? number(first(scenario!, ["inhouseIncreasePct"])) : null
+      ? scenarioAvailable ? scenarioInhouseIncrease : null
       : number(first(summary, ["weightedAvgIncreasePct"]));
     const streetIncrease = tier
-      ? scenarioAvailable ? number(first(scenario!, ["streetIncreasePct"])) : null
+      ? scenarioAvailable ? scenarioStreetIncrease : null
       : number(first(plan, ["streetIncreasePct"]));
     const proposedInhouse = tier
-      ? scenarioAvailable ? number(first(scenario!, ["newAvgInhouseRateMonthly"])) : null
+      ? scenarioAvailable ? scenarioNewInhouse : null
       : measuredInhouse;
     const proposedStreet = tier
-      ? scenarioAvailable ? number(first(scenario!, ["recommendedStreetRateMonthly"])) : null
+      ? scenarioAvailable ? scenarioNewStreet : null
       : measuredStreet;
     const rateBasis = first(plan, ["rateBasis"]) === "daily" ? "daily" : "monthly";
     const quarters = objects(first(plan, ["quarters"]));
@@ -609,7 +626,7 @@ function workbookRows(plans: JsonObject[], grid: unknown, tier?: string): Workbo
       annualizedRevenue: growthBridge
         ? annualRateGrowthRevenue(growthBridge, residents ?? 0)
         : tier
-          ? scenarioAvailable ? number(first(scenario!, ["totalAnnualIncreaseDollars"])) : null
+          ? scenarioAvailable ? scenarioAnnualIncrease : null
           : number(first(summary, ["totalAnnualIncreaseDollars"])),
       portfolioShare: residents != null && totalResidents > 0 ? residents / totalResidents * 100 : null,
       scenarioAvailable,

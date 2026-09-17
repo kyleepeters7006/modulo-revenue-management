@@ -445,12 +445,15 @@ input[type="range"]::-moz-range-thumb {
 .report-scatter-axis { stroke: hsl(213 22% 45%); stroke-width: 1; }
 .report-scatter-grid { stroke: hsl(213 22% 82%); stroke-width: .75; }
 .report-resident-section { border: 1px solid hsl(213 22% 63%); background: hsl(42 38% 98%); break-inside: avoid; }
-.report-resident-description { padding: 6px 9px 0; color: hsl(214 20% 40%); font-size: 12px; }
+.report-resident-description { padding: 6px 9px 0; color: hsl(214 20% 40%); font-size: 13px; }
 .report-resident-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 10px; }
 .report-resident-chart { border: 1px solid hsl(213 22% 73%); background: hsl(42 38% 99%); padding: 5px; break-inside: avoid; }
-.report-resident-title { margin: 0 0 0; color: hsl(214 29% 22%); font-size: 15px; font-weight: 700; text-align: center; }
+.report-resident-title { margin: 0 0 0; color: hsl(214 29% 22%); font-size: 17px; font-weight: 700; text-align: center; }
 .report-resident-chart svg { display: block; width: 100%; height: 220px; overflow: visible; }
-.report-resident-chart text { fill: hsl(214 20% 30%); font-family: 'EB Garamond', Georgia, serif; font-size: 12px; }
+.report-resident-chart text { fill: hsl(214 20% 30%); font-family: 'EB Garamond', Georgia, serif; font-size: 14px; }
+.report-resident-chart .report-resident-value { font-size: 15px; font-weight: 600; }
+.report-resident-chart .report-resident-x-tick { font-size: 12px; }
+.report-resident-chart .report-resident-axis-label { font-size: 13px; }
 
 /* Leaflet stacks controls (z-index 800) above popups (z-index 700), so an open
    popup can be partly hidden behind the zoom buttons. A popup is transient and
