@@ -380,14 +380,14 @@ logical_id = "28f53eed-ca88-4c83-b64d-ac9fc0fdb04b"
 id = "WTMeCjTXSu0ms_KTCVKtf"
 uri = "file://client/public/media/modulo-pricing-intelligence.mp4"
 type = "video"
-title = "Overview video with simplified headers"
-description = "Header text no longer overlaps; the scene titles and descriptors are simplified and the About Us cache key is refreshed."
+title = "Overview video with plain-language header"
+description = "The confusing “Turn scale into signal” header was replaced with “Review the portfolio dashboard.”"
 logical_id = "6cb21250-db42-4bed-9b3e-79a40ffdf611"
-content_hash = "sha256:93dfed2a3629e45f17be3d587d398cc71a28b498e2ad2df7093565e55c34ac97"
-size = 1209231
-mtime_ms = 1789616929483
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/2f2ea55a-38cb-4c0b-a9ef-b9008e9bf07a"
-storage_version_token = "1789616939392231"
+content_hash = "sha256:5c0336eb2f2a80e82aed7b180eb33ff90eb26a238e46f2940d90ca2a3304d4b1"
+size = 1209389
+mtime_ms = 1789617051461
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/1dbae666-fc8a-481e-9c77-a676d916725c"
+storage_version_token = "1789617072363199"
 content_type = "video/mp4"
 
 [[outputs]]

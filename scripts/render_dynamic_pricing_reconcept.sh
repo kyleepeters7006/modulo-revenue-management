@@ -95,7 +95,7 @@ fade=t=in:st=0:d=0.5,fade=t=out:st=6.9:d=0.5,format=yuv420p" \
 # Screen chapters: titles are deliberately concise so the page itself stays readable.
 render_title "$TMP_DIR/01-title.mp4"
 render_ui_scene "$TMP_DIR/02-signal.mp4" "$OVERVIEW" \
-  "01  /  DECOMPOSE" "Turn scale into signal" "OCCUPANCY  •  RATES  •  DEMAND  •  MARKET POSITION" \
+  "01  /  REVIEW" "Review the portfolio dashboard" "OCCUPANCY  •  RATES  •  REVENUE" \
   35 455 1210 125 "PORTFOLIO SIGNAL" 4.5 470 630 835 635
 render_ui_scene "$TMP_DIR/03-ai.mp4" "$CONTROLS" \
   "02  /  PRIORITIZE" "Prioritize high-impact moves" "REVENUE GOAL  •  ELASTICITY  •  ML" \
