@@ -394,14 +394,14 @@ content_type = "video/mp4"
 id = "Ur26WeD5kn2hzwELT9qc0"
 uri = "file://client/public/media/modulo-annual-increase-process.mp4"
 type = "video"
-title = "Corrected annual increase methodology video"
-description = "The Generate the Annual In-House Rate Plan scene now uses a clean saved rate-plan table without unavailable-data messaging."
+title = "Annual increase video with matched narration"
+description = "Narration now follows the updated rate signals, monthly growth, resident tiers, service-line review, and clean saved rate-plan scenes. The About Us cache key was also refreshed."
 logical_id = "676c5d3a-1e57-40cb-921b-6b412c478e12"
-content_hash = "sha256:958d5d7ee818cf7c8c8617cb5e3f7219ae1c956b3acf69caf8856c2019b653f0"
-size = 1133037
-mtime_ms = 1789615994108
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/6ea541d3-b203-4622-b540-a49380968eed"
-storage_version_token = "1789616003145367"
+content_hash = "sha256:8634901405867528ce3fcd7545ae43cf158b5f3100a87915e7b0a86f6d594922"
+size = 1062897
+mtime_ms = 1789616179677
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/cfd55d59-f42d-406e-beb9-87f600bfdd20"
+storage_version_token = "1789616196831541"
 content_type = "video/mp4"
 
 [[outputs]]
@@ -419,3 +419,11 @@ type = "audio"
 title = "Modulo annual increase corrected pronunciation"
 description = "Text-to-speech audio: Moe-doh-low's advanced annual increase methodology starts with length-of-stay estimates to predict turnover by service line. As residents transition, the model blends new Street…"
 logical_id = "ef7491e3-a2c2-4363-bd0c-78915a5b81b3"
+
+[[outputs]]
+id = "KTEiESticq92n4In_-cwf"
+uri = "file://attached_assets/generated_audio/annual-increase-process-current-screens.mp3"
+type = "audio"
+title = "annual increase process current screens"
+description = "Text-to-speech audio: Annual rate planning starts with current monthly rate signals and the resident increase tiers behind them. Review projected growth by service line as realized rates move toward …"
+logical_id = "7326d2e6-82e5-43b8-a4c7-398b53dbf634"

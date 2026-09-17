@@ -9,7 +9,7 @@ const finalVideo = join(outDir, "modulo-annual-increase-process.mp4");
 const oldVideo = join(outDir, "modulo-annual-increase-process.previous.mp4");
 const narration = join(
   root,
-  "attached_assets/generated_audio/annual-increase-process-tutorial-british-no-brand.mp3",
+  "attached_assets/generated_audio/annual-increase-process-current-screens.mp3",
 );
 const music = join(root, "attached_assets/generated_audio/dynamic-pricing-demo-music.mp3");
 
@@ -122,7 +122,7 @@ const scenes = [
     kicker: "05  REVIEW THE REPORT",
     title: "Compare the Saved Rate Plan",
     subtitle: "Review the calculated plan before publishing the new annual rate path.",
-    images: ["attached_assets/image_1789603648746.png"],
+    images: ["attached_assets/image_1789601040698.png"],
   },
   {
     duration: 5.25,
@@ -186,7 +186,7 @@ run([
   "-i",
   music,
   "-filter_complex",
-  "[1:a]aresample=48000,atempo=1.27,volume=1.0,adelay=250|250[voice];[2:a]aresample=48000,volume=0.07,afade=t=out:st=28:d=2[music];[voice][music]amix=inputs=2:duration=first:normalize=0,apad,alimiter=limit=0.95[a]",
+  "[1:a]aresample=48000,atempo=0.86,volume=1.0,adelay=250|250[voice];[2:a]aresample=48000,volume=0.07,afade=t=out:st=28:d=2[music];[voice][music]amix=inputs=2:duration=first:normalize=0,apad,alimiter=limit=0.95[a]",
   "-map",
   "0:v:0",
   "-map",
