@@ -380,28 +380,28 @@ logical_id = "28f53eed-ca88-4c83-b64d-ac9fc0fdb04b"
 id = "WTMeCjTXSu0ms_KTCVKtf"
 uri = "file://client/public/media/modulo-pricing-intelligence.mp4"
 type = "video"
-title = "Modulo product overview video"
-description = "Refreshed with current Modulo website screens."
+title = "Overview video with simplified headers"
+description = "Header text no longer overlaps; the scene titles and descriptors are simplified and the About Us cache key is refreshed."
 logical_id = "6cb21250-db42-4bed-9b3e-79a40ffdf611"
-content_hash = "sha256:e0e9827c8488f724dc1290c788818fd09e16b0a72b16054e74a1f7967910e50c"
-size = 1216272
-mtime_ms = 1789615791301
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/f4de6301-e47e-4d86-a731-640252ef7a68"
-storage_version_token = "1789615858495915"
+content_hash = "sha256:93dfed2a3629e45f17be3d587d398cc71a28b498e2ad2df7093565e55c34ac97"
+size = 1209231
+mtime_ms = 1789616929483
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/2f2ea55a-38cb-4c0b-a9ef-b9008e9bf07a"
+storage_version_token = "1789616939392231"
 content_type = "video/mp4"
 
 [[outputs]]
 id = "Ur26WeD5kn2hzwELT9qc0"
 uri = "file://client/public/media/modulo-annual-increase-process.mp4"
 type = "video"
-title = "Annual increase video with YoY and prior-period components"
-description = "Includes the attached calculated street increase table, plus the saved annual plan view showing Total YoY and Prior-period increase with matching narration and captions."
+title = "Annual increase video without rejected image"
+description = "The opening scene now uses only the clean annual-plan report. The rejected calculated street-increase table image has been removed, and the About Us cache key is refreshed."
 logical_id = "676c5d3a-1e57-40cb-921b-6b412c478e12"
-content_hash = "sha256:8cd0ed4e8611c48d2cd9915794acbaeb2833f29897f8f58bbca0da68046df2fe"
-size = 1105006
-mtime_ms = 1789616692121
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/843f6477-bf23-4d2b-943d-ff19401a3b37"
-storage_version_token = "1789616700950505"
+content_hash = "sha256:cbb96823eb85fd1e3244469aedfa68b8aefa0081295c6970266f7bc375779d10"
+size = 1093896
+mtime_ms = 1789616968529
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/52326420-2604-4f5c-8691-f60e982f4142"
+storage_version_token = "1789616976854651"
 content_type = "video/mp4"
 
 [[outputs]]

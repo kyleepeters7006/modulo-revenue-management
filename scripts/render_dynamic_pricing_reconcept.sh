@@ -74,9 +74,9 @@ render_ui_scene() {
 [0:v]scale=900:506:flags=lanczos,unsharp=5:5:0.45:5:5:0,format=rgba,drawbox=x=0:y=0:w=900:h=506:color=white@0.85:t=2[screen];\
 [1:v]format=rgba[bg];\
 [bg]drawbox=x=80:y=58:w=1120:h=2:color=${TEAL}@0.7:t=fill,\
-drawtext=fontfile=${SANS}:text='${chapter}':fontcolor=${TEAL}:fontsize=14:x=80:y=15,\
-drawtext=fontfile=${SERIF}:text='${title}':fontcolor=${INK}:fontsize=25:x=270:y=9,\
-drawtext=fontfile=${SANS}:text='${body}':fontcolor=${MUTED}:fontsize=12:x=700:y=21[header];\
+     drawtext=fontfile=${SANS}:text='${chapter}':fontcolor=${TEAL}:fontsize=14:x=80:y=15,\
+     drawtext=fontfile=${SERIF}:text='${title}':fontcolor=${INK}:fontsize=23:x=270:y=7,\
+     drawtext=fontfile=${SANS}:text='${body}':fontcolor=${MUTED}:fontsize=11:x=270:y=36[header];\
 [header][screen]overlay=x=190:y=132,\
 fade=t=in:st=0:d=0.35:alpha=1,fade=t=out:st=$(awk "BEGIN{print $duration-0.45}"):d=0.45:alpha=1,\
 format=yuv420p[v]" \
@@ -98,16 +98,16 @@ render_ui_scene "$TMP_DIR/02-signal.mp4" "$OVERVIEW" \
   "01  /  DECOMPOSE" "Turn scale into signal" "OCCUPANCY  •  RATES  •  DEMAND  •  MARKET POSITION" \
   35 455 1210 125 "PORTFOLIO SIGNAL" 4.5 470 630 835 635
 render_ui_scene "$TMP_DIR/03-ai.mp4" "$CONTROLS" \
-  "02  /  PRIORITIZE" "Surface the highest-impact moves" "REVENUE GOAL  •  ELASTICITY  •  MACHINE LEARNING" \
+  "02  /  PRIORITIZE" "Prioritize high-impact moves" "REVENUE GOAL  •  ELASTICITY  •  ML" \
   35 330 1210 220 "AI PRIORITIZATION" 4.5 470 615 790 625
 render_ui_scene "$TMP_DIR/04-rates.mp4" "$RATE_CARD" \
   "03  /  APPLY" "Review every proposed rate" "CURRENT RATE  •  RULES RATE  •  OVERRIDES  •  EXPORT" \
   35 430 1210 130 "RATE REVIEW" 4.5 470 615 790 625
 render_ui_scene "$TMP_DIR/05-market.mp4" "$COMPETITORS" \
-  "04  /  BENCHMARK" "See the local market" "NEARBY COMMUNITIES  •  CARE-ADJUSTED RATES  •  POSITION" \
+  "04  /  BENCHMARK" "See local market position" "CARE-ADJUSTED RATES  •  COMPETITION" \
   35 305 1210 245 "MARKET CONTEXT" 4.5 820 515 925 455
 render_ui_scene "$TMP_DIR/06-impact.mp4" "$ANALYTICS" \
-  "05  /  LEARN" "Measure the outcome" "RATE GROWTH  •  OCCUPANCY  •  REVENUE  •  NEXT DECISION" \
+  "05  /  LEARN" "Measure the outcome" "RATE GROWTH  •  OCCUPANCY  •  REVENUE" \
   35 305 1210 245 "MEASURE THE EFFECT" 4.5 820 515 925 455
 render_closing "$TMP_DIR/07-close.mp4"
 

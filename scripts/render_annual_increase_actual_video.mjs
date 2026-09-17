@@ -90,8 +90,8 @@ const scenes = [
     duration: 3.75,
     kicker: "01  TRACE THE RATE INCREASE",
     title: "See Every Rate Component",
-    subtitle: "Start with calculated street changes, then compare YoY and prior-period components in the annual plan.",
-    images: ["attached_assets/image_1789616534442.png"],
+    subtitle: "Review YoY and prior-period components in the saved annual plan.",
+    images: ["attached_assets/image_1789601040698.png"],
   },
   {
     duration: 4,
