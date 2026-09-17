@@ -380,28 +380,28 @@ logical_id = "28f53eed-ca88-4c83-b64d-ac9fc0fdb04b"
 id = "WTMeCjTXSu0ms_KTCVKtf"
 uri = "file://client/public/media/modulo-pricing-intelligence.mp4"
 type = "video"
-title = "Modulo Product Overview — Corrected Pronunciation"
-description = "Product overview with Modulo pronounced MOE-doh-low in audio, standard on-screen spelling, and the revised full-frame logo outro."
+title = "Modulo product overview video"
+description = "Refreshed with current Modulo website screens."
 logical_id = "6cb21250-db42-4bed-9b3e-79a40ffdf611"
-content_hash = "sha256:685a117200f64acf61606ea50cacfb8b841af066e7a4afc524146f3aa9431460"
-size = 1049293
-mtime_ms = 1789438606806
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/94b4c777-35e2-4aa8-b2f1-5aa617f2ed3b"
-storage_version_token = "1789438669169880"
+content_hash = "sha256:e0e9827c8488f724dc1290c788818fd09e16b0a72b16054e74a1f7967910e50c"
+size = 1216272
+mtime_ms = 1789615791301
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/f4de6301-e47e-4d86-a731-640252ef7a68"
+storage_version_token = "1789615858495915"
 content_type = "video/mp4"
 
 [[outputs]]
 id = "Ur26WeD5kn2hzwELT9qc0"
 uri = "file://client/public/media/modulo-annual-increase-process.mp4"
 type = "video"
-title = "Annual Increase Process — Updated Report and Pronunciation"
-description = "Annual increase video with the current report layout, corrected spoken pronunciation, standard on-screen spelling, and the revised logo outro."
+title = "Annual increase methodology video"
+description = "Refreshed with the latest annual planning website screens and charts."
 logical_id = "676c5d3a-1e57-40cb-921b-6b412c478e12"
-content_hash = "sha256:13452047422b6234c6e571dc69fcddec31f12de73030a7274c1f5c52a00c8dad"
-size = 1253226
-mtime_ms = 1789438606826
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/4b80df14-233c-43bd-9089-1e74b3a441e3"
-storage_version_token = "1789438669905714"
+content_hash = "sha256:5eba44cb40a8bbc1621c9351fe01b0c46e41dd514ffda4b6331e557da7c183c9"
+size = 1136277
+mtime_ms = 1789615805769
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/6e388b6d-1775-4904-955d-8c2458c98df0"
+storage_version_token = "1789615859391860"
 content_type = "video/mp4"
 
 [[outputs]]

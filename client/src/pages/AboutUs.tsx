@@ -21,7 +21,7 @@ export default function AboutUs() {
       cardTitle: "See Modulo in practice",
       cardBody: "How AI turns portfolio data into prioritized, operator-controlled revenue actions.",
       poster: "/media/modulo-pricing-intelligence-poster.jpg",
-      source: "/media/modulo-pricing-intelligence.mp4?v=20260915-trilogy-refresh",
+      source: "/media/modulo-pricing-intelligence.mp4?v=20260917-website-refresh",
       captions: "/media/modulo-pricing-intelligence.vtt",
     },
     annual: {
@@ -31,7 +31,7 @@ export default function AboutUs() {
       cardTitle: "Model annual rate growth",
       cardBody: "Predict turnover from length of stay, blend Street and In-House rates, and enter the new year on target.",
       poster: "/media/modulo-annual-increase-process-poster.jpg",
-      source: "/media/modulo-annual-increase-process.mp4?v=20260915-no-brand",
+      source: "/media/modulo-annual-increase-process.mp4?v=20260917-website-refresh",
       captions: "/media/modulo-annual-increase-process.vtt",
     },
   } as const;
