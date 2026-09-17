@@ -13,6 +13,11 @@ const narration = join(
 );
 const music = join(root, "attached_assets/generated_audio/dynamic-pricing-demo-music.mp3");
 const cursor = join(root, "attached_assets/generated_videos/mouse-cursor.png");
+const executiveReportSource = join(root, "screenshots/annual-video-zoomed-out.jpg");
+const executiveReportImage = join(
+  root,
+  "attached_assets/generated_videos/annual-increase/current-executive-report.jpg",
+);
 const screen = { x: 62, y: 158, w: 1164, h: 492 };
 
 mkdirSync(tmpDir, { recursive: true });
@@ -22,6 +27,16 @@ function run(args) {
     stdio: "inherit",
   });
 }
+
+run([
+  "-i",
+  executiveReportSource,
+  "-vf",
+  "crop=770:485:255:135",
+  "-q:v",
+  "2",
+  executiveReportImage,
+]);
 
 function mimeFor(file) {
   return extname(file).toLowerCase() === ".jpg" ? "image/jpeg" : "image/png";
@@ -179,10 +194,10 @@ const scenes = [
   },
   {
     duration: 6,
-    kicker: "06  CREATE THE OPERATING RECORD",
-    title: "Generate the Annual In-House Rate Plan",
-    subtitle: "Save the combined recommendation and tier scenarios for approval.",
-    images: ["attached_assets/image_1789603743352.png"],
+    kicker: "06  RECORD THE OUTCOME",
+    title: "Open the Executive Report",
+    subtitle: "Review the combined annual increase and service-line summary before approval.",
+    images: ["attached_assets/generated_videos/annual-increase/current-executive-report.jpg"],
     cursor: { from: [0.84, 0.72], to: [0.32, 0.2] },
   },
 ];

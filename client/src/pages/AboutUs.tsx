@@ -31,7 +31,7 @@ export default function AboutUs() {
       cardTitle: "Model annual rate growth",
       cardBody: "Predict turnover from length of stay, blend Street and In-House rates, and enter the new year on target.",
       poster: "/media/modulo-annual-increase-process-poster.jpg",
-      source: "/media/modulo-annual-increase-process.mp4?v=20260917-voice-cadence-refresh",
+      source: "/media/modulo-annual-increase-process.mp4?v=20260917-executive-report-final-refresh",
       captions: "/media/modulo-annual-increase-process.vtt",
     },
   } as const;
