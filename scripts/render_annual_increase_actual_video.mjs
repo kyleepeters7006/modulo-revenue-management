@@ -18,6 +18,10 @@ const executiveReportImage = join(
   root,
   "attached_assets/generated_videos/annual-increase/current-executive-report.jpg",
 );
+const executiveReportActionImage = join(
+  root,
+  "attached_assets/generated_videos/annual-increase/current-executive-report-action.jpg",
+);
 const screen = { x: 62, y: 158, w: 1164, h: 492 };
 
 mkdirSync(tmpDir, { recursive: true });
@@ -36,6 +40,15 @@ run([
   "-q:v",
   "2",
   executiveReportImage,
+]);
+run([
+  "-i",
+  executiveReportSource,
+  "-vf",
+  "crop=770:190:255:410",
+  "-q:v",
+  "2",
+  executiveReportActionImage,
 ]);
 
 function mimeFor(file) {
@@ -188,17 +201,17 @@ const scenes = [
     duration: 3.4,
     kicker: "05  REVIEW THE REPORT",
     title: "Compare the Saved Rate Plan",
-    subtitle: "Compare plan increase, prior period, and Total YoY before approval.",
-    images: ["attached_assets/image_1789600788394.png"],
+    subtitle: "Review the combined annual increase, impact, and service-line summary.",
+    images: ["attached_assets/generated_videos/annual-increase/current-executive-report.jpg"],
     cursor: { from: [0.14, 0.72], to: [0.72, 0.22] },
   },
   {
     duration: 6,
-    kicker: "06  RECORD THE OUTCOME",
-    title: "Open the Executive Report",
-    subtitle: "Review the combined annual increase and service-line summary before approval.",
-    images: ["attached_assets/generated_videos/annual-increase/current-executive-report.jpg"],
-    cursor: { from: [0.84, 0.72], to: [0.32, 0.2] },
+    kicker: "06  EXPORT FOR APPROVAL",
+    title: "Download the Executive Report",
+    subtitle: "Download the saved recommendation for approval and review.",
+    images: ["attached_assets/generated_videos/annual-increase/current-executive-report-action.jpg"],
+    cursor: { from: [0.9, 0.72], to: [0.74, 0.64] },
   },
 ];
 

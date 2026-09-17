@@ -394,14 +394,14 @@ content_type = "video/mp4"
 id = "Ur26WeD5kn2hzwELT9qc0"
 uri = "file://client/public/media/modulo-annual-increase-process.mp4"
 type = "video"
-title = "Annual video with coherent final report scene"
-description = "The final scene now shows the approval-ready Executive Report instead of repeating the resident-tier chart."
+title = "Annual video with corrected report ending"
+description = "The outdated report table with the unavailable prior-period column was replaced with the current executive report and a focused PDF export step."
 logical_id = "676c5d3a-1e57-40cb-921b-6b412c478e12"
-content_hash = "sha256:a9b8563ca5e3084455bc19e99f3d3fb440a82db750dbdb15d9a7a470d69141a8"
-size = 1032062
-mtime_ms = 1789618420650
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/5dbe1e61-9421-44ce-b38a-dfa1825ba261"
-storage_version_token = "1789618432757686"
+content_hash = "sha256:4efc24b069b25c30be18bf58d86fcfbf6f58a08bf4dc4f60563b3c558d2013cc"
+size = 989763
+mtime_ms = 1789619384647
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/dc370758-b103-40cf-91e1-cab020b509bc"
+storage_version_token = "1789619400943829"
 content_type = "video/mp4"
 
 [[outputs]]
