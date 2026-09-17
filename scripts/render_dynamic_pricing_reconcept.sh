@@ -73,10 +73,10 @@ render_ui_scene() {
     -filter_complex "\
 [0:v]scale=900:506:flags=lanczos,unsharp=5:5:0.45:5:5:0,format=rgba,drawbox=x=0:y=0:w=900:h=506:color=white@0.85:t=2[screen];\
 [1:v]format=rgba[bg];\
-[bg]drawbox=x=80:y=58:w=1120:h=2:color=${TEAL}@0.7:t=fill,\
-     drawtext=fontfile=${SANS}:text='${chapter}':fontcolor=${TEAL}:fontsize=14:x=80:y=15,\
-     drawtext=fontfile=${SERIF}:text='${title}':fontcolor=${INK}:fontsize=23:x=190:y=7,\
-     drawtext=fontfile=${SANS}:text='${body}':fontcolor=${MUTED}:fontsize=11:x=190:y=36[header];\
+ [bg]drawbox=x=80:y=72:w=1120:h=2:color=${TEAL}@0.7:t=fill,\
+      drawtext=fontfile=${SANS}:text='${chapter}':fontcolor=${TEAL}:fontsize=13:x=190:y=4,\
+      drawtext=fontfile=${SERIF}:text='${title}':fontcolor=${INK}:fontsize=23:x=190:y=21,\
+      drawtext=fontfile=${SANS}:text='${body}':fontcolor=${MUTED}:fontsize=11:x=190:y=50[header];\
 [header][screen]overlay=x=190:y=132,\
 fade=t=in:st=0:d=0.35:alpha=1,fade=t=out:st=$(awk "BEGIN{print $duration-0.45}"):d=0.45:alpha=1,\
 format=yuv420p[v]" \

@@ -380,14 +380,14 @@ logical_id = "28f53eed-ca88-4c83-b64d-ac9fc0fdb04b"
 id = "WTMeCjTXSu0ms_KTCVKtf"
 uri = "file://client/public/media/modulo-pricing-intelligence.mp4"
 type = "video"
-title = "Overview video with aligned header"
-description = "The scene title and descriptor now align with the left edge of the product screenshot. The video remains 32.5 seconds."
+title = "Overview video with corrected headers"
+description = "Chapter labels now sit above the title, keeping the overview scene text clear and aligned without overlap."
 logical_id = "6cb21250-db42-4bed-9b3e-79a40ffdf611"
-content_hash = "sha256:3aa7542b8ed03d58708edb05c031fa8e8bd78d3fdfd032b156e4c55f3ba79b35"
-size = 1152476
-mtime_ms = 1789618020695
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/4ba21e69-458d-451f-8d15-3c47d1952e82"
-storage_version_token = "1789618035023322"
+content_hash = "sha256:dba3647326e68fc9f0b12eee7b0e625107ac487090831e033bb64a462e847f69"
+size = 1155765
+mtime_ms = 1789618481014
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/1e0837dd-2b06-47bb-925b-614ec52a1c24"
+storage_version_token = "1789618493187951"
 content_type = "video/mp4"
 
 [[outputs]]
