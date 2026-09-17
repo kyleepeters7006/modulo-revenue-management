@@ -394,14 +394,14 @@ content_type = "video/mp4"
 id = "Ur26WeD5kn2hzwELT9qc0"
 uri = "file://client/public/media/modulo-annual-increase-process.mp4"
 type = "video"
-title = "Annual increase video with matched narration"
-description = "Narration now follows the updated rate signals, monthly growth, resident tiers, service-line review, and clean saved rate-plan scenes. The About Us cache key was also refreshed."
+title = "Annual increase video with YoY and prior-period components"
+description = "Includes the attached calculated street increase table, plus the saved annual plan view showing Total YoY and Prior-period increase with matching narration and captions."
 logical_id = "676c5d3a-1e57-40cb-921b-6b412c478e12"
-content_hash = "sha256:8634901405867528ce3fcd7545ae43cf158b5f3100a87915e7b0a86f6d594922"
-size = 1062897
-mtime_ms = 1789616179677
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/cfd55d59-f42d-406e-beb9-87f600bfdd20"
-storage_version_token = "1789616196831541"
+content_hash = "sha256:8cd0ed4e8611c48d2cd9915794acbaeb2833f29897f8f58bbca0da68046df2fe"
+size = 1105006
+mtime_ms = 1789616692121
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/843f6477-bf23-4d2b-943d-ff19401a3b37"
+storage_version_token = "1789616700950505"
 content_type = "video/mp4"
 
 [[outputs]]
@@ -427,3 +427,11 @@ type = "audio"
 title = "annual increase process current screens"
 description = "Text-to-speech audio: Annual rate planning starts with current monthly rate signals and the resident increase tiers behind them. Review projected growth by service line as realized rates move toward …"
 logical_id = "7326d2e6-82e5-43b8-a4c7-398b53dbf634"
+
+[[outputs]]
+id = "1QQVet1W9QCHn1t3_CmFA"
+uri = "file://attached_assets/generated_audio/annual-increase-process-components.mp3"
+type = "audio"
+title = "annual increase process components"
+description = "Text-to-speech audio: Start with the current rate signals, then trace the increase components: street-rate growth, year-over-year movement, and the prior-period change. Review projected growth by ser…"
+logical_id = "ec80047b-6560-41a8-bd69-a13333657716"

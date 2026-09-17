@@ -9,7 +9,7 @@ const finalVideo = join(outDir, "modulo-annual-increase-process.mp4");
 const oldVideo = join(outDir, "modulo-annual-increase-process.previous.mp4");
 const narration = join(
   root,
-  "attached_assets/generated_audio/annual-increase-process-current-screens.mp3",
+  "attached_assets/generated_audio/annual-increase-process-components.mp3",
 );
 const music = join(root, "attached_assets/generated_audio/dynamic-pricing-demo-music.mp3");
 
@@ -88,13 +88,10 @@ function imageFrame({ kicker, title, subtitle, images, index }) {
 const scenes = [
   {
     duration: 3.75,
-    kicker: "01  REVIEW THE RATE PLAN",
-    title: "Start With Current Rate Signals",
-    subtitle: "The plan brings monthly rate growth and resident increase tiers into one reviewable view.",
-    images: [
-      "attached_assets/image_1789610918292.png",
-      "attached_assets/image_1789611311839.png",
-    ],
+    kicker: "01  TRACE THE RATE INCREASE",
+    title: "See Every Rate Component",
+    subtitle: "Start with calculated street changes, then compare YoY and prior-period components in the annual plan.",
+    images: ["attached_assets/image_1789616534442.png"],
   },
   {
     duration: 4,
@@ -186,7 +183,7 @@ run([
   "-i",
   music,
   "-filter_complex",
-  "[1:a]aresample=48000,atempo=0.86,volume=1.0,adelay=250|250[voice];[2:a]aresample=48000,volume=0.07,afade=t=out:st=28:d=2[music];[voice][music]amix=inputs=2:duration=first:normalize=0,apad,alimiter=limit=0.95[a]",
+  "[1:a]aresample=48000,atempo=1.0,volume=1.0,adelay=250|250[voice];[2:a]aresample=48000,volume=0.07,afade=t=out:st=28:d=2[music];[voice][music]amix=inputs=2:duration=first:normalize=0,apad,alimiter=limit=0.95[a]",
   "-map",
   "0:v:0",
   "-map",

@@ -1,4 +1,4 @@
-Annual rate planning starts with current monthly rate signals and the resident increase tiers behind them.
+Start with the current rate signals, then trace the increase components: street-rate growth, year-over-year movement, and the prior-period change.
 Review projected growth by service line as realized rates move toward the Street Rate.
 Then see how many residents fall into each recommended in-house increase tier.
 The portfolio view keeps every care level visible.
