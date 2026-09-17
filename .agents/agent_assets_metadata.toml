@@ -380,14 +380,14 @@ logical_id = "28f53eed-ca88-4c83-b64d-ac9fc0fdb04b"
 id = "WTMeCjTXSu0ms_KTCVKtf"
 uri = "file://client/public/media/modulo-pricing-intelligence.mp4"
 type = "video"
-title = "Overview video with zoomed-out logo"
-description = "The closing Modulo logo is now centered at a smaller scale with clear margins instead of filling the frame."
+title = "Overview video with scattergram scene"
+description = "The former Rate Card scene now uses the occupancy-versus-rate-growth scattergram with matching analysis copy."
 logical_id = "6cb21250-db42-4bed-9b3e-79a40ffdf611"
-content_hash = "sha256:0b8ea552c6e2733d80dca84695280b7a69820b19846a8ae8acdca45d0ade0639"
-size = 1003878
-mtime_ms = 1789618754406
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/e2630734-89d2-4405-8da4-a77dc10daef4"
-storage_version_token = "1789618767694592"
+content_hash = "sha256:d32b301e96707dba897062a0d2983eb17e76b5b22e07b2edb6d833466ff87f7d"
+size = 1011060
+mtime_ms = 1789619061015
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/b1dd0026-81b0-417c-8f0e-a1a3705b9a37"
+storage_version_token = "1789619075850257"
 content_type = "video/mp4"
 
 [[outputs]]

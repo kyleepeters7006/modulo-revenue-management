@@ -23,7 +23,7 @@ CURSOR="$ROOT/attached_assets/generated_videos/mouse-cursor.png"
 
 OVERVIEW="$ROOT/screenshots/slide-overview.jpg"
 CONTROLS="$ROOT/screenshots/slide-pricing-controls.jpg"
-RATE_CARD="$ROOT/screenshots/slide-rate-card.jpg"
+SCATTERGRAM="$ROOT/screenshots/slide-analytics.jpg"
 COMPETITORS="$ROOT/screenshots/slide-competitors.jpg"
 ANALYTICS="$ROOT/screenshots/formatted-analytics.jpg"
 LOGO="$ROOT/attached_assets/modulo_flat_blue_1786491120146.png"
@@ -103,8 +103,8 @@ render_ui_scene "$TMP_DIR/02-signal.mp4" "$OVERVIEW" \
 render_ui_scene "$TMP_DIR/03-ai.mp4" "$CONTROLS" \
   "02  /  PRIORITIZE" "Prioritize high-impact moves" "REVENUE GOAL  •  ELASTICITY  •  ML" \
   35 330 1210 220 "AI PRIORITIZATION" 5.0 470 615 790 625
-render_ui_scene "$TMP_DIR/04-rates.mp4" "$RATE_CARD" \
-  "03  /  APPLY" "Review every proposed rate" "CURRENT RATE  •  RULES RATE  •  OVERRIDES  •  EXPORT" \
+render_ui_scene "$TMP_DIR/04-rates.mp4" "$SCATTERGRAM" \
+  "03  /  ANALYZE" "See rate and occupancy patterns" "OCCUPANCY  •  RATE GROWTH  •  MARKET POSITION" \
   35 430 1210 130 "RATE REVIEW" 5.0 470 615 790 625
 render_ui_scene "$TMP_DIR/05-market.mp4" "$COMPETITORS" \
   "04  /  BENCHMARK" "See local market position" "CARE-ADJUSTED RATES  •  COMPETITION" \
