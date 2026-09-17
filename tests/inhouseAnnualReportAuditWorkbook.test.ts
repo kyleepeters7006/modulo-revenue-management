@@ -81,7 +81,21 @@ function makePlan(serviceLine: string, currentRate: number, residentCount: numbe
     infeasibility: null,
     explanation: {},
     warnings: [],
-    standardization: { yearOverYear: null, comparisons: [] },
+    standardization: {
+      yearOverYear: {
+        baseQuarterLabel: "Q1 2025",
+        endingQuarterLabel: "Q1 2026",
+        rateEffectPct: 2.5,
+        rawChangePct: 3,
+        mixEffectPct: 0.5,
+        matchedRooms: residentCount,
+        endingRooms: residentCount,
+        coverageByCountPct: 100,
+        coverageByRevenuePct: 100,
+      },
+      yearOverYearStrata: [],
+      comparisons: [],
+    },
   };
   return plan as any;
 }
@@ -100,6 +114,7 @@ const detailPlans = [
   { sl: "HC", plan: (() => {
     const plan = makePlan("HC", 7000, 1);
     plan.summary.weightedAvgIncreasePct = 9;
+    plan.standardization.yearOverYear.rateEffectPct = 4;
     plan.residents[0].increasePct = 9;
     plan.residents[0].increaseDollarsMonthly = 630;
     plan.residents[0].newRateMonthly = 7630;
@@ -174,6 +189,26 @@ assert.equal(detail.getCell("AF5").value, 4240);
 assert.equal(detail.getCell("AF6").value, 6360);
 assert.equal(detail.getCell("AH5").value, 0.06);
 assert.equal(detail.getCell("AH7").value, 0.09);
+assert.equal((detail.getCell("Z5").value as ExcelJS.CellFormulaValue).result, 0.025);
+assert.equal((detail.getCell("Z7").value as ExcelJS.CellFormulaValue).result, 0.04);
+const expectedHistoricalTotal = (0.025 * 4900 * 2 + 0.04 * 6860) / (4900 * 2 + 6860);
+assert.ok(
+  Math.abs(Number((detail.getCell("Z8").value as ExcelJS.CellFormulaValue).result) - expectedHistoricalTotal) < 1e-12,
+  "Resident detail total must use the same prior-year-rate and resident weighting basis",
+);
+const priorPeriod = workbook.getWorksheet("Prior-period bridge")!;
+const priorPeriodTotal = priorPeriod.getCell("F7").value as ExcelJS.CellFormulaValue;
+assert.ok(
+  Math.abs(Number(priorPeriodTotal.result) - expectedHistoricalTotal) < 1e-12,
+  "prior-period total must use the prior-year-rate and resident weighting basis",
+);
+assert.match(String(priorPeriodTotal.formula), /SUMPRODUCT\(F5:F6,B5:B6,L5:L6\)/);
+assert.doesNotMatch(String(priorPeriodTotal.formula), /D7-E7/, "prior-period total must not be a YoY residual");
+const reportHistoricalTotal = totals.getCell("K7").value as ExcelJS.CellFormulaValue;
+assert.ok(
+  Math.abs(Number(reportHistoricalTotal.result) - expectedHistoricalTotal) < 1e-12,
+  "Report totals must use the same historical weighting basis",
+);
 assert.equal(
   (detail.getCell("AA5").value as ExcelJS.CellFormulaValue).formula,
   "=$AH5",
@@ -202,6 +237,40 @@ assert.match(
   "resident annualized growth should derive from plan-year and prior-year rates",
 );
 assert.equal(detail.getColumn(29).hidden, true, "solver helper columns should stay hidden");
+
+const legacyPlan = makePlan("AL", 5000, 1);
+legacyPlan.standardization = { yearOverYear: null, comparisons: [] };
+const legacyBuffer = await buildAnnualReportAuditWorkbook({
+  report: {
+    id: "legacy-audit-fixture",
+    generatedAt: "2026-09-16T12:00:00.000Z",
+    scopeKey: "portfolio|AL",
+    locationId: null,
+    serviceLines: ["AL"],
+    plans: [{ sl: "AL", plan: { ...legacyPlan, residents: [] } }] as any,
+  },
+  detailPlans: [{ sl: "AL", plan: legacyPlan }],
+});
+const legacyWorkbook = new ExcelJS.Workbook();
+await legacyWorkbook.xlsx.load(legacyBuffer);
+const legacyTotals = legacyWorkbook.getWorksheet("Report totals")!;
+const legacyDetail = legacyWorkbook.getWorksheet("Resident detail")!;
+const legacyPriorPeriod = legacyWorkbook.getWorksheet("Prior-period bridge")!;
+assert.equal(
+  (legacyTotals.getCell("K5").value as ExcelJS.CellFormulaValue).result,
+  "Unavailable",
+  "legacy report totals must preserve missing historical evidence",
+);
+assert.equal(
+  (legacyDetail.getCell("Z5").value as ExcelJS.CellFormulaValue).result,
+  "Unavailable",
+  "legacy resident detail must preserve missing historical evidence",
+);
+assert.equal(
+  (legacyPriorPeriod.getCell("F6").value as ExcelJS.CellFormulaValue).result,
+  "Unavailable",
+  "legacy prior-period total must remain unavailable",
+);
 
 const totalRow = totals.getRow(7);
 for (const column of formulaColumns) {

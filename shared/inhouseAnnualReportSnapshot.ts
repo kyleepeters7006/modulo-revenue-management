@@ -174,12 +174,40 @@ export interface AnnualReportPlanSnapshot {
   increaseDistribution: IncreaseDistributionBand[];
   /** Full resident-recommendation distribution used by the page-3 charts. */
   residentIncreaseDistribution?: IncreaseDistributionBand[];
+  /**
+   * The saved historical price movement used by the executive bridge.
+   * This is deliberately separate from the new plan increase and from the
+   * full-year modeled YoY result.
+   */
+  historicalIncrease?: AnnualReportHistoricalIncreaseSnapshot;
 }
 
+export interface AnnualReportHistoricalIncreaseSnapshot {
+  definition: "matched_room_rate_effect";
+  basePeriodLabel: string;
+  endingPeriodLabel: string;
+  increasePct: number;
+  rawChangePct: number | null;
+  mixEffectPct: number | null;
+  matchedRooms: number;
+  endingRooms: number;
+  coverageByCountPct: number;
+  coverageByRevenuePct: number;
+  strata: Array<{
+    key: string;
+    rateEffectPct: number | null;
+    endingWeightSharePct: number;
+    baseWeightSharePct: number;
+    matchedRooms: number;
+    endingRooms: number;
+    suppressed: boolean;
+    reasonCode: string | null;
+  }>;
+}
 export interface AnnualRateGrowthBridge {
   priorYearAverageRateMonthly: number;
   projectedPlanYearAverageRateMonthly: number;
-  priorPeriodIncreasePct: number;
+  priorPeriodIncreasePct: number | null;
   planIncreasePct: number;
   fullYearYoyPct: number;
 }
@@ -200,13 +228,16 @@ export function annualRateGrowthRevenue(
 }
 
 /**
- * Splits projected full-year YoY into the annual-plan increase shown in the
- * report and the remaining increase carried from prior pricing periods.
+ * Combines the saved full-year modeled bridge with the independent historical
+ * rate-effect measure and the new annual-plan increase. The historical value
+ * is supplied from the saved matched-room diagnostic; it is never inferred as
+ * the difference between full-year YoY and the plan increase.
  */
 export function annualRateGrowthBridge(
   quarters: AnnualReportQuarterSnapshot[],
   rateBasis: PlanResult["rateBasis"],
   planIncreasePct: number,
+  historicalIncreasePct: number | null = null,
 ): AnnualRateGrowthBridge | null {
   let priorWeighted = 0;
   let projectedWeighted = 0;
@@ -248,7 +279,7 @@ export function annualRateGrowthBridge(
   return {
     priorYearAverageRateMonthly,
     projectedPlanYearAverageRateMonthly,
-    priorPeriodIncreasePct: fullYearYoyPct - planIncreasePct,
+    priorPeriodIncreasePct: historicalIncreasePct,
     planIncreasePct,
     fullYearYoyPct,
   };
@@ -313,6 +344,7 @@ export function compactPlanForAnnualReport(plan: PlanResult): AnnualReportPlanSn
     ...summary
   } = plan.summary;
 
+  const historicalIncrease = annualReportHistoricalIncrease(plan);
   return {
     scope: plan.scope,
     assumptions: plan.assumptions,
@@ -348,6 +380,86 @@ export function compactPlanForAnnualReport(plan: PlanResult): AnnualReportPlanSn
     warnings: plan.warnings,
     increaseDistribution,
     residentIncreaseDistribution: fullResidentIncreaseDistribution,
+    historicalIncrease: historicalIncrease ?? undefined,
+  };
+}
+
+/**
+ * Read the saved historical price-effect diagnostic from either a compact
+ * annual-report plan or a full solver plan. Do not derive this from the
+ * annual bridge: that would turn a historical measure back into a residual.
+ */
+export function annualReportHistoricalIncrease(
+  plan: {
+    historicalIncrease?: unknown;
+    standardization?: {
+      yearOverYear?: {
+        baseQuarterLabel?: unknown;
+        endingQuarterLabel?: unknown;
+        rateEffectPct?: unknown;
+        rawChangePct?: unknown;
+        mixEffectPct?: unknown;
+        matchedRooms?: unknown;
+        endingRooms?: unknown;
+        coverageByCountPct?: unknown;
+        coverageByRevenuePct?: unknown;
+      } | null;
+      yearOverYearStrata?: Array<{
+        key?: unknown;
+        rateEffectPct?: unknown;
+        endingWeightSharePct?: unknown;
+        baseWeightSharePct?: unknown;
+        matchedRooms?: unknown;
+        endingRooms?: unknown;
+        suppressed?: unknown;
+        reasonCode?: unknown;
+      }>;
+    };
+  },
+): AnnualReportHistoricalIncreaseSnapshot | null {
+  const saved = plan.historicalIncrease;
+  if (saved && typeof saved === "object") {
+    const value = saved as Partial<AnnualReportHistoricalIncreaseSnapshot>;
+    if (
+      value.definition === "matched_room_rate_effect" &&
+      typeof value.basePeriodLabel === "string" &&
+      typeof value.endingPeriodLabel === "string" &&
+      typeof value.increasePct === "number" &&
+      Number.isFinite(value.increasePct)
+    ) {
+      return value as AnnualReportHistoricalIncreaseSnapshot;
+    }
+  }
+
+  const yoy = plan.standardization?.yearOverYear;
+  if (!yoy || typeof yoy.rateEffectPct !== "number" || !Number.isFinite(yoy.rateEffectPct)) {
+    return null;
+  }
+  const finiteOrNull = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+  const integerOrZero = (value: unknown): number =>
+    typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return {
+    definition: "matched_room_rate_effect",
+    basePeriodLabel: String(yoy.baseQuarterLabel ?? ""),
+    endingPeriodLabel: String(yoy.endingQuarterLabel ?? ""),
+    increasePct: yoy.rateEffectPct,
+    rawChangePct: finiteOrNull(yoy.rawChangePct),
+    mixEffectPct: finiteOrNull(yoy.mixEffectPct),
+    matchedRooms: integerOrZero(yoy.matchedRooms),
+    endingRooms: integerOrZero(yoy.endingRooms),
+    coverageByCountPct: finiteOrNull(yoy.coverageByCountPct) ?? 0,
+    coverageByRevenuePct: finiteOrNull(yoy.coverageByRevenuePct) ?? 0,
+    strata: (plan.standardization?.yearOverYearStrata ?? []).map((stratum) => ({
+      key: String(stratum.key ?? ""),
+      rateEffectPct: finiteOrNull(stratum.rateEffectPct),
+      endingWeightSharePct: finiteOrNull(stratum.endingWeightSharePct) ?? 0,
+      baseWeightSharePct: finiteOrNull(stratum.baseWeightSharePct) ?? 0,
+      matchedRooms: integerOrZero(stratum.matchedRooms),
+      endingRooms: integerOrZero(stratum.endingRooms),
+      suppressed: stratum.suppressed === true,
+      reasonCode: typeof stratum.reasonCode === "string" ? stratum.reasonCode : null,
+    })),
   };
 }
 

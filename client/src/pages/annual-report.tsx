@@ -1,3 +1,4 @@
+import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
@@ -19,6 +20,7 @@ import {
   type PlanResult,
 } from "@shared/inhousePlanning";
 import {
+  annualReportHistoricalIncrease,
   annualRateGrowthBridge,
   annualRateGrowthRevenue,
   annualReportServiceLineLabel,
@@ -30,6 +32,9 @@ type IncreaseDistribution = { label: string; count: number };
 type ReportPlan = PlanResult & {
   increaseDistribution?: IncreaseDistribution[];
   residentIncreaseDistribution?: IncreaseDistribution[];
+  historicalIncrease?: {
+    increasePct: number;
+  };
 };
 type PlanWithSl = { sl: string; plan: ReportPlan };
 type TierLine = {
@@ -129,6 +134,7 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
           plan.quarters,
           plan.rateBasis,
           plan.summary.weightedAvgIncreasePct,
+          annualReportHistoricalIncrease(plan)?.increasePct ?? null,
         ),
         plan.summary.residentCount,
       ) ?? 0
@@ -270,7 +276,7 @@ function ReportBody({ report, history }: { report: AnnualReport; history: RateGr
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi label="Recommended average increase" value={pct(weightedIncrease)} note="Revenue-weighted measured-tier plan" accent />
-        <Kpi label="Total YoY revenue growth" value={signedMoney(totals.annual)} note="Prior-period increases plus plan increases" />
+        <Kpi label="Total YoY revenue growth" value={signedMoney(totals.annual)} note="Modeled full-year change; historical rate movement and plan increase are shown separately" />
         <Kpi label="Current occupancy" value={pct(weightedOccupancy)} note={`${totals.residents.toLocaleString()} residents modeled`} />
         <Kpi label="Revenue growth target" value={pct(target)} note={basis === "daily" ? "Includes daily-rate service lines" : "Quarterly YoY target"} />
       </section>
@@ -483,7 +489,12 @@ function WorkbookReportBlock({
       ? null
       : inhouseIncrease == null
         ? null
-        : annualRateGrowthBridge(plan.quarters, plan.rateBasis, inhouseIncrease);
+        : annualRateGrowthBridge(
+            plan.quarters,
+            plan.rateBasis,
+            inhouseIncrease,
+            annualReportHistoricalIncrease(plan)?.increasePct ?? null,
+          );
     return {
       sl,
       plan,
@@ -560,10 +571,32 @@ function WorkbookReportBlock({
   const combinedFullYearYoy = combinedPrior > 0
     ? (combinedProjected / combinedPrior - 1) * 100
     : null;
-  const combinedPriorPeriodIncrease =
-    combinedFullYearYoy != null && weightedInhouse != null
-      ? combinedFullYearYoy - weightedInhouse
-      : null;
+  const combinedHistoricalRows = rows.filter(
+    (row) =>
+      row.growthBridge?.priorPeriodIncreasePct != null &&
+      row.growthBridge.priorYearAverageRateMonthly > 0 &&
+      row.residents > 0,
+  );
+  const historicalBridgeComplete = rows.length > 0 && rows.every(
+    (row) =>
+      row.growthBridge?.priorPeriodIncreasePct != null &&
+      row.growthBridge.priorYearAverageRateMonthly > 0 &&
+      row.residents > 0,
+  );
+  const combinedHistoricalWeight = combinedHistoricalRows.reduce(
+    (sum, row) => sum + row.growthBridge!.priorYearAverageRateMonthly * row.residents,
+    0,
+  );
+  const combinedPriorPeriodIncrease = historicalBridgeComplete && combinedHistoricalWeight > 0
+    ? combinedHistoricalRows.reduce(
+        (sum, row) =>
+          sum +
+          row.growthBridge!.priorPeriodIncreasePct! *
+            row.growthBridge!.priorYearAverageRateMonthly *
+            row.residents,
+        0,
+      ) / combinedHistoricalWeight
+    : null;
 
   return (
     <section className={`tier-block tier-block--${accent}`}>
@@ -578,6 +611,11 @@ function WorkbookReportBlock({
         </span>
       </div>
       <div className="overflow-x-auto">
+        {!tier && (
+          <p className="px-1 pb-2 text-[10px] text-muted-foreground">
+            Prior-period historical rate increase is the saved matched-room price effect between the named historical periods. It is independent of the new plan increase and is not a residual of full-year YoY.
+          </p>
+        )}
           <table className={`report-data-table min-w-[1060px] ${tier ? "report-data-table--standard" : "report-data-table--bridge"}`}>
           <thead>
             <tr>
@@ -589,7 +627,7 @@ function WorkbookReportBlock({
               <th>New Street<br />Rate</th>
               <th>Street avg<br />increase</th>
               <th>New Street<br />over new IH</th>
-              {!tier && <th>Prior-period<br />increase</th>}
+              {!tier && <th>Prior-period<br />historical rate increase</th>}
               {!tier && <th>Plan<br />increase</th>}
               {!tier && <th>Total<br />YoY</th>}
               <th>{tier ? "Plan annualized" : "Total YoY"}<br />revenue growth</th>
@@ -608,7 +646,7 @@ function WorkbookReportBlock({
                 <td className="mono">{tier && !row.scenarioAvailable ? "Unavailable" : workbookRate(row.proposedStreet, row.plan.rateBasis)}</td>
                 <td className="mono increase-pct" style={{ color: increaseTextColor(row.streetIncrease, streetIncreaseValues) }}>{tier && !row.scenarioAvailable ? "Unavailable" : pct(row.streetIncrease)}</td>
                 <td className="mono">{tier && !row.scenarioAvailable ? "Unavailable" : pct(row.position)}</td>
-                {!tier && <td className="mono">{pct(row.growthBridge?.priorPeriodIncreasePct)}</td>}
+              {!tier && <td className="mono">{row.growthBridge?.priorPeriodIncreasePct == null ? "Unavailable" : pct(row.growthBridge.priorPeriodIncreasePct)}</td>}
                 {!tier && <td className="mono increase-pct" style={{ color: increaseTextColor(row.inhouseIncrease, inhouseIncreaseValues) }}>{pct(row.growthBridge?.planIncreasePct)}</td>}
                 {!tier && <td className="mono font-semibold">{pct(row.growthBridge?.fullYearYoyPct)}</td>}
                 <td className="mono font-semibold">{tier && !row.scenarioAvailable ? "Unavailable" : signedMoney(row.annualizedRevenue)}</td>
@@ -625,7 +663,7 @@ function WorkbookReportBlock({
               <td>—</td>
               <td className="mono increase-pct" style={{ color: increaseTextColor(weightedStreet, streetIncreaseValues) }}>{scenarioComplete ? pct(weightedStreet) : "Unavailable"}</td>
               <td className="mono">{scenarioComplete ? pct(weighted("position")) : "Unavailable"}</td>
-              {!tier && <td className="mono">{bridgeResidents > 0 ? pct(combinedPriorPeriodIncrease) : "—"}</td>}
+              {!tier && <td className="mono">{combinedPriorPeriodIncrease == null ? "Unavailable" : pct(combinedPriorPeriodIncrease)}</td>}
               {!tier && <td className="mono increase-pct" style={{ color: increaseTextColor(weightedInhouse, inhouseIncreaseValues) }}>{bridgeResidents > 0 ? pct(weightedInhouse) : "—"}</td>}
               {!tier && <td className="mono">{bridgeResidents > 0 ? pct(combinedFullYearYoy) : "—"}</td>}
               <td className="mono">{scenarioComplete ? signedMoney(rows.reduce((sum, row) => sum + (row.annualizedRevenue ?? 0), 0)) : "Unavailable"}</td>
@@ -673,7 +711,7 @@ const REPORT_SCATTER_COLORS: Record<string, string> = {
   VIL: "#8B4B62",
 };
 
-function WorkbookScatterplots({ report }: { report: AnnualReport }) {
+export function WorkbookScatterplots({ report }: { report: AnnualReport }) {
   const points = report.plans.flatMap(({ sl, plan }) => {
     const line = report.tierGrid.lines.find((entry) => entry.serviceLine === sl);
     return line?.occupancyPct == null ? [] : [{
@@ -791,7 +829,7 @@ function WorkbookScatterplots({ report }: { report: AnnualReport }) {
           {labelPlacements.map(({ point, label, px, py, x, y, anchor }) => (
             <g key={`${field}-${point.sl}`}>
               <circle cx={px} cy={py} r="5.2" fill={REPORT_SCATTER_COLORS[point.sl] ?? "#44546A"} />
-               <text x={x} y={y} textAnchor={anchor} className="report-scatter-label">{label}</text>
+               <text x={x} y={y} textAnchor={anchor} className="report-scatter-label">{annualReportServiceLineLabel(point.sl)}</text>
             </g>
           ))}
         </svg>
@@ -839,7 +877,7 @@ function ResidentIncreaseCharts({ plans }: { plans: ReportPlan[] }) {
           const barWidth = Math.max(3, slotWidth * 0.68);
           return (
             <div key={plan.scope.serviceLine} className="report-resident-chart">
-               <p className="report-resident-title">{annualReportServiceLineLabel(plan.scope.serviceLine)}</p>
+              <p className="report-resident-title">{annualReportServiceLineLabel(plan.scope.serviceLine)}</p>
               <svg
                 viewBox={`0 0 ${width} ${height}`}
                 role="img"

@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  annualReportHistoricalIncrease,
   annualReportResidentScatterPoints,
   annualReportServiceLineLabel,
+  annualRateGrowthBridge,
   compactPlanForAnnualReport,
   hydrateAnnualReportPlanSnapshot,
 } from "../shared/inhouseAnnualReportSnapshot";
@@ -11,6 +13,7 @@ import {
   CalculationDetailToggle,
   QuarterlySummaryRow,
 } from "../client/src/pages/inhouse-increases";
+import { WorkbookScatterplots } from "../client/src/pages/annual-report";
 import type { PlanResult } from "../shared/inhousePlanning";
 
 const residents = Array.from({ length: 10_000 }, (_, i) => ({
@@ -59,12 +62,37 @@ const plan = {
     residentCount: residents.length,
     residentsReceivingIncrease: residents.length,
   },
+  standardization: {
+    yearOverYear: {
+      baseQuarterLabel: "Q1 2025",
+      endingQuarterLabel: "Q1 2026",
+      rateEffectPct: 2.25,
+      rawChangePct: 3.1,
+      mixEffectPct: 0.85,
+      matchedRooms: 8,
+      endingRooms: 10,
+      coverageByCountPct: 80,
+      coverageByRevenuePct: 82,
+    },
+    yearOverYearStrata: [{
+      key: "Studio|AL|1",
+      rateEffectPct: 2.25,
+      endingWeightSharePct: 100,
+      baseWeightSharePct: 100,
+      matchedRooms: 8,
+      endingRooms: 10,
+      suppressed: false,
+      reasonCode: null,
+    }],
+    comparisons: [],
+  },
 } as unknown as PlanResult;
 
 const compact = compactPlanForAnnualReport(plan);
 const bytes = Buffer.byteLength(JSON.stringify(compact));
 const count = compact.increaseDistribution.reduce((sum, band) => sum + band.count, 0);
 
+const bridge = annualRateGrowthBridge(compact.quarters, compact.rateBasis, 4, 2.25);
 if (compact.residents.length !== 0) throw new Error("resident rows were retained");
 if (compact.quarters.length !== 4) throw new Error("quarter conclusions were lost");
 if ("roomDetails" in compact.quarters[0]) throw new Error("quarter room details were retained");
@@ -77,6 +105,28 @@ if ("streetRateRecommendations" in compact.summary) {
 }
 if (count !== residents.length) throw new Error(`distribution lost residents: ${count}`);
 if (bytes >= 100_000) throw new Error(`snapshot is still too large: ${bytes} bytes`);
+assert.equal(compact.historicalIncrease?.definition, "matched_room_rate_effect");
+assert.equal(compact.historicalIncrease?.increasePct, 2.25);
+assert.equal(compact.historicalIncrease?.basePeriodLabel, "Q1 2025");
+assert.equal(compact.historicalIncrease?.strata[0]?.endingWeightSharePct, 100);
+assert.equal(annualReportHistoricalIncrease(compact)?.increasePct, 2.25);
+assert.equal(bridge?.priorPeriodIncreasePct, 2.25, "historical increase must not be a full-year residual");
+
+const scatterMarkup = renderToStaticMarkup(
+  createElement(WorkbookScatterplots, {
+    report: {
+      plans: [{
+        sl: "AL",
+        plan: {
+          summary: { weightedAvgIncreasePct: 4 },
+          streetIncreasePct: 3,
+        },
+      }],
+      tierGrid: { lines: [{ serviceLine: "AL", occupancyPct: 85 }] },
+    } as any,
+  }),
+);
+assert.match(scatterMarkup, /AL/, "pricing scatter must render a service-line label");
 
 const scatterPoints = annualReportResidentScatterPoints(
   [{

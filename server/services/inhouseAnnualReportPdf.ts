@@ -1,5 +1,6 @@
 import PDFDocument from "pdfkit";
 import {
+  annualReportHistoricalIncrease,
   annualRateGrowthBridge,
   annualRateGrowthRevenue,
   annualReportServiceLineLabel,
@@ -607,8 +608,14 @@ function workbookRows(plans: JsonObject[], grid: unknown, tier?: string): Workbo
       : measuredStreet;
     const rateBasis = first(plan, ["rateBasis"]) === "daily" ? "daily" : "monthly";
     const quarters = objects(first(plan, ["quarters"]));
+    const historical = annualReportHistoricalIncrease(plan);
     const growthBridge = !tier && inhouseIncrease != null
-      ? annualRateGrowthBridge(quarters as any, rateBasis, inhouseIncrease)
+      ? annualRateGrowthBridge(
+          quarters as any,
+          rateBasis,
+          inhouseIncrease,
+          historical?.increasePct ?? null,
+        )
       : null;
     return {
       line: lineName,
@@ -654,7 +661,7 @@ function drawWorkbookBlock(
     { label: "Street avg\nincrease", weight: includeGrowthBridge ? 0.7 : 0.8, align: "center" as const },
     { label: "New Street\nover new IH", weight: includeGrowthBridge ? 0.7 : 0.8, align: "center" as const },
     ...(includeGrowthBridge ? [
-      { label: "Prior-period\nincrease", weight: 0.7, align: "center" as const },
+      { label: "Prior-period historical\nrate increase", weight: 0.7, align: "center" as const },
       { label: "Plan\nincrease", weight: 0.7, align: "center" as const },
       { label: "Total\nYoY", weight: 0.7, align: "center" as const },
     ] : []),
@@ -711,7 +718,9 @@ function drawWorkbookBlock(
       row.scenarioAvailable ? valueOrDash(row.streetIncrease, pct) : "Unavailable",
       row.scenarioAvailable ? valueOrDash(row.variance, pct) : "Unavailable",
       ...(includeGrowthBridge ? [
-        valueOrDash(row.growthBridge?.priorPeriodIncreasePct, pct),
+        row.growthBridge?.priorPeriodIncreasePct == null
+          ? "Unavailable"
+          : valueOrDash(row.growthBridge.priorPeriodIncreasePct, pct),
         valueOrDash(row.growthBridge?.planIncreasePct, pct),
         valueOrDash(row.growthBridge?.fullYearYoyPct, pct),
       ] : []),
@@ -779,10 +788,34 @@ function drawWorkbookBlock(
   const totalFullYearYoy = bridgePrior > 0 ? (bridgeProjected / bridgePrior - 1) * 100 : null;
   const totalPlanIncrease = weighted("inhouseIncrease");
   const scenariosComplete = rows.every((row) => row.scenarioAvailable);
-  const totalPriorPeriodIncrease =
-    totalFullYearYoy != null && totalPlanIncrease != null
-      ? totalFullYearYoy - totalPlanIncrease
-      : null;
+  const historicalRows = rows.filter(
+    (row) =>
+      row.growthBridge?.priorPeriodIncreasePct != null &&
+      row.growthBridge.priorYearAverageRateMonthly > 0 &&
+      row.residents != null &&
+      row.residents > 0,
+  );
+  const historicalBridgeComplete = rows.length > 0 && rows.every(
+    (row) =>
+      row.growthBridge?.priorPeriodIncreasePct != null &&
+      row.growthBridge.priorYearAverageRateMonthly > 0 &&
+      row.residents != null &&
+      row.residents > 0,
+  );
+  const historicalWeight = historicalRows.reduce(
+    (sum, row) => sum + row.growthBridge!.priorYearAverageRateMonthly * row.residents!,
+    0,
+  );
+  const totalPriorPeriodIncrease = historicalBridgeComplete && historicalWeight > 0
+    ? historicalRows.reduce(
+        (sum, row) =>
+          sum +
+          row.growthBridge!.priorPeriodIncreasePct! *
+            row.growthBridge!.priorYearAverageRateMonthly *
+            row.residents!,
+        0,
+      ) / historicalWeight
+    : null;
   doc.rect(x, totalY, width, 17).fill("#E9EDF2");
   const totals = [
     "Total",
@@ -794,7 +827,7 @@ function drawWorkbookBlock(
      scenariosComplete ? valueOrDash(weighted("streetIncrease"), pct) : "Unavailable",
      scenariosComplete ? valueOrDash(weighted("variance"), pct) : "Unavailable",
     ...(includeGrowthBridge ? [
-      valueOrDash(totalPriorPeriodIncrease, pct),
+      totalPriorPeriodIncrease == null ? "Unavailable" : valueOrDash(totalPriorPeriodIncrease, pct),
       valueOrDash(totalPlanIncrease, pct),
       valueOrDash(totalFullYearYoy, pct),
     ] : []),
@@ -860,7 +893,7 @@ function drawWorkbookScatterplots(
     return xValue == null ? [] : [{ ...row, occupancy: xValue }];
   });
   if (!points.length) return;
-  line(doc, x, y, width, "PRICING POSITION BY SERVICE LINE", { size: 9, bold: true });
+  line(doc, x, y, width, "PRICING POSITION BY SERVICE LINE", { size: 7.5, bold: true });
   doc.moveTo(x, y + 11).lineTo(x + width, y + 11).lineWidth(0.5).strokeColor(BORDER).stroke();
 
   const gap = 20;
@@ -959,7 +992,7 @@ function drawResidentIncreaseScatter(
   top: number,
   width: number,
 ): void {
-  line(doc, x, top, width, "Resident increase scattergram", { size: 10, color: BLUE, bold: true });
+  line(doc, x, top, width, "Resident increase scattergram", { size: 8, color: BLUE, bold: true });
   doc.moveTo(x, top + 11).lineTo(x + width, top + 11).lineWidth(0.5).strokeColor(BORDER).stroke();
   line(
     doc,
@@ -1058,8 +1091,8 @@ export function generateAnnualInhouseReportPdf(report: AnnualReportPdfReport): P
     doc.addPage();
     drawWorkbookPageHeader(doc, report, stamp, 2);
     drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "high"), pageX, 54, pageWidth, occupancyTierTitle(report.tierGrid, "high", "Occupancy Tier 1  •  High occupancy"), "#F5F4ED");
-    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "target"), pageX, 234, pageWidth, occupancyTierTitle(report.tierGrid, "target", "Occupancy Tier 2  •  Target occupancy"), "#101010");
-    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "low"), pageX, 414, pageWidth, occupancyTierTitle(report.tierGrid, "low", "Occupancy Tier 3  •  Low occupancy"), "#388194");
+    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "target"), pageX, 218, pageWidth, occupancyTierTitle(report.tierGrid, "target", "Occupancy Tier 2  •  Target occupancy"), "#101010");
+    drawWorkbookBlock(doc, workbookRows(plans, report.tierGrid, "low"), pageX, 382, pageWidth, occupancyTierTitle(report.tierGrid, "low", "Occupancy Tier 3  •  Low occupancy"), "#388194");
 
     doc.addPage();
     drawWorkbookPageHeader(doc, report, stamp, 3);

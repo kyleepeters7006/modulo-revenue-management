@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import {
+  annualReportHistoricalIncrease,
   annualRateGrowthBridge,
   annualRateGrowthRevenue,
   annualReportServiceLineLabel,
@@ -167,7 +168,10 @@ function styleTotal(row: ExcelJS.Row) {
 }
 
 function formula(cell: ExcelJS.Cell, expression: string, result: number | string | null) {
-  cell.value = { formula: expression, result: result ?? 0 } as ExcelJS.CellFormulaValue;
+  cell.value = {
+    formula: expression,
+    result: result == null ? "Unavailable" : result,
+  } as ExcelJS.CellFormulaValue;
 }
 
 function quoteSheet(name: string): string {
@@ -190,12 +194,17 @@ function residentWeightedFormula(
   summaryRow: number,
   detailFirst: number,
   detailLast: number,
+  preserveUnavailable = false,
 ): string {
   const sheet = quoteSheet("Resident detail");
   const serviceLines = `${sheet}!$A$${detailFirst}:$A$${detailLast}`;
   const weights = `${sheet}!$J$${detailFirst}:$J$${detailLast}`;
   const values = `${sheet}!$${valueColumn}$${detailFirst}:$${valueColumn}$${detailLast}`;
-  return `=IFERROR(SUMPRODUCT(--(${serviceLines}=$A${summaryRow}),${weights},${values})/SUMIF(${serviceLines},$A${summaryRow},${weights}),0)`;
+  const weighted = `SUMPRODUCT(--(${serviceLines}=$A${summaryRow}),${weights},${values})/SUMIF(${serviceLines},$A${summaryRow},${weights})`;
+  if (preserveUnavailable) {
+    return `=IF(OR(COUNTIFS(${serviceLines},$A${summaryRow},${values},"Unavailable")>0,COUNTIFS(${serviceLines},$A${summaryRow},${values},"")>0),"Unavailable",IFERROR(${weighted},"Unavailable"))`;
+  }
+  return `=IFERROR(${weighted},0)`;
 }
 
 function residentSumIfFormula(
@@ -225,21 +234,16 @@ function applyNumberFormats(ws: ExcelJS.Worksheet, rowStart: number, rowEnd: num
 
 function explainPriorPeriod(
   bridge: ReturnType<typeof annualRateGrowthBridge>,
-  standardization: DetailPlan["standardization"] | undefined,
+  historical: ReturnType<typeof annualReportHistoricalIncrease>,
 ): string {
-  if (!bridge) {
-    return "A prior-period percentage could not be calculated because the saved report did not have a usable prior-year rate baseline.";
+  if (!bridge || !historical || bridge.priorPeriodIncreasePct == null) {
+    return "A prior-period historical rate increase is unavailable because the saved report did not retain a usable matched-room comparison.";
   }
-  const rateEffect = standardization?.yearOverYear?.rateEffectPct;
-  const mixEffect = standardization?.yearOverYear?.mixEffectPct;
-  const rateText = rateEffect == null
-    ? "the saved report did not have a usable matched-room rate-effect decomposition"
-    : `matched-room rate movement of ${rateEffect.toFixed(2)} percentage points`;
-  const mixText = mixEffect == null
-    ? "the mix effect was unavailable"
-    : `a ${mixEffect.toFixed(2)} percentage-point mix effect`;
   const direction = bridge.priorPeriodIncreasePct >= 0 ? "increase" : "decrease";
-  return `The ${Math.abs(bridge.priorPeriodIncreasePct).toFixed(2)}% prior-period ${direction} is the residual historical movement: ${bridge.fullYearYoyPct.toFixed(2)}% full-year modeled YoY less the ${bridge.planIncreasePct.toFixed(2)}% new plan increase. It reflects rates already realized before the plan effective date, including ${rateText} and ${mixText}; it is not an additional resident-level increase created by this plan.`;
+  const mixText = historical.mixEffectPct == null
+    ? "the mix effect was unavailable"
+    : `a ${historical.mixEffectPct.toFixed(2)} percentage-point mix effect`;
+  return `The ${Math.abs(bridge.priorPeriodIncreasePct).toFixed(2)}% prior-period historical rate ${direction} is the saved matched-room price effect from ${historical.basePeriodLabel} to ${historical.endingPeriodLabel}. It is measured independently of the new ${bridge.planIncreasePct.toFixed(2)}% plan increase; ${mixText} is shown for context and is not included in this causal rate measure.`;
 }
 
 function buildReportTotals(
@@ -251,7 +255,7 @@ function buildReportTotals(
     "Service line", "Starting IH avg / mo", "Planned IH avg / mo", "Plan IH %",
     "Starting Street avg / mo", "Planned Street avg / mo", "Street %",
     "Planned Street over IH", "Prior-year realized avg / mo", "Plan-year projected avg / mo",
-    "Prior-period %", "Plan %", "Total YoY %", "Total YoY revenue growth",
+    "Prior-period historical rate increase %", "Plan %", "Total YoY %", "Total YoY revenue growth",
     "Residents", "Portfolio share",
   ];
   ws.columns = columns.map((header, index) => ({
@@ -291,7 +295,14 @@ function buildReportTotals(
     const plan = entry.plan;
     const residents = number(plan.summary?.residentCount);
     const planIncrease = number(plan.summary?.weightedAvgIncreasePct);
-    const bridge = annualRateGrowthBridge(plan.quarters, plan.rateBasis, planIncrease);
+    const detail = input.detailPlans.find(({ sl }) => sl === entry.sl)?.plan;
+    const historical = annualReportHistoricalIncrease(detail ?? plan);
+    const bridge = annualRateGrowthBridge(
+      plan.quarters,
+      plan.rateBasis,
+      planIncrease,
+      historical?.increasePct ?? null,
+    );
     const currentInhouse = number(plan.summary?.currentAvgInhouseRateMonthly);
     const plannedInhouse = number(plan.summary?.newAvgInhouseRateMonthly);
     const currentStreet = number(plan.currentStreetRateMonthly);
@@ -306,7 +317,11 @@ function buildReportTotals(
     formula(ws.getCell(rowNumber, 8), `=IFERROR(F${rowNumber}/C${rowNumber}-1,0)`, plannedInhouse > 0 ? plannedStreet / plannedInhouse - 1 : null);
     formula(ws.getCell(rowNumber, 9), residentWeightedFormula("X", rowNumber, detailBounds.first, detailBounds.last), bridge?.priorYearAverageRateMonthly ?? null);
     formula(ws.getCell(rowNumber, 10), residentWeightedFormula("Y", rowNumber, detailBounds.first, detailBounds.last), bridge?.projectedPlanYearAverageRateMonthly ?? null);
-    formula(ws.getCell(rowNumber, 11), `=M${rowNumber}-L${rowNumber}`, percent(bridge?.priorPeriodIncreasePct));
+    formula(
+      ws.getCell(rowNumber, 11),
+      residentWeightedFormula("Z", rowNumber, detailBounds.first, detailBounds.last, true),
+      percent(bridge?.priorPeriodIncreasePct),
+    );
     formula(ws.getCell(rowNumber, 12), `=D${rowNumber}`, percent(bridge?.planIncreasePct));
     formula(ws.getCell(rowNumber, 13), `=IFERROR(J${rowNumber}/I${rowNumber}-1,0)`, percent(bridge?.fullYearYoyPct));
     formula(
@@ -334,7 +349,31 @@ function buildReportTotals(
     formula(ws.getCell(total, 8), `=F${total}/C${total}-1`, 0);
     formula(ws.getCell(total, 9), `=SUMPRODUCT(I${first}:I${last},O${first}:O${last})/SUM(O${first}:O${last})`, 0);
     formula(ws.getCell(total, 10), `=SUMPRODUCT(J${first}:J${last},O${first}:O${last})/SUM(O${first}:O${last})`, 0);
-    formula(ws.getCell(total, 11), `=M${total}-L${total}`, 0);
+    const historicalTotalRows = entries.map((entry) => {
+      const detail = input.detailPlans.find(({ sl }) => sl === entry.sl)?.plan;
+      const historical = annualReportHistoricalIncrease(detail ?? entry.plan);
+      const prior = annualRateGrowthBridge(
+        entry.plan.quarters,
+        entry.plan.rateBasis,
+        number(entry.plan.summary?.weightedAvgIncreasePct),
+        historical?.increasePct ?? null,
+      );
+      return {
+        available: prior?.priorPeriodIncreasePct != null,
+        weight: (prior?.priorYearAverageRateMonthly ?? 0) *
+          number(entry.plan.summary?.residentCount),
+        value: prior?.priorPeriodIncreasePct ?? 0,
+      };
+    });
+    const historicalWeight = historicalTotalRows.reduce((sum, row) => sum + row.weight, 0);
+    const historicalResult = historicalTotalRows.every((row) => row.available) && historicalWeight > 0
+      ? historicalTotalRows.reduce((sum, row) => sum + row.value * row.weight, 0) / historicalWeight / 100
+      : null;
+    formula(
+      ws.getCell(total, 11),
+      `=IF(COUNTIF(K${first}:K${last},"Unavailable")>0,"Unavailable",IFERROR(SUMPRODUCT(K${first}:K${last},I${first}:I${last},O${first}:O${last})/SUMPRODUCT(I${first}:I${last},O${first}:O${last}),"Unavailable"))`,
+      historicalResult,
+    );
     formula(ws.getCell(total, 12), `=SUMPRODUCT(L${first}:L${last},O${first}:O${last})/SUM(O${first}:O${last})`, 0);
     formula(ws.getCell(total, 13), `=J${total}/I${total}-1`, 0);
     formula(ws.getCell(total, 14), `=SUM(N${first}:N${last})`, 0);
@@ -357,19 +396,19 @@ function buildPriorPeriodSheet(
 ) {
   const columns = [
     "Service line", "Prior-year avg / mo", "Plan-year avg / mo", "Full-year YoY %",
-    "Plan increase %", "Prior-period %", "Matched-room rate effect (pp)",
-    "Mix effect (pp)", "Matched rooms", "Ending rooms", "Coverage %", "English explanation",
+    "Plan increase %", "Prior-period historical rate increase %", "Matched-room rate effect (pp)",
+    "Mix effect (pp)", "Matched rooms", "Ending rooms", "Coverage %", "Residents modeled", "English explanation",
   ];
   ws.columns = columns.map((header, index) => ({
     header,
     key: `c${index + 1}`,
-    width: [18, 20, 20, 15, 15, 15, 24, 16, 14, 13, 13, 85][index],
+    width: [18, 20, 20, 15, 15, 15, 24, 16, 14, 13, 13, 15, 85][index],
   }));
   styleTitle(ws, "Prior-period bridge and explanation", columns.length);
   styleNote(
     ws,
     2,
-    "The annual report splits full-year modeled YoY into the new plan increase and the prior-period residual. The residual is not a second plan lever. It is the movement already embedded in historical realized rates, with matched-room rate movement and room-mix movement shown separately where the saved calculation has that diagnostic.",
+    "Prior-period historical rate increase is the saved matched-room rate effect between the named historical periods. It is a causal historical measure, independent of the new plan increase and the full-year modeled YoY; room-mix movement is shown separately for context.",
     columns.length,
   );
   const headerRow = 4;
@@ -381,8 +420,14 @@ function buildPriorPeriodSheet(
     const row = first + index;
     const plan = entry.plan;
     const planIncrease = number(plan.summary?.weightedAvgIncreasePct);
-    const bridge = annualRateGrowthBridge(plan.quarters, plan.rateBasis, planIncrease);
     const detail = detailByLine.get(entry.sl);
+    const historical = annualReportHistoricalIncrease(detail ?? plan);
+    const bridge = annualRateGrowthBridge(
+      plan.quarters,
+      plan.rateBasis,
+      planIncrease,
+      historical?.increasePct ?? null,
+    );
     const yoy = detail?.standardization?.yearOverYear;
     ws.getCell(row, 1).value = annualReportServiceLineLabel(entry.sl);
     ws.getCell(row, 2).value = bridge?.priorYearAverageRateMonthly ?? null;
@@ -395,7 +440,8 @@ function buildPriorPeriodSheet(
     ws.getCell(row, 9).value = yoy?.matchedRooms ?? null;
     ws.getCell(row, 10).value = yoy?.endingRooms ?? null;
     ws.getCell(row, 11).value = percent(yoy?.coverageByCountPct);
-    ws.getCell(row, 12).value = explainPriorPeriod(bridge, detail?.standardization);
+    ws.getCell(row, 12).value = number(plan.summary?.residentCount);
+    ws.getCell(row, 13).value = explainPriorPeriod(bridge, historical);
   });
 
   const total = first + input.report.plans.length;
@@ -406,20 +452,40 @@ function buildPriorPeriodSheet(
     formula(ws.getCell(total, 3), `=SUMPRODUCT(C${first}:C${last},I${first}:I${last})/SUM(I${first}:I${last})`, 0);
     formula(ws.getCell(total, 4), `=C${total}/B${total}-1`, 0);
     formula(ws.getCell(total, 5), `=SUMPRODUCT(E${first}:E${last},I${first}:I${last})/SUM(I${first}:I${last})`, 0);
-    formula(ws.getCell(total, 6), `=D${total}-E${total}`, 0);
+    formula(
+      ws.getCell(total, 6),
+      `=IF(OR(COUNTBLANK(F${first}:F${last})>0,COUNTIF(F${first}:F${last},"Unavailable")>0),"Unavailable",IFERROR(SUMPRODUCT(F${first}:F${last},B${first}:B${last},L${first}:L${last})/SUMPRODUCT(B${first}:B${last},L${first}:L${last}),"Unavailable"))`,
+      input.report.plans.every((entry) => annualReportHistoricalIncrease(detailByLine.get(entry.sl) ?? entry.plan) != null)
+        ? weightedAverage(input.report.plans.map((entry) => {
+            const plan = entry.plan;
+            const historical = annualReportHistoricalIncrease(detailByLine.get(entry.sl) ?? plan);
+            const bridge = annualRateGrowthBridge(
+              plan.quarters,
+              plan.rateBasis,
+              number(plan.summary?.weightedAvgIncreasePct),
+              historical?.increasePct ?? null,
+            );
+            return {
+              value: (bridge?.priorPeriodIncreasePct ?? 0) / 100,
+              weight: (bridge?.priorYearAverageRateMonthly ?? 0) * number(plan.summary?.residentCount),
+            };
+          }))
+        : null,
+    );
     formula(ws.getCell(total, 7), `=SUMPRODUCT(G${first}:G${last},I${first}:I${last})/SUM(I${first}:I${last})`, 0);
     formula(ws.getCell(total, 8), `=SUMPRODUCT(H${first}:H${last},I${first}:I${last})/SUM(I${first}:I${last})`, 0);
     formula(ws.getCell(total, 9), `=SUM(I${first}:I${last})`, 0);
     formula(ws.getCell(total, 10), `=SUM(J${first}:J${last})`, 0);
     formula(ws.getCell(total, 11), `=SUMPRODUCT(K${first}:K${last},I${first}:I${last})/SUM(I${first}:I${last})`, 0);
-    ws.getCell(total, 12).value =
-      "Total prior-period % = total full-year modeled YoY % minus the resident-weighted new plan %. The historical cause is the rate movement and mix movement shown above; it is not a new plan increase.";
+    formula(ws.getCell(total, 12), `=SUM(L${first}:L${last})`, 0);
+    ws.getCell(total, 13).value =
+      "Total prior-period historical rate increase is the prior-year-rate-weighted aggregate of the saved service-line historical effects shown above. It is independent of the new plan increase and is not calculated as a residual.";
   }
   styleTotal(ws.getRow(total));
   applyNumberFormats(ws, first, total, [2, 3], MONEY);
   applyNumberFormats(ws, first, total, [4, 5, 6, 7, 8, 11], PERCENT);
-  applyNumberFormats(ws, first, total, [9, 10], INTEGER);
-  ws.getColumn(12).alignment = { wrapText: true, vertical: "top" };
+  applyNumberFormats(ws, first, total, [9, 10, 12], INTEGER);
+  ws.getColumn(13).alignment = { wrapText: true, vertical: "top" };
   for (let row = first; row <= total; row++) ws.getRow(row).height = 42;
   ws.views = [{ state: "frozen", ySplit: headerRow }];
   ws.autoFilter = { from: { row: headerRow, column: 1 }, to: { row: total, column: columns.length } };
@@ -436,7 +502,7 @@ function buildResidentDetailSheet(
     "Used Street / mo", "Used Street / display", "Street product", "Street rate source",
     "Plan increase %", "Increase $ / mo", "Planned IH / mo", "Planned IH / display",
     "New gap to Street %", "Constraint", "Included in plan", "Planned Street / mo",
-    "Prior-year realized avg / mo", "Plan-year projected avg / mo", "Prior-period %",
+    "Prior-year realized avg / mo", "Plan-year projected avg / mo", "Prior-period historical rate increase %",
     "Plan %", "Total YoY revenue growth",
   ];
   // These are server-calculated bases that cannot be reconstructed from the
@@ -476,11 +542,22 @@ function buildResidentDetailSheet(
   const first = AUDIT_FIRST_DATA_ROW;
   let currentRow = first;
   const campusLookup = campusPlanLookup(campusPlans);
+  const historicalDetailRows: Array<{
+    priorPeriodPct: number | null;
+    priorYearRate: number | null;
+    weight: number;
+  }> = [];
 
   for (const entry of detailPlans) {
     const plan = entry.plan;
     const planIncrease = number(plan.summary?.weightedAvgIncreasePct);
-    const bridge = annualRateGrowthBridge(plan.quarters, plan.rateBasis, planIncrease);
+    const historical = annualReportHistoricalIncrease(plan);
+    const bridge = annualRateGrowthBridge(
+      plan.quarters,
+      plan.rateBasis,
+      planIncrease,
+      historical?.increasePct ?? null,
+    );
     const priorYear = bridge?.priorYearAverageRateMonthly ?? null;
     const projectedYear = bridge?.projectedPlanYearAverageRateMonthly ?? null;
     const priorPeriod = percent(bridge?.priorPeriodIncreasePct);
@@ -493,11 +570,15 @@ function buildResidentDetailSheet(
       const campusPlanIncrease = campusPlan
         ? number(campusPlan.summary?.weightedAvgIncreasePct)
         : null;
+      const campusHistorical = campusPlan
+        ? annualReportHistoricalIncrease(campusPlan)
+        : null;
       const campusBridge = campusPlan
         ? annualRateGrowthBridge(
             campusPlan.quarters,
             campusPlan.rateBasis,
             campusPlanIncrease ?? 0,
+            campusHistorical?.increasePct ?? null,
           )
         : null;
       const plannedStreet = campusPlan
@@ -515,6 +596,11 @@ function buildResidentDetailSheet(
       const rowRevenueGrowth = campusBridge
         ? annualRateGrowthRevenue(campusBridge, 1) ?? 0
         : perResidentRevenueGrowth;
+      historicalDetailRows.push({
+        priorPeriodPct: rowPriorPeriod,
+        priorYearRate: rowPriorYear,
+        weight: number(resident.weight),
+      });
       const row = ws.getRow(currentRow++);
       const displayStreet = plan.rateBasis === "daily"
         ? number(resident.streetRateMonthly) / DAYS_PER_MONTH
@@ -525,7 +611,7 @@ function buildResidentDetailSheet(
         resident.roomNumber,
         resident.roomType ?? "",
         resident.careLevel ?? "",
-        resident.payorType ?? "",
+        (resident as unknown as { payorType?: string }).payorType ?? "",
         dateValue(resident.moveInDate),
         resident.isCompanionBed ? "Yes" : "",
         plan.rateBasis,
@@ -568,7 +654,11 @@ function buildResidentDetailSheet(
       formula(ws.getCell(rowNumber, 23), `=$AD${rowNumber}`, plannedStreet);
       formula(ws.getCell(rowNumber, 24), `=$AE${rowNumber}`, rowPriorYear);
       formula(ws.getCell(rowNumber, 25), `=$AF${rowNumber}`, rowProjectedYear);
-      formula(ws.getCell(rowNumber, 26), `=$AG${rowNumber}`, rowPriorPeriod);
+      formula(
+        ws.getCell(rowNumber, 26),
+        `=IF($AG${rowNumber}="","Unavailable",$AG${rowNumber})`,
+        rowPriorPeriod,
+      );
       formula(
         ws.getCell(rowNumber, 27),
         `=$AH${rowNumber}`,
@@ -590,7 +680,26 @@ function buildResidentDetailSheet(
     formula(ws.getCell(total, 23), `=SUMPRODUCT(W${first}:W${currentRow - 1},J${first}:J${currentRow - 1})/SUM(J${first}:J${currentRow - 1})`, 0);
     formula(ws.getCell(total, 24), `=SUMPRODUCT(X${first}:X${currentRow - 1},J${first}:J${currentRow - 1})/SUM(J${first}:J${currentRow - 1})`, 0);
     formula(ws.getCell(total, 25), `=SUMPRODUCT(Y${first}:Y${currentRow - 1},J${first}:J${currentRow - 1})/SUM(J${first}:J${currentRow - 1})`, 0);
-    formula(ws.getCell(total, 26), `=SUMPRODUCT(Z${first}:Z${currentRow - 1},J${first}:J${currentRow - 1})/SUM(J${first}:J${currentRow - 1})`, 0);
+    const detailHistoricalWeight = historicalDetailRows.reduce(
+      (sum, row) => sum + (row.priorYearRate ?? 0) * row.weight,
+      0,
+    );
+    const detailHistoricalAvailable =
+      historicalDetailRows.length > 0 &&
+      historicalDetailRows.every(
+        (row) => row.priorPeriodPct != null && row.priorYearRate != null && row.priorYearRate > 0 && row.weight > 0,
+      ) &&
+      detailHistoricalWeight > 0;
+    formula(
+      ws.getCell(total, 26),
+      `=IF(OR(COUNTIF(Z${first}:Z${currentRow - 1},"Unavailable")>0,COUNTBLANK(Z${first}:Z${currentRow - 1})>0), "Unavailable", IFERROR(SUMPRODUCT(Z${first}:Z${currentRow - 1},X${first}:X${currentRow - 1},J${first}:J${currentRow - 1})/SUMPRODUCT(X${first}:X${currentRow - 1},J${first}:J${currentRow - 1}),"Unavailable"))`,
+      detailHistoricalAvailable
+        ? historicalDetailRows.reduce(
+            (sum, row) => sum + row.priorPeriodPct! * row.priorYearRate! * row.weight,
+            0,
+          ) / detailHistoricalWeight
+        : null,
+    );
     formula(ws.getCell(total, 27), `=SUMPRODUCT(AA${first}:AA${currentRow - 1},J${first}:J${currentRow - 1})/SUM(J${first}:J${currentRow - 1})`, 0);
     formula(ws.getCell(total, 28), `=SUM(AB${first}:AB${currentRow - 1})`, 0);
   }
@@ -735,8 +844,8 @@ function buildReadMeSheet(ws: ExcelJS.Worksheet, input: AnnualReportAuditWorkboo
     ["Starting Street Rate", "The Resident detail sheet lists the product-matched Street Rate used for each included room. The source column says whether it came from the unit itself, a campus product median, a service-line product median, or a derived formula."],
     ["Population", "Rows are the private-pay occupied rent-roll rooms with a usable in-house rate that passed the planning population rules. Companion beds remain in the resident plan but are flagged; they are not silently removed from resident increases."],
     ["Plan increase %", "This is the new resident-level in-house increase calculated by the plan. The detail sheet shows the percentage and dollar increase for each room/resident."],
-    ["Prior-period %", "Prior-period % = full-year modeled YoY % − new plan increase %. It is the rate movement already embedded in historical realized rates before the plan effective date, not another new increase assigned to residents."],
-    ["What caused prior-period %", "The Prior-period bridge sheet gives the plain-English explanation. The Historical comparisons sheet separates matched-room rate movement from room-mix movement and retains coverage and suppression reasons."],
+    ["Prior-period historical rate increase %", "The saved matched-room rate effect between the named historical periods. It is a causal historical measure, independent of the new plan increase and not a residual of full-year YoY."],
+    ["How to trace prior-period %", "The Prior-period bridge sheet names the historical periods and shows matched-room coverage. The Historical comparisons sheet retains the rate/mix decomposition, stratum weights, and suppression reasons from the saved calculation."],
     ["Quarter totals", "The Quarter detail sheet shows each room's existing-rate share, replacement share, replacement rate, and projected room rate. Those rows roll into the quarterly averages used by the report."],
     ["Currency and basis", "Rates are normalized monthly in calculation columns. Daily service lines retain their daily display columns where applicable; do not divide monthly-normalized rates again."],
     ["Formula checks", "Every numeric service-line cell on Report totals links to the Resident detail tab with Excel formulas. Derived percentages and the total row also use formulas, while the Resident detail weighted averages and increase totals remain inspectable."],

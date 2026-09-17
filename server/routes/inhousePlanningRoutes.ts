@@ -46,7 +46,9 @@ import {
 } from "../services/inhouseAnnualReportPdf";
 import { generateCampusAnnualReports } from "../services/inhouseAnnualReportGeneration";
 import {
+  annualReportHistoricalIncrease,
   annualReportResidentScatterPoints,
+  annualRateGrowthBridge,
   compactPlanForAnnualReport,
   type AnnualReportGenerationStatus,
 } from "@shared/inhouseAnnualReportSnapshot";
@@ -1331,6 +1333,19 @@ export function registerInhousePlanningRoutes(
         row.generatedAt?.toISOString?.() ?? String(row.generatedAt ?? ""),
       ) || 0;
       if (!generatedAt) return [];
+      const planServiceLines = Array.isArray(row.plans)
+        ? row.plans
+            .map((entry: any) => typeof entry?.sl === "string" ? entry.sl : null)
+            .filter((sl: string | null): sl is string => sl != null)
+        : [];
+      const declaredServiceLines = [
+        ...(Array.isArray(row.serviceLines) ? row.serviceLines : []),
+        rowScope.split("|").at(-1),
+      ];
+      if (!planServiceLines.some((sl: string) => requested.has(sl)) &&
+          !declaredServiceLines.some((sl: unknown) => typeof sl === "string" && requested.has(sl))) {
+        return [];
+      }
       return [{ row, rowScope, generatedAt, isDivisionScoped: rowScope.startsWith(divisionPrefix) }];
     });
     const hasDivisionScopedRows = candidateRows.some((candidate) => candidate.isDivisionScoped);
@@ -1394,6 +1409,7 @@ export function registerInhousePlanningRoutes(
         });
       }
     }
+    if (latestByCampusLine.size === 0) return null;
 
     const planByLine = new Map<string, any[]>();
     for (const [key, value] of latestByCampusLine) {
@@ -1461,8 +1477,84 @@ export function registerInhousePlanningRoutes(
         (value): value is string => typeof value === "string" && value.length > 0,
       )));
 
+    const aggregateHistoricalIncrease = (plans: any[]): any | undefined => {
+      const inputs = plans.map((plan) => {
+        const historical = annualReportHistoricalIncrease(plan);
+        const bridge = annualRateGrowthBridge(
+          Array.isArray(plan.quarters) ? plan.quarters : [],
+          plan.rateBasis === "daily" ? "daily" : "monthly",
+          Number(plan.summary?.weightedAvgIncreasePct) || 0,
+          null,
+        );
+        const residents = Math.max(0, Number(plan.summary?.residentCount) || 0);
+        return {
+          plan,
+          historical,
+          priorYearRate: bridge?.priorYearAverageRateMonthly ?? null,
+          residents,
+        };
+      });
+      if (
+        inputs.length === 0 ||
+        inputs.some(({ historical, priorYearRate, residents }) =>
+          !historical || priorYearRate == null || priorYearRate <= 0 || residents <= 0,
+        )
+      ) {
+        return undefined;
+      }
+      const baseLabels = new Set(inputs.map(({ historical }) => historical!.basePeriodLabel));
+      const endingLabels = new Set(inputs.map(({ historical }) => historical!.endingPeriodLabel));
+      if (baseLabels.size !== 1 || endingLabels.size !== 1) return undefined;
+
+      const rateWeights = inputs.map(({ priorYearRate, residents }) => priorYearRate! * residents);
+      const totalRateWeight = rateWeights.reduce((sum, weight) => sum + weight, 0);
+      if (totalRateWeight <= 0) return undefined;
+      const weightedField = (field: "rawChangePct" | "mixEffectPct"): number | null => {
+        if (inputs.some(({ historical }) => historical![field] == null)) return null;
+        return inputs.reduce(
+          (sum, input, index) => sum + Number(input.historical![field]) * rateWeights[index],
+          0,
+        ) / totalRateWeight;
+      };
+      const endingRoomWeight = inputs.reduce(
+        (sum, { historical }) => sum + Math.max(0, historical!.endingRooms),
+        0,
+      );
+      const weightedCoverage = (field: "coverageByCountPct" | "coverageByRevenuePct"): number =>
+        endingRoomWeight > 0
+          ? inputs.reduce(
+              (sum, input) =>
+                sum + input.historical![field] * Math.max(0, input.historical!.endingRooms),
+              0,
+            ) / endingRoomWeight
+          : 0;
+
+      return {
+        definition: "matched_room_rate_effect",
+        basePeriodLabel: Array.from(baseLabels)[0],
+        endingPeriodLabel: Array.from(endingLabels)[0],
+        increasePct: inputs.reduce(
+          (sum, input, index) => sum + input.historical!.increasePct * rateWeights[index],
+          0,
+        ) / totalRateWeight,
+        rawChangePct: weightedField("rawChangePct"),
+        mixEffectPct: weightedField("mixEffectPct"),
+        matchedRooms: inputs.reduce((sum, input) => sum + input.historical!.matchedRooms, 0),
+        endingRooms: inputs.reduce((sum, input) => sum + input.historical!.endingRooms, 0),
+        coverageByCountPct: weightedCoverage("coverageByCountPct"),
+        coverageByRevenuePct: weightedCoverage("coverageByRevenuePct"),
+        strata: inputs.flatMap(({ plan, historical }) =>
+          historical!.strata.map((stratum) => ({
+            ...stratum,
+            key: `${String(plan.scope?.location ?? "campus")}|${stratum.key}`,
+          })),
+        ),
+      };
+    };
+
     const rollUpPlan = (serviceLine: string, plans: any[]): any => {
       const first = plans[0];
+      const historicalIncrease = aggregateHistoricalIncrease(plans);
       const residentCount = sum(plans, (plan) => plan.summary?.residentCount);
       const currentRateTotal = sum(
         plans,
@@ -1578,6 +1670,7 @@ export function registerInhousePlanningRoutes(
         ]),
         increaseDistribution: distributions[0],
         residentIncreaseDistribution: distributions[1],
+        historicalIncrease,
       };
     };
 

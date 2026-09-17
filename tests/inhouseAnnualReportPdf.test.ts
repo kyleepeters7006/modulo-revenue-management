@@ -31,9 +31,10 @@ const bridge = annualRateGrowthBridge(
   })) as any,
   "monthly",
   4,
+  2,
 );
 assert.ok(bridge, "annual growth bridge is available");
-assert.ok(Math.abs(bridge.priorPeriodIncreasePct - 3) < 1e-9);
+assert.ok(Math.abs(bridge.priorPeriodIncreasePct! - 2) < 1e-9);
 assert.ok(Math.abs(bridge.planIncreasePct - 4) < 1e-9);
 assert.ok(Math.abs(bridge.fullYearYoyPct - 7) < 1e-9);
 assert.equal(annualRateGrowthRevenue(bridge, 10), 840);

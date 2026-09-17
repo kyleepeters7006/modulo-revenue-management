@@ -5721,7 +5721,7 @@ export default function InhouseIncreases() {
                                 <LabelList
                                   dataKey="residents"
                                   position="top"
-                                  formatter={(value) => formatResidentCount(Number(value))}
+                                  formatter={(value: number | string | undefined) => formatResidentCount(Number(value ?? 0))}
                                   fill="hsl(var(--foreground))"
                                   fontSize={10}
                                   offset={5}

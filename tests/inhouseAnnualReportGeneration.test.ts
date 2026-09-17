@@ -387,7 +387,13 @@ async function assertEndpointContract() {
   assert.equal(otherTenant.body.report, null, "tenant scoping prevents cross-tenant report reopening");
 
   const division = "Central South Indiana";
-  const divisionPlan = (locationId: string, location: string, residents: number, increaseDollars: number) => ({
+  const divisionPlan = (
+    locationId: string,
+    location: string,
+    residents: number,
+    increaseDollars: number,
+    historicalEffectPct: number | null = 2.5,
+  ) => ({
     scope: {
       clientId: CLIENT,
       locationId,
@@ -440,6 +446,21 @@ async function assertEndpointContract() {
       currentAvgInhouseRateMonthly: 5000,
       newAvgInhouseRateMonthly: 5000 + increaseDollars / residents,
     },
+    ...(historicalEffectPct == null ? {} : { standardization: {
+      yearOverYear: {
+        baseQuarterLabel: "Q1 2026",
+        endingQuarterLabel: "Q1 2027",
+        rateEffectPct: historicalEffectPct,
+        rawChangePct: historicalEffectPct + 1,
+        mixEffectPct: 1,
+        matchedRooms: residents,
+        endingRooms: residents,
+        coverageByCountPct: 100,
+        coverageByRevenuePct: 100,
+      },
+      yearOverYearStrata: [],
+      comparisons: [],
+    } }),
     residents: [],
     warnings: [],
     increaseDistribution: [{ label: "6.0%", count: residents }],
@@ -486,8 +507,8 @@ async function assertEndpointContract() {
       generatedAt,
       `${division}|${campusB}|${SERVICE_LINE}`,
       campusB,
-      JSON.stringify([{ sl: SERVICE_LINE, plan: divisionPlan(campusB, "Annual Report Campus B", 3, 450) }]),
-      JSON.stringify(divisionTierGrid(divisionPlan(campusB, "Annual Report Campus B", 3, 450))),
+      JSON.stringify([{ sl: SERVICE_LINE, plan: divisionPlan(campusB, "Annual Report Campus B", 3, 450, 4.5) }]),
+      JSON.stringify(divisionTierGrid(divisionPlan(campusB, "Annual Report Campus B", 3, 450, 4.5))),
     ],
   );
   const divisionRollup = await harness.invoke(
@@ -507,7 +528,125 @@ async function assertEndpointContract() {
     650,
     "division rollup sums campus increase dollars",
   );
+  assert.equal(
+    divisionRollup.body.report.plans[0].plan.historicalIncrease.increasePct,
+    3.7,
+    "division historical effect uses prior-year-rate and resident weighting across campuses",
+  );
+  assert.equal(
+    divisionRollup.body.report.plans[0].plan.historicalIncrease.matchedRooms,
+    5,
+    "division historical metadata aggregates campus room counts",
+  );
   assert.equal(divisionRollup.body.report.tierGrid.lines[0].serviceLine, SERVICE_LINE);
+
+  const newerVilPlan = divisionPlan(campusA, "Annual Report Campus A", 8, 800, 6);
+  newerVilPlan.scope.serviceLine = "VIL";
+  await pool.query(
+    `INSERT INTO inhouse_annual_report_runs
+      (client_id, scope_key, location_id, service_lines, plans, tier_grid, generated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (client_id, scope_key) DO UPDATE SET
+       service_lines = EXCLUDED.service_lines,
+       plans = EXCLUDED.plans,
+       tier_grid = EXCLUDED.tier_grid,
+       generated_at = EXCLUDED.generated_at`,
+    [
+      CLIENT,
+      `${division}|${campusA}|VIL`,
+      campusA,
+      JSON.stringify(["VIL"]),
+      JSON.stringify([{ sl: "VIL", plan: newerVilPlan }]),
+      JSON.stringify({ lines: [], skipped: [] }),
+      new Date(generatedAt.getTime() + 60_000),
+    ],
+  );
+  const alAfterNewerVil = await harness.invoke(
+    "GET",
+    "/api/inhouse-planning/division-rollup/latest",
+    undefined,
+    CLIENT,
+    true,
+    { division, scopeKey: `${division}|all|${SERVICE_LINE}` },
+  );
+  assert.equal(alAfterNewerVil.statusCode, 200);
+  assert.equal(
+    alAfterNewerVil.body.report.plans[0].plan.historicalIncrease.increasePct,
+    3.7,
+    "unrelated newer service-line reports do not displace the requested AL generation",
+  );
+
+  await pool.query(
+    `INSERT INTO inhouse_annual_report_runs
+      (client_id, scope_key, location_id, service_lines, plans, tier_grid, generated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (client_id, scope_key) DO UPDATE SET
+       service_lines = EXCLUDED.service_lines,
+       plans = EXCLUDED.plans,
+       tier_grid = EXCLUDED.tier_grid,
+       generated_at = EXCLUDED.generated_at`,
+    [
+      CLIENT,
+      `${division}|${campusA}|${SERVICE_LINE}`,
+      campusA,
+      JSON.stringify([SERVICE_LINE]),
+      JSON.stringify([]),
+      JSON.stringify({ lines: [], skipped: [{ sl: SERVICE_LINE }] }),
+      new Date(generatedAt.getTime() + 120_000),
+    ],
+  );
+  const emptyAlGeneration = await harness.invoke(
+    "GET",
+    "/api/inhouse-planning/division-rollup/latest",
+    undefined,
+    CLIENT,
+    true,
+    { division, scopeKey: `${division}|all|${SERVICE_LINE}` },
+  );
+  assert.equal(emptyAlGeneration.statusCode, 200);
+  assert.equal(
+    emptyAlGeneration.body.report,
+    null,
+    "a matching generation with no usable plans returns safely",
+  );
+
+  await pool.query(
+    `UPDATE inhouse_annual_report_runs
+     SET plans = $1, tier_grid = $2, generated_at = $3
+     WHERE client_id = $4 AND scope_key = $5`,
+    [
+      JSON.stringify([{ sl: SERVICE_LINE, plan: divisionPlan(campusA, "Annual Report Campus A", 2, 200) }]),
+      JSON.stringify(divisionTierGrid(divisionPlan(campusA, "Annual Report Campus A", 2, 200))),
+      generatedAt,
+      CLIENT,
+      `${division}|${campusA}|${SERVICE_LINE}`,
+    ],
+  );
+
+  await pool.query(
+    `UPDATE inhouse_annual_report_runs
+     SET plans = $1
+     WHERE client_id = $2 AND scope_key = $3`,
+    [
+      JSON.stringify([{ sl: SERVICE_LINE, plan: divisionPlan(campusB, "Annual Report Campus B", 3, 450, null) }]),
+      CLIENT,
+      `${division}|${campusB}|${SERVICE_LINE}`,
+    ],
+  );
+  const missingHistoricalRollup = await harness.invoke(
+    "GET",
+    "/api/inhouse-planning/division-rollup/latest",
+    undefined,
+    CLIENT,
+    true,
+    { division, scopeKey: `${division}|all|${SERVICE_LINE}` },
+  );
+  assert.equal(missingHistoricalRollup.statusCode, 200);
+  assert.equal(
+    missingHistoricalRollup.body.report.plans[0].plan.historicalIncrease,
+    undefined,
+    "division historical effect is unavailable when a campus diagnostic is missing",
+  );
 
   // A later automatic generation can finish only one campus. The rollup must
   // not pair that newer campus with Campus B's older snapshot.
