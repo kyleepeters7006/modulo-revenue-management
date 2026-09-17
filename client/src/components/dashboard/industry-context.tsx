@@ -338,11 +338,30 @@ export default function IndustryContext() {
               <p className="text-[11px] text-[var(--dashboard-muted)]">{group.description}</p>
             </div>
              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-               {group.metrics.map((metric) => (
-                 metric.label.toLowerCase().includes("peer") && metric.label.toLowerCase().includes("same-store") ? (
-                   <PeerGraphic key={metric.id} metric={metric} isAdmin={isAdmin} onEdit={setEditing} uploading={uploading} fileRef={fileRef} onFile={uploadGraphic} version={graphicVersion} />
-                 ) : <ContextCard key={metric.id} metric={metric} canEdit={isAdmin} onEdit={setEditing} />
-              ))}
+               {group.category === "senior-housing" ? (
+                 <>
+                   {group.metrics
+                     .filter((metric) => metric.label.toLowerCase().includes("peer") && metric.label.toLowerCase().includes("same-store"))
+                     .map((metric) => (
+                       <PeerGraphic key={metric.id} metric={metric} isAdmin={isAdmin} onEdit={setEditing} uploading={uploading} fileRef={fileRef} onFile={uploadGraphic} version={graphicVersion} />
+                     ))}
+                   <IndustryChartGraphic
+                     testId="industry-rent-growth-chart"
+                     title="Rent growth trend"
+                     alt="Rent growth remained above historical averages chart"
+                     src="/industry-rent-growth.png"
+                   />
+                   <IndustryChartGraphic
+                     testId="industry-occupancy-fundamentals-chart"
+                     title="Occupancy fundamentals"
+                     alt="Senior housing occupancy rate neared 90 percent chart"
+                     src="/industry-occupancy-fundamentals.png"
+                   />
+                 </>
+               ) : null}
+               {group.metrics
+                 .filter((metric) => !(group.category === "senior-housing" && metric.label.toLowerCase().includes("peer") && metric.label.toLowerCase().includes("same-store")))
+                 .map((metric) => <ContextCard key={metric.id} metric={metric} canEdit={isAdmin} onEdit={setEditing} />)}
             </div>
           </section>
         ))}
@@ -436,7 +455,7 @@ function PeerGraphic({ metric, isAdmin, onEdit, uploading, fileRef, onFile, vers
           pill and provenance row. Rendering it as a bare picture let a stale
           or unavailable peer snapshot look perfectly current. */}
       <div
-        className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-2.5 py-2 sm:col-span-2 xl:col-span-3"
+        className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-2.5 py-2"
         data-testid={`industry-metric-${metric.id}`}
       >
         <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
@@ -461,6 +480,61 @@ function PeerGraphic({ metric, isAdmin, onEdit, uploading, fileRef, onFile, vers
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-auto rounded-lg bg-white p-4">
             <img key={`expanded-${version}`} src={imageUrl} alt="Expanded peer same-store revenue growth comparison" className="h-full min-h-[520px] w-full object-contain object-center" onError={handleImageError} />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function IndustryChartGraphic({
+  testId,
+  title,
+  alt,
+  src,
+}: {
+  testId: string;
+  title: string;
+  alt: string;
+  src: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <>
+      <div
+        className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-bg)] px-2.5 py-2"
+        data-testid={testId}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-[var(--dashboard-muted-strong)]">
+            {title}
+          </p>
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[var(--dashboard-border)] px-2 py-1 text-[11px] font-medium hover:bg-white"
+          >
+            <Maximize2 className="h-3 w-3" /> Expand
+          </button>
+        </div>
+        <div className="mt-1.5 flex h-[180px] items-center justify-center overflow-hidden rounded bg-white">
+          <img
+            src={src}
+            alt={alt}
+            className="h-full w-full cursor-zoom-in object-contain"
+            onClick={() => setExpanded(true)}
+          />
+        </div>
+      </div>
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent className="flex h-[92vh] w-[96vw] max-w-[96vw] flex-col">
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>Industry context reference chart</DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-auto rounded-lg bg-white p-4">
+            <img src={src} alt={alt} className="h-full min-h-[520px] w-full object-contain object-center" />
           </div>
         </DialogContent>
       </Dialog>
