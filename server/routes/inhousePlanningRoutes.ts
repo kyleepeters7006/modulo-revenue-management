@@ -2055,22 +2055,27 @@ export function registerInhousePlanningRoutes(
           ))
           .limit(1),
         db
-          .select({ plans: inhousePlanDetailSnapshots.plans })
+          .select({
+            plans: inhousePlanDetailSnapshots.plans,
+            inputSnapshot: inhousePlanDetailSnapshots.inputSnapshot,
+          })
           .from(inhousePlanDetailSnapshots)
           .where(and(
             eq(inhousePlanDetailSnapshots.clientId, clientId),
             eq(inhousePlanDetailSnapshots.scopeKey, report.scopeKey),
-             lte(
-               inhousePlanDetailSnapshots.generatedAt,
-               report.detailGeneratedAt ?? report.generatedAt,
-             ),
           ))
           .limit(1),
       ]);
       // Legacy reports may predate the immutable report-specific detail copy.
-      // The exact report snapshot wins; a mutable scope snapshot is only a
-      // safe fallback when it predates the report and cannot be newer data.
-      const detail = savedDetail[0] ?? latestDetail[0];
+      // The exact report snapshot wins; a mutable scope snapshot is safe only
+      // when its complete input snapshot exactly matches the saved report.
+      const expectedInputs = (report.tierGrid as any)?.inputSnapshot;
+      const matchingLegacyDetail = latestDetail[0] &&
+        expectedInputs !== undefined &&
+        stableJson(latestDetail[0].inputSnapshot) === stableJson(expectedInputs)
+        ? latestDetail[0]
+        : undefined;
+      const detail = savedDetail[0] ?? matchingLegacyDetail;
       const points = detail
         ? annualReportResidentScatterPoints(detail.plans, report.tierGrid)
         : [];
@@ -2106,19 +2111,24 @@ export function registerInhousePlanningRoutes(
           ))
           .limit(1),
         db
-          .select({ plans: inhousePlanDetailSnapshots.plans })
+          .select({
+            plans: inhousePlanDetailSnapshots.plans,
+            inputSnapshot: inhousePlanDetailSnapshots.inputSnapshot,
+          })
           .from(inhousePlanDetailSnapshots)
           .where(and(
             eq(inhousePlanDetailSnapshots.clientId, clientId),
             eq(inhousePlanDetailSnapshots.scopeKey, row.scopeKey),
-             lte(
-               inhousePlanDetailSnapshots.generatedAt,
-               row.detailGeneratedAt ?? row.generatedAt,
-             ),
           ))
           .limit(1),
       ]);
-      const detail = savedDetail[0] ?? latestDetail[0];
+      const expectedInputs = (row.tierGrid as any)?.inputSnapshot;
+      const matchingLegacyDetail = latestDetail[0] &&
+        expectedInputs !== undefined &&
+        stableJson(latestDetail[0].inputSnapshot) === stableJson(expectedInputs)
+        ? latestDetail[0]
+        : undefined;
+      const detail = savedDetail[0] ?? matchingLegacyDetail;
       const residentScatterPoints = detail
         ? annualReportResidentScatterPoints(detail.plans, row.tierGrid)
         : [];
