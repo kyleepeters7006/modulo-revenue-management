@@ -380,14 +380,14 @@ logical_id = "28f53eed-ca88-4c83-b64d-ac9fc0fdb04b"
 id = "WTMeCjTXSu0ms_KTCVKtf"
 uri = "file://client/public/media/modulo-pricing-intelligence.mp4"
 type = "video"
-title = "Overview video with corrected Modulo pronunciation"
-description = "The narration now speaks the brand as “Mod do low,” while the on-screen text remains “Modulo.” Timing remains aligned at 32.5 seconds."
+title = "Overview video with Modoolo pronunciation"
+description = "The brand is now voiced as “mo-doo-lo,” similar to modelo with the requested middle syllable. Timing remains aligned at 32.5 seconds."
 logical_id = "6cb21250-db42-4bed-9b3e-79a40ffdf611"
-content_hash = "sha256:cb952873d185a77ab95857a02cd44557e397fb21fda732655b75d1ed966fd7cb"
-size = 1164814
-mtime_ms = 1789617786522
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/a82dce3a-4534-4587-abe7-406a8de44f5f"
-storage_version_token = "1789617797795448"
+content_hash = "sha256:c6edc5cb2d6bd43192545cdb8c4949df382159656978a5f36bff4a6de6342d4a"
+size = 1152718
+mtime_ms = 1789617928310
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/4e4b9e36-e832-4711-bec0-e83f01e174bd"
+storage_version_token = "1789617942489026"
 content_type = "video/mp4"
 
 [[outputs]]
@@ -459,3 +459,11 @@ type = "audio"
 title = "regenerated Modulo pronunciation narration"
 description = "Text-to-speech audio: Mod do low starts with a portfolio dashboard for occupancy, rates, revenue, and market context. AI prioritizes high-impact moves using revenue goals and elasticity. Operators re…"
 logical_id = "2c5e62d1-9d92-4350-a981-a4a3a105d519"
+
+[[outputs]]
+id = "rpoY7VblAqvTdp4xFqZqg"
+uri = "file://attached_assets/generated_audio/dynamic-pricing-demo-overview-aligned_3.mp3"
+type = "audio"
+title = "generated corrected Modoolo narration"
+description = "Text-to-speech audio: Mo-doo-lo starts with a portfolio dashboard for occupancy, rates, revenue, and market context. AI prioritizes high-impact moves using revenue goals and elasticity. Operators rev…"
+logical_id = "ead88096-3f46-41c0-afb2-174c9726057d"

@@ -21,7 +21,7 @@ export default function AboutUs() {
       cardTitle: "See Modulo in practice",
       cardBody: "How AI turns portfolio data into prioritized, operator-controlled revenue actions.",
       poster: "/media/modulo-pricing-intelligence-poster.jpg",
-      source: "/media/modulo-pricing-intelligence.mp4?v=20260917-brand-pronunciation-refresh",
+      source: "/media/modulo-pricing-intelligence.mp4?v=20260917-modoolo-pronunciation-refresh",
       captions: "/media/modulo-pricing-intelligence.vtt",
     },
     annual: {
