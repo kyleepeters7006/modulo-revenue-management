@@ -129,7 +129,7 @@ const scenes = [
     kicker: "06  CREATE THE OPERATING RECORD",
     title: "Generate the Annual In-House Rate Plan",
     subtitle: "Save the combined recommendation and tier scenarios for approval.",
-    images: ["attached_assets/image_1789602566118.png"],
+    images: ["attached_assets/image_1789601040698.png"],
   },
 ];
 
