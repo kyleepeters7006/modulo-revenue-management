@@ -118,7 +118,6 @@ const scenes = [
     title: "See Every Rate Component",
     subtitle: "Review YoY and prior-period components in the saved annual plan.",
     images: ["attached_assets/image_1789600788394.png"],
-    focus: { x: 0.5, y: 0.14, w: 0.28, h: 0.3 },
     cursor: { from: [0.12, 0.7], to: [0.72, 0.18] },
   },
   {
@@ -127,7 +126,6 @@ const scenes = [
     title: "See Monthly Growth by Service Line",
     subtitle: "Projected realized rates move toward the Street Rate across each service line.",
     images: ["attached_assets/image_1789610918292.png"],
-    focus: { x: 0.08, y: 0.05, w: 0.84, h: 0.37 },
     cursor: { from: [0.1, 0.72], to: [0.76, 0.25] },
   },
   {
@@ -136,7 +134,6 @@ const scenes = [
     title: "Review Resident In-House Increases",
     subtitle: "See how many residents receive each recommended increase tier.",
     images: ["attached_assets/image_1789601966016.png"],
-    focus: { x: 0.04, y: 0.26, w: 0.92, h: 0.64 },
     cursor: { from: [0.82, 0.72], to: [0.28, 0.2] },
   },
   {
@@ -145,7 +142,6 @@ const scenes = [
     title: "Inspect the Detailed Recommendations",
     subtitle: "Move from each tier to the resident rows behind the recommendation.",
     images: ["attached_assets/image_1789601910398.png"],
-    focus: { x: 0.05, y: 0.42, w: 0.9, h: 0.5 },
     cursor: { from: [0.8, 0.22], to: [0.56, 0.72] },
   },
   {
@@ -154,7 +150,6 @@ const scenes = [
     title: "Compare the Saved Rate Plan",
     subtitle: "Compare plan increase, prior period, and Total YoY before approval.",
     images: ["attached_assets/image_1789602335136.png"],
-    focus: { x: 0.5, y: 0.14, w: 0.28, h: 0.3 },
     cursor: { from: [0.14, 0.72], to: [0.72, 0.22] },
   },
   {
@@ -163,7 +158,6 @@ const scenes = [
     title: "Generate the Annual In-House Rate Plan",
     subtitle: "Save the combined recommendation and tier scenarios for approval.",
     images: ["attached_assets/image_1789601040698.png"],
-    focus: { x: 0.04, y: 0.14, w: 0.92, h: 0.4 },
     cursor: { from: [0.84, 0.72], to: [0.32, 0.2] },
   },
 ];
@@ -176,21 +170,16 @@ for (let i = 0; i < scenes.length; i++) {
   const clip = join(tmpDir, `scene-${i + 1}.mp4`);
   writeFileSync(svg, imageFrame({ ...scene, index: i + 1 }));
   run(["-i", svg, "-frames:v", "1", png]);
-  const focus = scene.focus ?? { x: 0.45, y: 0.2, w: 0.25, h: 0.25 };
   const cursorPath = scene.cursor ?? { from: [0.15, 0.7], to: [0.75, 0.2] };
   const imageRect = displayedImageRect(scene.images[0]);
-  const focusX = Math.round(imageRect.x + focus.x * imageRect.w);
-  const focusY = Math.round(imageRect.y + focus.y * imageRect.h);
-  const focusW = Math.round(focus.w * imageRect.w);
-  const focusH = Math.round(focus.h * imageRect.h);
   const progress = `min(t/${scene.duration},1)`;
   const cursorX = `${imageRect.x}+${imageRect.w}*(${cursorPath.from[0]}+(${cursorPath.to[0]}-${cursorPath.from[0]})*${progress})`;
   const cursorY = `${imageRect.y}+${imageRect.h}*(${cursorPath.from[1]}+(${cursorPath.to[1]}-${cursorPath.from[1]})*${progress})`;
   const showCursor = (i + 1) % 3 === 0;
   const cursorInputs = showCursor ? ["-loop", "1", "-i", cursor] : [];
   const cursorFilter = showCursor
-    ? `;[1:v]format=rgba,scale=42:-1[mouse];[highlight][mouse]overlay=x='${cursorX}':y='${cursorY}':format=auto,format=yuv420p[v]`
-    : `;[highlight]format=yuv420p[v]`;
+    ? `;[1:v]format=rgba,scale=42:-1[mouse];[base][mouse]overlay=x='${cursorX}':y='${cursorY}':format=auto,format=yuv420p[v]`
+    : `;[base]format=yuv420p[v]`;
   run([
     "-loop",
     "1",
@@ -198,7 +187,7 @@ for (let i = 0; i < scenes.length; i++) {
     png,
     ...cursorInputs,
     "-filter_complex",
-    `[0:v]format=rgba,drawbox=x=${focusX}:y=${focusY}:w=${focusW}:h=${focusH}:color=0x43d0c080:t=4[highlight]${cursorFilter}`,
+    `[0:v]format=rgba[base]${cursorFilter}`,
     "-map",
     "[v]",
     "-t",

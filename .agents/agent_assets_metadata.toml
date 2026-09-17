@@ -394,14 +394,14 @@ content_type = "video/mp4"
 id = "Ur26WeD5kn2hzwELT9qc0"
 uri = "file://client/public/media/modulo-annual-increase-process.mp4"
 type = "video"
-title = "Annual increase video with aligned highlights"
-description = "Highlight boxes now follow each screenshot’s actual displayed bounds and align with the intended rate columns, charts, resident rows, and plan table."
+title = "Annual increase video without highlight rectangles"
+description = "All highlight rectangles have been removed. Cursor movement remains limited to slides 3 and 6."
 logical_id = "676c5d3a-1e57-40cb-921b-6b412c478e12"
-content_hash = "sha256:3cc5a719e7d1a3cfa9af064b2c21ef21229e75b06d447305163094d543600c1c"
-size = 1086555
-mtime_ms = 1789617451639
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/dddef6e4-7852-4339-a549-11f9f2305557"
-storage_version_token = "1789617466790073"
+content_hash = "sha256:a165a9dca51beb53bce7ad36fae0cd9ab78cb2c3d1cdad11405b67f077718b7d"
+size = 1084270
+mtime_ms = 1789617703335
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/16af3b4e-4067-4822-b1a5-c0c7ad5a8dae"
+storage_version_token = "1789617721408310"
 content_type = "video/mp4"
 
 [[outputs]]
