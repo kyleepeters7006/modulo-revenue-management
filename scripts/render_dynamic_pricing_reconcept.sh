@@ -33,7 +33,7 @@ rm -f "$TMP_DIR"/*.mp4 "$TMP_DIR"/concat.txt
 render_title() {
   local out="$1"
   ffmpeg -hide_banner -loglevel error -y \
-    -f lavfi -i "color=c=$BG:s=${W}x${H}:r=$FPS:d=2.6" \
+    -f lavfi -i "color=c=$BG:s=${W}x${H}:r=$FPS:d=3.1" \
     -vf "format=rgba,\
 drawbox=x=120:y=138:w=72:h=3:color=${TEAL}:t=fill,\
 drawtext=fontfile=${SANS}:text='MODULO  /  PRICING INTELLIGENCE':fontcolor=${TEAL}:fontsize=16:x=120:y=92,\
@@ -43,7 +43,7 @@ drawtext=fontfile=${SERIF}:text='Measure.':fontcolor=${GOLD}:fontsize=66:x=120:y
 drawbox=x=120:y=492:w=1040:h=1:color=${TEAL}@0.35:t=fill,\
 drawtext=fontfile=${SANS}:text='PORTFOLIO CONTEXT    •    OPERATOR CONTROL    •    MEASURED RESULTS':fontcolor=${MUTED}:fontsize=16:x=120:y=520,\
 drawtext=fontfile=${SANS}:text='MODULO  /  REVENUE MANAGEMENT':fontcolor=${MUTED}:fontsize=15:x=120:y=650,\
-fade=t=in:st=0:d=0.35:alpha=1,fade=t=out:st=2.15:d=0.45:alpha=1" \
+     fade=t=in:st=0:d=0.35:alpha=1,fade=t=out:st=2.65:d=0.45:alpha=1" \
     -an -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p "$out"
 }
 
@@ -87,31 +87,31 @@ render_closing() {
   local out="$1"
   ffmpeg -hide_banner -loglevel error -y \
     -loop 1 -i "$LOGO" \
-    -f lavfi -i "color=c=$BG:s=${W}x${H}:r=$FPS:d=5.0" \
+    -f lavfi -i "color=c=$BG:s=${W}x${H}:r=$FPS:d=2.6" \
     -filter_complex "\
     [0:v]scale=480:480:force_original_aspect_ratio=decrease:flags=lanczos[logo];\
     [1:v][logo]overlay=x=(W-w)/2:y=(H-h)/2,\
-    fade=t=in:st=0:d=0.5,fade=t=out:st=4.5:d=0.5,format=yuv420p[v]" \
-    -map "[v]" -an -t 5.0 -r "$FPS" -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p "$out"
+    fade=t=in:st=0:d=0.5,fade=t=out:st=2.15:d=0.45,format=yuv420p[v]" \
+    -map "[v]" -an -t 2.6 -r "$FPS" -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p "$out"
 }
 
 # Screen chapters: titles are deliberately concise so the page itself stays readable.
 render_title "$TMP_DIR/01-title.mp4"
 render_ui_scene "$TMP_DIR/02-signal.mp4" "$OVERVIEW" \
   "01  /  REVIEW" "Review the portfolio dashboard" "OCCUPANCY  •  RATES  •  REVENUE" \
-  35 455 1210 125 "PORTFOLIO SIGNAL" 4.9 470 630 835 635
+  35 455 1210 125 "PORTFOLIO SIGNAL" 4.8 470 630 835 635
 render_ui_scene "$TMP_DIR/03-ai.mp4" "$CONTROLS" \
   "02  /  PRIORITIZE" "Prioritize high-impact moves" "REVENUE GOAL  •  ELASTICITY  •  ML" \
   35 330 1210 220 "AI PRIORITIZATION" 5.0 470 615 790 625
 render_ui_scene "$TMP_DIR/04-rates.mp4" "$SCATTERGRAM" \
   "03  /  ANALYZE" "See rate and occupancy patterns" "OCCUPANCY  •  RATE GROWTH  •  MARKET POSITION" \
-  35 430 1210 130 "RATE REVIEW" 5.0 470 615 790 625
+  35 430 1210 130 "RATE REVIEW" 5.3 470 615 790 625
 render_ui_scene "$TMP_DIR/05-market.mp4" "$COMPETITORS" \
   "04  /  BENCHMARK" "See local market position" "CARE-ADJUSTED RATES  •  COMPETITION" \
-  35 305 1210 245 "MARKET CONTEXT" 5.0 820 515 925 455
+  35 305 1210 245 "MARKET CONTEXT" 4.7 820 515 925 455
 render_ui_scene "$TMP_DIR/06-impact.mp4" "$ANALYTICS" \
   "05  /  LEARN" "Measure the outcome" "RATE GROWTH  •  OCCUPANCY  •  REVENUE" \
-  35 305 1210 245 "MEASURE THE EFFECT" 5.0 820 515 925 455
+  35 305 1210 245 "MEASURE THE EFFECT" 7.0 820 515 925 455
 render_closing "$TMP_DIR/07-close.mp4"
 
 cat > "$TMP_DIR/concat.txt" <<EOF
