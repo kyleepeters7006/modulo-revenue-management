@@ -380,28 +380,28 @@ logical_id = "28f53eed-ca88-4c83-b64d-ac9fc0fdb04b"
 id = "WTMeCjTXSu0ms_KTCVKtf"
 uri = "file://client/public/media/modulo-pricing-intelligence.mp4"
 type = "video"
-title = "Overview video with plain-language header"
-description = "The confusing “Turn scale into signal” header was replaced with “Review the portfolio dashboard.”"
+title = "Voice-synced pricing intelligence overview"
+description = "The narration now matches the five visual chapters: portfolio dashboard, AI prioritization, proposed rates, competitive context, and analytics. Captions and the About Us cache key were updated with the same timing."
 logical_id = "6cb21250-db42-4bed-9b3e-79a40ffdf611"
-content_hash = "sha256:5c0336eb2f2a80e82aed7b180eb33ff90eb26a238e46f2940d90ca2a3304d4b1"
-size = 1209389
-mtime_ms = 1789617051461
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/1dbae666-fc8a-481e-9c77-a676d916725c"
-storage_version_token = "1789617072363199"
+content_hash = "sha256:439cfa5d432b379233ad5bf7efb7ac64295d26e776c500c2e5ce6b035f567a76"
+size = 1159329
+mtime_ms = 1789617309357
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/87e6ff5a-af6f-4066-b17e-282d24f5491a"
+storage_version_token = "1789617325327723"
 content_type = "video/mp4"
 
 [[outputs]]
 id = "Ur26WeD5kn2hzwELT9qc0"
 uri = "file://client/public/media/modulo-annual-increase-process.mp4"
 type = "video"
-title = "Annual increase video without rejected image"
-description = "The opening scene now uses only the clean annual-plan report. The rejected calculated street-increase table image has been removed, and the About Us cache key is refreshed."
+title = "Annual increase video with limited cursor movement"
+description = "The moving cursor now appears only on slide 3 and slide 6. Slides 1, 2, 4, and 5 keep the focus highlights without mouse movement."
 logical_id = "676c5d3a-1e57-40cb-921b-6b412c478e12"
-content_hash = "sha256:cbb96823eb85fd1e3244469aedfa68b8aefa0081295c6970266f7bc375779d10"
-size = 1093896
-mtime_ms = 1789616968529
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/52326420-2604-4f5c-8691-f60e982f4142"
-storage_version_token = "1789616976854651"
+content_hash = "sha256:57084d53e9eb9faf1c1c3434773e82e031a36a75292fb3b509acabc92131a2b8"
+size = 1087724
+mtime_ms = 1789617354669
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/676c5d3a-1e57-40cb-921b-6b412c478e12/3fddb61d-84e9-43ee-8a67-f52d6022b82a"
+storage_version_token = "1789617371304517"
 content_type = "video/mp4"
 
 [[outputs]]
@@ -435,3 +435,19 @@ type = "audio"
 title = "annual increase process components"
 description = "Text-to-speech audio: Start with the current rate signals, then trace the increase components: street-rate growth, year-over-year movement, and the prior-period change. Review projected growth by ser…"
 logical_id = "ec80047b-6560-41a8-bd69-a13333657716"
+
+[[outputs]]
+id = "shttrU6tYk4iuNnUnag47"
+uri = "file://attached_assets/generated_audio/dynamic-pricing-demo-scene-matched.mp3"
+type = "audio"
+title = "dynamic pricing demo scene matched"
+description = "Text-to-speech audio: Modulo starts with a portfolio dashboard that brings occupancy, rates, revenue, and market context into one view. AI then prioritizes the highest-impact moves using revenue goal…"
+logical_id = "9e6300d9-2ab9-4543-8195-f9ca6f74db19"
+
+[[outputs]]
+id = "lJGiZPMRiqwBphm4ulqL6"
+uri = "file://attached_assets/generated_audio/dynamic-pricing-demo-overview-aligned.mp3"
+type = "audio"
+title = "dynamic pricing demo overview aligned"
+description = "Text-to-speech audio: Modulo starts with a portfolio dashboard for occupancy, rates, revenue, and market context. AI prioritizes high-impact moves using revenue goals and elasticity. Operators review…"
+logical_id = "3dff13a4-7061-4995-8d95-6cad099a46f3"

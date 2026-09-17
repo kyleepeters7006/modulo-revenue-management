@@ -12,6 +12,8 @@ const narration = join(
   "attached_assets/generated_audio/annual-increase-process-components.mp3",
 );
 const music = join(root, "attached_assets/generated_audio/dynamic-pricing-demo-music.mp3");
+const cursor = join(root, "attached_assets/generated_videos/mouse-cursor.png");
+const screen = { x: 62, y: 158, w: 1164, h: 492 };
 
 mkdirSync(tmpDir, { recursive: true });
 
@@ -91,7 +93,9 @@ const scenes = [
     kicker: "01  TRACE THE RATE INCREASE",
     title: "See Every Rate Component",
     subtitle: "Review YoY and prior-period components in the saved annual plan.",
-    images: ["attached_assets/image_1789601040698.png"],
+    images: ["attached_assets/image_1789600788394.png"],
+    focus: { x: 0.48, y: 0.16, w: 0.3, h: 0.28 },
+    cursor: { from: [0.12, 0.7], to: [0.72, 0.18] },
   },
   {
     duration: 4,
@@ -99,27 +103,35 @@ const scenes = [
     title: "See Monthly Growth by Service Line",
     subtitle: "Projected realized rates move toward the Street Rate across each service line.",
     images: ["attached_assets/image_1789610918292.png"],
+    focus: { x: 0.42, y: 0.12, w: 0.36, h: 0.36 },
+    cursor: { from: [0.1, 0.72], to: [0.76, 0.25] },
   },
   {
     duration: 5,
     kicker: "03  SET THE INCREASE TIERS",
     title: "Review Resident In-House Increases",
-    subtitle: "Each service line shows how many residents receive each recommended increase tier.",
-    images: ["attached_assets/image_1789611311839.png"],
+    subtitle: "See how many residents receive each recommended increase tier.",
+    images: ["attached_assets/image_1789601966016.png"],
+    focus: { x: 0.1, y: 0.14, w: 0.28, h: 0.34 },
+    cursor: { from: [0.82, 0.72], to: [0.28, 0.2] },
   },
   {
     duration: 6.75,
     kicker: "04  CHECK THE PORTFOLIO",
-    title: "Review Every Service Line",
-    subtitle: "The plan keeps each recommendation visible by care level and resident population.",
-    images: ["attached_assets/image_1789603743352.png"],
+    title: "Inspect the Detailed Recommendations",
+    subtitle: "Move from each tier to the resident rows behind the recommendation.",
+    images: ["attached_assets/image_1789601910398.png"],
+    focus: { x: 0.28, y: 0.58, w: 0.62, h: 0.3 },
+    cursor: { from: [0.8, 0.22], to: [0.56, 0.72] },
   },
   {
     duration: 5.25,
     kicker: "05  REVIEW THE REPORT",
     title: "Compare the Saved Rate Plan",
-    subtitle: "Review the calculated plan before publishing the new annual rate path.",
-    images: ["attached_assets/image_1789601040698.png"],
+    subtitle: "Compare plan increase, prior period, and Total YoY before approval.",
+    images: ["attached_assets/image_1789602335136.png"],
+    focus: { x: 0.48, y: 0.14, w: 0.3, h: 0.3 },
+    cursor: { from: [0.14, 0.72], to: [0.72, 0.22] },
   },
   {
     duration: 5.25,
@@ -127,6 +139,8 @@ const scenes = [
     title: "Generate the Annual In-House Rate Plan",
     subtitle: "Save the combined recommendation and tier scenarios for approval.",
     images: ["attached_assets/image_1789601040698.png"],
+    focus: { x: 0.1, y: 0.14, w: 0.78, h: 0.42 },
+    cursor: { from: [0.84, 0.72], to: [0.32, 0.2] },
   },
 ];
 
@@ -138,13 +152,30 @@ for (let i = 0; i < scenes.length; i++) {
   const clip = join(tmpDir, `scene-${i + 1}.mp4`);
   writeFileSync(svg, imageFrame({ ...scene, index: i + 1 }));
   run(["-i", svg, "-frames:v", "1", png]);
+  const focus = scene.focus ?? { x: 0.45, y: 0.2, w: 0.25, h: 0.25 };
+  const cursorPath = scene.cursor ?? { from: [0.15, 0.7], to: [0.75, 0.2] };
+  const focusX = Math.round(screen.x + focus.x * screen.w);
+  const focusY = Math.round(screen.y + focus.y * screen.h);
+  const focusW = Math.round(focus.w * screen.w);
+  const focusH = Math.round(focus.h * screen.h);
+  const progress = `min(t/${scene.duration},1)`;
+  const cursorX = `${screen.x}+${screen.w}*(${cursorPath.from[0]}+(${cursorPath.to[0]}-${cursorPath.from[0]})*${progress})`;
+  const cursorY = `${screen.y}+${screen.h}*(${cursorPath.from[1]}+(${cursorPath.to[1]}-${cursorPath.from[1]})*${progress})`;
+  const showCursor = (i + 1) % 3 === 0;
+  const cursorInputs = showCursor ? ["-loop", "1", "-i", cursor] : [];
+  const cursorFilter = showCursor
+    ? `;[1:v]format=rgba,scale=42:-1[mouse];[highlight][mouse]overlay=x='${cursorX}':y='${cursorY}':format=auto,format=yuv420p[v]`
+    : `;[highlight]format=yuv420p[v]`;
   run([
     "-loop",
     "1",
     "-i",
     png,
-    "-vf",
-    `scale=1280:720:flags=lanczos,fade=t=in:st=0:d=0.12,fade=t=out:st=${scene.duration - 0.12}:d=0.12,format=yuv420p`,
+    ...cursorInputs,
+    "-filter_complex",
+    `[0:v]format=rgba,drawbox=x=${focusX}:y=${focusY}:w=${focusW}:h=${focusH}:color=0x43d0c080:t=4[highlight]${cursorFilter}`,
+    "-map",
+    "[v]",
     "-t",
     String(scene.duration),
     "-an",

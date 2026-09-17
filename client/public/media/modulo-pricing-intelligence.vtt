@@ -1,13 +1,20 @@
 WEBVTT
 
-00:00:03.100 --> 00:00:07.200
-Modulo decomposes millions of portfolio data points into usable signals.
+00:00:03.100 --> 00:00:07.700
+Modulo starts with a portfolio dashboard for occupancy, rates,
+revenue, and market context.
 
-00:00:08.900 --> 00:00:14.000
-AI ranks the changes most likely to reach the revenue goal, informed by elasticity and operating history.
+00:00:07.900 --> 00:00:12.700
+AI prioritizes high-impact moves using revenue goals
+and elasticity.
 
-00:00:14.700 --> 00:00:19.200
-Operators review the logic, guardrails, and expected impact before rates move.
+00:00:12.900 --> 00:00:18.000
+Operators review the rules, guardrails, and proposed rate
+before anything changes.
 
-00:00:20.500 --> 00:00:24.100
-Each outcome becomes new evidence for the next decision.
+00:00:18.200 --> 00:00:22.700
+Competitive context compares nearby care-adjusted rates.
+
+00:00:22.900 --> 00:00:29.900
+Analytics measures rate growth, occupancy, and revenue,
+turning results into the next decision.

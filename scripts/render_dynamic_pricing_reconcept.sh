@@ -88,27 +88,27 @@ render_closing() {
   ffmpeg -hide_banner -loglevel error -y \
     -loop 1 -i "$LOGO" \
     -vf "scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H},\
-fade=t=in:st=0:d=0.5,fade=t=out:st=6.9:d=0.5,format=yuv420p" \
-    -an -t 7.4 -r "$FPS" -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p "$out"
+    fade=t=in:st=0:d=0.5,fade=t=out:st=4.5:d=0.5,format=yuv420p" \
+    -an -t 5.0 -r "$FPS" -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p "$out"
 }
 
 # Screen chapters: titles are deliberately concise so the page itself stays readable.
 render_title "$TMP_DIR/01-title.mp4"
 render_ui_scene "$TMP_DIR/02-signal.mp4" "$OVERVIEW" \
   "01  /  REVIEW" "Review the portfolio dashboard" "OCCUPANCY  •  RATES  •  REVENUE" \
-  35 455 1210 125 "PORTFOLIO SIGNAL" 4.5 470 630 835 635
+  35 455 1210 125 "PORTFOLIO SIGNAL" 4.9 470 630 835 635
 render_ui_scene "$TMP_DIR/03-ai.mp4" "$CONTROLS" \
   "02  /  PRIORITIZE" "Prioritize high-impact moves" "REVENUE GOAL  •  ELASTICITY  •  ML" \
-  35 330 1210 220 "AI PRIORITIZATION" 4.5 470 615 790 625
+  35 330 1210 220 "AI PRIORITIZATION" 5.0 470 615 790 625
 render_ui_scene "$TMP_DIR/04-rates.mp4" "$RATE_CARD" \
   "03  /  APPLY" "Review every proposed rate" "CURRENT RATE  •  RULES RATE  •  OVERRIDES  •  EXPORT" \
-  35 430 1210 130 "RATE REVIEW" 4.5 470 615 790 625
+  35 430 1210 130 "RATE REVIEW" 5.0 470 615 790 625
 render_ui_scene "$TMP_DIR/05-market.mp4" "$COMPETITORS" \
   "04  /  BENCHMARK" "See local market position" "CARE-ADJUSTED RATES  •  COMPETITION" \
-  35 305 1210 245 "MARKET CONTEXT" 4.5 820 515 925 455
+  35 305 1210 245 "MARKET CONTEXT" 5.0 820 515 925 455
 render_ui_scene "$TMP_DIR/06-impact.mp4" "$ANALYTICS" \
   "05  /  LEARN" "Measure the outcome" "RATE GROWTH  •  OCCUPANCY  •  REVENUE" \
-  35 305 1210 245 "MEASURE THE EFFECT" 4.5 820 515 925 455
+  35 305 1210 245 "MEASURE THE EFFECT" 5.0 820 515 925 455
 render_closing "$TMP_DIR/07-close.mp4"
 
 cat > "$TMP_DIR/concat.txt" <<EOF
@@ -126,7 +126,7 @@ ffmpeg -hide_banner -loglevel error -y \
   -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p \
   "$TMP_DIR/visual.mp4"
 
-VOICEOVER="$ROOT/attached_assets/generated_audio/dynamic-pricing-demo-british-no-location.mp3"
+VOICEOVER="$ROOT/attached_assets/generated_audio/dynamic-pricing-demo-overview-aligned.mp3"
 MUSIC="$ROOT/attached_assets/generated_audio/dynamic-pricing-demo-music.mp3"
 FINAL="$OUT_DIR/modulo-pricing-intelligence-professional.mp4"
 PUBLIC_VIDEO="$ROOT/client/public/media/modulo-pricing-intelligence.mp4"
