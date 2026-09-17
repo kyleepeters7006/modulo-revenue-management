@@ -23,7 +23,7 @@ CURSOR="$ROOT/attached_assets/generated_videos/mouse-cursor.png"
 
 OVERVIEW="$ROOT/screenshots/slide-overview.jpg"
 CONTROLS="$ROOT/screenshots/slide-pricing-controls.jpg"
-SCATTERGRAM="$ROOT/screenshots/slide-analytics.jpg"
+SCATTERGRAM="$ROOT/screenshots/analytics-scattergram-zoomed-out.jpg"
 COMPETITORS="$ROOT/screenshots/slide-competitors.jpg"
 ANALYTICS="$ROOT/screenshots/formatted-analytics.jpg"
 LOGO="$ROOT/attached_assets/modulo_flat_blue_1786491120146.png"

@@ -380,14 +380,14 @@ logical_id = "28f53eed-ca88-4c83-b64d-ac9fc0fdb04b"
 id = "WTMeCjTXSu0ms_KTCVKtf"
 uri = "file://client/public/media/modulo-pricing-intelligence.mp4"
 type = "video"
-title = "Overview video with narration-synced scene changes"
-description = "Product screens now change at the narration cue times instead of starting early. The video remains 32.5 seconds."
+title = "Overview video with full scattergram"
+description = "The analytics scene now uses a zoomed-out live capture so the full occupancy-versus-rate-growth chart, axes, points, and KPI row are visible."
 logical_id = "6cb21250-db42-4bed-9b3e-79a40ffdf611"
-content_hash = "sha256:adf7908bc41d923e5e407ae654e36dceb0f837f905093368fd53a9ee5830cdd7"
-size = 1015938
-mtime_ms = 1789619127486
-storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/05e35a52-0abf-4e6c-aa61-47d5f317e4cc"
-storage_version_token = "1789619146069288"
+content_hash = "sha256:14e3c4b800cb9f3407f8bc526039cd1426765f0979c53ca41799bdc0110dc2e5"
+size = 1017047
+mtime_ms = 1789619640542
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:110e98e4-4fe3-4b8d-8747-002b41d235a0/6cb21250-db42-4bed-9b3e-79a40ffdf611/ac009a18-b9de-4510-bb43-5e5c396089ad"
+storage_version_token = "1789619657208434"
 content_type = "video/mp4"
 
 [[outputs]]
